@@ -1,0 +1,12 @@
+SignTool=C:\Program Files (x86)\Microsoft SDKs\Windows\v7.0A\Bin\signtool.exe
+PFX=D:\DEVELOPE\ADVENTURE\THORINS_QUEST\dummmmy.pfx
+Password=
+TimeStamp=
+TimeStampRFC3161=No
+TimeStampSHA256=No
+ProgramTitle=
+ProgramURL=
+File1=D:\DEVELOPE\ADVENTURE\THORINS_QUEST\thorin.exe
+SignatureAppended=No
+SignatureSHA256=No
+ResultVerbose=No

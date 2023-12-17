@@ -1,0 +1,5 @@
+﻿
+Procedure E_NETWORK_OPEN_INTERNET_EXPLORER_WITH_TARGET()
+  
+
+EndProcedure 

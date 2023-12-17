@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64pt" height="64pt" viewBox="0 0 64 64" version="1.1">
+<g id="surface15921">
+<path style="fill:none;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(41.176471%,41.176471%,41.176471%);stroke-opacity:1;stroke-miterlimit:10;" d="M 0 0 L 0 64 M 0 0 L 4 0 M 0 16 L 4 16 M 0 32 L 4 32 M 0 48 L 4 48 M 0 64 L 4 64 "/>
+<path style="fill:none;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(41.176471%,41.176471%,41.176471%);stroke-opacity:1;stroke-miterlimit:10;" d="M 0 -0.000000000000007105 L -0.000000000000014211 64 M 0 -0.000000000000007105 L 4 -0.000000000000006371 M 0 16 L 4 16 M 0 32 L 4 32 M -0.000000000000014211 48 L 4 48 M -0.000000000000014211 64 L 4 64 " transform="matrix(-0.000000000000000184,-1,1,-0.000000000000000184,0.000000000000007105,64)"/>
+<path style="fill:none;stroke-width:2;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(75.294118%,75.294118%,75.294118%);stroke-opacity:1;stroke-miterlimit:10;" d="M 8 32 L 16 14 L 32 30 L 48 16 L 60 44 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(75.294118%,75.294118%,75.294118%);fill-opacity:1;" d="M 12 32 C 12 37.332031 4 37.332031 4 32 C 4 26.667969 12 26.667969 12 32 Z M 20 14 C 20 19.332031 12 19.332031 12 14 C 12 8.667969 20 8.667969 20 14 Z M 36 30 C 36 35.332031 28 35.332031 28 30 C 28 24.667969 36 24.667969 36 30 Z M 52 16 C 52 21.332031 44 21.332031 44 16 C 44 10.667969 52 10.667969 52 16 Z M 64 44 C 64 49.332031 56 49.332031 56 44 C 56 38.667969 64 38.667969 64 44 Z M 64 44 "/>
+<path style="fill:none;stroke-width:2;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(75.294118%,75.294118%,75.294118%);stroke-opacity:1;stroke-miterlimit:10;" d="M 8 48 L 16 38 L 32 40 L 48 48 L 60 24 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(75.294118%,75.294118%,75.294118%);fill-opacity:1;" d="M 12 48 C 12 53.332031 4 53.332031 4 48 C 4 42.667969 12 42.667969 12 48 Z M 20 38 C 20 43.332031 12 43.332031 12 38 C 12 32.667969 20 32.667969 20 38 Z M 36 40 C 36 45.332031 28 45.332031 28 40 C 28 34.667969 36 34.667969 36 40 Z M 52 48 C 52 53.332031 44 53.332031 44 48 C 44 42.667969 52 42.667969 52 48 Z M 64 24 C 64 29.332031 56 29.332031 56 24 C 56 18.667969 64 18.667969 64 24 Z M 64 24 "/>
+</g>
+</svg>

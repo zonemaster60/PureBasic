@@ -1,0 +1,155 @@
+*** Commands: *** (current)
+CharTrek-TFO (The First One)
+
+Main Menu >>>>
+
+Start!    - Start playing the game.
+Help      - Displays this help text.
+Options   - Change difficulty, your name, register, etc.
+About     - A little info about the game.
+Exit      - Exit the game.
+
+In Game >>>>
+
+SubLight - Move starship (sub-light) to Quadrant x,y.
+JmpDrive - Move starship (jump) to Sector x,y.
+
+Shields   - Raises and lowers ships deflector shields.
+Transport - Activate transporter to transport to planet.
+
+Lasers   - Fire main lasers. They can be fired 360 degrees, max range of 3.
+Torpedos - Launch torpedo. They can also be fired 360 degrees, max range of 5.
+
+Engineer - Make emergency repairs on shields, hull, or engines.
+Docking  - Allows you to dock with a starbase for repairs.
+
+SRScan - Short Range Scan - used to scan for cloaked enemies or other
+         objects within the current sector.
+LRScan - Long Range Scan - used to check for enemy activity in nearby
+         sectors. (max range is 3, 360 degrees)
+
+Tractor  - Use this to hold enemies in place while attacking.
+Legend   - Shows the object legend.
+
+MainMenu - Return to the main menu.
+Exit     - Exit the game now.
+
+More >>>>
+
+Heading Display - sets the direction of the ship. Also sets direction
+for firing weapons.
+
+Move Display - set distance for sub-light or jump drive (1-9).
+
+Range Display - set the range for lasers (1-3) or torpedoes (1-5).
+
+You can also click the 'X' button to cancel commands.
+
+*** Options: ***
+
+Difficulty - Use this to set the number of enemies, power, health,
+damage...etc. Three settings, Easy, Medium, and Hard.
+
+Name - Change your name.
+
+Sound - Changes sound settings to either On or Off.
+
+Music/MP3 - Music setting lets you select a track from the MP3 list and
+set whether to play it once or to loop it (repeat). NOTE: all MP3's
+must be copied to the 'mp3s' folder. (max of 26)
+
+Register - Let's you register the game to `ove the time limit and
+allow you to access the mp3 options. (requires an unlock code)
+
+<- Back - Returns you to the game and saves your current settings.
+
+*** Hints and Tips: ***
+
+Everything on your ship uses 'energy' so take care on how much is
+used at all times. If you find yourself low on energy, locate the
+nearest planet to mine energy crystals or dock at a nearby starbase
+for repairs if available.
+
+When using sublight or jump drive use caution when going over distances
+of 0.7 (sublight) or 7.0 (jumpdrive), this may cause engine overheating
+therefore causing engine damage.
+
+If entering a sector that has enemies, make sure you use your shields
+to absorb the enemy fire if hit. if shields are down you WILL take
+hull damage.
+
+You have crew you need to keep an eye on. Lose too many crew members
+and your ship will start to lose it's efficiency and you will suffer
+more damage than usual. You can replenish crew ONLY at a starbase.
+
+If you are 500 or above on energy, going to a planet to transport for
+mining crystals will be of no use, so don't bother.
+
+When making emergency repairs, any system that is below 50% (i.e.
+shields, hull, or engines) will be considered repairable.
+
+When docking with a starbase,transporting to a planet, or entering
+a stable wormhole you move directly ON the object and press the.
+appropriate button. (if applicable)
+
+When carrying out a long range scan, enemies can still move from
+sector to sector....even into YOUR current sector!
+
+*** Registration: ***
+
+Registering allows:
+
+1) `oving the 30-minute time limit.
+2) You to play your own MP3's.
+
+Please take into consideration on registering this game! You may
+make donations through PayPal - a minimum of $1.00, but you can
+pay however much you want over a dollar to help with development
+or just buy me a beer or a cup of coffee.
+
+My email address is 'zonemaster@yahoo.com'.
+
+*** Comments and suggestions: ***
+
+Please send me comments or suggestions as to what I should add or
+change in the game. Although I like the 'Trek' series I may use
+something that isn't entirely right, so I want to know about it.
+
+Keep in mind this is a just a prototype/Alpha and does certainly not
+reflect the finished game at all. Things come and go, so until it is
+out of alpha don't expect very much staying the way it is.
+
+Take into consideration that some things I have NOT completely tested,
+so they may or may not work properly.
+
+I am NOT an artist so if anyone wants to take up the project of making
+graphics in place of the ASCII characters, you are more than welcome to do
+so.
+
+When making bug reports please be detailed in your description of the
+bug or problem. I can't fix it if I don't know what I am looking for.
+
+If for some reason the 'config\CT-TFO.cfg' file gets corrupted (your
+name appears blank), you can manually repair the file by entering the
+values below:
+
+   A sample file would look like this:
+
+   1
+   Player
+   Ensign
+   1
+
+*** Contacts: ***
+
+ZoneSoft Software
+zonemaster@yahoo.com
+http://www.facebook.com/DavesPCPortal
+
+Scrollbar code by Alastair Zotos
+http://www.thegamecreators.com
+
+Convert_Time code by Kevin Picone
+http://www.playbasic.com
+
+End of Document >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>

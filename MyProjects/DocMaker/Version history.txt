@@ -1,0 +1,13 @@
+DocMaker Version History
+========================
+
+Version 1.01
+------------
+- NEW: Added the current version number to the windows title
+- NEW: Added tooltips for the color buttons
+- FIX: Structures were not written to the table of contents
+- FIX: Constants that were referenced in a comment were considered to be constants in a enumeration block
+
+Version 1.00
+------------
+- Initial release

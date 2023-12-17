@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64pt" height="64pt" viewBox="0 0 64 64" version="1.1">
+<defs>
+<clipPath id="clip1">
+  <path d="M 13 4 L 51 4 L 51 57 L 13 57 Z M 13 4 "/>
+</clipPath>
+<clipPath id="clip2">
+  <path d="M 35 4 L 51 57 L 13 57 L 29 4 Z M 35 4 "/>
+</clipPath>
+<clipPath id="clip3">
+  <path d="M 13 17 L 51 17 L 51 47 L 13 47 Z M 13 17 "/>
+</clipPath>
+<clipPath id="clip4">
+  <path d="M 35 4 L 51 57 L 13 57 L 29 4 Z M 35 4 "/>
+</clipPath>
+</defs>
+<g id="surface15241">
+<path style="fill:none;stroke-width:6;stroke-linecap:round;stroke-linejoin:miter;stroke:rgb(94.901961%,52.156863%,0%);stroke-opacity:1;stroke-miterlimit:10;" d="M 6 60 L 58 60 "/>
+<g clip-path="url(#clip1)" clip-rule="nonzero">
+<g clip-path="url(#clip2)" clip-rule="nonzero">
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(100%,54.901961%,0%);fill-opacity:1;" d="M 35 4 L 51 57 L 13 57 L 29 4 Z M 35 4 "/>
+</g>
+</g>
+<g clip-path="url(#clip3)" clip-rule="nonzero">
+<g clip-path="url(#clip4)" clip-rule="nonzero">
+<path style="fill:none;stroke-width:6;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(100%,100%,100%);stroke-opacity:1;stroke-miterlimit:10;" d="M 16 44 L 64 44 M 16 32 L 64 32 M 16 20 L 64 20 "/>
+</g>
+</g>
+</g>
+</svg>

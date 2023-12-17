@@ -1,0 +1,63 @@
+<html>
+<head>
+<title>PureBasic - Spiele für Fortgeschrittene - Teil 1</title>
+<style type="text/css">
+<!--
+ @import url(format.css);
+//-->
+</style>
+</head>
+<body bgcolor="#F6FCFE">
+<h2>PureBasic - Spiele für Fortgeschrittene</h2>
+<h3>Udo Kessler 2003</h3>
+<hr>
+<br>
+<span>
+<center>
+<span class="big"><b>Teil 5</b></span><br>
+Mit "Mucke" und Kollisionen ist alles schöner...<br>
+</center>
+<br>
+Datei: <a href="daten/kurs5/kurs5.pb">kurs5.pb</a><br>
+<br>
+<li> Wie in der Überschrift zu erkennen ist, wollen wir ein wenig Hintergrundmusik einbauen.<br>
+<li> Außerdem kommt jetzt die Kollisionsabfrage zwischen unseren Schüssen und Gegnern –und zwischen dem Spieler und den Gegnern hinzu, was im Kurs 5 wohl die umfangreichste Neuerung ist.<br>
+<li> Wir wollen auch eine Punkteanzeige haben, die sich mit jedem abgeschossenen Gegner erhöht.<br>
+<li> Eine Lebensanzeige für den Spieler ist ebenfalls erforderlich.<br>
+<br>
+<br>
+Die Musik laden wir mittels <span class="code">LoadModule</span><span class="codebrack">()</span>, was uns gestattet, jede beliebige *.mod Datei abzuspielen. Dies geschieht per <span class="code">PlayModule</span><span class="codebrack">()</span>. Die Module lassen sich einfach in einer Schleife abspielen, so wird unsere Musik niemals enden. :-)<br>
+Bewerkstelligt wird dies mit <span class="code">GetModulePosition</span><span class="codebrack">()</span> und <span class="code">SetModulePosition</span><span class="codebrack">()</span><br>
+<br>
+Die Kollisionen fragen wir mit <span class="code">SpriteCollision</span><span class="codebrack">()</span> ab. <span class="code">SpritePixelCollision</span><span class="codebrack">()</span> ist nicht nötig, da es sich um kleine schnelle Sprites handelt, wo es wenig auffällt, wenn die Abfrage nicht so genau ist. Dies alles natürlich im neuen Sub <i>collisions</i>.<br>
+<br>
+Sollte nun also eine Kollision zwischen einem Schuss und einem Gegner stattgefunden haben, so müssen wir den Schuss löschen, und einen entsprechenden Wert von <span class="code">enemy</span><span class="codebrack">()\armor</span>  abziehen.<br>
+Ist wiederum die <span class="code">enemy</span><span class="codebrack">()\armor</span> kleiner 1, so ist der Gegner zerstört, wir müssen ihn also löschen und entsprechend Punkte auf unser Konto gutschreiben. Dies geschieht im Sub <i>enemy</i><br>
+<br>
+Sollte der Spieler mit einem Gegner Kollidieren, so zerstören wir letzteren ebenfalls und dem Spieler wird ein Leben abgezogen.<br>
+<br>
+Um die Punkte gut lesbar darstellen zu können, erzeugen wir mit dem Zeichenbefehl <span class="code">Box</span><span class="codebrack">()</span>  einen schwarzen "Kasten" am unteren Bildschirmrand, in welchen wir die Punkte schreiben. Alle unsere Drawing Angelegenheiten verschwinden ebenfalls in einem neuen Sub namens <i>drawing</i>.<br>
+Unterstützt wird dies alles noch mit neuen Sounds.<br>
+<br>
+Nun sieh Dir den Code an, achte auf alle Veränderungen und gehe durch, was genau bewirkt wird.<br>
+<br>
+<table width="80%" align="center"><tr><td class="i">
+<b>TIP:</b> Alle Prozeduren können im PB-Editor bequem per Prozedur-Browser (Standardmäßig am rechten Bildrand) erreicht werden, indem man einfach auf den entsprechenden Namen klickt. Man kann auch selbst "Marker" setzen, zu denen man dann springen kann.<br>
+Dies bewerkstelligt man mit einem Kommentar, dem ein "-" vorhergeht, also z.B. so:<br><br>
+<span class="code">;- Dies ist eine Sprunkmarke</span><br><br>
+Ich habe dies bei allen Subs so gemacht, um diese einfach erreichen zu können.<br>
+</td></tr></table>
+<br>
+Wie unschwer zu erkennen ist, gewinnt selbst ein solch kleines Spiel unheimlich schnell an Komplexität, wenn man es sauber Programmiert!<br>
+<br>
+<br>
+<table width="100%" align="middle"><tr>
+<td align="right"><a href="kurs4.htm"><img border="0" src="daten/gfxsnd/pfeil_links.gif"><br>Teil 4</a></td>
+<td align="middle"><a href="index.htm"><img border="0" src="daten/gfxsnd/home.gif"><br>Start</a></td>
+<td align="left"><a href="kurs6.htm"><img border="0" src="daten/gfxsnd/pfeil_rechts.gif"><br>Teil 6</a></td>
+</tr></table>
+
+</span>
+
+</body>
+</html>

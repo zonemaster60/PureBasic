@@ -1,0 +1,23 @@
+License agreement for ProGUI. You must read this License agreement before continuing with the installation of this software. Continue with the installation only when you have read and accepted the terms of this license agreement.
+
+This License agreement is made between Chris Deeney and the user of ProGUI version 1.41
+
+You must agree to the following:
+
+1) No portion of the ProGUI binaries may be disassembled, reverse engineered, decompiled, modified or altered. 
+
+2) This package is supplied 'as is' and no liability will be accepted by Chris Deeney or any legal vendors of this software for any damage incurred by the use of this software.
+
+3) The ProGUI binaries/package can be distributed freely and in anyway with your application/program.
+
+4) Neither directly nor indirectly can you disclose, distribute, sell, rent, lease, lend, reproduce or copy your ProGUI registration key codes to anyone.
+
+5) The creation of DLLs/Libraries whose primary function is to serve as a 'wrapper' for ProGUI functions is explicitly forbidden.
+
+Copyright: 
+
+ProGUI is copyright © 2005 - 2020 by Chris Deeney. All rights reserved. This computer program is protected by copyright law and international treaties.
+
+Disclaimer:
+
+This package is distributed 'as is' and no claims are made as to it's suitability for any purpose, if any. Chris Deeney does not assume any responsiblity for lost or damaged files, memory, or registry entries. Users installing this software do so on such an understanding.

@@ -1,0 +1,74 @@
+<html>
+<head>
+<title>PureBasic - Spiele für Fortgeschrittene - Teil 1</title>
+<style type="text/css">
+<!--
+ @import url(format.css);
+//-->
+</style>
+</head>
+<body bgcolor="#F6FCFE">
+<h2>PureBasic - Spiele für Fortgeschrittene</h2>
+<h3>Udo Kessler 2003</h3>
+<hr>
+<br>
+<span>
+<center>
+<span class="big"><b>Teil 3</b></span><br>
+Das Raumschiff muss auch schießen können<br>
+</center>
+<br>
+Datei: <a href="daten/kurs3/kurs3.pb">kurs3.pb</a><br>
+<br>
+Nun stellt sich uns die Aufgabe, das Raumschiff schießen zu lassen, was für einen Shooter irgendwie notwendig erscheint.<br>
+Dazu soll noch ein Sound abgespielt werden...<br>
+<br>
+<br>
+..welcher mit <span class="code">LoadSound</span><span class="codebracket">()</span> Geladen und mit <span class="code">PlaySound</span><span class="codebracket">()</span> abgespielt wird.<br>
+Abgespielt werden kann z.B. jede beliebige *.wav Datei. Außerdem müssen wir die Schussgrafik laden (<i>Blaster.bmp</i>) und sie beim Druck auf die Feuertaste (linke STRG) nach rechts fliegen lassen.<br>
+<br>
+Die Tastaturabfrage befindet sich im Sub <i>steuerung</i>.<br>
+<br><br>
+<table width="80%" align="center"><tr><td class="i">
+<b>HINWEIS:</b> Da dieses Programm keine Geschwindigkeitsbegrenzung hat, kann es sein, dass es bei Dir zu schnell oder zu langsam abläuft. Das hängt u.a. von der eingestellten Bildschirm-Wiederholrate ab und Deiner Rechnergeschwindigkeit ab.<br>
+</td></tr></table>
+<br><br>
+Weil mehr als 1 Schuss auf einmal angezeigt werden soll, müssen wir einen Weg finden, die ganzen Daten dieser Schüsse zu speichern, ohne ewig viele Variablen zu erstellen.<br>
+Arrays wären ebenfalls nicht geeignet, da man im voraus nicht weiß, wie viele Schüsse maximal auf einmal angezeigt werden.<br>
+<br>
+Die ideale Lösung für dieses Problem sind LinkedLists mit Struktur-Erbe.<br>
+Die hier eingesetzte Liste erbt in unserem Fall eine Struktur, in der alle notwendigen Daten gespeichert werden.<br>
+<br>
+<span class="big"><b>?</b></span> Eine Liste hat keine Maximale Anzahl an Elementen, so könnten wir theoretisch unendlich viele Schüsse gleichzeitig darstellen. Perfekt!<br>
+<br>
+Die einzelnen Einträge unserer Erbe-Liste werden folgendermaßen angesprochen:<br>
+<span class="code">ListenName</span><span class="codebracket">()\ListenVariable</span><br>
+In unserem fall wird z.B. der Listeneintrag <i>x</i> des Schusses so abgerufen oder beschrieben:<br>
+<span class="code">playershot</span>()<span class="codebracket">\x + playershot()\speedX</span><br>   
+Damit wird im aktuellen Listenelement der Wert von <i>x</i> um den Wert von <i>speedX</i> erhöht, bzw. in unserem Fall verringert (da <i>speedX</i> negativ ist).<br>
+<br>
+Ein neues ListenElement wird z.B. mit dem Befehl <span class="code">AddElement</span><span class="codebracket">()</span> erzeugt.<br>
+Gelöscht wird das aktuelle Element mit <span class="code">DeleteElement</span><span class="codebracket">()</span><br>
+<br>
+Um alle Listeneinträge und somit alle Schüsse abzuarbeiten benutzen wir die <span class="rot">ForEach-Schleife</span>.<br> 
+Mit dem Befehl ForEach <span class="code">playershot</span><span class="codebracket">()</span> arbeiten wir jeden einzelnen Schuss ab, bewegen ihn z.B. nach rechts, oder falls er den Bildschirm verlassen hat, löschen wir ihn bzw. sein Listenelement.
+Dies alles geschieht im neuen Sub <i>playershots</i>.<br>
+<br>
+Zu guter letzt benutzen wir noch <span class="code">Procedure</span>, um den weiteren Umgang mit den Schüssen zu "automatisieren".<br>
+<br>
+Das ist nicht all zu kompliziert, schau Dir einfach den Code genau an. Außerdem solltest Du für diesen Kurs sowieso im Umgang mit Prozeduren, LinkedLists, und Strukturen vertraut sein.<br>
+<br>
+Puhh, das war ja schon einiges an Arbeit...<br>
+Mach ne Pause und dann gehts weiter mit Teil 4<br>
+<br>
+<br>
+<table width="100%" align="middle"><tr>
+<td align="right"><a href="kurs2.htm"><img border="0" src="daten/gfxsnd/pfeil_links.gif"><br>Teil 2</a></td>
+<td align="middle"><a href="index.htm"><img border="0" src="daten/gfxsnd/home.gif"><br>Start</a></td>
+<td align="left"><a href="kurs4.htm"><img border="0" src="daten/gfxsnd/pfeil_rechts.gif"><br>Teil 4</a></td>
+</tr></table>
+
+</span>
+
+</body>
+</html>

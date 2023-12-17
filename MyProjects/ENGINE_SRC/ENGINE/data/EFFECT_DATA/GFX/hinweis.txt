@@ -1,0 +1,1 @@
+stamp nur für spieler, andere stamps im objectverzeichnis

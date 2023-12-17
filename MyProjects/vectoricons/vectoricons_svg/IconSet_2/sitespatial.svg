@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64pt" height="64pt" viewBox="0 0 64 64" version="1.1">
+<defs>
+<linearGradient id="linear0" gradientUnits="userSpaceOnUse" x1="2" y1="38" x2="64" y2="62" >
+<stop offset="0" style="stop-color:rgb(100%,64.705882%,0%);stop-opacity:1;"/>
+<stop offset="1" style="stop-color:rgb(80%,51.764706%,0%);stop-opacity:1;"/>
+</linearGradient>
+<linearGradient id="linear1" gradientUnits="userSpaceOnUse" x1="0" y1="38" x2="0" y2="62" >
+<stop offset="0" style="stop-color:rgb(100%,64.705882%,0%);stop-opacity:1;"/>
+<stop offset="1" style="stop-color:rgb(85.098039%,54.901961%,0%);stop-opacity:1;"/>
+</linearGradient>
+<clipPath id="clip1">
+  <path d="M 14 2 L 50 2 L 50 55 L 14 55 Z M 14 2 "/>
+</clipPath>
+<clipPath id="clip2">
+  <path d="M 36 4 L 50 49 C 50 52.3125 41.941406 55 32 55 C 22.058594 55 14 52.3125 14 49 L 28 4 M 28 4 C 28 3.171875 29.789062 2.5 32 2.5 C 34.210938 2.5 36 3.171875 36 4 Z M 28 4 "/>
+</clipPath>
+<linearGradient id="linear2" gradientUnits="userSpaceOnUse" x1="18.5" y1="26" x2="60" y2="34" >
+<stop offset="0" style="stop-color:rgb(80%,51.764706%,0%);stop-opacity:1;"/>
+<stop offset="0.2" style="stop-color:rgb(100%,64.705882%,0%);stop-opacity:1;"/>
+<stop offset="0.4" style="stop-color:rgb(80%,51.764706%,0%);stop-opacity:1;"/>
+<stop offset="1" style="stop-color:rgb(50.196078%,32.156863%,0%);stop-opacity:1;"/>
+</linearGradient>
+<clipPath id="clip3">
+  <path d="M 29 3 L 35 3 L 35 5 L 29 5 Z M 29 3 "/>
+</clipPath>
+<clipPath id="clip4">
+  <path d="M 36 4 L 50 49 C 50 52.3125 41.941406 55 32 55 C 22.058594 55 14 52.3125 14 49 L 28 4 M 28 4 C 28 3.171875 29.789062 2.5 32 2.5 C 34.210938 2.5 36 3.171875 36 4 Z M 28 4 "/>
+</clipPath>
+<clipPath id="clip5">
+  <path d="M 14 2 L 50 2 L 50 55 L 14 55 Z M 14 2 "/>
+</clipPath>
+<clipPath id="clip6">
+  <path d="M 36 4 L 50 49 C 50 52.3125 41.941406 55 32 55 C 22.058594 55 14 52.3125 14 49 L 28 4 M 28 4 C 28 3.171875 29.789062 2.5 32 2.5 C 34.210938 2.5 36 3.171875 36 4 Z M 28 4 "/>
+</clipPath>
+<linearGradient id="linear3" gradientUnits="userSpaceOnUse" x1="18.5" y1="26" x2="60" y2="34" >
+<stop offset="0" style="stop-color:rgb(80%,80%,80%);stop-opacity:1;"/>
+<stop offset="0.2" style="stop-color:rgb(100%,100%,100%);stop-opacity:1;"/>
+<stop offset="0.4" style="stop-color:rgb(80%,80%,80%);stop-opacity:1;"/>
+<stop offset="1" style="stop-color:rgb(50.196078%,50.196078%,50.196078%);stop-opacity:1;"/>
+</linearGradient>
+</defs>
+<g id="surface16537">
+<path style="fill:none;stroke-width:4;stroke-linecap:butt;stroke-linejoin:miter;stroke:url(#linear0);stroke-miterlimit:10;" d="M 32 40 L 49.527344 40 C 51.042969 40 52.429688 40.855469 53.105469 42.210938 L 59.105469 54.210938 C 60.433594 56.871094 58.5 60 55.527344 60 L 8.472656 60 C 5.5 60 3.566406 56.871094 4.894531 54.210938 L 10.894531 42.210938 C 11.570312 40.855469 12.957031 40 14.472656 40 Z M 32 40 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:url(#linear1);" d="M 32 40 L 49.527344 40 C 51.042969 40 52.429688 40.855469 53.105469 42.210938 L 59.105469 54.210938 C 60.433594 56.871094 58.5 60 55.527344 60 L 8.472656 60 C 5.5 60 3.566406 56.871094 4.894531 54.210938 L 10.894531 42.210938 C 11.570312 40.855469 12.957031 40 14.472656 40 Z M 32 40 "/>
+<g clip-path="url(#clip1)" clip-rule="nonzero">
+<g clip-path="url(#clip2)" clip-rule="evenodd">
+<path style=" stroke:none;fill-rule:evenodd;fill:url(#linear2);" d="M 36 4 L 50 49 C 50 52.3125 41.941406 55 32 55 C 22.058594 55 14 52.3125 14 49 L 28 4 M 28 4 C 28 3.171875 29.789062 2.5 32 2.5 C 34.210938 2.5 36 3.171875 36 4 Z M 28 4 "/>
+</g>
+</g>
+<g clip-path="url(#clip3)" clip-rule="nonzero">
+<g clip-path="url(#clip4)" clip-rule="evenodd">
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(69.803922%,45.098039%,0%);fill-opacity:1;" d="M 35 4 C 35 5.332031 29 5.332031 29 4 C 29 2.667969 35 2.667969 35 4 Z M 35 4 "/>
+</g>
+</g>
+<g clip-path="url(#clip5)" clip-rule="nonzero">
+<g clip-path="url(#clip6)" clip-rule="evenodd">
+<path style="fill:none;stroke-width:6;stroke-linecap:butt;stroke-linejoin:miter;stroke:url(#linear3);stroke-miterlimit:10;" d="M 44 14 C 44 17.3125 38.628906 20 32 20 C 25.371094 20 20 17.3125 20 14 M 46 26 C 46 29.3125 39.730469 32 32 32 C 24.269531 32 18 29.3125 18 26 M 48 38 C 48 41.3125 40.835938 44 32 44 C 23.164062 44 16 41.3125 16 38 "/>
+</g>
+</g>
+</g>
+</svg>

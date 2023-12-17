@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64pt" height="64pt" viewBox="0 0 64 64" version="1.1">
+<defs>
+<linearGradient id="linear0" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="64" y2="64" >
+<stop offset="0" style="stop-color:rgb(91.372549%,94.901961%,93.333333%);stop-opacity:1;"/>
+<stop offset="1" style="stop-color:rgb(81.568627%,85.098039%,83.529412%);stop-opacity:1;"/>
+</linearGradient>
+<linearGradient id="linear1" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="64" y2="64" >
+<stop offset="0" style="stop-color:rgb(96.078431%,100%,98.039216%);stop-opacity:1;"/>
+<stop offset="1" style="stop-color:rgb(76.862745%,80%,78.431373%);stop-opacity:1;"/>
+</linearGradient>
+</defs>
+<g id="surface16317">
+<path style="fill-rule:evenodd;fill:url(#linear0);stroke-width:2;stroke-linecap:butt;stroke-linejoin:miter;stroke:url(#linear1);stroke-miterlimit:10;" d="M 2 2 L 2 62 L 62 62 L 62 2 Z M 2 2 "/>
+<path style="fill:none;stroke-width:4;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(75.294118%,75.294118%,75.294118%);stroke-opacity:1;stroke-miterlimit:10;" d="M 16 38 L 20 38 L 20 42 L 16 42 Z M 26 22 L 30 22 L 30 26 L 26 26 Z M 36 52 L 40 52 L 40 56 L 36 56 Z M 56 56 L 60 56 L 60 60 L 56 60 Z M 46 28 L 50 28 L 50 32 L 46 32 Z M 46 28 "/>
+<path style="fill:none;stroke-width:4;stroke-linecap:butt;stroke-linejoin:bevel;stroke:rgb(75.294118%,75.294118%,75.294118%);stroke-opacity:1;stroke-miterlimit:10;" d="M 18 40 L 28 24 L 38 54 L 58 58 L 48 30 "/>
+<path style="fill:none;stroke-width:4;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(39.215686%,58.431373%,92.941176%);stroke-opacity:1;stroke-miterlimit:10;" d="M 10 32 L 14 32 L 14 36 L 10 36 Z M 20 16 L 24 16 L 24 20 L 20 20 Z M 30 46 L 34 46 L 34 50 L 30 50 Z M 50 50 L 54 50 L 54 54 L 50 54 Z M 40 22 L 44 22 L 44 26 L 40 26 Z M 40 22 "/>
+<path style="fill:none;stroke-width:4;stroke-linecap:butt;stroke-linejoin:bevel;stroke:rgb(0%,0%,0%);stroke-opacity:1;stroke-miterlimit:10;" d="M 12 34 L 22 18 L 32 48 L 52 52 L 42 24 "/>
+</g>
+</svg>

@@ -1,0 +1,6 @@
+﻿Game, code and resources base on the excellent tutorial made by Jeremiah Reid(https://twitter.com/humbit):
+https://nluqo.github.io/broughlike-tutorial/index.html
+===Resources used
+https://opengameart.org/content/loveable-rogue
+==max lines on win-64
+782

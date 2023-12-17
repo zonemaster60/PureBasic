@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64pt" height="64pt" viewBox="0 0 64 64" version="1.1">
+<g id="surface16693">
+<path style="fill:none;stroke-width:4;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(50.196078%,50.196078%,50.196078%);stroke-opacity:1;stroke-miterlimit:10;" d="M 28 0 L 28.000311 64 " transform="matrix(1,0,-0.267949,1,0,0)"/>
+<path style="fill:none;stroke-width:4;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(50.196078%,50.196078%,50.196078%);stroke-opacity:1;stroke-miterlimit:10;" d="M 36 0 L 35.999112 64 " transform="matrix(1,0,0.309401,1,0,0)"/>
+<path style="fill:none;stroke-width:4;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(50.196078%,50.196078%,50.196078%);stroke-opacity:1;stroke-miterlimit:10;" d="M 32 0 L 32 56 "/>
+<path style="fill:none;stroke-width:2;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(75.294118%,75.294118%,75.294118%);stroke-opacity:1;stroke-miterlimit:10;" d="M 4 45 L 60 45 "/>
+<path style="fill-rule:evenodd;fill:rgb(82.745098%,82.745098%,82.745098%);fill-opacity:1;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(58.039216%,58.039216%,58.039216%);stroke-opacity:1;stroke-miterlimit:10;" d="M 8 4 L 2 44 L 62 44 L 56 4 Z M 8 4 "/>
+<path style="fill:none;stroke-width:3;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(50.196078%,50.196078%,50.196078%);stroke-opacity:1;stroke-miterlimit:10;" d="M 63.999388 26 C 63.999322 30.417969 60.418972 34 56.001003 34 C 51.583034 34 47.999322 30.417969 47.999388 26 C 47.999454 21.582031 51.579805 18 56.00168 18 C 60.419649 18 63.999454 21.582031 63.999388 26 Z M 63.999388 26 " transform="matrix(1,0,-0.57735,1,0,0)"/>
+<path style="fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:miter;stroke:rgb(50.196078%,50.196078%,50.196078%);stroke-opacity:1;stroke-miterlimit:10;" d="M 14 32 L 50 26 "/>
+<path style="fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:miter;stroke:rgb(50.196078%,50.196078%,50.196078%);stroke-opacity:1;stroke-miterlimit:10;" d="M 26 10 L 20 36 "/>
+<path style="fill:none;stroke-width:4;stroke-linecap:round;stroke-linejoin:miter;stroke:rgb(50.196078%,50.196078%,50.196078%);stroke-opacity:1;stroke-miterlimit:10;" d="M 16 12 L 42 20 "/>
+</g>
+</svg>

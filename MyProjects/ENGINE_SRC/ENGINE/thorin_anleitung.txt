@@ -1,0 +1,184 @@
+
+Thorins Quest: Anleitung und  Versionsverlauf:
+
+
+
+
+------------------------------------------------ Versionsverlauf ------------------------------------------------------------------------------------------
+
+Änderungen Build:2021_02_03_1310
+
+
+Technik:
+Kernkomponenten der Engine komplett überarbeitet.
+Tag/Nacht Wechsel in "Echtzeit".
+Rudimentäres Beleuchtungssystem (Lichteffekt)
+
+
+Umfangreiche Änderungen am Inhalt :
+Maps gebaut.
+
+Kampfsystem:
+Axtwurf mit [X]
+
+Mit dieser Version wird der Aktion Triggerbereich eingeführt:
+Feinde attakieren nur dann, wenn diese in definiertem Abstand zum Spieler sind. oder der Spieler die Feinde attakiert.
+Feinde mit Ausnahme von Bossgegnern erholen sich ausserhalb der Triggerzone.
+Der erste Treffer löst noch keinen Kampfmodus aus. Daher kann die Map im Gegensatz zu früheren Builds nach dem ersten Angriff durch den Spieler verlassen werden.
+
+
+Bekannte Fehler:
+Slowdowns in Verbindung mit gewissen Spawnobjekten möglich. 
+
+Betrifft folgende Maps:
+Vally
+
+***********************************************************************************************************************************************************************
+
+Änderungen : Stand: 2020.10.25
+
+Inventory System komplett überarbeitet.
+Inventory lädt nun die Objekte ohne Mapdrop.
+
+Bugfixes:
+Fehler im Objekt Verwaltungskern behoben
+
+
+
+
+
+
+
+---------------------------------------------- Anleitung:---------------------------------------------------------------------------------------------------
+
+Stand 2020.10.16
+
+Aus "Quest Of The Dwarfes King" wurde 
+
+Dvergatal --- Thorins Quest    		 (Early Access) (Kostenlos)
+
+Umfangreiche Verbesserungen und mehr an Umfang:
+Aktuell können zwei von drei "Drachenflammen" aus den Klauen des Spinnen Königs befreit werden.
+
+Für gestorbene Helden gibt es mit "Mists Of Eternity" eine Halle.
+In dieser kann der Spieler neue Kraft schöpfen. Sofern er würdig ist die Halle zu betreten....
+
+
+
+Verbesserter Schwierigkeitsgrad:
+Aufrüstungen kosten nicht mehr ganz so viel.
+Loot (Gold) fällt teilweise höher aus.
+Gegner passen ihre Lebensenergie dem Level des Spielers an.
+Gegner Angriffe und Verteidigung behalten jedoch ihren hinterlegten Wert.
+
+Shops:
+Bei Käufen wird der Spieler gefragt ob der Kauf getätigt werden soll. 
+
+
+
+
+Grundsätzliches:
+
+Systemanforderungen:
+Windows 10 (Windows 7,8) funktionieren, es wird aber ein Hinweis ausgegeben.
+Freier Arbeitsspeicher für das Spiel ab 150MB bis 500MB
+Freier Speicher für die Installation:
+200 MB
+Grafikkarte : Sollte jede Funktionieren (auch integrierte Lösungen)
+Prozessor: Intel oder AMD . 
+Empfohlen Intel I5 GEN 8 oder AMD Ryzen 5 Serie 
+Bildschirmauflösung:
+Mindestens 1280 x 720 
+Die Engine berücksichtig zum aktuellen Stand kein Seitenverhältnis, Bildschirme die stark von "16:9" abweichen,
+zeigen ein leicht gestauchtes, oder gestrecktes Bild
+
+
+Installation:
+Das "zip" Archive entpacken.
+Im Ordner "THORIN" das Programm mit Doppelklick starten.
+Da ich über keinen Signaturservice verfüge, wird von Windows eine Warnmeldung ausgegeben.
+Bitte das Programm "Trotzdem" starten.
+
+Das Spiel legt nach dem Start im Benutzerverzeichnis einen Ordner an.
+Dieser füllt sich im Laufe des Spieles mit den für das Spiel notwendigen Daten.
+Sollte ein anderer Benutzer (Windows Anmeldung) das Spiel starten wird für diesen 
+ein eigener Ordner angelegt.
+Damit erhält jeder angemeldete Benutzer automatisch einen Ordner für Spielfortschritte.
+
+
+
+Eingabe/Steuerung:
+Tastatur oder (und) GamePad (Xbox One Controller)
+
+Hinweise und Layout sind für Controller optimiert.
+
+
+Steuerung:
+Spielstart: Tastatur: "SPACE",  Controller "StartButton"
+Spielpause: Tastatur: "SPACE",  Controller "StartButton"
+Inventory:  Tastatur: "O"    ,  Controller "Select"
+	
+
+Alle anderen Tasten entsprechen für Tastatur wie für Controller den angezeigten Symbolen.
+
+
+
+
+
+
+Kampf:
+Die Axt wird mit "X" in Laufrichtung geworfen.
+Beim Axtwurf bleibt Thorin kurz stehen.
+
+Der Schild (gelber Balken) füllt sich automatisch.
+Die Lebenskraft (grüner Balken) wird mit Heiltränken, bei Levelaufstieg und bei Sphären des Lichts aufgefüllt.
+Heiltränke füllen nur einen Teil der Lebenskraft auf.
+Heiltränke werden automatisch eingenommen, wenn die Lebenskraft unter 25% sinkt.
+
+Wenn Thorin im Kampf ist gibt es folgende Einschränkungen:
+Solange der Kampftimer (angezeigt durch rotierendes Axtsymbol am Boden und mit Kampfmusik unterlegt) nicht abgelaufen ist 
+sind folgende Aktionen NICHT möglich:
+
+Speichern des Spielfortschrittes.
+Nutzung der Sphären des Lichtes (Speichert den Spielfortschritt und Thorin wird komplett erholt)
+Sprechen mit anderen Personen im Spiel. 
+Lesen von Hinweistafeln.
+Verlassen des aktuellen Abschnittes.
+Betreten anderer Abschnitte.
+Verwendung von Teleporter.
+Öffnen des Inventorys.
+
+Thorin gibt eine entsprechene Meldung am Bildschirm aus.
+
+
+Wärend des Kampfes, oder durch Aufruf des Inventory, wird Lebensenergie und Levelfortschritt eingeblendet.
+Nach dem Kampf wird dies ausgeblendet.
+
+
+
+Möglich sind:
+Aufheben/Einsammeln von Objekten
+Truhen usw.
+
+Sollte Thorin sterben:
+Das Spiel setzt am letzten gültigen Speicherpunkt fort.
+Alle nicht gespeicherten Fortschritte gehen verloren. 
+(Im Kampf gesammelte Inventory Objekte wie, Heiltränke, bleiben erhalten.)
+
+Sollte Thorin würdig sein, so kann er den "Nebelhain"(The Mists Of Eternity) betreten. 
+Dort kann Thorin sofern er über ausreichende Mitttel (Gold) verfügt 
+die Axt, den Schild, die Lebensenergie stärken.
+
+
+Allgemein:
+Shops:
+Nachdem die Shoptruhe geöffnet wurde ist diese erst nach neuerlichem Betreten des Shops verfügbar.
+
+
+Anleitung: Ende 
+
+
+
+
+
+
