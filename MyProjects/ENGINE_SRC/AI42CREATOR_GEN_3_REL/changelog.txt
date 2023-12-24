@@ -1,7 +1,0 @@
-BUILD 66:
-Colors set correct
-
-BUILD 65:
-Fastest version of AI42 tool.
-No more saving and loading of DNA during input of DNA values, changing of DNA values
-All is shown in "realtime" with no impact on the program itself and the system
