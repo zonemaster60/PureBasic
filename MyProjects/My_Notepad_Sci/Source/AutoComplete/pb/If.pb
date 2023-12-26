@@ -1,7 +1,0 @@
-﻿If 
-	
-ElseIf 
-	
-Else
-	
-EndIf

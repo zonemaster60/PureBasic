@@ -1,3 +1,0 @@
-Func _FuncName()
-	
-EndFunc
