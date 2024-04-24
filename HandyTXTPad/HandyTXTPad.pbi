@@ -60,13 +60,12 @@ Procedure mnuExit(eventid)
 EndProcedure
 
 Procedure mnuAbout(eventid)
-  Define version.s = " v0.0.0.4 (20241302)"
+  Define version.s = " v0.0.0.5 (20242404)"
   MessageRequester("Info", "HandyTXTPad" +version + #CRLF$ +
                           "A handy little text editor", #PB_MessageRequester_Info)
 EndProcedure
-; IDE Options = PureBasic 6.10 beta 6 (Windows - x64)
+; IDE Options = PureBasic 6.11 LTS Beta 1 (Windows - x64)
 ; CursorPosition = 62
-; FirstLine = 39
 ; Folding = --
 ; Optimizer
 ; EnableThread

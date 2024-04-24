@@ -122,9 +122,9 @@ Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_
   If Req = #PB_MessageRequester_Yes
     End
   EndIf
-; IDE Options = PureBasic 6.10 beta 3 (Windows - x64)
+; IDE Options = PureBasic 6.11 LTS Beta 1 (Windows - x64)
 ; CursorPosition = 98
-; FirstLine = 79
+; FirstLine = 99
 ; Folding = -
 ; Optimizer
 ; EnableXP
@@ -134,11 +134,11 @@ Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_
 ; Executable = HandyTXTPad.exe
 ; IncludeVersionInfo
 ; VersionField0 = 0,0,0,1
-; VersionField1 = 0,0,0,4
+; VersionField1 = 0,0,0,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyTXTPad.exe
-; VersionField4 = v0.0.0.4
-; VersionField5 = 0.0.0.1
+; VersionField4 = v0.0.0.5
+; VersionField5 = v0.0.0.1
 ; VersionField6 = A Handy Little Text Pad Program
 ; VersionField7 = HandyTXTPad.exe
 ; VersionField8 = HandyTXTPad.exe

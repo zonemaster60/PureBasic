@@ -412,7 +412,7 @@ EndModule
 
 CompilerIf #PB_Compiler_IsMainFile
   ; enter the name of the file here
-  Define vers.s = "v0.0.0.3 (20241302)"
+  Define vers.s = "v0.0.0.4 (20242404)"
   Define filename.s = OpenFileRequester("Open a file", "",
                                       "All Files|*.*|Script Files|*.bat;*.cmd|Source Files|*.pb;*.pbi|Text Files|*.txt",0)
   Define filename2.s = GetFilePart(filename)
@@ -481,9 +481,9 @@ CompilerIf #PB_Compiler_IsMainFile
       EndIf
 CompilerEndIf
 
-; IDE Options = PureBasic 6.10 beta 6 (Windows - x64)
-; CursorPosition = 411
-; FirstLine = 402
+; IDE Options = PureBasic 6.11 LTS Beta 1 (Windows - x64)
+; CursorPosition = 414
+; FirstLine = 411
 ; Folding = ---
 ; Optimizer
 ; EnableThread
@@ -494,10 +494,10 @@ CompilerEndIf
 ; Executable = HandyFlipBook.exe
 ; IncludeVersionInfo
 ; VersionField0 = 0,0,0,1
-; VersionField1 = 0,0,0,3
+; VersionField1 = 0,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyFlipBook.exe
-; VersionField4 = v0.0.0.3
+; VersionField4 = v0.0.0.4
 ; VersionField5 = v0.0.0.1
 ; VersionField6 = Handy Flip Book for viewing text files
 ; VersionField7 = HandyFlipBook.exe

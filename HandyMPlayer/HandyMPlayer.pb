@@ -133,7 +133,7 @@ If FindWindow_(0, "Handy Media Player")
   End
 EndIf  
 
-vers$ = " v0.1.2.0 (20241302)"
+vers$ = " v0.1.2.1 (20242404)"
 File1Size = 0
 FileDevide = 245
 
@@ -367,9 +367,9 @@ If OpenWindow(0, 100, 100, #WindowWidth+50, #WindowHeight+25, "Handy Media Playe
 EndIf
 End
 
-; IDE Options = PureBasic 6.10 beta 6 (Windows - x64)
+; IDE Options = PureBasic 6.11 LTS Beta 1 (Windows - x64)
 ; CursorPosition = 135
-; FirstLine = 114
+; FirstLine = 345
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -380,10 +380,10 @@ End
 ; Debugger = IDE
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,0
-; VersionField1 = 0,1,2,0
+; VersionField1 = 0,1,2,1
 ; VersionField2 = ZoneSoft Software
 ; VersionField3 = Handy Media Player
-; VersionField4 = 0.1.2.0
+; VersionField4 = 0.1.2.1
 ; VersionField5 = 1.0.0.0
 ; VersionField6 = A Handy Compact Media Player
 ; VersionField7 = Handy Media Player

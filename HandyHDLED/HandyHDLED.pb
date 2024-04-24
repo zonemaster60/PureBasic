@@ -141,7 +141,7 @@ EndProcedure
 
 Define drv.i
 Define drv$ = Chr(drv)+":\"
-Define version.s = " v0.1.4.7 (20241302)"
+Define version.s = " v0.1.4.8 (20242404)"
 
 If ExamineDirectory(0, "IconLibs\", "*.icl")
   Define numicl.i = 0
@@ -357,7 +357,7 @@ Repeat
   
 Until Exit = 1
 
-; IDE Options = PureBasic 6.10 beta 6 (Windows - x64)
+; IDE Options = PureBasic 6.11 LTS Beta 1 (Windows - x64)
 ; CursorPosition = 143
 ; FirstLine = 126
 ; Folding = --
@@ -370,11 +370,11 @@ Until Exit = 1
 ; Executable = HandyHDLED.exe
 ; DisableDebugger
 ; IncludeVersionInfo
-; VersionField0 = 0.0.0.1
-; VersionField1 = 0.1.4.7
+; VersionField0 = 0,0,0,1
+; VersionField1 = 0,1,4,8
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyHDLED
-; VersionField4 = v0.1.4.7
+; VersionField4 = v0.1.4.8
 ; VersionField5 = v0.0.0.1
 ; VersionField6 = Handy HardDrive LED
 ; VersionField7 = HandyHDLED

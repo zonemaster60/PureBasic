@@ -141,10 +141,9 @@ EndProcedure
 
 Define drv.i
 drv$ = Chr(drv) + ":\"
-flag.i = 0
 numicl.i = 0
 mTime.i = 4000 ; 4 secs - was 5000
-version.s = " v0.0.1.8 (20241302)"
+version.s = " v0.0.1.9 (20242304)"
 Global hdh
 
 If ExamineDirectory(0, "IconLibs\", "*.icl")
@@ -155,9 +154,9 @@ If ExamineDirectory(0, "IconLibs\", "*.icl")
   FinishDirectory(0)
 EndIf
 
-flag1.i = Random(numicl, 1)
-If flag1 < 1 : flag1 = 1 : EndIf
-iconlib.s = "IconLibs\HandyDrvLED." + flag1 + ".icl"
+icon1.i = Random(numicl, 1)
+If icon1 < 1 : icon1 = 1 : EndIf
+iconlib.s = "IconLibs\HandyDrvLED." + icon1 + ".icl"
 IdIcon1=ExtractIcon_(0, iconlib, 0)     
 IdIcon2=ExtractIcon_(0, iconlib, 1)
 IdIcon3=ExtractIcon_(0, iconlib, 2)
@@ -217,8 +216,9 @@ MessageRequester("DriveInfo For " + lpRootPathName, Info, #PB_MessageRequester_I
 EndProcedure
 
 ; display about dialog
-Procedure About(version.s)
+Procedure About(icon1.i, version.s)
   MessageRequester("About", "Handy Drive LED" + version + #CRLF$ +
+                            "Using Custom (IconSet) IS:" + icon1 + #CRLF$ +
                             "Email: zonemaster@yahoo.com", #PB_MessageRequester_Info)
 EndProcedure
 
@@ -310,7 +310,7 @@ Repeat
   
   If ElapsedMilliseconds() > TimeOut
     If TimeOut
-      SysTrayIconToolTip(1, "RC: " + Str((dp\ReadCount - Count_Read)*12) + " (" + StrU(dp\BytesRead/$100000, #PB_Quad) + " MB) | WC: " + Str((dp\WriteCount - Count_Write)*12) + " (" + StrU(dp\BytesWritten/$100000, #PB_Quad) + " MB) | IS=#"+flag1)
+      SysTrayIconToolTip(1, "RC: " + Str((dp\ReadCount - Count_Read)*12) + " (" + StrU(dp\BytesRead/$100000, #PB_Quad) + " MB) | WC: " + Str((dp\WriteCount - Count_Write)*12) + " (" + StrU(dp\BytesWritten/$100000, #PB_Quad) + " MB) | IS:"+icon1)
     EndIf
     Count_Read = dp\ReadCount
     Count_Write = dp\WriteCount
@@ -327,7 +327,7 @@ Repeat
   If EventID = #PB_Event_Menu
     Select EventMenu()
       Case 1
-        About(version)
+        About(icon1,version)
       Case 2
         Help()
       Case 3
@@ -350,15 +350,15 @@ Repeat
         ChangeSysTrayIcon(1, IdIcon3)
         SysTrayIconToolTip(1, "Handy Drive LED" + version)
         Delay(mTime/2)
-        flag1 = Random(numicl, 1)
-        If flag1 < 1 : flag1 = 1 : EndIf
-        iconlib = "IconLibs\HandyDrvLED." + flag1 + ".icl"
+        icon1 = Random(numicl, 1)
+        If icon1 < 1 : icon1 = 1 : EndIf
+        iconlib = "IconLibs\HandyDrvLED." + icon1 + ".icl"
         IdIcon1=ExtractIcon_(0, iconlib, 0)     
         IdIcon2=ExtractIcon_(0, iconlib, 1)
         IdIcon3=ExtractIcon_(0, iconlib, 2)
         IdIcon4=ExtractIcon_(0, iconlib, 3)
         ChangeSysTrayIcon(1, IdIcon3)
-        SysTrayIconToolTip(1, "Changing to Icon Set #" + flag1)
+        SysTrayIconToolTip(1, "Changing to (IconSet) IS:" + icon1)
         Delay(mTime/2)
       Case 6
         Exit()    
@@ -371,9 +371,8 @@ Repeat
   
 Until Exit = 1
 
-; IDE Options = PureBasic 6.10 beta 6 (Windows - x64)
-; CursorPosition = 146
-; FirstLine = 132
+; IDE Options = PureBasic 6.11 LTS Beta 1 (Windows - x64)
+; CursorPosition = 218
 ; Folding = --
 ; Optimizer
 ; EnableThread
@@ -385,10 +384,10 @@ Until Exit = 1
 ; DisableDebugger
 ; IncludeVersionInfo
 ; VersionField0 = 0,0,0,1
-; VersionField1 = 0,0,1,8
+; VersionField1 = 0,0,1,9
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyDrvLED
-; VersionField4 = v0.0.1.8
+; VersionField4 = v0.0.1.9
 ; VersionField5 = v0.0.0.1
 ; VersionField6 = Handy Drive LED
 ; VersionField7 = HandyDrvLED
