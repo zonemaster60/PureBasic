@@ -5,7 +5,7 @@
 #WindowWidth=365
 #WindowHeight=70
 
-iconlib.s = "HandyMPlayer.icl"
+iconlib.s = "files\HandyMPlayer.icl"
 AboutIcon = ExtractIcon_(0, iconlib, 0)     
 LoadIcon = ExtractIcon_(0, iconlib, 1)
 PauseIcon = ExtractIcon_(0, iconlib, 2)
@@ -264,16 +264,15 @@ If OpenWindow(0, 100, 100, #WindowWidth+50, #WindowHeight+25, "Handy Media Playe
 EndIf
 End
 
-; IDE Options = PureBasic 6.11 LTS Beta 3 (Windows - x64)
-; CursorPosition = 32
-; FirstLine = 12
+; IDE Options = PureBasic 6.12 LTS (Windows - x64)
+; CursorPosition = 7
 ; Folding = -
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableUser
 ; UseIcon = HandyMPlayer.ico
-; Executable = HandyMPlayer.exe
+; Executable = ..\HandyMPlayer.exe
 ; Debugger = IDE
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,0
@@ -291,4 +290,3 @@ End
 ; VersionField14 = http://www.facebook.com/DavesPCPortal
 ; VersionField15 = VOS_NT_WINDOWS32
 ; VersionField16 = VFT_APP
-; Watchlist = MaxProgress;MovieProgress;MovieState
