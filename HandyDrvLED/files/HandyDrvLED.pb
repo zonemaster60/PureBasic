@@ -32,8 +32,8 @@ EndProcedure
 Define drv.i
 drv$ = Chr(drv) + ":\"
 numicl.i = 0
-mTime.i = 4000 ; 4 secs - was 5000
-version.s = " v0.0.2.0 (20241706)"
+mTime.f = 2500 ; 2.5 secs - was 5000
+version.s = " v0.0.2.1 (20251501)"
 Global hdh
 
 If ExamineDirectory(0, "IconLibs\", "*.icl")
@@ -257,9 +257,9 @@ Repeat
   
 Until Exit = 1
 
-; IDE Options = PureBasic 6.11 LTS Beta 3 (Windows - x64)
-; CursorPosition = 15
-; FirstLine = 15
+; IDE Options = PureBasic 6.20 Beta 2 (Windows - x64)
+; CursorPosition = 34
+; FirstLine = 232
 ; Folding = --
 ; Optimizer
 ; EnableThread
@@ -267,14 +267,14 @@ Until Exit = 1
 ; DPIAware
 ; DllProtection
 ; UseIcon = HandyDrvLED.ico
-; Executable = HandyDrvLED.exe
+; Executable = ..\HandyDrvLED.exe
 ; DisableDebugger
 ; IncludeVersionInfo
 ; VersionField0 = 0,0,0,1
-; VersionField1 = 0,0,2,0
+; VersionField1 = 0,0,2,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyDrvLED
-; VersionField4 = v0.0.2.0
+; VersionField4 = v0.0.2.1
 ; VersionField5 = v0.0.0.1
 ; VersionField6 = Handy Drive LED
 ; VersionField7 = HandyDrvLED
