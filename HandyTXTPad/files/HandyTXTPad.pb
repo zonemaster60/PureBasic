@@ -21,14 +21,15 @@ Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_
   If Req = #PB_MessageRequester_Yes
     End
   EndIf
-; IDE Options = PureBasic 6.11 LTS Beta 3 (Windows - x64)
-; CursorPosition = 1
+; IDE Options = PureBasic 6.21 (Windows - x64)
+; CursorPosition = 22
 ; Optimizer
+; EnableThread
 ; EnableXP
 ; EnableUser
 ; DPIAware
 ; UseIcon = HandyTXTPad.ico
-; Executable = HandyTXTPad.exe
+; Executable = ..\HandyTXTPad.exe
 ; IncludeVersionInfo
 ; VersionField0 = 0,0,0,1
 ; VersionField1 = 0,0,0,6
