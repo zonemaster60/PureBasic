@@ -1,4 +1,4 @@
-﻿; ***************** syncstuff by David Scouten *****************
+﻿; ***************** handysync by David Scouten *****************
 ; ******************* zonemaster@yahoo.com ********************
 ;
 EnableExplicit
@@ -15,7 +15,7 @@ Global NewMap folderPaths.s() ; Holds relative folder paths
 Global NewMap createdFolders.i() ; Tracks folders created during this session
 
 ; Logging
-Global logFile.s = GetUserDirectory(#PB_Directory_Documents) + "SyncStuff.log"
+Global logFile.s = GetUserDirectory(#PB_Directory_Documents) + "HandySync.log"
 Global QuitRequested = #False, loggingEnabled.i = #True, changeFolder = #False
 
 ; Sync Timing
@@ -183,7 +183,7 @@ EndProcedure
 
 ; Initializes the progress window and its gadgets
 Procedure InitProgressWindow()
-  progressWindow = OpenWindow(#PB_Any, 0, 0, 420, 400, "SyncStuff - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered |
+  progressWindow = OpenWindow(#PB_Any, 0, 0, 420, 400, "HandySync - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered |
                                                                                  #PB_Window_MinimizeGadget)
   fileList = ListViewGadget(#PB_Any, 10, 10, 400, 260, #PB_ListView_MultiSelect)
   progressLabel = TextGadget(#PB_Any, 10, 280, 400, 50, "Status: Starting...")
@@ -384,8 +384,8 @@ Procedure MonitorFolders()
   currentFileIndex = 0
 
   If totalFiles = 0
-    AddGadgetItem(fileList, -1, "No stuff to sync.")
-    SetGadgetText(progressLabel, "Status: No stuff to sync.")
+    AddGadgetItem(fileList, -1, "No files/folders to sync.")
+    SetGadgetText(progressLabel, "Status: No files/folders to sync.")
   EndIf
 
   Repeat
@@ -448,16 +448,15 @@ SelectFolders()
 MonitorFolders()
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 434
-; FirstLine = 406
+; CursorPosition = 415
 ; Folding = ---
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DllProtection
-; UseIcon = SyncStuff.ico
-; Executable = ..\syncstuff.exe
+; UseIcon = HandySync.ico
+; Executable = ..\HandySync.exe
 ; IncludeVersionInfo
 ; VersionField0 = 0,0,0,0
 ; VersionField1 = 0,0,0,0
