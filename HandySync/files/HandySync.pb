@@ -16,7 +16,7 @@ Global NewMap createdFolders.i() ; Tracks folders created during this session
 
 ; Logging
 Global logFile.s = GetUserDirectory(#PB_Directory_Documents) + "HandySync.log"
-Global QuitRequested = #False, loggingEnabled.i = #True, changeFolder = #False
+Global loggingEnabled.i = #True, changeFolder = #False
 
 ; Sync Timing
 Global syncTime.i = 5000 ;change this to adjust time between syncing.
@@ -30,7 +30,7 @@ Global folderButton, exitButton
 ; Counters
 Global totalFiles.i, currentFileIndex.i
 Global copiedCount.i, updatedCount.i, errorCount.i, folderCount.i
-Global version.s = "v0.1.0.5"
+Global version.s = "v0.1.1.0"
 
 ; Exit here
 Procedure Exit()
@@ -436,7 +436,7 @@ Procedure MonitorFolders()
         Exit()
     EndSelect
 
-  Until QuitRequested
+  ForEver
 
   LogSync("Shutdown", "System", "Monitoring stopped")
 EndProcedure
@@ -448,7 +448,8 @@ SelectFolders()
 MonitorFolders()
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 415
+; CursorPosition = 18
+; FirstLine = 6
 ; Folding = ---
 ; Optimizer
 ; EnableThread
