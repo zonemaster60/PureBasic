@@ -30,7 +30,7 @@ Global folderButton, exitButton
 ; Counters
 Global totalFiles.i, currentFileIndex.i
 Global copiedCount.i, updatedCount.i, errorCount.i, folderCount.i
-Global version.s = "v0.1.1.0"
+Global version.s = "v0.1.1.5"
 
 ; Exit here
 Procedure Exit()
@@ -183,7 +183,7 @@ EndProcedure
 
 ; Initializes the progress window and its gadgets
 Procedure InitProgressWindow()
-  progressWindow = OpenWindow(#PB_Any, 0, 0, 420, 400, "HandySync - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered |
+  progressWindow = OpenWindow(#PB_Any, 0, 0, 420, 390, "HandySync - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered |
                                                                                  #PB_Window_MinimizeGadget)
   fileList = ListViewGadget(#PB_Any, 10, 10, 400, 260, #PB_ListView_MultiSelect)
   progressLabel = TextGadget(#PB_Any, 10, 280, 400, 50, "Status: Starting...")
@@ -448,8 +448,7 @@ SelectFolders()
 MonitorFolders()
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 18
-; FirstLine = 6
+; CursorPosition = 32
 ; Folding = ---
 ; Optimizer
 ; EnableThread
