@@ -36,7 +36,7 @@ Global folderButton, exitButton
 ; Counters
 Global totalFiles.i, currentFileIndex.i
 Global copiedCount.i, updatedCount.i, errorCount.i, folderCount.i
-Global version.s = "v0.1.3.0"
+Global version.s = "v0.1.3.5"
 
 ; Exit here
 Procedure Exit()
@@ -237,7 +237,7 @@ Procedure InitProgressWindow()
   SetGadgetState(#BufferSizeCombo, 2) ; Default to 256 KB
   GadgetToolTip(#BufferSizeCombo, "Select Buffer Size")
   CheckBoxGadget(#AutoBufferCheck, 120, 390, 140, 20, "Auto-adjust buffer size")
-  SetGadgetState(#AutoBufferCheck, #False)
+  SetGadgetState(#AutoBufferCheck, #True)
 EndProcedure
 
 ; Updates the progress bar and file list during sync
@@ -489,8 +489,8 @@ SelectFolders()
 MonitorFolders()
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 238
-; FirstLine = 210
+; CursorPosition = 38
+; FirstLine = 9
 ; Folding = ---
 ; Optimizer
 ; EnableThread
