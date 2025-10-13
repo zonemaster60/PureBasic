@@ -3,13 +3,15 @@
 ;
 EnableExplicit
 
-; Structure to hold file metadata (currently just the timestamp)
+; Structure to hold file metadata (timestamp)
 Structure FileInfo
   time.q
 EndStructure
 
+; Enumerations
 Enumeration
   #BufferSizeCombo
+  #AutoBufferCheck
 EndEnumeration
 
 ; Folder paths
@@ -34,7 +36,7 @@ Global folderButton, exitButton
 ; Counters
 Global totalFiles.i, currentFileIndex.i
 Global copiedCount.i, updatedCount.i, errorCount.i, folderCount.i
-Global version.s = "v0.1.2.0"
+Global version.s = "v0.1.3.0"
 
 ; Exit here
 Procedure Exit()
@@ -71,21 +73,34 @@ Procedure.q GetFileTime(path.s)
 EndProcedure
 
 ; Get and return the bufferSize
-Procedure GetSelectedBufferSize()
-  Select GetGadgetText(#BufferSizeCombo)
-    Case "64 KB"   : ProcedureReturn 65536
-    Case "128 KB"  : ProcedureReturn 131072
-    Case "256 KB"  : ProcedureReturn 262144
-    Case "512 KB"  : ProcedureReturn 524288
-    Case "1 MB"    : ProcedureReturn 1048576
-  EndSelect
-  ProcedureReturn 262144 ; Default fallback
+Procedure GetSelectedBufferSize(fileSize.q)
+  If GetGadgetState(#AutoBufferCheck)
+    ; Auto-adjust based on file size
+    If fileSize < 1048576       ; < 1 MB
+      ProcedureReturn 65536     ; 64 KB
+    ElseIf fileSize < 10485760  ; < 10 MB
+      ProcedureReturn 262144    ; 256 KB
+    ElseIf fileSize < 52428800  ; < 50 MB
+      ProcedureReturn 524288    ; 512 KB
+    Else
+      ProcedureReturn 1048576   ; 1 MB
+    EndIf
+  Else
+    ; Manual selection
+    Select GetGadgetText(#BufferSizeCombo)
+      Case "64 KB"   : ProcedureReturn 65536
+      Case "128 KB"  : ProcedureReturn 131072
+      Case "256 KB"  : ProcedureReturn 262144
+      Case "512 KB"  : ProcedureReturn 524288
+      Case "1 MB"    : ProcedureReturn 1048576
+    EndSelect
+    ProcedureReturn 262144 ; Default fallback
+  EndIf
 EndProcedure
 
 ; fast file copy
-Procedure FastCopyFile(source.s, dest.s)
+Procedure FastCopyFile(source.s, dest.s, bufferSize.i)
 
-  Protected bufferSize = 262144 ; 256KB Buffer
   Protected *buffer = AllocateMemory(bufferSize)
   If *buffer = 0
     AddGadgetItem(fileList, -1, "[ERROR] Memory allocation failed")
@@ -221,6 +236,8 @@ Procedure InitProgressWindow()
   AddGadgetItem(#BufferSizeCombo, -1, "1 MB")
   SetGadgetState(#BufferSizeCombo, 2) ; Default to 256 KB
   GadgetToolTip(#BufferSizeCombo, "Select Buffer Size")
+  CheckBoxGadget(#AutoBufferCheck, 120, 390, 140, 20, "Auto-adjust buffer size")
+  SetGadgetState(#AutoBufferCheck, #False)
 EndProcedure
 
 ; Updates the progress bar and file list during sync
@@ -255,14 +272,14 @@ Procedure CopyFileWithProgress(source.s, dest.s, action.s)
   currentFileIndex + 1
   UpdateProgressUI(source) 
   
-  ; Perform a fast file copy (NOT working right)
-  If FastCopyFile(source, dest) = #False
-    AddGadgetItem(fileList, -1, "[ERROR] FastCopy failed: " + source)
-    LogSync("[Error] FastCopy failed: ", "", source)
+  Protected bufferSize = GetSelectedBufferSize(FileSize(source))
+  If FastCopyFile(source, dest, bufferSize) = #False
+    AddGadgetItem(fileList, -1, "[ERROR] FastCopyFile failed: " + source)
+    LogSync("[Error] FastCopyFile failed: ", "", source)
     errorCount + 1
     ProcedureReturn
   EndIf
-    
+   
 ; Log successful copy/update
   LogSync(action, source, dest)
   If action = "Copied"
@@ -472,8 +489,8 @@ SelectFolders()
 MonitorFolders()
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 72
-; FirstLine = 21
+; CursorPosition = 238
+; FirstLine = 210
 ; Folding = ---
 ; Optimizer
 ; EnableThread
@@ -482,6 +499,7 @@ MonitorFolders()
 ; DllProtection
 ; UseIcon = HandySync.ico
 ; Executable = ..\HandySync.exe
+; DisableDebugger
 ; IncludeVersionInfo
 ; VersionField0 = 0,0,0,0
 ; VersionField1 = 0,0,0,0
