@@ -8,6 +8,10 @@ Structure FileInfo
   time.q
 EndStructure
 
+Enumeration
+  #BufferSizeCombo
+EndEnumeration
+
 ; Folder paths
 Global folderA.s
 Global folderB.s
@@ -30,7 +34,7 @@ Global folderButton, exitButton
 ; Counters
 Global totalFiles.i, currentFileIndex.i
 Global copiedCount.i, updatedCount.i, errorCount.i, folderCount.i
-Global version.s = "v0.1.1.5"
+Global version.s = "v0.1.2.0"
 
 ; Exit here
 Procedure Exit()
@@ -64,6 +68,18 @@ Procedure.q GetFileTime(path.s)
     ProcedureReturn (info\dwHighDateTime << 32) + info\dwLowDateTime
   EndIf
   ProcedureReturn 0
+EndProcedure
+
+; Get and return the bufferSize
+Procedure GetSelectedBufferSize()
+  Select GetGadgetText(#BufferSizeCombo)
+    Case "64 KB"   : ProcedureReturn 65536
+    Case "128 KB"  : ProcedureReturn 131072
+    Case "256 KB"  : ProcedureReturn 262144
+    Case "512 KB"  : ProcedureReturn 524288
+    Case "1 MB"    : ProcedureReturn 1048576
+  EndSelect
+  ProcedureReturn 262144 ; Default fallback
 EndProcedure
 
 ; fast file copy
@@ -183,7 +199,7 @@ EndProcedure
 
 ; Initializes the progress window and its gadgets
 Procedure InitProgressWindow()
-  progressWindow = OpenWindow(#PB_Any, 0, 0, 420, 390, "HandySync - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered |
+  progressWindow = OpenWindow(#PB_Any, 0, 0, 420, 420, "HandySync - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered |
                                                                                  #PB_Window_MinimizeGadget)
   fileList = ListViewGadget(#PB_Any, 10, 10, 400, 260, #PB_ListView_MultiSelect)
   progressLabel = TextGadget(#PB_Any, 10, 280, 400, 50, "Status: Starting...")
@@ -197,6 +213,14 @@ Procedure InitProgressWindow()
   GadgetToolTip(pauseButton, "Pause or Resume the current sync")
   exitButton = ButtonGadget(#PB_Any, 320, 360, 90, 20, "Exit")
   GadgetToolTip(exitButton, "Exit the program")
+  ComboBoxGadget(#BufferSizeCombo, 10, 390, 90, 20)
+  AddGadgetItem(#BufferSizeCombo, -1, "64 KB")
+  AddGadgetItem(#BufferSizeCombo, -1, "128 KB")
+  AddGadgetItem(#BufferSizeCombo, -1, "256 KB")
+  AddGadgetItem(#BufferSizeCombo, -1, "512 KB")
+  AddGadgetItem(#BufferSizeCombo, -1, "1 MB")
+  SetGadgetState(#BufferSizeCombo, 2) ; Default to 256 KB
+  GadgetToolTip(#BufferSizeCombo, "Select Buffer Size")
 EndProcedure
 
 ; Updates the progress bar and file list during sync
@@ -448,7 +472,8 @@ SelectFolders()
 MonitorFolders()
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 32
+; CursorPosition = 72
+; FirstLine = 21
 ; Folding = ---
 ; Optimizer
 ; EnableThread
