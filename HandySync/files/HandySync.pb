@@ -36,7 +36,7 @@ Global folderButton, exitButton
 ; Counters
 Global totalFiles.i, currentFileIndex.i
 Global copiedCount.i, updatedCount.i, errorCount.i, folderCount.i
-Global version.s = "v0.1.4.0"
+Global version.s = "v0.1.5.0"
 
 ; Exit here
 Procedure Exit()
@@ -214,9 +214,10 @@ EndProcedure
 
 ; Initializes the progress window and its gadgets
 Procedure InitProgressWindow()
-  progressWindow = OpenWindow(#PB_Any, 0, 0, 420, 420, "HandySync - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered |
+  progressWindow = OpenWindow(#PB_Any, 0, 0, 420, 425, "HandySync - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered |
                                                                                  #PB_Window_MinimizeGadget)
   fileList = ListViewGadget(#PB_Any, 10, 10, 400, 260, #PB_ListView_MultiSelect)
+  AddGadgetItem(fileList, -1, "Syncing... SOURCE: " + folderA + " -> DESTINATION: " + folderB)
   progressLabel = TextGadget(#PB_Any, 10, 280, 400, 50, "Status: Starting...")
   progressBar = ProgressBarGadget(#PB_Any, 10, 330, 400, 20, 0, 100)
   GadgetToolTip(progressBar, "Current file being processed")
@@ -235,8 +236,8 @@ Procedure InitProgressWindow()
   AddGadgetItem(#BufferSizeCombo, -1, "512 KB")
   AddGadgetItem(#BufferSizeCombo, -1, "1 MB")
   SetGadgetState(#BufferSizeCombo, 2) ; Default to 256 KB
-  GadgetToolTip(#BufferSizeCombo, "Select the file buffer size")
-  CheckBoxGadget(#AutoBufferCheck, 120, 390, 140, 20, "Auto-adjust buffer size")
+  GadgetToolTip(#BufferSizeCombo, "Select the copy buffer size")
+  CheckBoxGadget(#AutoBufferCheck, 120, 390, 190, 20, "Auto-adjust the copy buffer size")
   SetGadgetState(#AutoBufferCheck, #False)
 EndProcedure
 
@@ -390,9 +391,10 @@ Procedure SyncFolders()
   SetGadgetState(progressBar, 100)
   LogSync("Status", "Sync Completed", Str(copiedCount) + " copied, " + Str(updatedCount) +
                                       " updated, " + Str(errorCount) + " errors, " + Str(folderCount) +
-                                      " folders scanned. Time: " + StrF(syncDuration, 2) + " seconds.")
+                                      " folders scanned. Time: " + StrF(syncDuration, 2) + " seconds.")  
+  DisableGadget(folderButton, #False)
+  DisableGadget(exitButton, #False)
   changeFolder = #True
-
 EndProcedure
 
 ; select folders
@@ -403,14 +405,12 @@ If folderA = ""
   MessageRequester("Error", "'Source' Folder not selected, Exiting.", #PB_MessageRequester_Error)
   End
 EndIf
-LogSync(">>>>> SOURCE <<<<<: ", "", folderA)
 
 folderB = PathRequester("Select 'Dest' Folder to Sync", "C:\")
 If folderB = ""
   MessageRequester("Error", "'Dest' Folder not selected, Exiting.", #PB_MessageRequester_Error)
   End
 EndIf
-LogSync(">>>>> DESTIN <<<<<: ", "", folderB)
 
 If Right(folderA, 1) <> "\" : folderA + "\" : EndIf
 If Right(folderB, 1) <> "\" : folderB + "\" : EndIf
@@ -432,6 +432,8 @@ Procedure MonitorFolders()
 
   Repeat
     If syncPaused = #False And ElapsedMilliseconds() - lastSync > syncTime
+      DisableGadget(folderButton, #True)
+      DisableGadget(exitButton, #True)
       SyncFolders()
       lastSync = ElapsedMilliseconds()
     EndIf
@@ -496,9 +498,9 @@ SelectFolders()
 ; monitor the folders for changes
 MonitorFolders()
 
-; IDE Options = PureBasic 6.21 (Windows - x64)
+; IDE Options = PureBasic 6.30 beta 3 (Windows - x64)
 ; CursorPosition = 38
-; FirstLine = 15
+; FirstLine = 21
 ; Folding = ---
 ; Optimizer
 ; EnableThread
@@ -509,11 +511,15 @@ MonitorFolders()
 ; Executable = ..\HandySync.exe
 ; DisableDebugger
 ; IncludeVersionInfo
-; VersionField0 = 0,0,0,0
-; VersionField1 = 0,0,0,0
+; VersionField0 = 1,0,0,0
+; VersionField1 = 0,1,5,0
 ; VersionField2 = ZoneSoft
-; VersionField3 = SyncStuff
+; VersionField3 = HandySync
+; VersionField4 = 0.1.5.0
+; VersionField5 = 1.0.0.0
 ; VersionField6 = Syncs Files and Folders
+; VersionField7 = HandySync
+; VersionField8 = HandySync.exe
 ; VersionField9 = David Scouten
 ; VersionField13 = zonemaster@yahoo.com
 ; VersionField14 = www.github.com/zonemaster60
