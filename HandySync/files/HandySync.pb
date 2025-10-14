@@ -36,7 +36,7 @@ Global folderButton, exitButton
 ; Counters
 Global totalFiles.i, currentFileIndex.i
 Global copiedCount.i, updatedCount.i, errorCount.i, folderCount.i
-Global version.s = "v0.1.3.5"
+Global version.s = "v0.1.4.0"
 
 ; Exit here
 Procedure Exit()
@@ -235,9 +235,9 @@ Procedure InitProgressWindow()
   AddGadgetItem(#BufferSizeCombo, -1, "512 KB")
   AddGadgetItem(#BufferSizeCombo, -1, "1 MB")
   SetGadgetState(#BufferSizeCombo, 2) ; Default to 256 KB
-  GadgetToolTip(#BufferSizeCombo, "Select Buffer Size")
+  GadgetToolTip(#BufferSizeCombo, "Select the file buffer size")
   CheckBoxGadget(#AutoBufferCheck, 120, 390, 140, 20, "Auto-adjust buffer size")
-  SetGadgetState(#AutoBufferCheck, #True)
+  SetGadgetState(#AutoBufferCheck, #False)
 EndProcedure
 
 ; Updates the progress bar and file list during sync
@@ -391,7 +391,8 @@ Procedure SyncFolders()
   LogSync("Status", "Sync Completed", Str(copiedCount) + " copied, " + Str(updatedCount) +
                                       " updated, " + Str(errorCount) + " errors, " + Str(folderCount) +
                                       " folders scanned. Time: " + StrF(syncDuration, 2) + " seconds.")
-changeFolder = #True
+  changeFolder = #True
+
 EndProcedure
 
 ; select folders
@@ -451,6 +452,13 @@ Procedure MonitorFolders()
 
     Select WaitWindowEvent(100)
       Case #PB_Event_Gadget
+        
+        Select EventGadget()
+        Case #AutoBufferCheck
+          ; Enable/disable combo box based on checkbox state
+          DisableGadget(#BufferSizeCombo, GetGadgetState(#AutoBufferCheck))
+        EndSelect
+  
         Select EventGadget()
           Case pauseButton
           syncPaused = 1 - syncPaused ; Toggle
@@ -490,7 +498,7 @@ MonitorFolders()
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
 ; CursorPosition = 38
-; FirstLine = 9
+; FirstLine = 15
 ; Folding = ---
 ; Optimizer
 ; EnableThread
