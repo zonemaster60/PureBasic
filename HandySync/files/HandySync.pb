@@ -22,11 +22,11 @@ Global NewMap createdFolders.i() ; Tracks folders created during this session
 
 ; Logging
 Global logFile.s = GetUserDirectory(#PB_Directory_Documents) + "HandySync.log"
-Global loggingEnabled.i = #True, changeFolder = #False
+Global loggingEnabled.i = #True
 
 ; Sync Timing
 Global syncTime.i = 5000 ;change this to adjust time between syncing.
-Global syncStartTime.q, syncEndTime.q, syncDuration.d, syncPaused.i = #False
+Global syncStartTime.q, syncEndTime.q, syncDuration.d, syncPaused.i = #True
 Global blinkTimer.q = 0, blinkState.i = 0
 
 ; UI elements
@@ -36,7 +36,7 @@ Global folderButton, exitButton, pauseButton
 ; Counters
 Global totalFiles.i, currentFileIndex.i
 Global copiedCount.i, updatedCount.i, errorCount.i, folderCount.i
-Global version.s = "v0.1.5.0"
+Global version.s = "v0.1.6.0"
 
 ; Exit here
 Procedure Exit()
@@ -218,14 +218,18 @@ Procedure InitProgressWindow()
                                                                                  #PB_Window_MinimizeGadget)
   fileList = ListViewGadget(#PB_Any, 10, 10, 400, 260, #PB_ListView_MultiSelect)
   AddGadgetItem(fileList, -1, "Syncing... SOURCE: " + folderA + " -> DESTINATION: " + folderB)
-  progressLabel = TextGadget(#PB_Any, 10, 280, 400, 50, "Status: Starting...")
+  If syncPaused
+    progressLabel = TextGadget(#PB_Any, 10, 280, 400, 50, "")
+  Else
+    progressLabel = TextGadget(#PB_Any, 10, 280, 400, 50, "Status: Starting...")
+  EndIf
   progressBar = ProgressBarGadget(#PB_Any, 10, 330, 400, 20, 0, 100)
   GadgetToolTip(progressBar, "Current file being processed")
   loggingCheckbox = CheckBoxGadget(#PB_Any, 10, 360, 105, 20, "Enable Logging")
   SetGadgetState(loggingCheckbox, #True)
   folderButton = ButtonGadget(#PB_Any, 120, 360, 90, 20, "Change Folders")
   GadgetToolTip(folderButton,"Change the Source and Destination folders")
-  pauseButton = ButtonGadget(#PB_Any, 220, 360, 90, 20, "PAUSE")
+  pauseButton = ButtonGadget(#PB_Any, 220, 360, 90, 20, "PAUSED")
   GadgetToolTip(pauseButton, "Pause or Resume the current sync")
   exitButton = ButtonGadget(#PB_Any, 320, 360, 90, 20, "Exit")
   GadgetToolTip(exitButton, "Exit the program")
@@ -393,7 +397,6 @@ Procedure SyncFolders()
                                       " folders scanned. Time: " + StrF(syncDuration, 2) + " seconds.")  
   DisableGadget(folderButton, #False)
   DisableGadget(exitButton, #False)
-  changeFolder = #True
 EndProcedure
 
 ; select folders
@@ -405,9 +408,9 @@ If folderA = ""
   End
 EndIf
 
-folderB = PathRequester("Select 'Dest' Folder to Sync", "C:\")
+folderB = PathRequester("Select 'Destination' Folder to Sync", "C:\")
 If folderB = ""
-  MessageRequester("Error", "'Dest' Folder not selected, Exiting.", #PB_MessageRequester_Error)
+  MessageRequester("Error", "'Destination' Folder not selected, Exiting.", #PB_MessageRequester_Error)
   End
 EndIf
 
@@ -455,12 +458,11 @@ Procedure MonitorFolders()
       Case #PB_Event_Gadget
         
         Select EventGadget()
-        Case #AutoBufferCheck
+            
+          Case #AutoBufferCheck
           ; Enable/disable combo box based on checkbox state
           DisableGadget(#BufferSizeCombo, GetGadgetState(#AutoBufferCheck))
-        EndSelect
-  
-        Select EventGadget()
+            
           Case pauseButton
           syncPaused = 1 - syncPaused ; Toggle
           blinkTimer = ElapsedMilliseconds()
@@ -472,15 +474,15 @@ Procedure MonitorFolders()
             SetGadgetText(pauseButton, "PAUSE")
             SetGadgetText(progressLabel, "Status: RESUMED.")
           EndIf
+          
           Case folderButton
-            If changeFolder = #True
-              CloseWindow(progressWindow)
-              SelectFolders()
-              MonitorFolders()
-            EndIf
+            CloseWindow(progressWindow)
+            SelectFolders()
+            MonitorFolders()
+            
           Case exitButton
             Exit()
-          EndSelect
+        EndSelect
 
       Case #PB_Event_CloseWindow
         Exit()
@@ -498,8 +500,8 @@ SelectFolders()
 MonitorFolders()
 
 ; IDE Options = PureBasic 6.30 beta 3 (Windows - x64)
-; CursorPosition = 327
-; FirstLine = 304
+; CursorPosition = 36
+; FirstLine = 412
 ; Folding = ---
 ; Optimizer
 ; EnableThread
@@ -511,10 +513,10 @@ MonitorFolders()
 ; DisableDebugger
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,0
-; VersionField1 = 0,1,5,0
+; VersionField1 = 0,1,6,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandySync
-; VersionField4 = 0.1.5.0
+; VersionField4 = 0.1.6.0
 ; VersionField5 = 1.0.0.0
 ; VersionField6 = Syncs Files and Folders
 ; VersionField7 = HandySync
