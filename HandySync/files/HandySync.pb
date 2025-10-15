@@ -30,8 +30,8 @@ Global syncStartTime.q, syncEndTime.q, syncDuration.d, syncPaused.i = #False
 Global blinkTimer.q = 0, blinkState.i = 0
 
 ; UI elements
-Global progressWindow, progressBar, progressLabel, fileList, loggingCheckbox, pauseButton
-Global folderButton, exitButton
+Global progressWindow, progressBar, progressLabel, fileList, loggingCheckbox
+Global folderButton, exitButton, pauseButton
 
 ; Counters
 Global totalFiles.i, currentFileIndex.i
@@ -225,7 +225,7 @@ Procedure InitProgressWindow()
   SetGadgetState(loggingCheckbox, #True)
   folderButton = ButtonGadget(#PB_Any, 120, 360, 90, 20, "Change Folders")
   GadgetToolTip(folderButton,"Change the Source and Destination folders")
-  pauseButton = ButtonGadget(#PB_Any, 220, 360, 90, 20, "Sync->Pause")
+  pauseButton = ButtonGadget(#PB_Any, 220, 360, 90, 20, "PAUSE")
   GadgetToolTip(pauseButton, "Pause or Resume the current sync")
   exitButton = ButtonGadget(#PB_Any, 320, 360, 90, 20, "Exit")
   GadgetToolTip(exitButton, "Exit the program")
@@ -326,7 +326,6 @@ Procedure SyncFolders()
   updatedCount = 0
   errorCount  = 0
   folderCount = 0
-  currentFileIndex = 0
 
   syncStartTime = ElapsedMilliseconds()
   
@@ -449,7 +448,7 @@ Procedure MonitorFolders()
         EndIf
       EndIf
     Else
-      SetGadgetText(pauseButton, "Sync->Pause")
+      SetGadgetText(pauseButton, "PAUSE")
     EndIf
 
     Select WaitWindowEvent(100)
@@ -467,10 +466,10 @@ Procedure MonitorFolders()
           blinkTimer = ElapsedMilliseconds()
           blinkState = 0
           If syncPaused
-            SetGadgetText(pauseButton, "Sync->Resume")
+            SetGadgetText(pauseButton, "RESUME")
             SetGadgetText(progressLabel, "Status: PAUSED.")
           Else
-            SetGadgetText(pauseButton, "Sync->Pause")
+            SetGadgetText(pauseButton, "PAUSE")
             SetGadgetText(progressLabel, "Status: RESUMED.")
           EndIf
           Case folderButton
@@ -499,8 +498,8 @@ SelectFolders()
 MonitorFolders()
 
 ; IDE Options = PureBasic 6.30 beta 3 (Windows - x64)
-; CursorPosition = 38
-; FirstLine = 21
+; CursorPosition = 327
+; FirstLine = 304
 ; Folding = ---
 ; Optimizer
 ; EnableThread
