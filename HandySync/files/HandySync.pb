@@ -36,7 +36,7 @@ Global folderButton, exitButton, pauseButton
 ; Counters
 Global totalFiles.i, currentFileIndex.i
 Global copiedCount.i, updatedCount.i, errorCount.i, folderCount.i
-Global version.s = "v0.1.6.0"
+Global version.s = "v0.1.6.5"
 
 ; Exit here
 Procedure Exit()
@@ -104,6 +104,7 @@ Procedure FastCopyFile(source.s, dest.s, bufferSize.i)
   Protected *buffer = AllocateMemory(bufferSize)
   If *buffer = 0
     AddGadgetItem(fileList, -1, "[ERROR] Memory allocation failed")
+    LogSync("[Error] Memory allocation failed", "", "")
     ProcedureReturn #False
   EndIf
 
@@ -201,8 +202,8 @@ Procedure EnsurePathExists(path.s)
         Else
           If Not FindMapElement(createdFolders(), parts)
             AddMapElement(createdFolders(), parts)
-            LogSync("Folder Created", "", parts)
-            AddGadgetItem(fileList, -1, "[Folder] " + parts)
+            LogSync("Folder Created: ", "", parts)
+            AddGadgetItem(fileList, -1, "Folder Created: " + parts)
           EndIf
         EndIf
       EndIf
@@ -217,12 +218,8 @@ Procedure InitProgressWindow()
   progressWindow = OpenWindow(#PB_Any, 0, 0, 420, 425, "HandySync - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered |
                                                                                  #PB_Window_MinimizeGadget)
   fileList = ListViewGadget(#PB_Any, 10, 10, 400, 260, #PB_ListView_MultiSelect)
-  AddGadgetItem(fileList, -1, "Syncing... SOURCE: " + folderA + " -> DESTINATION: " + folderB)
-  If syncPaused
-    progressLabel = TextGadget(#PB_Any, 10, 280, 400, 50, "")
-  Else
-    progressLabel = TextGadget(#PB_Any, 10, 280, 400, 50, "Status: Starting...")
-  EndIf
+  If folderA <> "" Or folderB <> "" : AddGadgetItem(fileList, -1, "Syncing... SOURCE: " + folderA + " -> DESTINATION: " + folderB) : EndIf
+  progressLabel = TextGadget(#PB_Any, 10, 280, 400, 50, "Status: Starting... PAUSED.")
   progressBar = ProgressBarGadget(#PB_Any, 10, 330, 400, 20, 0, 100)
   GadgetToolTip(progressBar, "Current file being processed")
   loggingCheckbox = CheckBoxGadget(#PB_Any, 10, 360, 105, 20, "Enable Logging")
@@ -269,7 +266,7 @@ Procedure CopyFileWithProgress(source.s, dest.s, action.s)
   Protected destFolder.s = GetPathPart(dest)
   AddGadgetItem(fileList, -1, "Ensuring path exists: " + destFolder)
   If EnsurePathExists(destFolder) = #False
-    LogSync("[Error] path doesn't exist: ", "", destFolder) 
+    LogSync("[Error] Path does not exist: ", "", destFolder) 
     errorCount + 1
     ProcedureReturn
   EndIf
@@ -404,19 +401,20 @@ Procedure SelectFolders()
   ; 🗂 Folder selection
 folderA = PathRequester("Select 'Source' Folder to Sync", "C:\")
 If folderA = ""
-  MessageRequester("Error", "'Source' Folder not selected, Exiting.", #PB_MessageRequester_Error)
+  MessageRequester("Error", "'Source' Folder not selected!", #PB_MessageRequester_Error)
   End
 EndIf
 
 folderB = PathRequester("Select 'Destination' Folder to Sync", "C:\")
 If folderB = ""
-  MessageRequester("Error", "'Destination' Folder not selected, Exiting.", #PB_MessageRequester_Error)
+  MessageRequester("Error", "'Destination' Folder not selected!", #PB_MessageRequester_Error)
   End
 EndIf
 
 If Right(folderA, 1) <> "\" : folderA + "\" : EndIf
 If Right(folderB, 1) <> "\" : folderB + "\" : EndIf
 
+AddGadgetItem(fileList, -1, "Please wait, this might take a minute...")
 EndProcedure
 
 ; Main loop that monitors folders and triggers sync
@@ -463,7 +461,8 @@ Procedure MonitorFolders()
           ; Enable/disable combo box based on checkbox state
           DisableGadget(#BufferSizeCombo, GetGadgetState(#AutoBufferCheck))
             
-          Case pauseButton
+        Case pauseButton
+          If folderA = "" Or folderB = "" : SelectFolders() : EndIf
           syncPaused = 1 - syncPaused ; Toggle
           blinkTimer = ElapsedMilliseconds()
           blinkState = 0
@@ -493,15 +492,12 @@ Procedure MonitorFolders()
   LogSync("Shutdown", "System", "Monitoring stopped")
 EndProcedure
 
-; select the folders
-SelectFolders()
-
 ; monitor the folders for changes
 MonitorFolders()
 
 ; IDE Options = PureBasic 6.30 beta 3 (Windows - x64)
-; CursorPosition = 36
-; FirstLine = 412
+; CursorPosition = 416
+; FirstLine = 396
 ; Folding = ---
 ; Optimizer
 ; EnableThread
@@ -513,10 +509,10 @@ MonitorFolders()
 ; DisableDebugger
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,0
-; VersionField1 = 0,1,6,0
+; VersionField1 = 0,1,6,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandySync
-; VersionField4 = 0.1.6.0
+; VersionField4 = 0.1.6.5
 ; VersionField5 = 1.0.0.0
 ; VersionField6 = Syncs Files and Folders
 ; VersionField7 = HandySync
