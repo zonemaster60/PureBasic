@@ -27,7 +27,7 @@ Global loggingEnabled.i = #True
 ; Sync Timing
 Global syncTime.i = 5000 ;change this to adjust time between syncing.
 Global syncStartTime.q, syncEndTime.q, syncDuration.d, syncPaused.i = #True
-Global blinkTimer.q = 0, blinkState.i = 0
+Global blinkTimer.q = 0, blinkState.i = 0, blinkTime.i = 500
 
 ; UI elements
 Global progressWindow, progressBar, progressLabel, fileList, loggingCheckbox
@@ -394,6 +394,8 @@ Procedure SyncFolders()
                                       " folders scanned. Time: " + StrF(syncDuration, 2) + " seconds.")  
   DisableGadget(folderButton, #False)
   DisableGadget(exitButton, #False)
+  DisableGadget(loggingCheckbox, #False)
+  DisableGadget(#AutoBufferCheck, #False)
 EndProcedure
 
 ; select folders
@@ -434,12 +436,14 @@ Procedure MonitorFolders()
     If syncPaused = #False And ElapsedMilliseconds() - lastSync > syncTime
       DisableGadget(folderButton, #True)
       DisableGadget(exitButton, #True)
+      DisableGadget(loggingCheckbox, #True)
+      DisableGadget(#AutoBufferCheck, #True)
       SyncFolders()
       lastSync = ElapsedMilliseconds()
     EndIf
     
     If syncPaused
-      If ElapsedMilliseconds() - blinkTimer > 500
+      If ElapsedMilliseconds() - blinkTimer > blinkTime
         blinkTimer = ElapsedMilliseconds()
         blinkState = 1 - blinkState
         If blinkState
@@ -496,8 +500,8 @@ EndProcedure
 MonitorFolders()
 
 ; IDE Options = PureBasic 6.30 beta 3 (Windows - x64)
-; CursorPosition = 416
-; FirstLine = 396
+; CursorPosition = 445
+; FirstLine = 422
 ; Folding = ---
 ; Optimizer
 ; EnableThread
