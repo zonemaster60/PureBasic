@@ -36,7 +36,7 @@ Global folderButton, exitButton, pauseButton
 ; Counters
 Global totalFiles.i, currentFileIndex.i
 Global copiedCount.i, updatedCount.i, errorCount.i, folderCount.i
-Global version.s = "v0.1.6.5"
+Global version.s = "v0.1.7.0"
 
 ; Exit here
 Procedure Exit()
@@ -396,6 +396,7 @@ Procedure SyncFolders()
   DisableGadget(exitButton, #False)
   DisableGadget(loggingCheckbox, #False)
   DisableGadget(#AutoBufferCheck, #False)
+  DisableGadget(#BufferSizeCombo, #False)
 EndProcedure
 
 ; select folders
@@ -403,13 +404,13 @@ Procedure SelectFolders()
   ; 🗂 Folder selection
 folderA = PathRequester("Select 'Source' Folder to Sync", "C:\")
 If folderA = ""
-  MessageRequester("Error", "'Source' Folder not selected!", #PB_MessageRequester_Error)
+  MessageRequester("Error", "'Source' Folder not selected!, Exiting.", #PB_MessageRequester_Error)
   End
 EndIf
 
 folderB = PathRequester("Select 'Destination' Folder to Sync", "C:\")
 If folderB = ""
-  MessageRequester("Error", "'Destination' Folder not selected!", #PB_MessageRequester_Error)
+  MessageRequester("Error", "'Destination' Folder not selected!, Exiting.", #PB_MessageRequester_Error)
   End
 EndIf
 
@@ -438,6 +439,7 @@ Procedure MonitorFolders()
       DisableGadget(exitButton, #True)
       DisableGadget(loggingCheckbox, #True)
       DisableGadget(#AutoBufferCheck, #True)
+      DisableGadget(#BufferSizeCombo, #True)
       SyncFolders()
       lastSync = ElapsedMilliseconds()
     EndIf
@@ -480,7 +482,7 @@ Procedure MonitorFolders()
           
           Case folderButton
             CloseWindow(progressWindow)
-            SelectFolders()
+            If folderA = "" Or folderB = "" : SelectFolders() : EndIf
             MonitorFolders()
             
           Case exitButton
@@ -500,8 +502,8 @@ EndProcedure
 MonitorFolders()
 
 ; IDE Options = PureBasic 6.30 beta 3 (Windows - x64)
-; CursorPosition = 445
-; FirstLine = 422
+; CursorPosition = 38
+; FirstLine = 9
 ; Folding = ---
 ; Optimizer
 ; EnableThread
@@ -513,10 +515,10 @@ MonitorFolders()
 ; DisableDebugger
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,0
-; VersionField1 = 0,1,6,5
+; VersionField1 = 0,1,7,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandySync
-; VersionField4 = 0.1.6.5
+; VersionField4 = 0.1.7.0
 ; VersionField5 = 1.0.0.0
 ; VersionField6 = Syncs Files and Folders
 ; VersionField7 = HandySync
