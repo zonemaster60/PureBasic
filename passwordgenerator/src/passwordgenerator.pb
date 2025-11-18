@@ -170,7 +170,7 @@ DataSection
   EndOfHelp:
 EndDataSection
 
-; IDE Options = PureBasic 6.21 (Windows - x64)
+; IDE Options = PureBasic 6.30 beta 4 (Windows - x64)
 ; CursorPosition = 137
 ; FirstLine = 108
 ; Folding = -
@@ -178,5 +178,5 @@ EndDataSection
 ; EnableThread
 ; EnableXP
 ; EnableUser
-; UseIcon = passwordgen.ico
+; UseIcon = passwordgenerator.ico
 ; Executable = passwordgenerator.exe
