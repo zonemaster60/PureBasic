@@ -220,7 +220,7 @@ Procedure InitProgressWindow()
   fileList = ListViewGadget(#PB_Any, 10, 10, 400, 260, #PB_ListView_MultiSelect)
   If folderA <> "" Or folderB <> "" : AddGadgetItem(fileList, -1, "Syncing... SOURCE: " + folderA + " -> DESTINATION: " + folderB) : EndIf
   progressLabel = TextGadget(#PB_Any, 10, 280, 400, 50, "Status: Starting... PAUSED.")
-  progressBar = ProgressBarGadget(#PB_Any, 10, 330, 400, 20, 0, 100)
+  progressBar = ProgressBarGadget(#PB_Any, 10, 330, 400, 20, 0, 100, #PB_ProgressBar_Smooth)
   GadgetToolTip(progressBar, "Current file being processed")
   loggingCheckbox = CheckBoxGadget(#PB_Any, 10, 360, 105, 20, "Enable Logging")
   SetGadgetState(loggingCheckbox, #True)
@@ -501,9 +501,9 @@ EndProcedure
 ; monitor the folders for changes
 MonitorFolders()
 
-; IDE Options = PureBasic 6.30 beta 3 (Windows - x64)
-; CursorPosition = 38
-; FirstLine = 9
+; IDE Options = PureBasic 6.30 beta 4 (Windows - x64)
+; CursorPosition = 222
+; FirstLine = 15
 ; Folding = ---
 ; Optimizer
 ; EnableThread
