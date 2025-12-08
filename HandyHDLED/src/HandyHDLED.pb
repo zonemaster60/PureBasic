@@ -126,9 +126,9 @@ If ExamineDirectory(1, ".", iconlib) = 0
   End
 EndIf
 
-; check for running instance
-If FindWindow_(0,"HandyHDLED")
-  MessageRequester("Warning", "HandyHDLED is already running.", #PB_MessageRequester_Warning)
+; Check for running instance
+If FindWindow_(0, "HandyHDLED")
+  MessageRequester("Info", "HandyHDLED is already running.", #PB_MessageRequester_Info)
   End
 EndIf  
 
@@ -247,9 +247,9 @@ Repeat
   
 Until Exit = 1
 
-; IDE Options = PureBasic 6.11 LTS Beta 3 (Windows - x64)
-; CursorPosition = 31
-; FirstLine = 24
+; IDE Options = PureBasic 6.30 beta 4 (Windows - x64)
+; CursorPosition = 44
+; FirstLine = 44
 ; Folding = --
 ; Optimizer
 ; EnableThread
@@ -257,8 +257,7 @@ Until Exit = 1
 ; DPIAware
 ; DllProtection
 ; UseIcon = HandyHDLED.ico
-; Executable = HandyHDLED.exe
-; DisableDebugger
+; Executable = D:\Apps\HandyHDLED.exe
 ; IncludeVersionInfo
 ; VersionField0 = 0,0,0,1
 ; VersionField1 = 0,1,4,9

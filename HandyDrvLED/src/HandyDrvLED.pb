@@ -325,9 +325,9 @@ Until Exit = 1
 
 ; Cleanup before exit
 Cleanup()
-; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 300
-; FirstLine = 192
+; IDE Options = PureBasic 6.30 beta 4 (Windows - x64)
+; CursorPosition = 40
+; FirstLine = 51
 ; Folding = --
 ; Optimizer
 ; EnableThread
