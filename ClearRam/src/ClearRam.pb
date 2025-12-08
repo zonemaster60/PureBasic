@@ -15,9 +15,10 @@
 #ICON_ACTIVE     = 101
 
 Global quitProgram      = #False
-Global isRunning        = #False
 Global startupEnabled   = #False
+
 Global AppPath.s        = GetPathPart(ProgramFilename())
+Global SourcePath.s     = #PB_Compiler_FilePath   ; folder where .pb file lives
 
 ; Global interval + countdown timestamp
 Global IntervalMinutes  = 5
@@ -59,9 +60,7 @@ Procedure LoadSettings()
 
   If OpenPreferences(iniFile)
     IntervalMinutes = ReadPreferenceInteger("IntervalMinutes", 5)
-    If IntervalMinutes <= 0
-      IntervalMinutes = 5
-    EndIf
+    If IntervalMinutes <= 0 : IntervalMinutes = 5 : EndIf
 
     loggingEnabled = ReadPreferenceInteger("LoggingEnabled", 1)
     If loggingEnabled <> 0 And loggingEnabled <> 1
@@ -70,7 +69,6 @@ Procedure LoadSettings()
 
     ClosePreferences()
   Else
-    ; Create default INI if missing
     CreatePreferences(iniFile)
     WritePreferenceInteger("IntervalMinutes", 5)
     WritePreferenceInteger("LoggingEnabled", 1)
@@ -134,6 +132,15 @@ EndProcedure
 ; ---------------------------------------------------------
 ; Tray helpers
 ; ---------------------------------------------------------
+
+; Exit procedure
+Procedure Exit()
+  Protected Req.i
+  Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
+  If Req = #PB_MessageRequester_Yes
+    End
+  EndIf
+EndProcedure
 
 Procedure UpdateTrayTooltip(status.s)
   SysTrayIconToolTip(#TRAY_ICON, #APP_NAME + " - " + status)
@@ -201,7 +208,7 @@ Procedure RunRAMMap_Thread(*unused)
 EndProcedure
 
 ; ---------------------------------------------------------
-; Timer thread (wait full interval before first run)
+; Timer thread
 ; ---------------------------------------------------------
 
 Procedure TimerThread(*unused)
@@ -209,7 +216,6 @@ Procedure TimerThread(*unused)
 
   LogMessage("Timer thread started. Interval: " + Str(IntervalMinutes) + " minutes")
 
-  ; First run AFTER first interval
   g_TimerNextRun = ElapsedMilliseconds() + IntervalMS
 
   While quitProgram = #False
@@ -257,21 +263,14 @@ Procedure ShowAbout()
   EndIf
 
   Protected msg.s
-  msg = #APP_NAME + " - v1.0.0.0 (RAMMap64)" + #CRLF$ +
+  msg = #APP_NAME + " v1.0.0.0 - ram cleaner" + #CRLF$ +
         "Interval: " + Str(IntervalMinutes) + " minutes" + #CRLF$ +
         "Logging: " + logState + #CRLF$ +
         "INI file: " + #INI_FILE + #CRLF$ +
         "Contact: David Scouten (zonemaster@yahoo.com)" + #CRLF$ +
-        "RAMMap is a product of Sysinternals"
+        "RAMMap is a product of Sysinternals Mark Russinovich"
 
   MessageRequester("About " + #APP_NAME, msg, #PB_MessageRequester_Info)
-EndProcedure
-
-Procedure Exit()
-  Define Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
-  If Req = #PB_MessageRequester_Yes
-    End
-  EndIf
 EndProcedure
 
 ; ---------------------------------------------------------
@@ -281,14 +280,17 @@ EndProcedure
 LoadSettings()
 LogMessage(#APP_NAME + " starting up...")
 
-; Load icons
-If LoadImage(#ICON_IDLE, AppPath + "ClearRam-idle.ico") = 0
-  MessageRequester("Error", "Failed to load idle icon.", #PB_MessageRequester_Error)
+; ✅ Compile‑time icon paths (bulletproof)
+Global IconIdlePath.s   = SourcePath + "..\files\clearram-idle.ico"
+Global IconActivePath.s = SourcePath + "..\files\clearram-active.ico"
+
+If LoadImage(#ICON_IDLE, IconIdlePath) = 0
+  MessageRequester("Error", "Failed to load idle icon at: " + IconIdlePath, #PB_MessageRequester_Error)
   End
 EndIf
 
-If LoadImage(#ICON_ACTIVE, AppPath + "ClearRam-active.ico") = 0
-  MessageRequester("Error", "Failed to load active icon.", #PB_MessageRequester_Error)
+If LoadImage(#ICON_ACTIVE, IconActivePath) = 0
+  MessageRequester("Error", "Failed to load active icon at: " + IconActivePath, #PB_MessageRequester_Error)
   End
 EndIf
 
@@ -313,7 +315,7 @@ CreatePopupMenu(#TRAY_MENU)
 MenuItem(#MENU_RUNNOW,     "Run Now")
 MenuBar()
 MenuItem(#MENU_STARTUP,    "Toggle Startup")
-MenuItem(#MENU_LOGTOGGLE,  "")   ; label set below
+MenuItem(#MENU_LOGTOGGLE,  "")
 MenuBar()
 MenuItem(#MENU_ABOUT,      "About")
 MenuItem(#MENU_EXIT,       "Exit")
@@ -370,7 +372,7 @@ Repeat
           EndIf
 
         Case #MENU_LOGTOGGLE
-          loggingEnabled ! 1   ; toggle
+          loggingEnabled ! 1
           UpdateLogMenuLabel()
           SaveSettings()
           If loggingEnabled
@@ -392,8 +394,8 @@ Until quitProgram = #True
 LogMessage("Program exiting")
 Exit()
 ; IDE Options = PureBasic 6.30 beta 4 (Windows - x64)
-; CursorPosition = 295
-; FirstLine = 283
+; CursorPosition = 265
+; FirstLine = 251
 ; Folding = ---
 ; Optimizer
 ; EnableThread
@@ -401,8 +403,8 @@ Exit()
 ; EnableAdmin
 ; DPIAware
 ; DllProtection
-; UseIcon = ClearRam-idle.ico
-; Executable = ..\ClearRam.exe
+; UseIcon = ..\files\ClearRam-idle.ico
+; Executable = ClearRam.exe
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,0
 ; VersionField1 = 1,0,0,0
@@ -410,8 +412,8 @@ Exit()
 ; VersionField3 = ClearRam
 ; VersionField4 = 1.0.0.0
 ; VersionField5 = 1.0.0.0
-; VersionField6 = Clears ram using Sysinternals RAMMap
-; VersionField7 = ClearRam
+; VersionField6 = Clears Ram using Sysinternals RAMMap
+; VersionField7 = ClearRam.exe
 ; VersionField8 = ClearRam.exe
 ; VersionField9 = David Scouten
 ; VersionField13 = zonemaster@yahoo.com
