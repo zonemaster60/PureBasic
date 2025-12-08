@@ -138,6 +138,7 @@ Procedure Exit()
   Protected Req.i
   Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
   If Req = #PB_MessageRequester_Yes
+    LogMessage("Program exiting")
     End
   EndIf
 EndProcedure
@@ -383,19 +384,17 @@ Repeat
           ShowAbout()
 
         Case #MENU_EXIT
-          quitProgram = #True
-
+          Exit()
+          Continue
+          
       EndSelect
 
   EndSelect
 
 Until quitProgram = #True
-
-LogMessage("Program exiting")
-Exit()
 ; IDE Options = PureBasic 6.30 beta 4 (Windows - x64)
-; CursorPosition = 265
-; FirstLine = 251
+; CursorPosition = 393
+; FirstLine = 366
 ; Folding = ---
 ; Optimizer
 ; EnableThread
