@@ -41,6 +41,7 @@ Global loggingEnabled   = #True
 
 Procedure LogMessage(msg.s)
   If loggingEnabled = #False
+    DeleteFile(#LOG_FILE)
     ProcedureReturn
   EndIf
 
@@ -392,9 +393,9 @@ Repeat
   EndSelect
 
 Until quitProgram = #True
-; IDE Options = PureBasic 6.30 beta 4 (Windows - x64)
-; CursorPosition = 393
-; FirstLine = 366
+; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
+; CursorPosition = 43
+; FirstLine = 27
 ; Folding = ---
 ; Optimizer
 ; EnableThread
