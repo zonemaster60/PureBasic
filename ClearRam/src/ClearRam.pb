@@ -16,9 +16,8 @@
 
 Global quitProgram      = #False
 Global startupEnabled   = #False
-
 Global AppPath.s        = GetPathPart(ProgramFilename())
-Global SourcePath.s     = #PB_Compiler_FilePath   ; folder where .pb file lives
+SetCurrentDirectory(AppPath)
 
 ; Global interval + countdown timestamp
 Global IntervalMinutes  = 5
@@ -282,9 +281,9 @@ EndProcedure
 LoadSettings()
 LogMessage(#APP_NAME + " starting up...")
 
-; ✅ Compile‑time icon paths (bulletproof)
-Global IconIdlePath.s   = SourcePath + "..\files\clearram-idle.ico"
-Global IconActivePath.s = SourcePath + "..\files\clearram-active.ico"
+; load the icons
+Global IconIdlePath.s   = AppPath + "files\ClearRam-idle.ico"
+Global IconActivePath.s = AppPath + "files\ClearRam-active.ico"
 
 If LoadImage(#ICON_IDLE, IconIdlePath) = 0
   MessageRequester("Error", "Failed to load idle icon at: " + IconIdlePath, #PB_MessageRequester_Error)
@@ -394,8 +393,8 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 43
-; FirstLine = 27
+; CursorPosition = 285
+; FirstLine = 270
 ; Folding = ---
 ; Optimizer
 ; EnableThread
