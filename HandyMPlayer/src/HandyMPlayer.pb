@@ -5,7 +5,10 @@
 #WindowWidth=365
 #WindowHeight=70
 
-iconlib.s = "files\HandyMPlayer.icl"
+Global AppPath.s        = GetPathPart(ProgramFilename())
+SetCurrentDirectory(AppPath)
+
+iconlib.s = AppPath + "files\HandyMPlayer.icl"
 AboutIcon = ExtractIcon_(0, iconlib, 0)     
 LoadIcon = ExtractIcon_(0, iconlib, 1)
 PauseIcon = ExtractIcon_(0, iconlib, 2)
@@ -264,8 +267,8 @@ If OpenWindow(0, 100, 100, #WindowWidth+50, #WindowHeight+25, "Handy Media Playe
 EndIf
 End
 
-; IDE Options = PureBasic 6.12 LTS (Windows - x64)
-; CursorPosition = 7
+; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
+; CursorPosition = 10
 ; Folding = -
 ; Optimizer
 ; EnableThread
