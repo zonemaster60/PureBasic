@@ -235,7 +235,7 @@ Repeat
   Select WaitWindowEvent()
     Case #PB_Event_CloseWindow
       KillOrphanProcesses()
-      Break
+      Exit()
 
     Case #PB_Event_Gadget
       Select EventGadget()
@@ -301,8 +301,8 @@ Repeat
   EndSelect
 ForEver
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 293
-; FirstLine = 268
+; CursorPosition = 237
+; FirstLine = 223
 ; Folding = --
 ; Optimizer
 ; EnableThread
