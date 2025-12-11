@@ -290,7 +290,8 @@ Repeat
                                     "David Scouten (zonemaster@yahoo.com)" + #CRLF$ +
                                     "----------------------------------------" + #CRLF$ +
                                     "https://www.facebook.com/DavesPCPortal" + #CRLF$ +
-                                    "https://github.com/zonemaster60", #PB_MessageRequester_Info)
+                                    "https://github.com/zonemaster60" + #CRLF$ +
+                                    "CHKDSK is a product of the Microsoft Corp.", #PB_MessageRequester_Info)
           
         Case #Button_Exit
           KillOrphanProcesses()
@@ -299,9 +300,9 @@ Repeat
       EndSelect
   EndSelect
 ForEver
-; IDE Options = PureBasic 6.30 beta 4 (Windows - x64)
-; CursorPosition = 295
-; FirstLine = 267
+; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
+; CursorPosition = 293
+; FirstLine = 268
 ; Folding = --
 ; Optimizer
 ; EnableThread
