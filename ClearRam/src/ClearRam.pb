@@ -393,8 +393,8 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 285
-; FirstLine = 270
+; CursorPosition = 20
+; FirstLine = 19
 ; Folding = ---
 ; Optimizer
 ; EnableThread
