@@ -166,6 +166,16 @@ Procedure.b EnsureDirectory(path.s)
   EndIf
 EndProcedure
 
+; Exit procedure
+Procedure Exit()
+  Protected Req.i
+  Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
+  If Req = #PB_MessageRequester_Yes
+    LogMessage("Program exiting")
+    End
+  EndIf
+EndProcedure
+
 ; ====== Main ======
 
 Define.s lnkname, line
@@ -248,7 +258,11 @@ req = MessageRequester("Create folders",
                        "for '" + lnkname + "' ?",
                        #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
 
-If req = #PB_MessageRequester_Yes
+If req = #PB_MessageRequester_No
+  LogMessage("=== HandyLNKMaker finished ===")
+  Exit()
+EndIf
+
   If Not EnsureDirectory(Dir64)
     MessageRequester("Error", "Failed to create or use x64 Program Files folder." + #CRLF$ + Dir64, #PB_MessageRequester_Error)
   EndIf
@@ -256,7 +270,6 @@ If req = #PB_MessageRequester_Yes
   If Not EnsureDirectory(Dir32)
     MessageRequester("Error", "Failed to create or use x86 Program Files folder." + #CRLF$ + Dir32, #PB_MessageRequester_Error)
   EndIf
-EndIf
 
 ; ====== Startup link (x64) ======
 
@@ -346,13 +359,12 @@ If req = #PB_MessageRequester_Yes
   EndIf
 EndIf
 
-MessageRequester("Info", "Finished.", #PB_MessageRequester_Ok)
 LogMessage("=== HandyLNKMaker finished ===")
-End
+Exit()
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 246
-; FirstLine = 242
-; Folding = --
+; CursorPosition = 360
+; FirstLine = 334
+; Folding = ---
 ; Optimizer
 ; EnableThread
 ; EnableXP
