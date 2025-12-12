@@ -243,6 +243,8 @@ req = MessageRequester("Create folders",
                        "Create application folders in:" + #CRLF$ +
                        "- Program Files (x64)" + #CRLF$ +
                        "- Program Files (x86)" + #CRLF$ +
+                       "- Startup link (x64)" + #CRLF$ +
+                       "- Startup link (x86)" + #CRLF$ +
                        "for '" + lnkname + "' ?",
                        #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
 
@@ -348,7 +350,8 @@ MessageRequester("Info", "Finished.", #PB_MessageRequester_Ok)
 LogMessage("=== HandyLNKMaker finished ===")
 End
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 195
+; CursorPosition = 246
+; FirstLine = 242
 ; Folding = --
 ; Optimizer
 ; EnableThread
@@ -357,7 +360,7 @@ End
 ; DPIAware
 ; DllProtection
 ; UseIcon = HandyLNKMaker.ico
-; Executable = HandyLNKMaker.exe
+; Executable = ..\HandyLNKMaker.exe
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,0
 ; VersionField1 = 1,0,0,0
