@@ -351,10 +351,13 @@ Repeat
       EndIf
 
     Case #PB_Event_SysTray
-      If EventType() = #PB_EventType_RightClick Or EventType() = #PB_EventType_LeftClick
+      If EventType() = #PB_EventType_RightClick
         DisplayPopupMenu(#TRAY_MENU, WindowID(0))
       EndIf
-
+      If EventType() = #PB_EventType_LeftClick
+        CreateThread(@RunRAMMap_Thread(), 0)
+      EndIf
+      
     Case #PB_Event_Menu
       menuID = EventMenu()
 
@@ -393,8 +396,8 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 20
-; FirstLine = 19
+; CursorPosition = 357
+; FirstLine = 347
 ; Folding = ---
 ; Optimizer
 ; EnableThread
