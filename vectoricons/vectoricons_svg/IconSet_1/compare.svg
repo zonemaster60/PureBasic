@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64pt" height="64pt" viewBox="0 0 64 64" version="1.1">
+<g id="surface15245">
+<path style="fill:none;stroke-width:4;stroke-linecap:butt;stroke-linejoin:round;stroke:rgb(27.45098%,50.980392%,70.588235%);stroke-opacity:1;stroke-miterlimit:10;" d="M 12.527344 60.636719 C 24.871094 54.882812 39.128906 54.882812 51.472656 60.636719 Z M 12.527344 60.636719 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(27.45098%,50.980392%,70.588235%);fill-opacity:1;" d="M 12.527344 60.636719 C 24.871094 54.882812 39.128906 54.882812 51.472656 60.636719 Z M 12.527344 60.636719 "/>
+<path style="fill:none;stroke-width:6;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(27.45098%,50.980392%,70.588235%);stroke-opacity:1;stroke-miterlimit:10;" d="M 32 55 L 32 17 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(19.215686%,35.686275%,49.411765%);fill-opacity:1;" d="M 36 12 C 36 17.332031 28 17.332031 28 12 C 28 6.667969 36 6.667969 36 12 Z M 36 12 "/>
+<path style="fill:none;stroke-width:2;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(0%,0%,0%);stroke-opacity:1;stroke-miterlimit:10;" d="M 38 12 C 38 15.3125 35.3125 18 32 18 C 28.6875 18 26 15.3125 26 12 C 26 8.6875 28.6875 6 32 6 C 35.3125 6 38 8.6875 38 12 Z M 38 12 "/>
+<path style="fill:none;stroke-width:2;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(0%,0%,0%);stroke-opacity:1;stroke-miterlimit:10;" d="M 26 12 L 14 12 L 4 42 L 24 42 L 14 12 M 38 12 L 50 12 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(27.45098%,50.980392%,70.588235%);fill-opacity:1;" d="M 27.105469 41.175781 C 24.113281 45.453125 19.21875 48 14 48 C 8.78125 48 3.886719 45.453125 0.894531 41.175781 Z M 27.105469 41.175781 "/>
+<path style="fill:none;stroke-width:2;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(0%,0%,0%);stroke-opacity:1;stroke-miterlimit:10;" d="M 26 12 L 14 12 L 4 42 L 24 42 L 14 12 M 38 12 L 50 12 " transform="matrix(-1,0,0,1,64,0)"/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(27.45098%,50.980392%,70.588235%);fill-opacity:1;" d="M 36.894531 41.175781 C 39.886719 45.453125 44.78125 48 50 48 C 55.21875 48 60.113281 45.453125 63.105469 41.175781 Z M 36.894531 41.175781 "/>
+</g>
+</svg>

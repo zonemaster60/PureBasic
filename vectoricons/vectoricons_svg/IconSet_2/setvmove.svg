@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64pt" height="64pt" viewBox="0 0 64 64" version="1.1">
+<defs>
+<linearGradient id="linear0" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="64" y2="64" >
+<stop offset="0" style="stop-color:rgb(94.901961%,94.901961%,89.411765%);stop-opacity:1;"/>
+<stop offset="1" style="stop-color:rgb(85.098039%,85.098039%,80%);stop-opacity:1;"/>
+</linearGradient>
+<linearGradient id="linear1" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="64" y2="64" >
+<stop offset="0" style="stop-color:rgb(100%,100%,94.117647%);stop-opacity:1;"/>
+<stop offset="1" style="stop-color:rgb(80%,80%,75.294118%);stop-opacity:1;"/>
+</linearGradient>
+</defs>
+<g id="surface16361">
+<path style="fill-rule:evenodd;fill:url(#linear0);stroke-width:2;stroke-linecap:butt;stroke-linejoin:miter;stroke:url(#linear1);stroke-miterlimit:10;" d="M 2 2 L 2 62 L 62 62 L 62 2 Z M 2 2 "/>
+<path style="fill:none;stroke-width:2;stroke-linecap:square;stroke-linejoin:miter;stroke:rgb(75.294118%,75.294118%,75.294118%);stroke-opacity:1;stroke-dasharray:0,4;stroke-miterlimit:10;" d="M 16 16 L 48 16 L 48 48 L 16 48 Z M 16 16 "/>
+<path style="fill:none;stroke-width:4;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(75.294118%,75.294118%,75.294118%);stroke-opacity:1;stroke-miterlimit:10;" d="M 26 26 L 58 26 L 58 58 L 26 58 Z M 26 26 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(75.294118%,75.294118%,75.294118%);fill-opacity:1;" d="M 44 32 L 44 44 L 32 44 Z M 44 32 "/>
+<path style="fill:none;stroke-width:2;stroke-linecap:square;stroke-linejoin:miter;stroke:rgb(0%,0%,0%);stroke-opacity:1;stroke-dasharray:0,4;stroke-miterlimit:10;" d="M 10 10 L 42 10 L 42 42 L 10 42 Z M 10 10 "/>
+<path style="fill:none;stroke-width:4;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(0%,0%,0%);stroke-opacity:1;stroke-miterlimit:10;" d="M 20 20 L 52 20 L 52 52 L 20 52 Z M 20 20 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(0%,0%,0%);fill-opacity:1;" d="M 38 26 L 38 38 L 26 38 Z M 38 26 "/>
+</g>
+</svg>

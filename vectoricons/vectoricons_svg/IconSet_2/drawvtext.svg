@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64pt" height="64pt" viewBox="0 0 64 64" version="1.1">
+<defs>
+<linearGradient id="linear0" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="64" y2="64" >
+<stop offset="0" style="stop-color:rgb(91.372549%,94.901961%,93.333333%);stop-opacity:1;"/>
+<stop offset="1" style="stop-color:rgb(81.568627%,85.098039%,83.529412%);stop-opacity:1;"/>
+</linearGradient>
+<linearGradient id="linear1" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="64" y2="64" >
+<stop offset="0" style="stop-color:rgb(96.078431%,100%,98.039216%);stop-opacity:1;"/>
+<stop offset="1" style="stop-color:rgb(76.862745%,80%,78.431373%);stop-opacity:1;"/>
+</linearGradient>
+</defs>
+<g id="surface16273">
+<path style="fill-rule:evenodd;fill:url(#linear0);stroke-width:2;stroke-linecap:butt;stroke-linejoin:miter;stroke:url(#linear1);stroke-miterlimit:10;" d="M 2 2 L 2 62 L 62 62 L 62 2 Z M 2 2 "/>
+<path style="fill:none;stroke-width:6;stroke-linecap:round;stroke-linejoin:round;stroke:rgb(75.294118%,75.294118%,75.294118%);stroke-opacity:1;stroke-miterlimit:10;" d="M 13 54 L 27 16 L 41 54 "/>
+<path style="fill:none;stroke-width:6;stroke-linecap:round;stroke-linejoin:round;stroke:rgb(75.294118%,75.294118%,75.294118%);stroke-opacity:1;stroke-miterlimit:10;" d="M 18 42 L 36 42 "/>
+<path style="fill:none;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(75.294118%,75.294118%,75.294118%);stroke-opacity:1;stroke-miterlimit:10;" d="M 48 14 C 51.3125 14 54 16.6875 54 20 L 54 54 M 54 52 C 54 55.3125 51.3125 58 48 58 M 54 20 C 54 16.6875 56.6875 14 60 14 M 60 58 C 56.6875 58 54 55.3125 54 52 "/>
+<path style="fill:none;stroke-width:6;stroke-linecap:round;stroke-linejoin:round;stroke:rgb(0%,0%,0%);stroke-opacity:1;stroke-miterlimit:10;" d="M 7 48 L 21 10 L 35 48 "/>
+<path style="fill:none;stroke-width:6;stroke-linecap:round;stroke-linejoin:round;stroke:rgb(0%,0%,0%);stroke-opacity:1;stroke-miterlimit:10;" d="M 12 36 L 30 36 "/>
+<path style="fill:none;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(0%,0%,0%);stroke-opacity:1;stroke-miterlimit:10;" d="M 42 8 C 45.3125 8 48 10.6875 48 14 L 48 48 M 48 46 C 48 49.3125 45.3125 52 42 52 M 48 14 C 48 10.6875 50.6875 8 54 8 M 54 52 C 50.6875 52 48 49.3125 48 46 "/>
+</g>
+</svg>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64pt" height="64pt" viewBox="0 0 64 64" version="1.1">
+<defs>
+<linearGradient id="linear0" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="64" y2="64" >
+<stop offset="0" style="stop-color:rgb(94.901961%,94.901961%,89.411765%);stop-opacity:1;"/>
+<stop offset="1" style="stop-color:rgb(85.098039%,85.098039%,80%);stop-opacity:1;"/>
+</linearGradient>
+<linearGradient id="linear1" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="64" y2="64" >
+<stop offset="0" style="stop-color:rgb(100%,100%,94.117647%);stop-opacity:1;"/>
+<stop offset="1" style="stop-color:rgb(80%,80%,75.294118%);stop-opacity:1;"/>
+</linearGradient>
+<radialGradient id="radial0" gradientUnits="userSpaceOnUse" cx="32" cy="32" fx="32" fy="32" r="26" >
+<stop offset="0" style="stop-color:rgb(97.254902%,97.254902%,100%);stop-opacity:1;"/>
+<stop offset="1" style="stop-color:rgb(29.019608%,29.019608%,29.803922%);stop-opacity:1;"/>
+</radialGradient>
+</defs>
+<g id="surface16389">
+<path style="fill-rule:evenodd;fill:url(#linear0);stroke-width:2;stroke-linecap:butt;stroke-linejoin:miter;stroke:url(#linear1);stroke-miterlimit:10;" d="M 2 2 L 2 62 L 62 62 L 62 2 Z M 2 2 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:url(#radial0);" d="M 58 32 C 58 46.359375 46.359375 58 32 58 C 17.640625 58 6 46.359375 6 32 C 6 17.640625 17.640625 6 32 6 C 46.359375 6 58 17.640625 58 32 Z M 58 32 "/>
+</g>
+</svg>

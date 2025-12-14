@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64pt" height="64pt" viewBox="0 0 64 64" version="1.1">
+<defs>
+<linearGradient id="linear0" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="64" y2="64" >
+<stop offset="0" style="stop-color:rgb(94.901961%,94.901961%,89.411765%);stop-opacity:1;"/>
+<stop offset="1" style="stop-color:rgb(85.098039%,85.098039%,80%);stop-opacity:1;"/>
+</linearGradient>
+<linearGradient id="linear1" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="64" y2="64" >
+<stop offset="0" style="stop-color:rgb(100%,100%,94.117647%);stop-opacity:1;"/>
+<stop offset="1" style="stop-color:rgb(80%,80%,75.294118%);stop-opacity:1;"/>
+</linearGradient>
+</defs>
+<g id="surface16341">
+<path style="fill-rule:evenodd;fill:url(#linear0);stroke-width:2;stroke-linecap:butt;stroke-linejoin:miter;stroke:url(#linear1);stroke-miterlimit:10;" d="M 2 2 L 2 62 L 62 62 L 62 2 Z M 2 2 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(75.294118%,75.294118%,75.294118%);fill-opacity:1;" d="M 12 16 L 21 16 L 21 58 L 12 58 Z M 12 16 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(75.294118%,75.294118%,75.294118%);fill-opacity:1;" d="M 24 16 L 33 16 L 33 58 L 24 58 Z M 24 16 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(75.294118%,75.294118%,75.294118%);fill-opacity:1;" d="M 36 16 L 45 16 L 45 58 L 36 58 Z M 36 16 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(75.294118%,75.294118%,75.294118%);fill-opacity:1;" d="M 48 16 L 52.5 16 L 52.5 20.5 L 48 20.5 Z M 52.5 20.5 L 57 20.5 L 57 25 L 52.5 25 Z M 48 25 L 52.5 25 L 52.5 29.5 L 48 29.5 Z M 52.5 29.5 L 57 29.5 L 57 34 L 52.5 34 Z M 48 34 L 52.5 34 L 52.5 38.5 L 48 38.5 Z M 52.5 38.5 L 57 38.5 L 57 43 L 52.5 43 Z M 48 43 L 52.5 43 L 52.5 47.5 L 48 47.5 Z M 52.5 47.5 L 57 47.5 L 57 52 L 52.5 52 Z M 48 52 L 52.5 52 L 52.5 56.5 L 48 56.5 Z M 52.5 56.5 L 57 56.5 L 57 58.5 L 52.5 58.5 Z M 52.5 56.5 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(100%,0%,0%);fill-opacity:1;" d="M 6 10 L 15 10 L 15 52 L 6 52 Z M 6 10 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(0%,100%,0%);fill-opacity:1;" d="M 18 10 L 27 10 L 27 52 L 18 52 Z M 18 10 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(0%,0%,100%);fill-opacity:1;" d="M 30 10 L 39 10 L 39 52 L 30 52 Z M 30 10 "/>
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(50.196078%,50.196078%,50.196078%);fill-opacity:1;" d="M 42 10 L 46.5 10 L 46.5 14.5 L 42 14.5 Z M 46.5 14.5 L 51 14.5 L 51 19 L 46.5 19 Z M 42 19 L 46.5 19 L 46.5 23.5 L 42 23.5 Z M 46.5 23.5 L 51 23.5 L 51 28 L 46.5 28 Z M 42 28 L 46.5 28 L 46.5 32.5 L 42 32.5 Z M 46.5 32.5 L 51 32.5 L 51 37 L 46.5 37 Z M 42 37 L 46.5 37 L 46.5 41.5 L 42 41.5 Z M 46.5 41.5 L 51 41.5 L 51 46 L 46.5 46 Z M 42 46 L 46.5 46 L 46.5 50.5 L 42 50.5 Z M 46.5 50.5 L 51 50.5 L 51 52.5 L 46.5 52.5 Z M 46.5 50.5 "/>
+</g>
+</svg>

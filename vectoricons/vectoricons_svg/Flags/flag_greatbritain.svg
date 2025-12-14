@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="64pt" height="64pt" viewBox="0 0 64 64" version="1.1">
+<defs>
+<clipPath id="clip1">
+  <path d="M 1 14 L 64 14 L 64 50 L 1 50 Z M 1 14 "/>
+</clipPath>
+</defs>
+<g id="surface17029">
+<path style="fill:none;stroke-width:36;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(100%,100%,100%);stroke-opacity:1;stroke-miterlimit:10;" d="M 0 31 L 63 31 "/>
+<g clip-path="url(#clip1)" clip-rule="nonzero">
+<path style="fill:none;stroke-width:36;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(0%,15.294118%,46.27451%);stroke-opacity:1;stroke-miterlimit:10;" d="M 1 32 L 64 32 "/>
+<path style="fill:none;stroke-width:8;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(96.078431%,96.078431%,96.078431%);stroke-opacity:1;stroke-miterlimit:10;" d="M 1 14 L 30 32 M 64 14 L 34 32 M 1 50 L 30 32 M 64 50 L 34 32 "/>
+<path style="fill:none;stroke-width:3;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(77.647059%,4.705882%,18.823529%);stroke-opacity:1;stroke-miterlimit:10;" d="M 1 14 L 30 32 M 64 14 L 34 32 M 1 50 L 30 32 M 64 50 L 34 32 "/>
+<path style="fill:none;stroke-width:10;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(96.078431%,96.078431%,96.078431%);stroke-opacity:1;stroke-miterlimit:10;" d="M 32 14 L 32 50 M 1 32 L 64 32 "/>
+<path style="fill:none;stroke-width:5;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(77.647059%,4.705882%,18.823529%);stroke-opacity:1;stroke-miterlimit:10;" d="M 32 14 L 32 50 M 1 32 L 64 32 "/>
+</g>
+</g>
+</svg>
