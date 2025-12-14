@@ -79,7 +79,7 @@ If OpenWindow(0, 100, 100, 800, 600, "TextViewer", #PB_Window_SystemMenu | #PB_W
 
 EndIf
 
-; IDE Options = PureBasic 6.21 (Windows - x64)
+; IDE Options = PureBasic 6.30 beta 4 (Windows - x64)
 ; CursorPosition = 13
 ; Folding = -
 ; Optimizer
@@ -88,7 +88,7 @@ EndIf
 ; DPIAware
 ; DllProtection
 ; UseIcon = loadtextfile.ico
-; Executable = ..\loadtextfile.exe
+; Executable = loadtextfile.exe
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,0
 ; VersionField1 = 1,0,0,0

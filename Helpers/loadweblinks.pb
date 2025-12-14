@@ -112,7 +112,7 @@ EndProcedure
 LoadWebsites("weblinks.txt")
 HandleEvents()
 
-; IDE Options = PureBasic 6.21 (Windows - x64)
+; IDE Options = PureBasic 6.30 beta 4 (Windows - x64)
 ; CursorPosition = 108
 ; FirstLine = 80
 ; Folding = -
