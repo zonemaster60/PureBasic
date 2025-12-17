@@ -32,7 +32,8 @@ Global loggingEnabled   = #True
 #LOG_FILE        = "ClearRam.log"
 #INI_FILE        = "ClearRam.ini"
 #APP_NAME        = "ClearRam"
-#MAX_RUNTIME_MS  = 30000   ; 30 seconds
+#EMAIL_NAME      = "zonemaster60@gmail.com"
+#MAX_RUNTIME_MS  = 15000   ; 15 seconds
 
 ; ---------------------------------------------------------
 ; Logging helper
@@ -268,7 +269,7 @@ Procedure ShowAbout()
         "Interval: " + Str(IntervalMinutes) + " minutes" + #CRLF$ +
         "Logging: " + logState + #CRLF$ +
         "INI file: " + #INI_FILE + #CRLF$ +
-        "Contact: David Scouten (zonemaster@yahoo.com)" + #CRLF$ +
+        "Contact: David Scouten (" + #EMAIL_NAME + ")" + #CRLF$ +
         "RAMMap is a product of Sysinternals Mark Russinovich"
 
   MessageRequester("About " + #APP_NAME, msg, #PB_MessageRequester_Info)
@@ -396,8 +397,8 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 357
-; FirstLine = 347
+; CursorPosition = 271
+; FirstLine = 252
 ; Folding = ---
 ; Optimizer
 ; EnableThread
