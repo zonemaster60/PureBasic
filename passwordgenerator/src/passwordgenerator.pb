@@ -1,3 +1,5 @@
+EnableExplicit
+
 ;==================================================================
 ; Password generator
 ;
@@ -17,8 +19,13 @@
 ;	   one "other" character. 
 ; =================================================================
 
-EnableExplicit
- 
+#APP_NAME = "Password generator"
+#EMAIL_NAME = "zonemaster60@gmail.com"
+
+Global version.s = "v1.0.0.0"
+Global AppPath.s = GetPathPart(ProgramFilename())
+SetCurrentDirectory(AppPath)
+
 Procedure.b CheckPW(pw.s)
   Define flag.b=#True,
          tmp.b=#False,
@@ -106,7 +113,7 @@ For c='!' To '~'
   EndIf  
 Next
 EnableGraphicalConsole(1)
-OpenConsole("Password generator: F1 = Help; ESC or 0 = End")
+OpenConsole(#APP_NAME + ": F1 = Help; ESC or 0 = End")
 Restart:
 Repeat
   PrintN("Enter username: ")
@@ -148,15 +155,18 @@ If i > 0
   Delay(2500) 
 EndIf
 Req=MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
-  If Req = #PB_MessageRequester_Yes
-    End
-  EndIf
+If Req = #PB_MessageRequester_Yes
+  MessageRequester("Info", #APP_NAME +" "+ version + #CRLF$ +
+                             "Thank you for using this free tool!" + #CRLF$ +
+                             "Contact: " + #EMAIL_NAME, #PB_MessageRequester_Info)
+  End
+EndIf
 ClearConsole()
 Goto Restart
   
 DataSection
   Help_01:
-  Data.s ~"\nPassword generator: F1 = Help; ESC or 0 = End\n"+
+  Data.s ~"\n" + #APP_NAME + ": F1 = Help; ESC or 0 = End\n"+
          ~"---------------------------------------------\n"+
          ~"1) Enter the username (login):\n"+
          ~"2) Enter the sitename (http://):\n"+
@@ -170,13 +180,14 @@ DataSection
   EndOfHelp:
 EndDataSection
 
-; IDE Options = PureBasic 6.30 beta 4 (Windows - x64)
-; CursorPosition = 137
-; FirstLine = 123
+; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
+; CursorPosition = 23
 ; Folding = -
 ; Optimizer
 ; EnableThread
 ; EnableXP
-; EnableUser
+; EnableAdmin
+; DPIAware
+; DllProtection
 ; UseIcon = passwordgenerator.ico
-; Executable = passwordgenerator.exe
+; Executable = ..\passwordgenerator.exe
