@@ -50,6 +50,12 @@ Enumeration
   #POWERUP_BOMB
 EndEnumeration
 
+#APP_NAME = "TicTacToe"
+#EMAIL_NAME = "zonemaster60@gmail.com"
+
+Global AppPath.s = GetPathPart(ProgramFilename())
+SetCurrentDirectory(AppPath)
+
 ; === Structures ===
 Structure Position
   x.i
@@ -1042,7 +1048,7 @@ Procedure OpenHelpFile()
   Protected helpPath.s
   
   ; Try to find the help file in the same directory as the executable
-  helpPath = GetPathPart(ProgramFilename()) + "TicTacToe_Help.html"
+  helpPath = GetPathPart(ProgramFilename()) + "files\" + #APP_NAME + "_Help.html"
   
   ; Check if help file exists
   If FileSize(helpPath) > 0
@@ -1051,21 +1057,23 @@ Procedure OpenHelpFile()
   Else
     ; Show message if help file not found
     MessageRequester("Help File Not Found", 
-                     "Could not find 'TicTacToe_Help.html' in the game directory." + Chr(10) + Chr(10) + 
-                     "Please make sure the help file is in the same folder as the game executable.",
-                     #PB_MessageRequester_Warning)
+                     "Could not find '" + #APP_NAME + "_Help.html' in the " + #APP_NAME + "\files directory." + Chr(10) + Chr(10) + 
+                     "Please make sure the help file is in the 'files' folder.", #PB_MessageRequester_Warning)
   EndIf
 EndProcedure
 
 Procedure ExitGame()
   Protected result = MessageRequester("Exit Game", "Are you sure?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
   If result = #PB_MessageRequester_Yes
+    MessageRequester("Info", #APP_NAME +" "+ version + #CRLF$ +
+                             "Thank you for playing this free game!" + #CRLF$ +
+                             "Contact: " + #EMAIL_NAME, #PB_MessageRequester_Info)
     End
   EndIf
 EndProcedure
 
 ; === Main Program ===
-If OpenWindow(#Window_Main, 0, 0, #WINDOW_WIDTH, #WINDOW_HEIGHT, "TicTacToe - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+If OpenWindow(#Window_Main, 0, 0, #WINDOW_WIDTH, #WINDOW_HEIGHT, #APP_NAME + " - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
   
   ; Create game canvas and basic controls
   CanvasGadget(#Canvas_Game, 10, 10, #CANVAS_WIDTH-60, #CANVAS_HEIGHT-60)
@@ -1174,8 +1182,9 @@ If OpenWindow(#Window_Main, 0, 0, #WINDOW_WIDTH, #WINDOW_HEIGHT, "TicTacToe - " 
     EndSelect
   ForEver
 EndIf
-; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 8
+; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
+; CursorPosition = 1069
+; FirstLine = 1044
 ; Folding = -----
 ; Optimizer
 ; EnableThread
@@ -1183,7 +1192,7 @@ EndIf
 ; DPIAware
 ; DllProtection
 ; UseIcon = tictactoe.ico
-; Executable = TicTacToe.exe
+; Executable = ..\TicTacToe.exe
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,1
 ; VersionField1 = 1,0,0,1
