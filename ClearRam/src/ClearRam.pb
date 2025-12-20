@@ -298,7 +298,7 @@ EndIf
 
 ; Check for running instance
 If FindWindow_(0, #APP_NAME)
-  MessageRequester("Info", "ClearRam is already running.", #PB_MessageRequester_Info)
+  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
   End
 EndIf  
 
@@ -331,6 +331,9 @@ CreateThread(@TimerThread(), 0)
 
 ; Initialize countdown
 g_TimerNextRun = ElapsedMilliseconds() + IntervalMS
+
+; run initially
+CreateThread(@RunRAMMap_Thread(), 0)
 
 ; ---------------------------------------------------------
 ; Main event loop
@@ -397,8 +400,8 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 271
-; FirstLine = 252
+; CursorPosition = 334
+; FirstLine = 318
 ; Folding = ---
 ; Optimizer
 ; EnableThread
@@ -407,7 +410,7 @@ Until quitProgram = #True
 ; DPIAware
 ; DllProtection
 ; UseIcon = ..\files\ClearRam-idle.ico
-; Executable = ClearRam.exe
+; Executable = ..\ClearRam.exe
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,0
 ; VersionField1 = 1,0,0,0
