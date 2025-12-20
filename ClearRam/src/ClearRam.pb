@@ -6,11 +6,10 @@
 
 #TRAY_ICON       = 1
 #TRAY_MENU       = 2
-#MENU_RUNNOW     = 10
-#MENU_STARTUP    = 11
-#MENU_LOGTOGGLE  = 12
-#MENU_ABOUT      = 13
-#MENU_EXIT       = 14
+#MENU_STARTUP    = 10
+#MENU_LOGTOGGLE  = 11
+#MENU_ABOUT      = 12
+#MENU_EXIT       = 13
 #ICON_IDLE       = 100
 #ICON_ACTIVE     = 101
 
@@ -314,8 +313,6 @@ UpdateTrayTooltip("Idle")
 
 ; Tray menu
 CreatePopupMenu(#TRAY_MENU)
-MenuItem(#MENU_RUNNOW,     "Run Now")
-MenuBar()
 MenuItem(#MENU_STARTUP,    "Toggle Startup")
 MenuItem(#MENU_LOGTOGGLE,  "")
 MenuBar()
@@ -350,26 +347,23 @@ Repeat
       If EventTimer() = 2
         remaining = g_TimerNextRun - ElapsedMilliseconds()
         If remaining < 0 : remaining = 0 : EndIf
-        text = "Next RAM clear in: " + FormatCountdown(remaining)
+        text = "Left Click to Run Now; Next RAM clear in: " + FormatCountdown(remaining)
         SysTrayIconToolTip(#TRAY_ICON, text)
       EndIf
-
+      
     Case #PB_Event_SysTray
       If EventType() = #PB_EventType_RightClick
         DisplayPopupMenu(#TRAY_MENU, WindowID(0))
       EndIf
       If EventType() = #PB_EventType_LeftClick
-        CreateThread(@RunRAMMap_Thread(), 0)
+         CreateThread(@RunRAMMap_Thread(), 0)
       EndIf
       
     Case #PB_Event_Menu
       menuID = EventMenu()
 
       Select menuID
-
-        Case #MENU_RUNNOW
-          CreateThread(@RunRAMMap_Thread(), 0)
-
+          
         Case #MENU_STARTUP
           If startupEnabled
             RemoveFromStartup()
@@ -400,8 +394,8 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 334
-; FirstLine = 318
+; CursorPosition = 349
+; FirstLine = 335
 ; Folding = ---
 ; Optimizer
 ; EnableThread
