@@ -12,6 +12,12 @@
 
 EnableExplicit
 
+#APP_NAME   = "hash_tool"
+#EMAIL_NAME = "zonemaster60@gmail.com"
+
+Global AppPath.s = GetPathPart(ProgramFilename())
+SetCurrentDirectory(AppPath)
+
 #DefaultChunkSize = 1024 * 1024
 
 Structure HashAlgo
@@ -21,11 +27,12 @@ Structure HashAlgo
   fp.i
 EndStructure
 
-Procedure Pause()
-  PrintN("")
-  PrintN("(Press ENTER to exit...)")
-  Input()
-EndProcedure  
+Procedure Exit()
+    MessageRequester("Info", #APP_NAME + " - v1.0.0.0" + #CRLF$+ 
+                             "Thank you for using this free tool!" + #CRLF$ +
+                             "Contact: " + #EMAIL_NAME, #PB_MessageRequester_Info)
+    End 1
+EndProcedure
 
 Procedure.s QuoteCSV(Field.s)
   ; Minimal CSV escaping
@@ -85,8 +92,8 @@ Procedure.i WriteTXT(OutputPath.s, InputPath.s, FileSize.q, Map Hashes.s(), Arra
   fileId = CreateFile(#PB_Any, OutputPath)
   If fileId = 0
     PrintN("ERROR: Unable to write output: " + OutputPath)
-    Pause()
     ProcedureReturn #False
+    Exit()
   EndIf
 
   WriteStringN(fileId, "Input: " + InputPath)
@@ -226,7 +233,7 @@ Procedure PrintUsage(ExeName.s)
   PrintN("Notes:")
   PrintN(" - Hashes use PureBasic Cipher fingerprint plugins.")
   PrintN(" - Uses streaming hashing (chunked reads).")
-  Pause()
+  Exit()
 EndProcedure
 
 ; -----------------
@@ -239,7 +246,7 @@ EndIf
 
 If CountProgramParameters() < 1
   PrintUsage(GetFileName(ProgramFilename()))
-  End 1
+  Exit()
 EndIf
 
 Define inputPath.s = ProgramParameter(0)
@@ -270,8 +277,7 @@ Next
 
 If format <> "csv" And format <> "txt"
   PrintN("ERROR: Unsupported format: " + format)
-  Pause()
-  End 1
+  Exit()
 EndIf
 
 If outputPath = ""
@@ -281,8 +287,7 @@ EndIf
 Define size.q = FileSize(inputPath)
 If size < 0
   PrintN("ERROR: Unable to read input file: " + inputPath)
-  Pause()
-  End 1
+  Exit()
 EndIf
 
 NewList algos.HashAlgo()
@@ -291,16 +296,14 @@ BuildAlgorithmList(algos())
 NewMap hashes.s()
 If ComputeHashesStreaming(inputPath, chunkSize, algos(), hashes()) = #False
   PrintN("ERROR: Hashing failed for input file: " + inputPath)
-  Pause()
-  End 1
+  Exit()
 EndIf
 
 ; Stable output ordering: copy keys to array and sort
 Define count.i = MapSize(hashes())
 If count <= 0
   PrintN("ERROR: No hashes generated (unsupported algorithms?)")
-  Pause()
-  End 1
+  Exit()
 EndIf
 
 Dim keys.s(count - 1)
@@ -326,17 +329,16 @@ PrintN("Input:  " + inputPath)
 PrintN("Output: " + outputPath)
 PrintN("Hashes: " + Str(MapSize(hashes())))
 
-Pause()
-End 0
+Exit()
 
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 240
-; FirstLine = 228
+; CursorPosition = 331
+; FirstLine = 304
 ; Folding = --
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = hast_tool.ico
+; UseIcon = hash_tool.ico
 ; Executable = hash_tool.exe

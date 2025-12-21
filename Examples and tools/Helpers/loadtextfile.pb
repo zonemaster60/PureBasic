@@ -1,17 +1,23 @@
 ﻿EnableExplicit
 
+#APP_NAME   = "TextViewer"
+#EMAIL_NAME = "zonemaster60@gmail.com"
+
+Global AppPath.s = GetPathPart(ProgramFilename())
+SetCurrentDirectory(AppPath)
+
 ; Variable definitions
 Define filename.s, content.s, line.s
 
 Procedure Exit()
-  Define Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
-  If Req = #PB_MessageRequester_Yes
+    MessageRequester("Info", #APP_NAME + " - v1.0.0.0" + #CRLF$+ 
+                             "Thank you for using this free tool!" + #CRLF$ +
+                             "Contact: " + #EMAIL_NAME, #PB_MessageRequester_Info)
     End
-  EndIf
 EndProcedure
 
 ; Create the main window
-If OpenWindow(0, 100, 100, 800, 600, "TextViewer", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered)
+If OpenWindow(0, 100, 100, 800, 600, #APP_NAME, #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered)
 
   ; Build File menu
   CreateMenu(0, WindowID(0))
@@ -34,7 +40,7 @@ If OpenWindow(0, 100, 100, 800, 600, "TextViewer", #PB_Window_SystemMenu | #PB_W
       Wend
       CloseFile(1)
       SetGadgetText(0, content)
-      SetWindowTitle(0, "TextViewer - " + filename)
+      SetWindowTitle(0, #APP_NAME + " - " + filename)
     Else
       MessageRequester("Error", "Unable to open file from argument.", #PB_MessageRequester_Error)
       End
@@ -59,7 +65,7 @@ If OpenWindow(0, 100, 100, 800, 600, "TextViewer", #PB_Window_SystemMenu | #PB_W
                 Wend
                 CloseFile(1)
                 SetGadgetText(0, content)
-                SetWindowTitle(0, "TextViewer - " + filename)
+                SetWindowTitle(0, #APP_NAME + " - " + filename)
               Else
                 MessageRequester("Error", "Unable to open the file.", #PB_MessageRequester_Error)
                 End
@@ -79,12 +85,13 @@ If OpenWindow(0, 100, 100, 800, 600, "TextViewer", #PB_Window_SystemMenu | #PB_W
 
 EndIf
 
-; IDE Options = PureBasic 6.30 beta 4 (Windows - x64)
-; CursorPosition = 13
+; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
+; CursorPosition = 15
 ; Folding = -
 ; Optimizer
 ; EnableThread
 ; EnableXP
+; EnableAdmin
 ; DPIAware
 ; DllProtection
 ; UseIcon = loadtextfile.ico

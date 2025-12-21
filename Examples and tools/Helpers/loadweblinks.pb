@@ -1,5 +1,11 @@
 ﻿EnableExplicit
 
+#APP_NAME   = "LoadWebLinks"
+#EMAIL_NAME = "zonemaster60@gmail.com"
+
+Global AppPath.s = GetPathPart(ProgramFilename())
+SetCurrentDirectory(AppPath)
+
 Structure LinkData
   gadget.i
   url.s
@@ -11,10 +17,10 @@ Global padding = 10
 Global VisitedColor = RGB(255, 0, 255) ; Magenta for visited links
 
 Procedure Exit()
-  Define Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
-  If Req = #PB_MessageRequester_Yes
+    MessageRequester("Info", #APP_NAME + " - v1.0.0.0" + #CRLF$+ 
+                             "Thank you for using this free tool!" + #CRLF$ +
+                             "Contact: " + #EMAIL_NAME, #PB_MessageRequester_Info)
     End
-  EndIf
 EndProcedure
 
 Procedure.i CountLines(FileName.s)
@@ -33,7 +39,7 @@ EndProcedure
 Procedure LogError(msg.s)
   Protected logfile.s = "errorlog.txt"
   If OpenFile(2, logfile, #PB_File_Append)
-    WriteStringN(2, FormatDate("[%yyyy-%mm-%dd %hh:%ii:%ss] ", Date()) + msg)
+    WriteStringN(2, FormatDate("[%yy-%mm-%dd]-[%hh:%ii:%ss] ", Date()) + msg)
     CloseFile(2)
   EndIf
 EndProcedure
@@ -54,7 +60,7 @@ Procedure LoadWebsites(FileName.s)
     viewHeight = contentHeight + 20
   EndIf
 
-  OpenWindow(0, 200, 200, winWidth, viewHeight, "Useful Website Links", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  OpenWindow(0, 200, 200, winWidth, viewHeight, #APP_NAME, #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
   ScrollAreaGadget(0, 0, 0, winWidth, viewHeight, winWidth - 40, contentHeight + 10, 10)
 
   Protected y = padding, gID
@@ -112,9 +118,8 @@ EndProcedure
 LoadWebsites("weblinks.txt")
 HandleEvents()
 
-; IDE Options = PureBasic 6.30 beta 4 (Windows - x64)
-; CursorPosition = 108
-; FirstLine = 80
+; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
+; CursorPosition = 22
 ; Folding = -
 ; Optimizer
 ; EnableThread

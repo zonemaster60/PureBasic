@@ -1,4 +1,9 @@
 
+#APP_NAME   = "html_2_text"
+#EMAIL_NAME = "zonemaster60@gmail.com"
+
+Global AppPath.s = GetPathPart(ProgramFilename())
+SetCurrentDirectory(AppPath)
 
 Procedure.s StripHtmlTags(html.s)
   Protected result.s, i, inTag = #False
@@ -40,7 +45,7 @@ If OpenConsole()
       If CreateFile(1, outputFile$)
         WriteString(1, text$)
         CloseFile(1)
-        PrintN("HTML to text conversion completed successfully.")
+        PrintN(#APP_NAME + " conversion completed successfully.")
       Else
         PrintN("Error: Could not create output file.")
       EndIf
@@ -48,15 +53,15 @@ If OpenConsole()
       PrintN("Error: Could not read input file.")
     EndIf
   Else
-    PrintN("Usage: htmltotext input.html output.txt")
+    PrintN("Usage: " + #APP_NAME + " < input.html > < output.txt >")
   EndIf
-  PrintN("")
-  PrintN("Press Enter to exit...")
-  Input()
+  MessageRequester("Info", #APP_NAME + " - v1.0.0.0" + #CRLF$+ 
+                             "Thank you for using this free tool!" + #CRLF$ +
+                             "Contact: " + #EMAIL_NAME, #PB_MessageRequester_Info)
 EndIf
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 47
-; FirstLine = 26
+; CursorPosition = 55
+; FirstLine = 32
 ; Folding = -
 ; Optimizer
 ; EnableThread
