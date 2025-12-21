@@ -347,7 +347,8 @@ Repeat
       If EventTimer() = 2
         remaining = g_TimerNextRun - ElapsedMilliseconds()
         If remaining < 0 : remaining = 0 : EndIf
-        text = "Left Click to Run Now; Next RAM clear in: " + FormatCountdown(remaining)
+        text = "(Left Click to Run Now);" + #CRLF$ +
+               "Next RAM clear in: " + FormatCountdown(remaining)
         SysTrayIconToolTip(#TRAY_ICON, text)
       EndIf
       
