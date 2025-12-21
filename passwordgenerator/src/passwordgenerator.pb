@@ -19,7 +19,7 @@ EnableExplicit
 ;	   one "other" character. 
 ; =================================================================
 
-#APP_NAME = "Password generator"
+#APP_NAME = "passwordgenerator"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
 Global version.s = "v1.0.0.0"
@@ -152,15 +152,14 @@ pname=""
 PrintN("")
 If i > 0
   PrintN("Password(s) saved to 'MyPasswords.txt' file...")
-  Delay(2500) 
+  PrintN("")
+  PrintN("(Press ENTER to continue...)")
+  Input()
 EndIf
-Req=MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
-If Req = #PB_MessageRequester_Yes
   MessageRequester("Info", #APP_NAME +" "+ version + #CRLF$ +
                              "Thank you for using this free tool!" + #CRLF$ +
                              "Contact: " + #EMAIL_NAME, #PB_MessageRequester_Info)
   End
-EndIf
 ClearConsole()
 Goto Restart
   
@@ -181,13 +180,21 @@ DataSection
 EndDataSection
 
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 23
+; CursorPosition = 21
+; FirstLine = 152
 ; Folding = -
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; DllProtection
 ; UseIcon = passwordgenerator.ico
 ; Executable = ..\passwordgenerator.exe
+; IncludeVersionInfo
+; VersionField0 = 1,0,0,0
+; VersionField1 = 1,0,0,0
+; VersionField2 = ZoneSoft
+; VersionField3 = password generator
+; VersionField4 = 1.0.0.0
+; VersionField5 = 1.0.0.0
+; VersionField13 = zonemaster60@gmail.com
