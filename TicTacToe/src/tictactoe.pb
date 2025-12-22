@@ -56,6 +56,14 @@ EndEnumeration
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
+; Prevent multiple instances (don't rely on window title text)
+Global hMutex.i
+hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
+If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
+  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  End
+EndIf
+
 ; === Structures ===
 Structure Position
   x.i
@@ -88,7 +96,7 @@ Global DoubleStrikeCount = 0
 Global PendingRewind = #False
 Global LastMove.Position
 Global LastPlayer.s = ""
-Global version.s = "v1.0.0.1"
+Global version.s = "v1.0.0.2"
 
 ; Power-up arrays
 Global Dim Player1Powerups.PowerUp(#MAX_POWERUPS-1)
@@ -1183,26 +1191,26 @@ If OpenWindow(#Window_Main, 0, 0, #WINDOW_WIDTH, #WINDOW_HEIGHT, #APP_NAME + " -
   ForEver
 EndIf
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 1069
-; FirstLine = 1044
+; CursorPosition = 98
+; FirstLine = 84
 ; Folding = -----
 ; Optimizer
 ; EnableThread
 ; EnableXP
+; EnableAdmin
 ; DPIAware
-; DllProtection
 ; UseIcon = tictactoe.ico
 ; Executable = ..\TicTacToe.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = TicTacToe
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
 ; VersionField6 = A full-featured 2-Player TicTacToe game.
 ; VersionField7 = TicTacToe
 ; VersionField8 = TicTacToe.exe
-; VersionField9 = ZoneSoft
-; VersionField10 = David Scouten
-; VersionField13 = zonemaster@yahoo.com
+; VersionField9 = David Scouten
+; VersionField13 = zonemaster60@gmail.com
+; VersionField14 = https://github.com/zonemaster60
