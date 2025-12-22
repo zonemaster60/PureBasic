@@ -22,9 +22,17 @@ EnableExplicit
 #APP_NAME = "passwordgenerator"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
-Global version.s = "v1.0.0.0"
+Global version.s = "v1.0.0.1"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
+
+; Prevent multiple instances (don't rely on window title text)
+Global hMutex.i
+hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
+If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
+  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  End
+EndIf
 
 Procedure.b CheckPW(pw.s)
   Define flag.b=#True,
@@ -180,8 +188,8 @@ DataSection
 EndDataSection
 
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 21
-; FirstLine = 152
+; CursorPosition = 24
+; FirstLine = 160
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -191,10 +199,15 @@ EndDataSection
 ; UseIcon = passwordgenerator.ico
 ; Executable = ..\passwordgenerator.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
-; VersionField3 = password generator
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField3 = passwordgenerator
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
+; VersionField6 = Generates website passwords
+; VersionField7 = passwordgenerator
+; VersionField8 = passwordgenerator.exe
+; VersionField9 = David Scouten
 ; VersionField13 = zonemaster60@gmail.com
+; VersionField14 = https://github.com/zonemaster60
