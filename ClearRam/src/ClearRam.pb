@@ -34,6 +34,14 @@ Global loggingEnabled   = #True
 #EMAIL_NAME      = "zonemaster60@gmail.com"
 #MAX_RUNTIME_MS  = 15000   ; 15 seconds
 
+; Prevent multiple instances (don't rely on window title text)
+Global hMutex.i
+hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
+If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
+  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  End
+EndIf
+
 ; ---------------------------------------------------------
 ; Logging helper
 ; ---------------------------------------------------------
@@ -295,12 +303,6 @@ If LoadImage(#ICON_ACTIVE, IconActivePath) = 0
   End
 EndIf
 
-; Check for running instance
-If FindWindow_(0, #APP_NAME)
-  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
-  End
-EndIf  
-
 ; Hidden window
 OpenWindow(0, 0, 0, 10, 10, #APP_NAME, #PB_Window_Invisible)
 
@@ -395,8 +397,8 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 349
-; FirstLine = 335
+; CursorPosition = 305
+; FirstLine = 285
 ; Folding = ---
 ; Optimizer
 ; EnableThread
