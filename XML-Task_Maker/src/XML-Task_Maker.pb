@@ -26,9 +26,17 @@ EnableExplicit
 Global LogBuffer.s = ""
 Global LogFile.s = #LogFileDefault
 
-Global version.s = "v1.0.0.0"
+Global version.s = "v1.0.0.1"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
+
+; Prevent multiple instances (don't rely on window title text)
+Global hMutex.i
+hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
+If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
+  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  End
+EndIf
 
 ;-----------------------------
 ; Imports (must be global)
@@ -313,24 +321,23 @@ MessageRequester("Info", #APP_NAME + " - " + version + #CRLF$ +
                          "Task: schtasks /run /tn " + Chr(34) + opts\taskName + Chr(34), #PB_MessageRequester_Info)
 End
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 308
-; FirstLine = 284
+; CursorPosition = 28
+; FirstLine = 12
 ; Folding = --
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; DllProtection
 ; UseIcon = XML-Task_Maker.ico
 ; Executable = ..\XML-Task_Maker.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = XML-Task_Maker
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = Creates Tasks for use with Task Scheduler
 ; VersionField7 = XML-Task_Maker
 ; VersionField8 = XML-Task_Maker.exe
