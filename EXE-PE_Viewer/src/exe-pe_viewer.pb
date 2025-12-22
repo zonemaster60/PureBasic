@@ -10,6 +10,22 @@ EnableExplicit
 ; PE / COFF structures (simplified)
 ;-----------------------------------------------------------
 
+#APP_NAME   = "EXE-PE_Viewer"
+#EMAIL_NAME = "zonemaster60@gmail.com"
+
+Global CurrentFile.s
+Global NewList LogLines.s()
+Global AppPath.s        = GetPathPart(ProgramFilename())
+SetCurrentDirectory(AppPath)
+
+; Prevent multiple instances (don't rely on window title text)
+Global hMutex.i
+hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
+If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
+  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  End
+EndIf
+
 Structure IMAGE_DOS_HEADER2
   e_magic.w      ; Magic number "MZ"
   e_cblp.w
@@ -143,13 +159,6 @@ EndProcedure
 #Gad_Exit       = 6
 #StatusBar_Main = 0
 
-#APP_NAME   = "EXE-PE_Viewer"
-#EMAIL_NAME = "zonemaster60@gmail.com"
-
-Global CurrentFile.s
-Global NewList LogLines.s()
-Global AppPath.s        = GetPathPart(ProgramFilename())
-SetCurrentDirectory(AppPath)
 
 ;-----------------------------------------------------------
 ; Helper: set status bar text
@@ -336,7 +345,7 @@ EndProcedure
 
 Procedure ShowAbout()
   Protected msg.s
-  msg = #APP_NAME + " - v1.0.0.0" + #CRLF$ +
+  msg = #APP_NAME + " - v1.0.0.1" + #CRLF$ +
         "For viewing info in .EXE and DLL files." + #CRLF$ +
         "Contact: David Scouten (" + #EMAIL_NAME + ")" + #CRLF$ +
         "Website: https://github.com/zonemaster60"
@@ -422,24 +431,23 @@ Repeat
   EndSelect
 ForEver
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 340
-; FirstLine = 319
+; CursorPosition = 28
+; FirstLine = 3
 ; Folding = --
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; DllProtection
 ; UseIcon = exe-pe_viewer.ico
 ; Executable = ..\EXE-PE_Viewer.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = EXE/PE-Viwer
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = View PE/EXE/DLL files
 ; VersionField7 = EXE/PE-Viewer
 ; VersionField8 = EXE/PE-Viewer.exe
