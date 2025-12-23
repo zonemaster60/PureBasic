@@ -1,10 +1,18 @@
 ﻿EnableExplicit
 
-#APP_NAME   = "LoadWebLinks"
+#APP_NAME   = "loadweblinks"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
+
+; Prevent multiple instances (don't rely on window title text)
+Global hMutex.i
+hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
+If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
+  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  End
+EndIf
 
 Structure LinkData
   gadget.i
@@ -17,7 +25,7 @@ Global padding = 10
 Global VisitedColor = RGB(255, 0, 255) ; Magenta for visited links
 
 Procedure Exit()
-    MessageRequester("Info", #APP_NAME + " - v1.0.0.0" + #CRLF$+ 
+    MessageRequester("Info", #APP_NAME + " - v1.0.0.1" + #CRLF$+ 
                              "Thank you for using this free tool!" + #CRLF$ +
                              "Contact: " + #EMAIL_NAME, #PB_MessageRequester_Info)
     End
@@ -119,23 +127,25 @@ LoadWebsites("weblinks.txt")
 HandleEvents()
 
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 22
+; CursorPosition = 16
 ; Folding = -
 ; Optimizer
 ; EnableThread
 ; EnableXP
+; EnableAdmin
 ; DPIAware
-; DllProtection
 ; UseIcon = loadweblinks.ico
 ; Executable = loadweblinks.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
-; VersionField3 = loadweblinks.exe
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField3 = loadweblinks
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = Loads a list of websites
+; VersionField7 = loadweblinks
+; VersionField8 = loadweblinks.exe
 ; VersionField9 = David Scouten
-; VersionField13 = zonemaster@yahoo.com
-; VersionField14 = https://github.com/zonemaster60/PureBasic
+; VersionField13 = zonemaster60@gmail.com
+; VersionField14 = https://github.com/zonemaster60

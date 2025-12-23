@@ -18,6 +18,14 @@ EnableExplicit
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
+; Prevent multiple instances (don't rely on window title text)
+Global hMutex.i
+hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
+If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
+  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  End
+EndIf
+
 #DefaultChunkSize = 1024 * 1024
 
 Structure HashAlgo
@@ -28,7 +36,7 @@ Structure HashAlgo
 EndStructure
 
 Procedure Exit()
-    MessageRequester("Info", #APP_NAME + " - v1.0.0.0" + #CRLF$+ 
+    MessageRequester("Info", #APP_NAME + " - v1.0.0.1" + #CRLF$+ 
                              "Thank you for using this free tool!" + #CRLF$ +
                              "Contact: " + #EMAIL_NAME, #PB_MessageRequester_Info)
     End 1
@@ -68,10 +76,10 @@ Procedure.i WriteCSV(OutputPath.s, InputPath.s, FileSize.q, Map Hashes.s(), Arra
     ProcedureReturn #False
   EndIf
 
-  WriteStringN(fileId, "input_file: " + QuoteCSV(InputPath))
-  WriteStringN(fileId, "file_size_bytes: " + Str(FileSize))
+  WriteStringN(fileId, "Input_file: " + QuoteCSV(InputPath))
+  WriteStringN(fileId, "File_size_bytes: " + Str(FileSize))
   WriteStringN(fileId, "")
-  WriteStringN(fileId, "algorithm: hash_hex")
+  WriteStringN(fileId, "Algorithm: hash_hex")
 
   For idx = 0 To ArraySize(Keys())
     key = Keys(idx)
@@ -332,8 +340,7 @@ PrintN("Hashes: " + Str(MapSize(hashes())))
 Exit()
 
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 331
-; FirstLine = 304
+; CursorPosition = 81
 ; Folding = --
 ; Optimizer
 ; EnableThread
@@ -342,3 +349,16 @@ Exit()
 ; DPIAware
 ; UseIcon = hash_tool.ico
 ; Executable = hash_tool.exe
+; IncludeVersionInfo
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
+; VersionField2 = ZoneSoft
+; VersionField3 = hash_tool
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
+; VersionField6 = Create hash tables for executable files.
+; VersionField7 = hash_tool
+; VersionField8 = hash_tool.exe
+; VersionField9 = David Scouten
+; VersionField13 = zonemaster60@gmail.com
+; VersionField14 = https://github.com/zonemaster60

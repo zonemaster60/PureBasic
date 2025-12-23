@@ -5,6 +5,14 @@
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
+; Prevent multiple instances (don't rely on window title text)
+Global hMutex.i
+hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
+If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
+  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  End
+EndIf
+
 Procedure.s StripHtmlTags(html.s)
   Protected result.s, i, inTag = #False
   For i = 1 To Len(html)
@@ -55,13 +63,12 @@ If OpenConsole()
   Else
     PrintN("Usage: " + #APP_NAME + " < input.html > < output.txt >")
   EndIf
-  MessageRequester("Info", #APP_NAME + " - v1.0.0.0" + #CRLF$+ 
+  MessageRequester("Info", #APP_NAME + " - v1.0.0.1" + #CRLF$+ 
                              "Thank you for using this free tool!" + #CRLF$ +
                              "Contact: " + #EMAIL_NAME, #PB_MessageRequester_Info)
 EndIf
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 55
-; FirstLine = 32
+; CursorPosition = 6
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -69,4 +76,17 @@ EndIf
 ; EnableAdmin
 ; DPIAware
 ; UseIcon = html_2_text.ico
-; Executable = html2txt.exe
+; Executable = html_2_text.exe
+; IncludeVersionInfo
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
+; VersionField2 = ZoneSoft
+; VersionField3 = html_2_text
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
+; VersionField6 = Convert HTML documents to readable text
+; VersionField7 = html_2_text
+; VersionField8 = html_2_text.exe
+; VersionField9 = David Scouten
+; VersionField13 = zonemaster60@gmail.com
+; VersionField14 = https://github.com/zonemaster60

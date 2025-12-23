@@ -1,16 +1,24 @@
 ﻿EnableExplicit
 
-#APP_NAME   = "TextViewer"
+#APP_NAME   = "loadtextfile"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
+; Prevent multiple instances (don't rely on window title text)
+Global hMutex.i
+hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
+If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
+  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  End
+EndIf
+
 ; Variable definitions
 Define filename.s, content.s, line.s
 
 Procedure Exit()
-    MessageRequester("Info", #APP_NAME + " - v1.0.0.0" + #CRLF$+ 
+    MessageRequester("Info", #APP_NAME + " - v1.0.0.1" + #CRLF$+ 
                              "Thank you for using this free tool!" + #CRLF$ +
                              "Contact: " + #EMAIL_NAME, #PB_MessageRequester_Info)
     End
@@ -86,24 +94,25 @@ If OpenWindow(0, 100, 100, 800, 600, #APP_NAME, #PB_Window_SystemMenu | #PB_Wind
 EndIf
 
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 15
+; CursorPosition = 20
 ; Folding = -
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; DllProtection
 ; UseIcon = loadtextfile.ico
 ; Executable = loadtextfile.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
-; VersionField3 = loadtextfile.exe
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField3 = loadtextfile
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = Loads and displays text files
+; VersionField7 = loadtextfile
 ; VersionField8 = loadtextfile.exe
 ; VersionField9 = David Scouten
-; VersionField13 = zonemaster@yahoo.com
+; VersionField13 = zonemaster60@gmail.com
+; VersionField14 = https://github.com/zonemaster60
