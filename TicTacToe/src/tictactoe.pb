@@ -59,8 +59,9 @@ SetCurrentDirectory(AppPath)
 ; Prevent multiple instances (don't rely on window title text)
 Global hMutex.i
 hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
-If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
+If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
   MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  CloseHandle_(hMutex)
   End
 EndIf
 
@@ -1191,8 +1192,8 @@ If OpenWindow(#Window_Main, 0, 0, #WINDOW_WIDTH, #WINDOW_HEIGHT, #APP_NAME + " -
   ForEver
 EndIf
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 98
-; FirstLine = 84
+; CursorPosition = 58
+; FirstLine = 48
 ; Folding = -----
 ; Optimizer
 ; EnableThread

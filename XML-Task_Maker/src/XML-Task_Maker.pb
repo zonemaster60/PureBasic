@@ -15,8 +15,8 @@ EnableExplicit
 
 #APP_NAME = "XML-Task_Maker"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-#LogFileDefault = "XML-Task_Maker.log"
 
+#LogFileDefault = "XML-Task_Maker.log"
 #DefaultTaskName = "MyDailyTask"
 #DefaultExe       = "C:\Tools\MyApp.exe"
 #DefaultArgs      = "--quiet"
@@ -33,8 +33,9 @@ SetCurrentDirectory(AppPath)
 ; Prevent multiple instances (don't rely on window title text)
 Global hMutex.i
 hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
-If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
+If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
   MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  CloseHandle_(hMutex)
   End
 EndIf
 
@@ -321,8 +322,8 @@ MessageRequester("Info", #APP_NAME + " - " + version + #CRLF$ +
                          "Task: schtasks /run /tn " + Chr(34) + opts\taskName + Chr(34), #PB_MessageRequester_Info)
 End
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 28
-; FirstLine = 12
+; CursorPosition = 19
+; FirstLine = 10
 ; Folding = --
 ; Optimizer
 ; EnableThread
