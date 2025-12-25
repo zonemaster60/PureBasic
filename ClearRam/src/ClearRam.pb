@@ -30,15 +30,18 @@ Global loggingEnabled   = #True
 #RAMMAP_REL_PATH = "files\RAMMap64.exe"
 #LOG_FILE        = "ClearRam.log"
 #INI_FILE        = "ClearRam.ini"
+
 #APP_NAME        = "ClearRam"
 #EMAIL_NAME      = "zonemaster60@gmail.com"
+
 #MAX_RUNTIME_MS  = 15000   ; 15 seconds
 
 ; Prevent multiple instances (don't rely on window title text)
 Global hMutex.i
 hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
-If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
+If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
   MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  CloseHandle_(hMutex)
   End
 EndIf
 
@@ -397,8 +400,8 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 274
-; FirstLine = 264
+; CursorPosition = 36
+; FirstLine = 23
 ; Folding = ---
 ; Optimizer
 ; EnableThread
