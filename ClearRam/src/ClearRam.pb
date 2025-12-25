@@ -178,7 +178,7 @@ Procedure RunRAMMap()
   EndIf
 
   ChangeSysTrayIcon(#TRAY_ICON, ImageID(#ICON_ACTIVE))
-  UpdateTrayTooltip("Running ClearRam...")
+  UpdateTrayTooltip("Running " + #APP_NAME + "...")
 
   program = RunProgram(exePath, "-Em", "", #PB_Program_Open | #PB_Program_Wait)
   LogMessage("Emptying Modified Page List...")
@@ -200,13 +200,13 @@ Procedure RunRAMMap()
   While ProgramRunning(program)
     Delay(50)
     If ElapsedMilliseconds() - startTime > #MAX_RUNTIME_MS
-      LogMessage("ClearRam timeout — killing process")
+      LogMessage(#APP_NAME + " timeout — killing process")
       KillProgram(program)
       Break
     EndIf
   Wend
 
-  LogMessage("ClearRam execution complete")
+  LogMessage(#APP_NAME + " execution complete")
 
   ChangeSysTrayIcon(#TRAY_ICON, ImageID(#ICON_IDLE))
   UpdateTrayTooltip("Idle")
@@ -272,7 +272,7 @@ Procedure ShowAbout()
   EndIf
 
   Protected msg.s
-  msg = #APP_NAME + " v1.0.0.0 - ram cleaner" + #CRLF$ +
+  msg = #APP_NAME + " v1.0.0.1 - ram cleaner" + #CRLF$ +
         "Interval: " + Str(IntervalMinutes) + " minutes" + #CRLF$ +
         "Logging: " + logState + #CRLF$ +
         "INI file: " + #INI_FILE + #CRLF$ +
@@ -290,8 +290,8 @@ LoadSettings()
 LogMessage(#APP_NAME + " starting up...")
 
 ; load the icons
-Global IconIdlePath.s   = AppPath + "files\ClearRam-idle.ico"
-Global IconActivePath.s = AppPath + "files\ClearRam-active.ico"
+Global IconIdlePath.s   = AppPath + "files\" + #APP_NAME + "-idle.ico"
+Global IconActivePath.s = AppPath + "files\" + #APP_NAME + "-active.ico"
 
 If LoadImage(#ICON_IDLE, IconIdlePath) = 0
   MessageRequester("Error", "Failed to load idle icon at: " + IconIdlePath, #PB_MessageRequester_Error)
@@ -397,27 +397,26 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 305
-; FirstLine = 285
+; CursorPosition = 274
+; FirstLine = 264
 ; Folding = ---
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; DllProtection
 ; UseIcon = ..\files\ClearRam-idle.ico
 ; Executable = ..\ClearRam.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = ClearRam
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = Clears Ram using Sysinternals RAMMap
-; VersionField7 = ClearRam.exe
+; VersionField7 = ClearRam
 ; VersionField8 = ClearRam.exe
 ; VersionField9 = David Scouten
-; VersionField13 = zonemaster@yahoo.com
+; VersionField13 = zonemaster60@gmail.com
 ; VersionField14 = https://github.com/zonemaster60
