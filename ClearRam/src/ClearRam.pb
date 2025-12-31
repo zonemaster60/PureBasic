@@ -31,7 +31,7 @@ Global gTooltipOverrideText.s = ""
 
 ; Logging toggle
 Global loggingEnabled   = #True
-Global version.s = "v1.0.0.4"
+Global version.s = "v1.0.0.6"
 
 ; Logging paths + rotation
 #LOG_FILE        = "ClearRam.log"
@@ -657,8 +657,6 @@ EndProcedure
 
 Procedure ReloadSettingsFromFile()
   LoadSettings()
-  IntervalMS = IntervalMinutes * 60000
-  g_TimerNextRun = ElapsedMilliseconds() + IntervalMS
   UpdateStartupMenuLabel()
   UpdateLogMenuLabel()
   MessageRequester("Settings Reloaded", "Settings have been reloaded from " + #INI_FILE, #PB_MessageRequester_Info)
@@ -666,39 +664,90 @@ Procedure ReloadSettingsFromFile()
 EndProcedure
 
 Procedure EditSettings()
-  Protected iniFile.s = AppPath + #INI_FILE
-  Protected msg.s
+  Protected newInterval.s
+  Protected newLogging.s
+  Protected newStartup.s
+  Protected newRotateEnabled.s
+  Protected newRotateKeep.s
+  Protected newRotateMaxKB.s
+  Protected changed.i = #False
   
-  msg = "Choose how to edit settings:" + #CRLF$ + #CRLF$ +
-        "Yes - Edit with Notepad" + #CRLF$ +
-        "No - Edit in this dialog" + #CRLF$ +
-        "Cancel - Go back"
-  
-  Protected choice = MessageRequester("Edit Settings", msg, #PB_MessageRequester_YesNoCancel | #PB_MessageRequester_Info)
-  
-  If choice = #PB_MessageRequester_Yes
-    RunProgram("notepad.exe", Chr(34) + iniFile + Chr(34), "", #PB_Program_Wait)
-    
-    Protected reload = MessageRequester("Reload Settings?", "Do you want to reload the settings now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
-    If reload = #PB_MessageRequester_Yes
-      ReloadSettingsFromFile()
+  ; Edit Interval Minutes
+  newInterval = InputRequester("Edit Settings", "Interval Minutes (current: " + Str(IntervalMinutes) + "):", Str(IntervalMinutes))
+  If newInterval <> "" And Val(newInterval) > 0
+    If Val(newInterval) <> IntervalMinutes
+      IntervalMinutes = Val(newInterval)
+      IntervalMS = IntervalMinutes * 60000
+      g_TimerNextRun = ElapsedMilliseconds() + IntervalMS
+      changed = #True
     EndIf
-    
-  ElseIf choice = #PB_MessageRequester_No
-    Protected newInterval.s = InputRequester("Edit Interval", "Enter interval in minutes (current: " + Str(IntervalMinutes) + "):", Str(IntervalMinutes))
-    If newInterval <> ""
-      Protected intervalVal = Val(newInterval)
-      If intervalVal > 0
-        IntervalMinutes = intervalVal
-        IntervalMS = IntervalMinutes * 60000
-        g_TimerNextRun = ElapsedMilliseconds() + IntervalMS
-        SaveSettings()
-        MessageRequester("Success", "Interval updated to " + Str(IntervalMinutes) + " minutes", #PB_MessageRequester_Info)
-        LogMessage("Interval changed to " + Str(IntervalMinutes) + " minutes via Edit Settings")
-      Else
-        MessageRequester("Error", "Invalid interval value. Must be greater than 0.", #PB_MessageRequester_Error)
+  EndIf
+  
+  ; Edit Logging Enabled (0 or 1)
+  newLogging = InputRequester("Edit Settings", "Logging Enabled - 0=No, 1=Yes (current: " + Str(loggingEnabled) + "):", Str(loggingEnabled))
+  If newLogging <> ""
+    Protected logVal = Val(newLogging)
+    If logVal = 0 Or logVal = 1
+      If logVal <> loggingEnabled
+        loggingEnabled = logVal
+        changed = #True
       EndIf
     EndIf
+  EndIf
+  
+  ; Edit Run at Startup (0 or 1)
+  newStartup = InputRequester("Edit Settings", "Run at Startup - 0=No, 1=Yes (current: " + Str(startupEnabled) + "):", Str(startupEnabled))
+  If newStartup <> ""
+    Protected startVal = Val(newStartup)
+    If startVal = 0 Or startVal = 1
+      If startVal <> startupEnabled
+        startupEnabled = startVal
+        changed = #True
+      EndIf
+    EndIf
+  EndIf
+  
+  ; Edit Log Rotate Enabled (0 or 1)
+  newRotateEnabled = InputRequester("Edit Settings", "Log Rotate Enabled - 0=No, 1=Yes (current: " + Str(gLogRotateEnabled) + "):", Str(gLogRotateEnabled))
+  If newRotateEnabled <> ""
+    Protected rotVal = Val(newRotateEnabled)
+    If rotVal = 0 Or rotVal = 1
+      If rotVal <> gLogRotateEnabled
+        gLogRotateEnabled = rotVal
+        changed = #True
+      EndIf
+    EndIf
+  EndIf
+  
+  ; Edit Log Rotate Keep
+  newRotateKeep = InputRequester("Edit Settings", "Log Rotate Keep (files, current: " + Str(gLogRotateKeep) + "):", Str(gLogRotateKeep))
+  If newRotateKeep <> "" And Val(newRotateKeep) > 0
+    If Val(newRotateKeep) <> gLogRotateKeep
+      gLogRotateKeep = Val(newRotateKeep)
+      changed = #True
+    EndIf
+  EndIf
+  
+  ; Edit Log Rotate Max KB
+  Protected currentMaxKB = gLogRotateMaxBytes / 1024
+  newRotateMaxKB = InputRequester("Edit Settings", "Log Rotate Max KB (current: " + Str(currentMaxKB) + "):", Str(currentMaxKB))
+  If newRotateMaxKB <> "" And Val(newRotateMaxKB) > 0
+    Protected newMaxKB = Val(newRotateMaxKB)
+    If newMaxKB <> currentMaxKB
+      gLogRotateMaxBytes = newMaxKB * 1024
+      changed = #True
+    EndIf
+  EndIf
+  
+  ; Save if anything changed
+  If changed
+    SaveSettings()
+    UpdateStartupMenuLabel()
+    UpdateLogMenuLabel()
+    LogMessage("Settings edited and saved via input dialogs")
+    MessageRequester("Settings Saved", "Settings have been saved successfully.", #PB_MessageRequester_Info)
+  Else
+    LogMessage("Settings editing cancelled or no changes made")
   EndIf
 EndProcedure
 
@@ -893,8 +942,8 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 beta 6 (Windows - x64)
-; CursorPosition = 657
-; FirstLine = 642
+; CursorPosition = 680
+; FirstLine = 657
 ; Folding = ------
 ; Optimizer
 ; EnableThread
@@ -904,12 +953,12 @@ Until quitProgram = #True
 ; UseIcon = ..\files\ClearRam.ico
 ; Executable = ..\ClearRam.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,4
-; VersionField1 = 1,0,0,4
+; VersionField0 = 1,0,0,6
+; VersionField1 = 1,0,0,6
 ; VersionField2 = ZoneSoft
 ; VersionField3 = ClearRam
-; VersionField4 = 1.0.0.4
-; VersionField5 = 1.0.0.4
+; VersionField4 = 1.0.0.6
+; VersionField5 = 1.0.0.6
 ; VersionField6 = Clears RAM using native Windows APIs
 ; VersionField7 = ClearRam
 ; VersionField8 = ClearRam.exe
