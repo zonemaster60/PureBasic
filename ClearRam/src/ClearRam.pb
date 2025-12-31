@@ -8,8 +8,10 @@ EnableExplicit
 #TRAY_MENU       = 2
 #MENU_STARTUP    = 10
 #MENU_LOGTOGGLE  = 11
-#MENU_ABOUT      = 12
-#MENU_EXIT       = 13
+#MENU_EDITSETTINGS = 12
+#MENU_RELOADSETTINGS = 13
+#MENU_ABOUT      = 14
+#MENU_EXIT       = 15
 #ICON_IDLE       = 100
 #ICON_ACTIVE     = 101
 
@@ -653,6 +655,53 @@ Procedure.s FormatCountdown(ms.q)
   ProcedureReturn Str(min) + "m " + RSet(Str(sec), 2, "0") + "s"
 EndProcedure
 
+Procedure ReloadSettingsFromFile()
+  LoadSettings()
+  IntervalMS = IntervalMinutes * 60000
+  g_TimerNextRun = ElapsedMilliseconds() + IntervalMS
+  UpdateStartupMenuLabel()
+  UpdateLogMenuLabel()
+  MessageRequester("Settings Reloaded", "Settings have been reloaded from " + #INI_FILE, #PB_MessageRequester_Info)
+  LogMessage("Settings manually reloaded from INI file")
+EndProcedure
+
+Procedure EditSettings()
+  Protected iniFile.s = AppPath + #INI_FILE
+  Protected msg.s
+  
+  msg = "Choose how to edit settings:" + #CRLF$ + #CRLF$ +
+        "Yes - Edit with Notepad" + #CRLF$ +
+        "No - Edit in this dialog" + #CRLF$ +
+        "Cancel - Go back"
+  
+  Protected choice = MessageRequester("Edit Settings", msg, #PB_MessageRequester_YesNoCancel | #PB_MessageRequester_Info)
+  
+  If choice = #PB_MessageRequester_Yes
+    RunProgram("notepad.exe", Chr(34) + iniFile + Chr(34), "", #PB_Program_Wait)
+    
+    Protected reload = MessageRequester("Reload Settings?", "Do you want to reload the settings now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
+    If reload = #PB_MessageRequester_Yes
+      ReloadSettingsFromFile()
+    EndIf
+    
+  ElseIf choice = #PB_MessageRequester_No
+    Protected newInterval.s = InputRequester("Edit Interval", "Enter interval in minutes (current: " + Str(IntervalMinutes) + "):", Str(IntervalMinutes))
+    If newInterval <> ""
+      Protected intervalVal = Val(newInterval)
+      If intervalVal > 0
+        IntervalMinutes = intervalVal
+        IntervalMS = IntervalMinutes * 60000
+        g_TimerNextRun = ElapsedMilliseconds() + IntervalMS
+        SaveSettings()
+        MessageRequester("Success", "Interval updated to " + Str(IntervalMinutes) + " minutes", #PB_MessageRequester_Info)
+        LogMessage("Interval changed to " + Str(IntervalMinutes) + " minutes via Edit Settings")
+      Else
+        MessageRequester("Error", "Invalid interval value. Must be greater than 0.", #PB_MessageRequester_Error)
+      EndIf
+    EndIf
+  EndIf
+EndProcedure
+
 ; ---------------------------------------------------------
 ; About dialog
 ; ---------------------------------------------------------
@@ -741,6 +790,9 @@ CreatePopupMenu(#TRAY_MENU)
 MenuItem(#MENU_STARTUP,    "")
 MenuItem(#MENU_LOGTOGGLE,  "")
 MenuBar()
+MenuItem(#MENU_EDITSETTINGS, "Edit Settings")
+MenuItem(#MENU_RELOADSETTINGS, "Reload Settings")
+MenuBar()
 MenuItem(#MENU_ABOUT,      "About")
 MenuItem(#MENU_EXIT,       "Exit")
 
@@ -822,6 +874,12 @@ Repeat
             LogMessage("Logging ENABLED from menu.")
           EndIf
 
+        Case #MENU_EDITSETTINGS
+          EditSettings()
+
+        Case #MENU_RELOADSETTINGS
+          ReloadSettingsFromFile()
+
         Case #MENU_ABOUT
           ShowAbout()
 
@@ -835,8 +893,8 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 beta 6 (Windows - x64)
-; CursorPosition = 31
-; FirstLine = 12
+; CursorPosition = 657
+; FirstLine = 642
 ; Folding = ------
 ; Optimizer
 ; EnableThread
