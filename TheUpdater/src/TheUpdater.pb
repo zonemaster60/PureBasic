@@ -34,6 +34,17 @@ Procedure Exit()
   EndIf
 EndProcedure
 
+Procedure ShowAbout()
+  Protected msg.s
+  msg = #APP_NAME + " - " + version + #CRLF$ +
+        "For updating your installed programs." + #CRLF$ +
+        "---------------------------------------" + #CRLF$ +
+        "Contact: " + #EMAIL_NAME + #CRLF$ +
+        "Website: https://github.com/zonemaster60"
+
+  MessageRequester("About " + #APP_NAME, msg, #PB_MessageRequester_Info)
+EndProcedure
+
 ; -------------------- Constants / Globals --------------------
 
 Global MainWindowTitle$ = #APP_NAME
@@ -57,6 +68,7 @@ Enumeration GadgetIds
   #G_ChkIncludeSystem
   #G_ChkIncludeWindowsApps
   #G_BtnViewLog
+  #G_BtnAbout
   #G_Status
 EndEnumeration
 
@@ -2068,6 +2080,7 @@ Procedure CreateMainWindow()
 
   TextGadget(#G_Status, 10, h - 42, w - 130, 20, "Ready")
   ButtonGadget(#G_BtnViewLog, w - 100, h - 42, 90, 28, "View log")
+  ButtonGadget(#G_BtnAbout, w - 200, h - 42, 90, 28, "About")
 EndProcedure
 
 ; -------------------- Main --------------------
@@ -2127,6 +2140,9 @@ Repeat
 
         Case #G_BtnViewLog
           OpenErrorLog()
+          
+        Case #G_BtnAbout
+          ShowAbout()  
       EndSelect
 
     Case #PB_Event_CloseWindow
@@ -2137,8 +2153,8 @@ ForEver
 End
 
 ; IDE Options = PureBasic 6.30 beta 6 (Windows - x64)
-; CursorPosition = 2045
-; FirstLine = 2028
+; CursorPosition = 2082
+; FirstLine = 2059
 ; Folding = -------------
 ; Optimizer
 ; EnableThread
