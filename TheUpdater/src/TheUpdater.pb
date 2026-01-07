@@ -11,7 +11,8 @@ EnableExplicit
 
 #APP_NAME = "TheUpdater"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-Global version.s = "v1.0.0.0"
+
+Global version.s = "v1.0.0.1"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -2057,7 +2058,7 @@ Procedure CreateMainWindow()
 
   OpenWindow(#WinMain, 0, 0, w, h, MainWindowTitle$ + " - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_SizeGadget | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget)
 
-  ListIconGadget(#G_List, 10, 10, w - 20, h - 120, "Name", 280, #PB_ListIcon_FullRowSelect | #PB_ListIcon_GridLines)
+  ListIconGadget(#G_List, 10, 10, w - 20, h - 125, "Name", 280, #PB_ListIcon_FullRowSelect | #PB_ListIcon_GridLines)
   AddGadgetColumn(#G_List, 1, "Id", 260)
   AddGadgetColumn(#G_List, 2, "Installed", 120)
   AddGadgetColumn(#G_List, 3, "Available", 120)
@@ -2076,11 +2077,11 @@ Procedure CreateMainWindow()
 
   ButtonGadget(#G_BtnScanPortable, 610, h - 75, 120, 28, "Scan Portable")
   ButtonGadget(#G_BtnMatchPortable, 740, h - 75, 150, 28, "Match to winget")
+  ButtonGadget(#G_BtnAbout, w - 100, h - 108, 90, 28, "About")
   ButtonGadget(#G_BtnPortableSettings, 900, h - 75, 90, 28, "Folders")
-
   TextGadget(#G_Status, 10, h - 42, w - 130, 20, "Ready")
   ButtonGadget(#G_BtnViewLog, w - 100, h - 42, 90, 28, "View log")
-  ButtonGadget(#G_BtnAbout, w - 200, h - 42, 90, 28, "About")
+  
 EndProcedure
 
 ; -------------------- Main --------------------
@@ -2152,9 +2153,8 @@ ForEver
 
 End
 
-; IDE Options = PureBasic 6.30 beta 6 (Windows - x64)
-; CursorPosition = 2082
-; FirstLine = 2059
+; IDE Options = PureBasic 6.30 beta 7 (Windows - x64)
+; CursorPosition = 2060
 ; Folding = -------------
 ; Optimizer
 ; EnableThread
@@ -2164,13 +2164,13 @@ End
 ; UseIcon = TheUpdater.ico
 ; Executable = ..\TheUpdater.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = TheUpdater
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
-; VersionField6 = Updates your installed programs
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
+; VersionField6 = Updates your installed programs (winget)
 ; VersionField7 = TheUpdater
 ; VersionField8 = TheUpdater.exe
 ; VersionField9 = David Scouten
