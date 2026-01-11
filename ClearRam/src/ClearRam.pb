@@ -941,7 +941,7 @@ Repeat
   EndSelect
 
 Until quitProgram = #True
-; IDE Options = PureBasic 6.30 beta 6 (Windows - x64)
+; IDE Options = PureBasic 6.30 beta 7 (Windows - x64)
 ; CursorPosition = 680
 ; FirstLine = 657
 ; Folding = ------
@@ -952,6 +952,7 @@ Until quitProgram = #True
 ; DPIAware
 ; UseIcon = ..\files\ClearRam.ico
 ; Executable = ..\ClearRam.exe
+; DisableDebugger
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,6
 ; VersionField1 = 1,0,0,6
