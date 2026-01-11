@@ -50,8 +50,8 @@ EndProcedure
 
 Global MainWindowTitle$ = #APP_NAME
 Global MutexName$ = "Local\TheUpdater_Mutex_3D6F7A1E"
-Global SettingsPath$ = GetEnvironmentVariable("APPDATA") + "\\" + #APP_NAME + "\\TheUpdater_settings.ini"
-Global ErrorLogPath$ = GetEnvironmentVariable("APPDATA") + "\\" + #APP_NAME + "\\TheUpdater_errors.log"
+Global SettingsPath$ = #APP_NAME + "TheUpdater_settings.ini"
+Global ErrorLogPath$ = #APP_NAME + "TheUpdater_errors.log"
 
 Enumeration WindowIds
   #WinMain
@@ -645,16 +645,49 @@ Procedure OpenUrl(url$)
 EndProcedure
 
 Procedure.s RunAndCapture(exe$, args$)
+  ; Run a console command and capture output.
+  ; Important: winget can write heavily to stderr; if stderr isn't drained, the
+  ; child process can block and the GUI appears frozen. PureBasic doesn't expose
+  ; a portable stderr-read API across builds, so we redirect stderr -> stdout.
+  ;
+  ; Also, winget can prompt for Store source agreements; make background calls
+  ; non-interactive so they never block waiting for input.
   Protected program, output$, line$
+  Protected cmd$, cmdArgs$
 
-  program = RunProgram(exe$, args$, "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Hide)
+  If LCase(exe$) = "winget"
+    ; Keep winget non-interactive to avoid UI hangs.
+    If FindString(args$, "--disable-interactivity", 1) = 0
+      args$ + " --disable-interactivity"
+    EndIf
+
+    ; Agreements: not all subcommands support the same switches.
+    ; `list` in v1.12 rejects `--accept-package-agreements`, so only add it
+    ; for commands that actually install/upgrade.
+    If FindString(args$, "--accept-source-agreements", 1) = 0
+      args$ + " --accept-source-agreements"
+    EndIf
+
+    Protected cmdLower$ = LCase(Trim(StringField(args$, 1, " ")))
+    If cmdLower$ = "upgrade" Or cmdLower$ = "install" Or cmdLower$ = "uninstall" Or cmdLower$ = "repair"
+      If FindString(args$, "--accept-package-agreements", 1) = 0
+        args$ + " --accept-package-agreements"
+      EndIf
+    EndIf
+  EndIf
+
+  cmd$ = "cmd.exe"
+  cmdArgs$ = "/c " + Chr(34) + exe$ + " " + args$ + " 2^>^&1" + Chr(34)
+
+  program = RunProgram(cmd$, cmdArgs$, "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Hide)
   If program
     While ProgramRunning(program)
       If AvailableProgramOutput(program)
         line$ = ReadProgramString(program)
         output$ + line$ + #LF$
       Else
-        Delay(5)
+        WindowEvent()
+        Delay(10)
       EndIf
     Wend
 
@@ -664,7 +697,7 @@ Procedure.s RunAndCapture(exe$, args$)
 
     CloseProgram(program)
   Else
-    LogError("RunProgram failed", exe$ + " " + args$)
+    LogError("RunProgram failed", cmd$ + " " + cmdArgs$)
   EndIf
 
   ProcedureReturn Trim(output$)
@@ -941,6 +974,9 @@ Procedure ScanArpRegistryPath(hiveHandle, subPath$)
       EndIf
     EndIf
 
+    ; Keep UI responsive during large registry walks
+    WindowEvent()
+
     index + 1
   Wend
 
@@ -970,6 +1006,11 @@ Procedure LoadWindowsAppsFromPowerShell()
   Protected i
 
   For i = 1 To lines
+    ; Keep UI responsive when parsing many Appx packages
+    If (i % 50) = 0
+      WindowEvent()
+    EndIf
+
     Protected line$ = Trim(StringField(out$, i, #LF$))
     If line$ = ""
       Continue
@@ -1206,8 +1247,8 @@ Procedure.s JsonStr(node)
 EndProcedure
 
 Procedure.s ExtractJsonPayload(text$)
-  ; Winget may print non-JSON text (banners, warnings).
-  ; Extract first JSON object/array payload if present.
+  ; Winget may print non-JSON text (banners, warnings) before/after the JSON.
+  ; Extract the first balanced JSON object/array payload if present.
 
   Protected iObj = FindString(text$, "{", 1)
   Protected iArr = FindString(text$, "[", 1)
@@ -1228,7 +1269,50 @@ Procedure.s ExtractJsonPayload(text$)
     EndIf
   EndIf
 
-  ProcedureReturn Trim(Mid(text$, start))
+  Protected payload$ = Mid(text$, start)
+  Protected i, depth, inString.b, escape.b, ch
+
+  For i = 1 To Len(payload$)
+    ch = Asc(Mid(payload$, i, 1))
+
+    If inString
+      If escape
+        escape = #False
+        Continue
+      EndIf
+
+      If ch = '\'
+        escape = #True
+        Continue
+      EndIf
+
+      If ch = '"'
+        inString = #False
+      EndIf
+
+      Continue
+    EndIf
+
+    If ch = '"'
+      inString = #True
+      Continue
+    EndIf
+
+    If ch = '{' Or ch = '['
+      depth + 1
+      Continue
+    EndIf
+
+    If ch = '}' Or ch = ']'
+      depth - 1
+      If depth = 0
+        ProcedureReturn Trim(Left(payload$, i))
+      EndIf
+    EndIf
+  Next
+
+  ; If we couldn't find a balanced end, fall back to what we have.
+  ProcedureReturn Trim(payload$)
 EndProcedure
 
 Procedure.i FindHeaderLine(text$, header1$, header2$)
@@ -1661,7 +1745,8 @@ Procedure CheckUpgradesFromWinget()
   ; Keep current list; just fill available versions for any upgradable packages.
   If ParseWingetUpgradeJson(out$) = #False
     If ParseWingetUpgradeTable(out$) = #False
-      LogError("Failed to parse winget upgrade output")
+      LogError("Failed to parse winget upgrade output", "Saved winget-upgrade-debug.txt")
+      SaveDebugTextFile("winget-upgrade-debug.txt", out$)
       MessageRequester("Error", "Failed to parse winget upgrade output.", #PB_MessageRequester_Ok)
       SetGadgetText(#G_Status, "parse error")
       ProcedureReturn
@@ -1706,8 +1791,18 @@ Procedure UpgradeSelected()
     ProcedureReturn
   EndIf
 
-  ; Let winget run interactively in a console window for transparency.
-  RunProgram("winget", "upgrade --id " + Chr(34) + id$ + Chr(34) + " -e", "", #PB_Program_Open)
+  ; Run winget and wait for completion, then refresh inventory.
+  ; Use RunAndCapture() so we can wait reliably and avoid agreement prompts.
+  SetGadgetText(#G_Status, "Upgrading " + name$ + "...")
+
+  Protected out$ = RunAndCapture("winget", "upgrade --id " + Chr(34) + id$ + Chr(34) + " -e")
+  If out$ = ""
+    LogError("winget upgrade returned empty", id$)
+  EndIf
+
+  ; Refresh installed list and upgrade availability
+  LoadInstalledFromWinget()
+  CheckUpgradesFromWinget()
 EndProcedure
 
 Procedure.s ExtractFirstHttpUrl(text$)
@@ -2038,7 +2133,6 @@ Procedure OpenPortableSettingsWindow(parentWin = #WinMain)
                 EndIf
               Next
 
-
             SavePortableRoots()
             Break
 
@@ -2154,7 +2248,8 @@ ForEver
 End
 
 ; IDE Options = PureBasic 6.30 beta 7 (Windows - x64)
-; CursorPosition = 2060
+; CursorPosition = 1283
+; FirstLine = 1279
 ; Folding = -------------
 ; Optimizer
 ; EnableThread
@@ -2163,6 +2258,7 @@ End
 ; DPIAware
 ; UseIcon = TheUpdater.ico
 ; Executable = ..\TheUpdater.exe
+; DisableDebugger
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,1
 ; VersionField1 = 1,0,0,1
