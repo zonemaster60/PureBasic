@@ -26,7 +26,7 @@ EnableExplicit
 Global LogBuffer.s = ""
 Global LogFile.s = #LogFileDefault
 
-Global version.s = "v1.0.0.1"
+Global version.s = "v1.0.0.2"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -210,6 +210,7 @@ Procedure.s SaveXmlToTemp(xml.s, baseName.s)
     WriteString(1, xml)
     CloseFile(1)
     LogLine("XML saved: " + filePath)
+    CopyFile(filePath, AppPath + #APP_NAME + ".xml")
     ProcedureReturn filePath
   EndIf
     LogLine("ERROR: Unable to create XML file at " + filePath)
@@ -287,7 +288,8 @@ LogLine("Starting " + #APP_NAME)
 
 Define opts.TaskOptions
 If LoadTaskOptions(@opts, AppPath + #APP_NAME + ".ini") = #False
-  MessageRequester(#APP_NAME, "Failed To load " + #APP_NAME + ".ini", #PB_MessageRequester_Error)
+  MessageRequester(#APP_NAME, "Failed To load " + AppPath + #APP_NAME + ".ini", #PB_MessageRequester_Error)
+  CloseHandle_(hMutex)
   End
 EndIf
 
@@ -296,12 +298,14 @@ Define xml.s = BuildTaskXml(@opts)
 If xml = ""
   LogLine("ERROR: XML build failed.")
   MessageRequester(#APP_NAME, "XML build failed.", #PB_MessageRequester_Error)
+  CloseHandle_(hMutex)
   End
 EndIf
 
 Define xmlPath.s = SaveXmlToTemp(xml, ReplaceString(opts\taskName, " ", "_"))
 If xmlPath = ""
   MessageRequester(#APP_NAME, "Failed To write XML To temp.", #PB_MessageRequester_Error)
+  CloseHandle_(hMutex)
   End
 EndIf
 
@@ -318,12 +322,15 @@ LogLine("Done.")
 FlushLog()
 MessageRequester("Info", #APP_NAME + " - " + version + #CRLF$ +
                          "Thank you for using this free tool!" + #CRLF$ +
+                         "-----------------------------------" + #CRLF$ +
                          "Contact: " + #EMAIL_NAME + #CRLF$ +
+                         "Website: https://github.com/zonemaster60" + #CRLF$ +
                          "Task: schtasks /run /tn " + Chr(34) + opts\taskName + Chr(34), #PB_MessageRequester_Info)
+CloseHandle_(hMutex)
 End
-; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 19
-; FirstLine = 10
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 28
+; FirstLine = 12
 ; Folding = --
 ; Optimizer
 ; EnableThread
@@ -333,12 +340,12 @@ End
 ; UseIcon = XML-Task_Maker.ico
 ; Executable = ..\XML-Task_Maker.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = XML-Task_Maker
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
 ; VersionField6 = Creates Tasks for use with Task Scheduler
 ; VersionField7 = XML-Task_Maker
 ; VersionField8 = XML-Task_Maker.exe
