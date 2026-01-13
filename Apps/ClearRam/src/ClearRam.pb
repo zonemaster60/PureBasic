@@ -31,7 +31,7 @@ Global gTooltipOverrideText.s = ""
 
 ; Logging toggle
 Global loggingEnabled   = #True
-Global version.s = "v1.0.0.6"
+Global version.s = "v1.0.0.7"
 
 ; Logging paths + rotation
 #LOG_FILE        = "ClearRam.log"
@@ -234,7 +234,6 @@ Procedure.s StartupTaskUserId()
   ProcedureReturn user
 EndProcedure
 
-
 Procedure RemoveLegacyStartupRegistryEntry()
   ; Older versions used HKCU\...\Run. Best-effort cleanup.
   Protected cmd.s = "reg delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v " + #APP_NAME + " /f"
@@ -317,20 +316,17 @@ Procedure AddToStartup()
   ; Task is created to run in the current user session (interactive),
   ; so the tray icon is visible after logon.
 
-
   ; Fully automated task creation (no external XML file).
   ; Runs at logon for the current user, delays 60 seconds, highest privileges,
   ; and runs as soon as possible if a scheduled start is missed.
   ; NOTE: Running as SYSTEM prevents the tray icon from showing in the user session.
   Protected taskName.s = StartupTaskName()
 
-
   ; Build a PowerShell Register-ScheduledTask command.
   Protected psTaskName.s = ReplaceString(taskName, "'", "''")
   Protected psExe.s = ReplaceString(ProgramFilename(), "'", "''")
   Protected psWorkDir.s = ReplaceString(AppPath, "'", "''")
   Protected psUser.s = ReplaceString(StartupTaskUserId(), "'", "''")
-
 
   ; Use explicit try/catch so any errors go to stdout.
   Protected psCmd.s
@@ -353,8 +349,6 @@ Procedure AddToStartup()
           " if ($_.ScriptStackTrace) { Write-Output $_.ScriptStackTrace };" +
           " exit 1" +
           "}"
-
-
 
   RunAndCapture("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -Command " + Chr(34) + psCmd + Chr(34))
 
@@ -885,7 +879,9 @@ Repeat
           gTooltipOverrideUntil = 0
           remaining = g_TimerNextRun - ElapsedMilliseconds()
           If remaining < 0 : remaining = 0 : EndIf
-          text = "(Left Click to Run Now);" + #CRLF$ +
+          Define availMem.q = GetAvailPhysBytes()
+          text = "(Left Click = Run Now)" + #CRLF$ +
+                 "Memory: " + Str(availMem / 1024 / 1024) + "MB" + #CRLF$ +
                  "Next RAM clear in: " + FormatCountdown(remaining)
           SysTrayIconToolTip(#TRAY_ICON, text)
         EndIf
@@ -941,25 +937,25 @@ Repeat
   EndSelect
 
 Until quitProgram = #True
-; IDE Options = PureBasic 6.30 beta 7 (Windows - x64)
-; CursorPosition = 680
-; FirstLine = 657
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 882
+; FirstLine = 868
 ; Folding = ------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = ..\files\ClearRam.ico
+; UseIcon = ..\files\ClearRam-idle.ico
 ; Executable = ..\ClearRam.exe
 ; DisableDebugger
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,6
-; VersionField1 = 1,0,0,6
+; VersionField0 = 1,0,0,7
+; VersionField1 = 1,0,0,7
 ; VersionField2 = ZoneSoft
 ; VersionField3 = ClearRam
-; VersionField4 = 1.0.0.6
-; VersionField5 = 1.0.0.6
+; VersionField4 = 1.0.0.7
+; VersionField5 = 1.0.0.7
 ; VersionField6 = Clears RAM using native Windows APIs
 ; VersionField7 = ClearRam
 ; VersionField8 = ClearRam.exe
