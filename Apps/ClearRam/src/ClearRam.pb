@@ -759,11 +759,11 @@ Procedure ShowAbout()
   EndIf
 
   Protected msg.s
-  msg = #APP_NAME + " - " + version + " - ram cleaner" + #CRLF$ +
+  msg = #APP_NAME + " - " + version + #CRLF$ +
         "Interval: " + Str(IntervalMinutes) + " minutes" + #CRLF$ +
         "Logging: " + logState + #CRLF$ +
         "INI file: " + #INI_FILE + #CRLF$ +
-        "Contact: David Scouten (" + #EMAIL_NAME + ")" + #CRLF$ +
+        "Contact: " + #EMAIL_NAME + #CRLF$ +
         "Website: https://github.com/zonemaster60"
 
   MessageRequester("About " + #APP_NAME, msg, #PB_MessageRequester_Info)
@@ -880,9 +880,8 @@ Repeat
           remaining = g_TimerNextRun - ElapsedMilliseconds()
           If remaining < 0 : remaining = 0 : EndIf
           Define availMem.q = GetAvailPhysBytes()
-          text = "(Left Click = Run Now)" + #CRLF$ +
-                 "Memory: " + Str(availMem / 1024 / 1024) + "MB" + #CRLF$ +
-                 "Next RAM clear in: " + FormatCountdown(remaining)
+          text = "Available Memory: " + Str(availMem/1024/1024) + "MB" + #CRLF$ +
+                 "LeftClick=RunNow; Next Run in: " + FormatCountdown(remaining)
           SysTrayIconToolTip(#TRAY_ICON, text)
         EndIf
       EndIf
@@ -939,7 +938,7 @@ Repeat
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 882
-; FirstLine = 868
+; FirstLine = 866
 ; Folding = ------
 ; Optimizer
 ; EnableThread
