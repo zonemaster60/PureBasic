@@ -380,6 +380,7 @@ Procedure Exit()
   Protected Req.i
   Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
   If Req = #PB_MessageRequester_Yes
+    CloseHandle_(hMutex)
     End
   EndIf
 EndProcedure
@@ -589,16 +590,16 @@ Repeat
       Exit()
   EndSelect
 ForEver
-; IDE Options = PureBasic 6.30 beta 6 (Windows - x64)
-; CursorPosition = 510
-; FirstLine = 495
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 382
+; FirstLine = 368
 ; Folding = ----
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = exe-pe_viewer.ico
+; UseIcon = EXE-PE_Viewer.ico
 ; Executable = ..\EXE-PE_Viewer.exe
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,2
