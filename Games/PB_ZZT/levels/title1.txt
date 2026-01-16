@@ -1,0 +1,622 @@
+# PB_ZZT World v2
+# 80x25
+
+[World]
+Name=PBZT Title Screen
+StartBoard=0
+BangOneShot=0
+RespawnAtWorldStart=1
+DeathLoseScore=0
+DeathLoseKeys=0
+DeathRespawnDelayMS=1200
+DeathFadeMS=700
+SfxMasterVol=1.00
+SfxPitch=1.00
+SfxNoise=1.00
+SfxVib=1.00
+
+[Palette]
+ =7
+!=12
+#=8
+$=14
+,=7
+.=7
+/=7
+0=7
+1=12
+2=10
+?=11
+@=15
+A=12
+B=10
+D=11
+E=12
+F=14
+H=7
+M=7
+O=14
+P=7
+R=7
+S=7
+T=14
+U=7
+Z=7
+_=7
+a=7
+c=7
+d=11
+e=7
+f=7
+g=7
+h=7
+i=7
+k=12
+l=7
+m=7
+n=7
+o=7
+p=7
+r=7
+s=7
+t=14
+u=7
+w=7
+z=7
+
+[Solids]
+#
+$
+A
+B
+C
+D
+F
+d
+
+[Board]
+Name=Title
+ExitN=-1
+ExitS=-1
+ExitW=-1
+ExitE=-1
+StartX=3
+StartY=2
+Dark=0
+MusicBegin
+T=140
+SQ  C5 - E5 - G5 - E5 - C6 - G5 - E5 - | D5 - F5 - A5 - F5 - D6 - A5 - F5 - | E5 - G5 - B5 - G5 - E6 - B5 - G5 - | D5 - F5 - A5 - F5 - D6 - A5 - F5 -
+SQ2 C3 - C3 - G2 - G2 - A2 - A2 - G2 - G2 - | F2 - F2 - C3 - C3 - D2 - D2 - A2 - A2 - | E2 - E2 - B2 - B2 - C3 - C3 - G2 - G2 - | F2 - F2 - C3 - C3 - D2 - D2 - A2 - A2 -
+DR  x - - - x - - - x - - - x - - - | x - - - x - - - x - - - x - - - | x - - - x - - - x - - - x - - - | x - - - x - - - x - - - x - - -
+MusicEnd
+[Map]
+################################################################################
+#..............................................................................#
+#..............................................................................#
+#..............................................................................#
+#....................PPPPPPPPPPPPPPPPPPPPPPPPPPPP..............................#
+#....................P..........................P..............................#
+#....................P.......PB_ZZT DEMO........P..............................#
+#....................P..........................P..............................#
+#..............................................................................#
+#....................!Touch O or press Space/Enter to START....................#
+#....................!PgUp/PgDn changes world files............................#
+#....................!F1 help, F2 editor.......................................#
+#........................@.....................................................#
+#....................P..........................P..............................#
+#....................P..........................P..............................#
+#....................P..........................P..............................#
+#....................PPPPPPPPPPPPPPPPPPPPPPPPPPPP..............................#
+#..............................................................................#
+#..............................................................................#
+#..............................................................................#
+#..............................................................................#
+#..............................................................................#
+#..............................................................................#
+#..............................................................................#
+################################################################################
+
+[Object]
+Name=StartDemo
+X=30
+Y=10
+Char=O
+Color=14
+Solid=1
+ScriptBegin
+#END
+:TOUCH
+#SCROLL Welcome to PBZT!
+#SCROLL Loading the scroll/fuel/keys demo board...
+#BOARD 1
+#END
+
+:ENTER
+#BOARD 1
+#END
+ScriptEnd
+
+[Object]
+Name=Object7
+X=29
+Y=6
+Char=P
+Color=14
+Solid=1
+ScriptBegin
+
+ScriptEnd
+
+[Object]
+Name=Object8
+X=31
+Y=6
+Char=_
+Color=12
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object8
+#END
+ScriptEnd
+
+[Object]
+Name=Object9
+X=34
+Y=6
+Char=Z
+Color=11
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object9
+#END
+ScriptEnd
+
+[Object]
+Name=Object10
+X=32
+Y=6
+Char=S
+Color=14
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object10
+#END
+ScriptEnd
+
+[Object]
+Name=Object11
+X=33
+Y=6
+Char=Z
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object11
+#END
+ScriptEnd
+
+[Object]
+Name=Object12
+X=30
+Y=14
+Char=z
+Color=10
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object12
+#END
+ScriptEnd
+
+[Object]
+Name=Object13
+X=31
+Y=14
+Char=o
+Color=14
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object13
+#END
+ScriptEnd
+
+[Object]
+Name=Object14
+X=32
+Y=14
+Char=n
+Color=15
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object14
+#END
+ScriptEnd
+
+[Object]
+Name=Object15
+X=33
+Y=14
+Char=e
+Color=11
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object15
+#END
+ScriptEnd
+
+[Object]
+Name=Object16
+X=34
+Y=14
+Char=m
+Color=8
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object16
+#END
+ScriptEnd
+
+[Object]
+Name=Object17
+X=35
+Y=14
+Char=a
+Color=7
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object17
+#END
+ScriptEnd
+
+[Object]
+Name=Object18
+X=36
+Y=14
+Char=s
+Color=6
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object18
+#END
+ScriptEnd
+
+[Object]
+Name=Object19
+X=37
+Y=14
+Char=t
+Color=4
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object19
+#END
+ScriptEnd
+
+[Object]
+Name=Object20
+X=38
+Y=14
+Char=e
+Color=1
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object20
+#END
+ScriptEnd
+
+[Object]
+Name=Object21
+X=39
+Y=14
+Char=r
+Color=6
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object21
+#END
+ScriptEnd
+
+[Object]
+Name=Object22
+X=55
+Y=9
+Char=t
+Color=14
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object22
+#END
+ScriptEnd
+
+[Object]
+Name=Object23
+X=56
+Y=9
+Char=a
+Color=12
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object23
+#END
+ScriptEnd
+
+[Object]
+Name=Object24
+X=57
+Y=9
+Char=r
+Color=10
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object24
+#END
+ScriptEnd
+
+[Object]
+Name=Object25
+X=58
+Y=9
+Char=t
+Color=11
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object25
+#END
+ScriptEnd
+
+[Object]
+Name=Object26
+X=25
+Y=11
+Char=H
+Color=14
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object26
+#END
+ScriptEnd
+
+[Object]
+Name=Object27
+X=32
+Y=11
+Char=2
+Color=13
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object27
+#END
+ScriptEnd
+
+[Object]
+Name=Object28
+X=26
+Y=9
+Char=h
+Color=12
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object28
+#END
+ScriptEnd
+
+[Object]
+Name=Object29
+X=35
+Y=6
+Char=T
+Color=11
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object29
+#END
+ScriptEnd
+
+[Object]
+Name=Object31
+X=37
+Y=6
+Char=D
+Color=14
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object31
+#END
+ScriptEnd
+
+[Object]
+Name=Object33
+X=39
+Y=6
+Char=M
+Color=12
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object33
+#END
+ScriptEnd
+
+[Object]
+Name=Object34
+X=40
+Y=6
+Char=O
+Color=7
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object34
+#END
+ScriptEnd
+
+[Object]
+Name=Object36
+X=38
+Y=6
+Char=E
+Color=14
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Hello from Object36
+#END
+ScriptEnd
+
+[Board]
+Name=Demo - Scroll/Fuel/Keys
+ExitN=-1
+ExitS=-1
+ExitW=-1
+ExitE=-1
+StartX=2
+StartY=2
+Dark=1
+[Map]
+################################################################################
+#..............................................................................#
+#..............................................................................#
+#.!Touch O then walk to the treasure. Fuel starts at 0 so it is dark!..........#
+#..............................................................................#
+#.............................#######..........................................#
+#.............................#.....#..........................................#
+#.............................A..$..#..........................................#
+#.............................#.....#..........................................#
+#.............................#######..........................................#
+#..............................................................................#
+#..............................................................................#
+#..............................................................................#
+#..............................................................................#
+#..............................................................................#
+#..................###############.............................................#
+#..................#.............#.............................................#
+#..................#....$........#.............................................#
+#..................#.............#.............................................#
+#..................###############.............................................#
+#..............................................................................#
+#..............................................................................#
+#..............................................................................#
+#..............................................................................#
+################################################################################
+
+[Object]
+Name=FuelTutor
+X=8
+Y=6
+Char=O
+Color=14
+Solid=1
+ScriptBegin
+#END
+:TOUCH
+#SCROLL Hi! This board is DARK.
+#SCROLL I can give you lantern fuel using scripts.
+#SCROLL After this, you should be able to see farther.
+#SETFUEL LANTERN 80
+#SAY Lantern fuel set to 80.
+#END
+ScriptEnd
+
+[Object]
+Name=FuelGuard
+X=18
+Y=17
+Char=?
+Color=11
+Solid=1
+ScriptBegin
+#END
+:TOUCH
+#SCROLL I am a guard that checks your fuel.
+#IFFUEL LANTERN 20 OK
+#SCROLL You need at least 20 lantern fuel.
+#SCROLL Go talk to O again!
+#END
+:OK
+#SCROLL Great! You have enough lantern fuel.
+#SCROLL The treasure room is open now.
+#SET 19 16 .
+#SET 19 17 .
+#SET 19 18 .
+#END
+ScriptEnd
+
+[Object]
+Name=KeyTutor
+X=26
+Y=6
+Char=k
+Color=12
+Solid=1
+ScriptBegin
+#END
+:TOUCH
+#SCROLL Colored key test!
+#IFCKEY 1 1 HAVE
+#SCROLL I will give you key 1 (opens door A).
+#GIVECKEY 1 1
+#SAY Gave you a 1-key. Try opening door A.
+#END
+:HAVE
+#SCROLL You already have key 1.
+#SAY Try opening door A.
+#END
+ScriptEnd
+
+[Object]
+Name=KeyTax
+X=28
+Y=6
+Char=T
+Color=14
+Solid=1
+ScriptBegin
+#END
+:TOUCH
+#SCROLL Key tax collector!
+#IFCKEY 1 1 TAKE
+#SCROLL You have no key 1 for me to take.
+#END
+:TAKE
+#TAKECKEY 1 1
+#SCROLL I took one key 1.
+#SAY Key 1 -1.
+#END
+ScriptEnd
+
+[Object]
+Name=BackToTitle
+X=6
+Y=22
+Char=?
+Color=11
+Solid=1
+ScriptBegin
+#END
+:TOUCH
+#SCROLL Returning to title screen...
+#BOARD 0
+#END
+ScriptEnd

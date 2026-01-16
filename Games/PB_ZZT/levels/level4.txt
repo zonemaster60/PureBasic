@@ -1,0 +1,394 @@
+# PB_ZZT World v2
+# 80x25
+
+[World]
+Name=Level 4 - Fishing Demo
+StartBoard=0
+
+[Palette]
+@=15
+#=8
+.=7
+?=11
+w=9
+==6
+
+[Solids]
+#
+
+[Board]
+Name=Board 0 - Pond
+ExitN=-1
+ExitS=-1
+ExitW=-1
+ExitE=-1
+StartX=2
+StartY=1
+Dark=0
+MusicBegin
+T=112
+SQ  G4 - A4 - B4 - D5 - B4 - A4 - G4 - | E5 - D5 - B4 - A4 - G4 - A4 - B4 -
+SQ2 G2 - - - D3 - - - E3 - - - D3 - - - | C3 - - - D3 - - - G2 - - - D3 - - -
+DR  x - - - x - - - x - - - x - - - | x - - - x - - - x - - - x - - -
+MusicEnd
+
+[Map]
+################################################################################
+#.@............................................................................#
+#..............!F: fish next to water..........................................#
+#..............................................................................#
+#..............###############################.................................#
+#..............#.............................#.................................#
+#...................POND.....................#.................................#
+#..............#.............................#.................................#
+#..............#.............................#.................................#
+#..............#.............................#.................................#
+#..............#.............................#.................................#
+#..............#.............................#.................................#
+#..............#.............................#.................................#
+#..............#.............................#.................................#
+#..............#.............................#.................................#
+#..............#.............................#.................................#
+#..............#.............................#.................................#
+#..............#.............................#.................................#
+#..............#.............................#.................................#
+#..............#.............................#.................................#
+#..............###############################.................................#
+#..............................................................................#
+#..............................................................................#
+#..............................................................................#
+################################################################################
+
+[Object]
+Name=InfoSign
+X=74
+Y=12
+Char=?
+Color=11
+Solid=1
+ScriptBegin
+:TOUCH
+#SCROLL Welcome to Level 4: Water / Bridges / Fishing
+#SCROLL Water (w) is an object now: solid, bump to splash.
+#SCROLL Bridges (=) are objects: walkable over water.
+#SCROLL Stand next to water and press F to fish.
+#SCROLL Fishing can yield: FISH / TREASURE / BOOT.
+#END
+ScriptEnd
+
+; Pond water (objects)
+[Object]
+Name=Water01
+X=26
+Y=8
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+[Object]
+Name=Water02
+X=27
+Y=8
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+[Object]
+Name=Water03
+X=28
+Y=8
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+[Object]
+Name=Water04
+X=29
+Y=8
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+[Object]
+Name=Water05
+X=30
+Y=8
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+[Object]
+Name=Water06
+X=31
+Y=8
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+[Object]
+Name=Water07
+X=26
+Y=9
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+[Object]
+Name=Water08
+X=27
+Y=9
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+[Object]
+Name=Water09
+X=28
+Y=9
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+[Object]
+Name=Water10
+X=29
+Y=9
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+[Object]
+Name=Water11
+X=30
+Y=9
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+[Object]
+Name=Water12
+X=31
+Y=9
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+[Object]
+Name=Water13
+X=26
+Y=10
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+[Object]
+Name=Water14
+X=27
+Y=10
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+[Object]
+Name=Water15
+X=28
+Y=10
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+[Object]
+Name=Water16
+X=29
+Y=10
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+[Object]
+Name=Water17
+X=30
+Y=10
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+[Object]
+Name=Water18
+X=31
+Y=10
+Char=w
+Color=9
+Solid=1
+ScriptBegin
+:TOUCH
+#SAY Splash! (Water)
+#END
+ScriptEnd
+
+; Bridge across pond (objects, walkable)
+[Object]
+Name=Bridge01
+X=28
+Y=9
+Char==
+Color=6
+Solid=0
+
+[Object]
+Name=Bridge02
+X=29
+Y=9
+Char==
+Color=6
+Solid=0
+
+; Fisher NPC: reacts to caught items
+[Object]
+Name=Fisher
+X=20
+Y=12
+Char=?
+Color=11
+Solid=1
+ScriptBegin
+:TOUCH
+#IFITEM TREASURE 1 TREASURE
+#IFITEM FISH 1 FISH
+#IFITEM BOOT 1 BOOT
+#SAY Try fishing! Stand next to water and press F.
+#SAY Then visit the Turn-In clerk to trade your catch.
+#END
+:TREASURE
+#SAY Treasure from the pond? Nice.
+#SAY (You can trade it in for rewards.)
+#END
+:FISH
+#SAY Fresh fish! Tasty.
+#SAY (You can trade it in for rewards.)
+#END
+:BOOT
+#SAY A boot... at least it's something.
+#END
+ScriptEnd
+
+; Turn-in clerk: consumes items for rewards
+[Object]
+Name=TurnIn
+X=18
+Y=10
+Char=?
+Color=11
+Solid=1
+ScriptBegin
+:TOUCH
+#IFITEM TREASURE 1 TREASURE
+#IFITEM FISH 1 FISH
+#IFITEM BOOT 1 BOOT
+#SAY Turn-In Counter:
+#SAY - 1 TREASURE -> +1 key, +10 score
+#SAY - 1 FISH -> +1 HP
+#SAY - 1 BOOT -> ...a receipt
+#END
+:TREASURE
+#TAKEITEM TREASURE 1
+#GIVE KEYS 1
+#GIVE SCORE 10
+#SAY Thanks! Here's a key (+) and some score.
+#END
+:FISH
+#TAKEITEM FISH 1
+#GIVE HEALTH 1
+#SAY Thanks! +1 HP.
+#END
+:BOOT
+#TAKEITEM BOOT 1
+#SAY We'll put it in lost-and-found.
+#SAY Receipt: "1 boot received." (+0)
+#END
+ScriptEnd

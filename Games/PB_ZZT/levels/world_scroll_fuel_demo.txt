@@ -1,0 +1,153 @@
+# PB_ZZT World v2
+# 80x25
+
+[World]
+Name=Scroll + Fuel + Colored Keys Demo
+StartBoard=0
+
+[Palette]
+@=15
+#=8
+.=7
+!=12
+$=14
+T=14
+t=14
+P=13
+O=14
+?=11
+k=12
+T=14
+A=12
+
+[Solids]
+#
+$
+
+[Board]
+Name=Board 0 - Scroll/Fuel Demo
+ExitN=-1
+ExitS=-1
+ExitW=-1
+ExitE=-1
+StartX=2
+StartY=2
+Dark=1
+MusicBegin
+T=96
+SQ  C5 - - - G4 - - - A4 - - - G4 - - - | F4 - - - E4 - - - D4 - - - - - - -
+SQ2 C3 - - - C3 - - - G2 - - - G2 - - - | F2 - - - E2 - - - D2 - - - - - - -
+DR  x - - - - - x - - x - - - - - x -
+MusicEnd
+
+[Map]
+################################################################################
+#..............................................................................#
+#.@............................................................................#
+#.!Touch O then walk to the treasure. Fuel starts at 0 so it is dark!..........#
+#..............................................................................#
+#.............................#######..........................................#
+#.............................#.....#..........................................#
+#.............................A..$..#..........................................#
+#.............................#.....#..........................................#
+#.............................#######..........................................#
+#..............................................................................#
+#..............................................................................#
+#..............................................................................#
+#..............................................................................#
+#..............................................................................#
+#..................###############.............................................#
+#..................#.............#.............................................#
+#..................#....$........#.............................................#
+#..................#.............#.............................................#
+#..................###############.............................................#
+#..............................................................................#
+#..............................................................................#
+#..............................................................................#
+#..............................................................................#
+################################################################################
+
+[Object]
+Name=FuelTutor
+X=8
+Y=6
+Char=O
+Color=14
+Solid=1
+ScriptBegin
+#END
+:TOUCH
+#SCROLL Hi! This board is DARK.
+#SCROLL I can give you lantern fuel using scripts.
+#SCROLL After this, you should be able to see farther.
+#SETFUEL LANTERN 80
+#SAY Lantern fuel set to 80.
+#END
+ScriptEnd
+
+[Object]
+Name=FuelGuard
+X=18
+Y=17
+Char=?
+Color=11
+Solid=1
+ScriptBegin
+#END
+:TOUCH
+#SCROLL I am a guard that checks your fuel.
+#IFFUEL LANTERN 20 OK
+#SCROLL You need at least 20 lantern fuel.
+#SCROLL Go talk to O again!
+#END
+:OK
+#SCROLL Great! You have enough lantern fuel.
+#SCROLL The treasure room is open now.
+#SET 19 16 .
+#SET 19 17 .
+#SET 19 18 .
+#END
+ScriptEnd
+
+[Object]
+Name=KeyTutor
+X=26
+Y=6
+Char=k
+Color=12
+Solid=1
+ScriptBegin
+#END
+:TOUCH
+#SCROLL Colored key test!
+#IFCKEY 1 1 HAVE
+#SCROLL I will give you key 1 (opens door A).
+#GIVECKEY 1 1
+#SAY Gave you a 1-key. Try opening door A.
+#END
+:HAVE
+#SCROLL You already have key 1.
+#SAY Try opening door A.
+#END
+ScriptEnd
+
+[Object]
+Name=KeyTax
+X=28
+Y=6
+Char=T
+Color=14
+Solid=1
+ScriptBegin
+#END
+:TOUCH
+#SCROLL Key tax collector!
+#IFCKEY 1 1 TAKE
+#SCROLL You have no key 1 for me to take.
+#END
+:TAKE
+#TAKECKEY 1 1
+#SCROLL I took one key 1.
+#SAY Key 1 -1.
+#END
+ScriptEnd
