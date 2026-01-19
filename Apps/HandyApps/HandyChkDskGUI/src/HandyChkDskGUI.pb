@@ -213,7 +213,7 @@ EndProcedure
 
 Procedure OpenMainWindow()
   KillOrphanProcesses()
-  If OpenWindow(#Window_Main, 0, 0, 780, 580, #APP_NAME + " - v1.0.0.1", #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget)
+  If OpenWindow(#Window_Main, 0, 0, 780, 580, #APP_NAME + " - v1.0.0.2", #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget)
     ComboBoxGadget(#Combo_Drive,           20,  20, 110, 26)
     CheckBoxGadget(#Check_Fix,            140,  20, 60, 26, "Fix (/f)")
     CheckBoxGadget(#Check_Scan,           205,  20, 80, 26, "Scan (/scan)")
@@ -315,9 +315,9 @@ Repeat
       EndSelect
   EndSelect
 ForEver
-; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 46
-; FirstLine = 24
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 215
+; FirstLine = 204
 ; Folding = --
 ; Optimizer
 ; EnableThread
