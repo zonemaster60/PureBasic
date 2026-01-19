@@ -1,0 +1,17 @@
+{
+  "actions": {
+    "quit":   {"keys": ["27"]},
+
+    "left":   {"keys": ["65", "37"]},
+    "right":  {"keys": ["68", "39"]},
+    "up":     {"keys": ["87", "38"]},
+    "down":   {"keys": ["83", "40"]},
+
+    "run":    {"keys": ["#PB_Key_LeftShift"]},
+    "jump":   {"keys": ["#PB_Key_Space"]},
+    "shoot":  {"keys": ["#PB_Key_K"]},
+    "fire":   {"keys": ["#PB_Key_J"]},
+    "dash":   {"keys": ["#PB_Key_L"]},
+    "crouch": {"keys": ["#PB_Key_C"]}
+  }
+}
