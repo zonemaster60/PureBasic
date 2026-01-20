@@ -7,8 +7,17 @@
 EnableExplicit
 
 #App_Name = "ResetTimeStamper"
-#App_Version = "v1.0.0.1"
+#App_Version = "v1.0.0.2"
 #EMAIL_NAME = "zonemaster60@gmail.com"
+
+; Prevent multiple instances (don't rely on window title text)
+Global hMutex.i
+hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
+If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
+  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  CloseHandle_(hMutex)
+  End
+EndIf
 
 #Log_MaxSize = 1048576
 #Log_MaxBackups = 5
@@ -513,13 +522,13 @@ Procedure ShowAbout()
   MessageRequester("About", msg, #PB_MessageRequester_Info)
 EndProcedure
 
-Procedure.i ConfirmExit()
-  If DirtySelection
-    Protected r.i
-    r = MessageRequester("Exit", "You have reset timestamps." + #CRLF$ + "Exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning)
-    ProcedureReturn Bool(r = #PB_MessageRequester_Yes)
+Procedure Exit()
+  Protected Req.i
+  Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
+  If Req = #PB_MessageRequester_Yes
+    CloseHandle_(hMutex)
+    End
   EndIf
-  ProcedureReturn #True
 EndProcedure
 
 Procedure PopulateDrives()
@@ -614,21 +623,21 @@ Repeat
           ViewLog()
           
         Case #Gad_Exit
-          If ConfirmExit()
-            Break
-          EndIf
+          Exit()
+                    
       EndSelect
       
     Case #PB_Event_Menu
       Select EventMenu()
         Case 1
-          If ConfirmExit()
-            Break
-          EndIf
+          Exit()
+          
         Case 2
           ShowAbout()
+          
         Case 3
           ViewLog()
+          
         Case 4
           CheckTimestamps()
       EndSelect
@@ -652,9 +661,8 @@ Repeat
       EndIf
       
     Case #PB_Event_CloseWindow
-      If ConfirmExit()
-        Break
-      EndIf
+      Exit()
+      
   EndSelect
 ForEver
 
@@ -662,8 +670,8 @@ WriteLog("Application closed")
 
 End
 
-; IDE Options = PureBasic 6.30 beta 6 (Windows - x64)
-; CursorPosition = 8
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 9
 ; Folding = ---
 ; Optimizer
 ; EnableThread
@@ -671,14 +679,14 @@ End
 ; EnableAdmin
 ; DPIAware
 ; UseIcon = ResetTimeStamper.ico
-; Executable = ResetTimeStamper.exe
+; Executable = ..\ResetTimeStamper.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = ResetTimeStamper
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
 ; VersionField6 = Resets any file/files timestamp
 ; VersionField7 = ResetTimeStamper
 ; VersionField8 = ResetTimeStamper.exe
