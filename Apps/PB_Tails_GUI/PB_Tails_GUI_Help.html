@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>pb_tails_gui Help</title>
+  <style>
+    :root {
+      --bg: #0e1116;
+      --panel: #141a22;
+      --panel-2: #10151c;
+      --text: #e8eef6;
+      --muted: #a8b3c2;
+      --line: #263244;
+      --accent: #7dd3fc;
+      --accent-2: #a7f3d0;
+      --warn: #fbbf24;
+      --bad: #fb7185;
+      --code: #0b0f14;
+    }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: radial-gradient(1200px 900px at 15% -10%, rgba(125, 211, 252, 0.12), transparent 55%),
+                  radial-gradient(1000px 700px at 90% 10%, rgba(167, 243, 208, 0.10), transparent 55%),
+                  linear-gradient(180deg, var(--bg), #0b0d11 65%, #07090c);
+      color: var(--text);
+      line-height: 1.55;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap {
+      max-width: 1100px;
+      padding: 28px 18px 64px;
+      margin: 0 auto;
+    }
+    header {
+      padding: 18px 18px 16px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(20, 26, 34, 0.88), rgba(16, 21, 28, 0.88));
+      border-radius: 14px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.28);
+    }
+    header h1 {
+      margin: 0 0 6px;
+      font-size: 28px;
+      letter-spacing: 0.2px;
+    }
+    header p {
+      margin: 0;
+      color: var(--muted);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 18px;
+      margin-top: 18px;
+    }
+    @media (max-width: 980px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    nav {
+      border: 1px solid var(--line);
+      background: rgba(20, 26, 34, 0.72);
+      border-radius: 14px;
+      padding: 14px 14px;
+      position: sticky;
+      top: 14px;
+      height: fit-content;
+    }
+    nav h2 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    nav ul { margin: 0; padding-left: 18px; }
+    nav li { margin: 6px 0; }
+    main {
+      border: 1px solid var(--line);
+      background: rgba(20, 26, 34, 0.72);
+      border-radius: 14px;
+      padding: 18px 18px;
+    }
+    section { padding-top: 10px; }
+    h2 { margin: 18px 0 8px; font-size: 18px; }
+    h3 { margin: 14px 0 8px; font-size: 15px; color: var(--accent-2); }
+    .callout {
+      border: 1px solid var(--line);
+      background: rgba(16, 21, 28, 0.65);
+      border-radius: 12px;
+      padding: 12px 12px;
+      margin: 12px 0;
+    }
+    .callout strong { color: var(--text); }
+    .warn { border-color: rgba(251, 191, 36, 0.35); }
+    .warn strong { color: var(--warn); }
+    .bad { border-color: rgba(251, 113, 133, 0.35); }
+    .bad strong { color: var(--bad); }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+    code {
+      background: rgba(11, 15, 20, 0.7);
+      border: 1px solid rgba(38, 50, 68, 0.6);
+      padding: 1px 6px;
+      border-radius: 7px;
+    }
+    pre {
+      background: rgba(11, 15, 20, 0.88);
+      border: 1px solid rgba(38, 50, 68, 0.75);
+      padding: 12px 12px;
+      border-radius: 12px;
+      overflow: auto;
+      margin: 10px 0;
+    }
+    .kvs {
+      display: grid;
+      grid-template-columns: 190px 1fr;
+      gap: 10px 14px;
+      margin: 10px 0;
+      padding: 12px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: rgba(16, 21, 28, 0.65);
+    }
+    .kvs div:nth-child(odd) { color: var(--muted); }
+    footer {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>pb_tails_gui Help</h1>
+      <p>View the last part of a file (tail) and optionally follow it as new data is appended. Designed to work with actively-written Windows logs like <code>CBS.log</code> and <code>dism.log</code>.</p>
+    </header>
+
+    <div class="grid">
+      <nav aria-label="Table of contents">
+        <h2>Contents</h2>
+        <ul>
+          <li><a href="#overview">Overview</a></li>
+          <li><a href="#quickstart">Quick start</a></li>
+          <li><a href="#ui">User interface</a></li>
+          <li><a href="#inputs">Input sources</a></li>
+          <li><a href="#modes">Tail modes</a></li>
+          <li><a href="#encoding">Encoding options</a></li>
+          <li><a href="#headers">Headers (Verbose/Quiet)</a></li>
+          <li><a href="#follow">Follow mode</a></li>
+          <li><a href="#sleep">Sleep interval</a></li>
+          <li><a href="#logging">Debug log</a></li>
+          <li><a href="#capture">Capture output</a></li>
+          <li><a href="#autoscroll">Auto-scroll behavior</a></li>
+          <li><a href="#locked">Locked files and Windows logs</a></li>
+          <li><a href="#troubleshooting">Troubleshooting</a></li>
+          <li><a href="#notes">Notes and limitations</a></li>
+        </ul>
+      </nav>
+
+      <main>
+        <section id="overview">
+          <h2>Overview</h2>
+          <p><strong>pb_tails_gui</strong> is a small Windows GUI utility that:</p>
+          <ul>
+            <li>Shows the last <em>N lines</em> or last <em>N bytes</em> of one or more inputs.</li>
+            <li>Optionally follows a single file and continuously appends new content as the file grows.</li>
+            <li>Supports pattern expansion (wildcards like <code>*.log</code>), text paste input, and encoding selection.</li>
+            <li>Includes optional diagnostic logging and optional capture of displayed output to a file.</li>
+          </ul>
+
+          <div class="callout warn">
+            <strong>Important:</strong> Follow mode only supports <em>one file at a time</em>. If you select multiple files, pb_tails_gui will tail them, but it will not follow all of them simultaneously.
+          </div>
+        </section>
+
+        <section id="quickstart">
+          <h2>Quick start</h2>
+          <h3>Tail the end of a log</h3>
+          <ol>
+            <li>Click <code>Add file...</code> and choose a log file (for example <code>C:\Windows\Logs\CBS\CBS.log</code>).</li>
+            <li>Leave <code>Last lines</code> selected and set <code>Lines</code> to the amount you want (default 10).</li>
+            <li>Click <code>Run</code>.</li>
+          </ol>
+
+          <h3>Follow a log while it grows</h3>
+          <ol>
+            <li>Add exactly one file.</li>
+            <li>Enable <code>Follow (-f)</code>.</li>
+            <li>Click <code>Run</code>. The status line shows it is following.</li>
+            <li>Click <code>Stop</code> to stop following.</li>
+          </ol>
+
+          <div class="callout">
+            <strong>Tip:</strong> For Windows servicing logs (DISM/SFC), start following <code>CBS.log</code> and <code>dism.log</code> <em>before</em> starting your repair command so you see the full progression.
+          </div>
+        </section>
+
+        <section id="ui">
+          <h2>User interface</h2>
+          <div class="kvs">
+            <div>Input files list</div>
+            <div>Shows the current set of file inputs. Use <code>Add file...</code>, <code>Remove</code>, <code>Clear</code>, or pattern expansion to manage this list.</div>
+
+            <div>Input source</div>
+            <div>Choose between <code>Files</code> (normal file tailing) and <code>Paste text</code> (tail a pasted text block without reading from disk).</div>
+
+            <div>Options panel</div>
+            <div>Tail mode (lines/bytes), encoding, follow options, and diagnostic output options.</div>
+
+            <div>Output</div>
+            <div>A scrolling list of output lines. New content is appended while following.</div>
+
+            <div>Status line</div>
+            <div>Shows errors and follow state, including retry/lock diagnostics for some failures.</div>
+          </div>
+        </section>
+
+        <section id="inputs">
+          <h2>Input sources</h2>
+
+          <h3>Files (default)</h3>
+          <p>Use one of these methods to add inputs:</p>
+          <ul>
+            <li><strong>Add file...</strong> opens a file picker and adds the chosen file.</li>
+            <li><strong>Add pattern</strong> expands Windows wildcards, because <code>cmd.exe</code> does not expand <code>*</code> and <code>?</code> automatically.</li>
+          </ul>
+
+          <p>Examples of patterns:</p>
+          <pre><code> C:\Logs\*.log
+
+          <div class="callout">
+            <strong>Pattern behavior:</strong> If a wildcard matches nothing, the literal pattern is kept (similar to typical Windows command behavior). If matches are found, they are sorted and all matches are added.
+          </div>
+
+          <h3>Paste text</h3>
+          <p>Select <code>Paste text</code> to tail the end of whatever you paste into the editor box. This is useful for:</p>
+          <ul>
+            <li>Quickly trimming large clipboard content.</li>
+            <li>Testing how line/byte tailing behaves without touching files.</li>
+          </ul>
+          <p>In paste mode, follow is not used; it simply tails the pasted content once.</p>
+        </section>
+
+        <section id="modes">
+          <h2>Tail modes</h2>
+
+          <h3>Last lines</h3>
+          <p>Shows the last <code>N</code> newline-terminated lines. Line detection is performed by scanning bytes for linefeed (<code>LF</code>, byte value <code>10</code>), then decoding the resulting byte range.</p>
+          <ul>
+            <li>If the file ends with a newline, pb_tails_gui retrieves one extra linefeed to provide <code>N</code> full lines.</li>
+            <li>Windows line endings (<code>CRLF</code>) are normalized for display.</li>
+          </ul>
+
+          <h3>Last bytes</h3>
+          <p>Shows the last <code>N</code> bytes of the file, then decodes those bytes according to the selected encoding. Byte mode is useful when:</p>
+          <ul>
+            <li>The file has very long lines (few newlines).</li>
+            <li>You want a consistent “tail window” independent of line structure.</li>
+          </ul>
+
+          <div class="callout warn">
+            <strong>Note:</strong> “Last bytes” can start in the middle of a multibyte UTF-8 character. In <code>auto</code> mode pb_tails_gui tries to decode robustly, but for best results choose the correct encoding.
+          </div>
+        </section>
+
+        <section id="encoding">
+          <h2>Encoding options</h2>
+          <p>Windows logs can be ASCII/ANSI-like or UTF-8. pb_tails_gui provides:</p>
+          <div class="kvs">
+            <div><code>auto</code></div>
+            <div>Attempts to detect UTF-8 vs ANSI by validating byte sequences. This works well for most logs, but ambiguous content may still be misdetected.</div>
+
+            <div><code>utf8</code></div>
+            <div>Always decode as UTF-8.</div>
+
+            <div><code>ansi</code></div>
+            <div>Decode as single-byte ANSI/ASCII (in practice, byte-to-character mapping). This is often best for older tools and some legacy logs.</div>
+
+            <div><code>Strip UTF-8 BOM</code></div>
+            <div>If enabled, removes the UTF-8 BOM marker at the beginning of a file when reading from offset 0. This avoids a visible leading U+FEFF character in output.</div>
+          </div>
+
+          <div class="callout">
+            <strong>If you see “no output decoded”:</strong> the file likely contains bytes that decode to an empty/invalid string in your chosen mode. Try switching between <code>utf8</code> and <code>ansi</code>.
+          </div>
+        </section>
+
+        <section id="headers">
+          <h2>Headers (Verbose/Quiet)</h2>
+          <p>When tailing multiple files, it can print a header like:</p>
+          <pre><code>==&gt; C:\Path\to\file.log &lt;==</code></pre>
+          <div class="kvs">
+            <div>Verbose headers</div>
+            <div>Always show headers, even for a single input.</div>
+            <div>Quiet headers</div>
+            <div>Never show headers.</div>
+          </div>
+          <p>If neither is selected, headers are shown only when there are multiple file inputs.</p>
+        </section>
+
+        <section id="follow">
+          <h2>Follow mode</h2>
+          <p>Follow mode continuously appends content as the file grows. It tracks an offset (byte position) and repeatedly reads from that offset to end-of-file.</p>
+
+          <h3>Follow (-f)</h3>
+          <p>Follows the current file and keeps reading new data while the file grows.</p>
+
+          <h3>Follow by name (-F)</h3>
+          <p>Like GNU <code>tail -F</code>: it will reopen the file if it is replaced, and it will retry if it is temporarily missing. This is useful for:</p>
+          <ul>
+            <li>Log rotation (file renamed and replaced with a new file).</li>
+            <li>Tools that rewrite a log file instead of appending to it.</li>
+          </ul>
+
+          <div class="callout warn">
+            <strong>Single input only:</strong> Follow mode is only activated when exactly one file is selected in the file list.
+          </div>
+        </section>
+
+        <section id="sleep">
+          <h2>Sleep interval</h2>
+          <p><code>Sleep (sec)</code> controls how frequently follow checks for new data.</p>
+          <ul>
+            <li>Lower values update faster but may use more CPU.</li>
+            <li>Higher values reduce CPU usage but may appear less responsive.</li>
+          </ul>
+          <p>A reasonable starting value is <code>0.2</code> seconds.</p>
+        </section>
+
+        <section id="logging">
+          <h2>Debug log</h2>
+          <p>Enable <code>Debug log</code> to record what pb_tails_gui is doing (settings and follow activity). This is useful when diagnosing issues like “no output”, lock errors, or unexpected decoding.</p>
+          <ul>
+            <li>If the path field is empty, it defaults to <code>%TEMP%\pb_tails_gui.debug.log</code>.</li>
+            <li>It logs run settings, input list, initial tail result size, and follow tick activity.</li>
+            <li>Follow ticks include which reader was used: <code>path=winapi</code> or <code>path=pb</code>.</li>
+            <li>When reads fail, it logs a Windows error code (<code>winerr</code>) when available.</li>
+          </ul>
+
+          <h3>Example debug lines</h3>
+          <pre><code>2026-02-03 09:41:20 | --- Run ---
+2026-02-03 09:41:20 | mode=lines
+2026-02-03 09:41:20 | file=C:\Windows\Logs\CBS\CBS.log
+2026-02-03 09:41:20 | followStart offset=5180153
+2026-02-03 09:43:42 | tick path=winapi bytes=39648 offset=5909152 size=5879820 diskSize=5879820</code></pre>
+        </section>
+
+        <section id="capture">
+          <h2>Capture output</h2>
+          <p>Enable <code>Capture</code> to save the same text that the GUI displays to a file. This can help you share output for troubleshooting or keep a transcript of a follow session.</p>
+          <ul>
+            <li>If the path field is empty, it defaults to <code>%TEMP%\pb_tails_gui.capture.txt</code>.</li>
+            <li>Capture is written as UTF-8 text and uses Windows-friendly newlines (<code>CRLF</code>).</li>
+            <li>Capture contains the output as displayed by pb_tails_gui. If you choose an encoding option that changes the display, the capture reflects that choice.</li>
+          </ul>
+
+          <div class="callout warn">
+            <strong>Privacy:</strong> Many Windows logs contain system details. Only share captured output if you are comfortable sharing paths, timestamps, and system state information.
+          </div>
+        </section>
+
+        <section id="autoscroll">
+          <h2>Auto-scroll behavior</h2>
+          <p>When new lines are appended during follow, the output view can auto-scroll so the newest lines stay visible.</p>
+          <ul>
+            <li>If you are already at the bottom, pb_tails_gui keeps the view pinned to the newest line.</li>
+            <li>If you scroll up to inspect older content, pb_tails_gui does not constantly force you back to the bottom.</li>
+          </ul>
+        </section>
+
+        <section id="locked">
+          <h2>Locked files and Windows logs</h2>
+          <p>Some logs (notably <code>CBS.log</code> and <code>dism.log</code>) may be actively written and opened with sharing restrictions. pb_tails_gui attempts multiple strategies to read them:</p>
+          <ul>
+            <li>Normal PureBasic file open.</li>
+            <li>PureBasic shared-read open.</li>
+            <li>Windows API open (<code>CreateFile</code>) with share flags allowing read/write/delete sharing.</li>
+          </ul>
+          <p>If a file temporarily cannot be read, follow mode retries and the status line reflects this.</p>
+
+          <div class="callout bad">
+            <strong>Admin rights:</strong> Some system paths require elevation to read. If you consistently cannot open system logs, try running the app as Administrator.
+          </div>
+        </section>
+
+        <section id="troubleshooting">
+          <h2>Troubleshooting</h2>
+
+          <h3>No output</h3>
+          <ul>
+            <li>Verify the file actually has content (size &gt; 0).</li>
+            <li>Try encoding <code>utf8</code> or <code>ansi</code> instead of <code>auto</code>.</li>
+            <li>Enable <code>Debug log</code> to see whether reads are failing and whether WinAPI fallback is being used.</li>
+          </ul>
+
+          <h3>Follow does not show new lines</h3>
+          <ul>
+            <li>Confirm you have only one file selected and <code>Follow (-f)</code> is enabled.</li>
+            <li>Lower the sleep interval (e.g. <code>0.1</code> seconds) for quicker updates.</li>
+            <li>If the file is replaced/rotated, use <code>Follow by name (-F)</code>.</li>
+          </ul>
+
+          <h3>Status says locked / retrying</h3>
+          <ul>
+            <li>Try running as Administrator.</li>
+            <li>Enable <code>Debug log</code> and look for <code>winerr=</code> values. Those error codes help identify permission vs sharing issues.</li>
+          </ul>
+
+          <h3>Output looks garbled</h3>
+          <ul>
+            <li>Switch encoding between <code>utf8</code> and <code>ansi</code>.</li>
+            <li>Enable <code>Strip UTF-8 BOM</code> if the first character looks strange.</li>
+          </ul>
+        </section>
+
+        <section id="notes">
+          <h2>Notes and limitations</h2>
+          <ul>
+            <li><strong>Line display:</strong> The output control displays one item per line. Newlines are normalized internally.</li>
+            <li><strong>Performance:</strong> Very frequent updates and very large bursts of output can make the UI feel heavy. Increase sleep interval if needed.</li>
+            <li><strong>Capture size:</strong> Capture files can grow quickly when following chatty logs (DISM/CBS). Consider stopping capture when you have what you need.</li>
+            <li><strong>Follow offset:</strong> Follow uses a byte offset and assumes the file is append-only unless you use <code>-F</code> behavior (follow-by-name) or the file shrinks, in which case the offset resets.</li>
+          </ul>
+        </section>
+      </main>
+    </div>
+
+    <footer>
+      pb_tails_gui help file (HTML). If you want this embedded into the app or linked from a Help button, say so.
+    </footer>
+  </div>
+</body>
+</html>
