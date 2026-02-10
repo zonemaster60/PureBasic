@@ -49,6 +49,8 @@ Declare.s ResolveDbPath(dbPath.s)
 Declare OpenPath(path.s, showError.i)
 Declare EnqueueResult(path.s)
 Declare EnqueueResultsBatch(List batch.s())
+Declare InitDatabase()
+Declare.q GetIndexedCountFast()
 
 ; Startup (run at login) helpers
 Declare.i IsInStartup()
@@ -141,6 +143,8 @@ Global IndexingActive.i
 Global IndexingPaused.i
 Global IndexPauseEvent.i
 Global IndexTotalFiles.q
+Global CachedIndexedCount.q = -1
+Global CachedIndexedCountAtMS.q
 Global QueryDirty.i
 Global QueryNextAtMS.i
 Global LastQueryText.s
@@ -1455,7 +1459,7 @@ Procedure OpenConfig(showError.i)
   OpenPath(iniPath, showError)
 EndProcedure
 
-Procedure.b ClampSettingInt(*changed.Integer, currentValue.i, newValue.i, minValue.i, maxValue.i)
+Procedure.i ClampSettingInt(*changed.Integer, currentValue.i, newValue.i, minValue.i, maxValue.i)
   Protected v.i = newValue
   If v < minValue : v = minValue : EndIf
   If v > maxValue : v = maxValue : EndIf
@@ -1470,6 +1474,8 @@ Procedure EditSettings()
   ; PureBasic InputRequester-based settings like HandyDrvLED.
   ; Values are persisted to HandySearch.ini via SaveIniKey().
   Protected changed.Integer
+  Protected oldDbPath.s = IndexDbPath
+  Protected dbPathChanged.i
 
   Protected newDebounce.s
   Protected newMax.s
@@ -1558,7 +1564,34 @@ Procedure EditSettings()
       SetMenuItemState(#Menu_Main, #Menu_View_LiveMatchFullPath, LiveMatchFullPath)
     EndIf
 
-    MessageRequester("Settings Saved", "Settings have been saved successfully.", #PB_MessageRequester_Info)
+    ; Reload INI so runtime reflects the persisted settings.
+    LoadExcludesIni(AppPath + #INI_FILE)
+
+    ; Apply DB path changes immediately when safe.
+    dbPathChanged = Bool(LCase(Trim(oldDbPath)) <> LCase(Trim(IndexDbPath)))
+    If dbPathChanged
+      If IndexingActive = 0
+        If IndexDbId : CloseDatabase(IndexDbId) : IndexDbId = 0 : EndIf
+        CachedIndexedCount = -1
+        CachedIndexedCountAtMS = 0
+        InitDatabase()
+        IndexTotalFiles = GetIndexedCountFast()
+      EndIf
+    EndIf
+
+    ; Refresh results with new MaxResults / matching behavior.
+    QueryDirty = 1
+    QueryNextAtMS = ElapsedMilliseconds()
+
+    If IsMenu(#Menu_Main)
+      SetMenuItemState(#Menu_Main, #Menu_View_LiveMatchFullPath, LiveMatchFullPath)
+    EndIf
+
+    If dbPathChanged And IndexingActive
+      MessageRequester("Settings Saved", "Settings saved. DbPath will apply after stopping indexing.", #PB_MessageRequester_Info)
+    Else
+      MessageRequester("Settings Saved", "Settings have been saved successfully.", #PB_MessageRequester_Info)
+    EndIf
   EndIf
 EndProcedure
 
@@ -1599,9 +1632,6 @@ Procedure OpenDbFolder(showError.i)
     EndIf
   EndIf
 EndProcedure
-
-Global CachedIndexedCount.q = -1
-Global CachedIndexedCountAtMS.q
 
 Procedure.q GetIndexedCountFromDbSlow()
   Protected sql.s
