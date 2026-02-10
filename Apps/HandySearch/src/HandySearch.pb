@@ -4,7 +4,7 @@ EnableExplicit
 
 #APP_NAME   = "HandySearch"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-Global version.s = "v1.0.0.5"
+Global version.s = "v1.0.0.6"
 
 Procedure.b HasArg(arg$)
   Protected i
@@ -86,7 +86,6 @@ Declare UpdateStartupMenuState()
     #Menu_Index_PauseResume = 306
     #Menu_App_RunAtStartup = 309
 
-
   #Menu_Tools_Settings = 302
   #Menu_Tools_OpenIni = 310
   #Menu_Tools_Web = 303
@@ -109,7 +108,6 @@ Declare UpdateStartupMenuState()
   #Menu_Tray_RunAtStartup = 208
   #Menu_Tray_Settings = 211
   #Menu_Tray_Exit = 202
-
 
 #Open_ShowError = 1
 #Open_Silent = 0
@@ -156,7 +154,6 @@ Global NewMap LiveShownPaths.i() ; path -> 1 (GUI thread only)
 ; Tray icon handle when using embedded EXE icon
 Global TrayIconHandle.i
 Global LastTrayTooltip.s
-
 
 ; Search worker pool (used for indexing)
 Global ConfigBatchSize.i = 200
@@ -296,6 +293,7 @@ Procedure LoadExcludesIni(filePath.s)
   Protected line.s, section.s, item.s
   Protected pos.i, f.i
   Protected key.s, value.s
+  Protected vLower.s
 
   ClearExcludes()
 
@@ -340,7 +338,12 @@ Procedure LoadExcludesIni(filePath.s)
       value = Trim(line)
     EndIf
 
-    If value = "" : Continue : EndIf
+    ; For exclude lists we also accept "name=" (empty value).
+    If value = ""
+      If section <> "excludedirs" And section <> "excludedir" And section <> "excludefiles" And section <> "excludefile"
+        Continue
+      EndIf
+    EndIf
 
       Select section
         Case "app"
@@ -381,11 +384,53 @@ Procedure LoadExcludesIni(filePath.s)
               ConfigBatchSize = Val(value)
           EndSelect
 
-        Case "excludedirs"
-          ExcludeDirNames(LCase(value)) = 1
+        Case "excludedirs", "excludedir"
+          ; Support lines like:
+          ;   windows
+          ;   windows=
+          ;   windows=1
+          ;   enabled=windows
+          item = ""
+          If key <> ""
+            vLower = LCase(Trim(value))
+            Select vLower
+              Case "", "1", "true", "yes", "on"
+                item = key
+              Case "0", "false", "no", "off"
+                item = ""
+              Default
+                item = value
+            EndSelect
+          Else
+            item = value
+          EndIf
 
-        Case "excludefiles"
-          ExcludeFileNames(LCase(value)) = 1
+          item = LCase(Trim(item))
+          If item <> ""
+            ExcludeDirNames(item) = 1
+          EndIf
+
+        Case "excludefiles", "excludefile"
+          ; Same rules as ExcludeDirs.
+          item = ""
+          If key <> ""
+            vLower = LCase(Trim(value))
+            Select vLower
+              Case "", "1", "true", "yes", "on"
+                item = key
+              Case "0", "false", "no", "off"
+                item = ""
+              Default
+                item = value
+            EndSelect
+          Else
+            item = value
+          EndIf
+
+          item = LCase(Trim(item))
+          If item <> ""
+            ExcludeFileNames(item) = 1
+          EndIf
 
       EndSelect
 
@@ -1045,7 +1090,6 @@ Procedure InitGUI()
     EndIf
   EndIf
 
-
   UpdateControlStates()
 EndProcedure
 
@@ -1064,43 +1108,63 @@ EndProcedure
 
 Procedure FlushIndexBatchToDb(List batch.IndexRecord())
   Protected sql.s
+  Protected values.s
   Protected cnt.i
+  Protected rowCount.i
   Protected NewList pathsForUi.s()
-
+ 
   If IndexDbId = 0 Or DbMutex = 0
     ClearList(batch())
     ProcedureReturn
   EndIf
-
-  If ListSize(batch()) = 0
+ 
+  rowCount = ListSize(batch())
+  If rowCount = 0
     ProcedureReturn
   EndIf
-
+ 
+  ; Build a single INSERT with many VALUES to reduce SQLite parse overhead.
+  ; Chunk so the SQL statement doesn't grow unbounded.
   LockMutex(DbMutex)
-
+ 
   DatabaseUpdate(IndexDbId, "BEGIN TRANSACTION;")
+ 
+  cnt = 0
+  values = ""
   ForEach batch()
-    sql = "INSERT OR REPLACE INTO files(path,name,dir,size,mtime) VALUES('" +
-          DbEscape(batch()\Path) + "','" + DbEscape(batch()\Name) + "','" + DbEscape(batch()\Dir) + "'," +
-          Str(batch()\Size) + "," + Str(batch()\MTime) + ");"
-    DatabaseUpdate(IndexDbId, sql)
-
+    If values <> "" : values + "," : EndIf
+    values + "('" + DbEscape(batch()\Path) + "','" + DbEscape(batch()\Name) + "','" + DbEscape(batch()\Dir) + "'," +
+              Str(batch()\Size) + "," + Str(batch()\MTime) + ")"
+ 
     ; Stream paths to the UI so results can appear as indexing runs.
     AddElement(pathsForUi())
     pathsForUi() = batch()\Path
-
+ 
     IndexTotalFiles + 1
     cnt + 1
+ 
+    ; ~500 rows per statement keeps it snappy and avoids huge SQL strings.
+    If cnt >= 500
+      sql = "INSERT OR REPLACE INTO files(path,name,dir,size,mtime) VALUES" + values + ";"
+      DatabaseUpdate(IndexDbId, sql)
+      values = ""
+      cnt = 0
+    EndIf
   Next
-
+ 
+  If values <> ""
+    sql = "INSERT OR REPLACE INTO files(path,name,dir,size,mtime) VALUES" + values + ";"
+    DatabaseUpdate(IndexDbId, sql)
+  EndIf
+ 
   ; Persist the running count so showing it is instant.
   DatabaseUpdate(IndexDbId, "INSERT OR REPLACE INTO meta(key,value) VALUES('indexed_count','" + Str(IndexTotalFiles) + "');")
-
+ 
   DatabaseUpdate(IndexDbId, "COMMIT;")
-
+ 
   UnlockMutex(DbMutex)
   EnqueueResultsBatch(pathsForUi())
-
+ 
   ClearList(batch())
 EndProcedure
 
@@ -1191,7 +1255,6 @@ Procedure GetAllFixedDriveRoots(List roots.s())
   FreeMemory(*buf)
 EndProcedure
 
-
 Procedure StartIndexingAllFixedDrives()
   Protected i.i
   Protected NewList roots.s()
@@ -1212,7 +1275,6 @@ Procedure StartIndexingAllFixedDrives()
     SetEvent_(IndexPauseEvent)
   EndIf
   IndexingPaused = 0
-
 
   If ProgressMutex
     LockMutex(ProgressMutex)
@@ -1599,16 +1661,24 @@ Procedure.q GetIndexedCountFast()
   ProcedureReturn cnt
 EndProcedure
 
-
 Procedure ShowDiagnostics()
   Protected msg.s
   Protected dbPath.s
+  Protected iniPath.s
   Protected qc.i
   Protected ac.i
   Protected wc.i
   Protected paused.i
+  Protected exDirCount.i
+  Protected exFileCount.i
+  Protected hasWindows.i
  
   dbPath = ResolveDbPath(IndexDbPath)
+  iniPath = AppPath + #INI_FILE
+ 
+  exDirCount = MapSize(ExcludeDirNames())
+  exFileCount = MapSize(ExcludeFileNames())
+  hasWindows = Bool(FindMapElement(ExcludeDirNames(), "windows") <> 0)
  
   If ScanStateMutex
     LockMutex(ScanStateMutex)
@@ -1619,7 +1689,10 @@ Procedure ShowDiagnostics()
   wc = WorkerCount
   paused = IndexingPaused
  
-  msg = "DB path: " + dbPath + #CRLF$ +
+  msg = "INI path: " + iniPath + #CRLF$ +
+        "ExcludeDirs: " + Str(exDirCount) + " (has 'windows': " + Str(hasWindows) + ")" + #CRLF$ +
+        "ExcludeFiles: " + Str(exFileCount) + #CRLF$ +
+        "DB path: " + dbPath + #CRLF$ +
         "DB open: " + Str(Bool(IndexDbId <> 0)) + #CRLF$ +
         "IndexingActive: " + Str(IndexingActive) + #CRLF$ +
         "IndexingPaused: " + Str(paused) + #CRLF$ +
@@ -1632,7 +1705,6 @@ Procedure ShowDiagnostics()
  
   MessageRequester(#APP_NAME + " Diagnostics", msg, #PB_MessageRequester_Info)
 EndProcedure
-
 
 Procedure.s QueryToLikePattern(query.s)
   Protected p.s = Trim(query)
@@ -2037,8 +2109,6 @@ Procedure StartIndexing(rebuild.i)
   EndIf
 EndProcedure
 
-
-
 ; === Event Loop ===
 Procedure ToggleMainWindow()
   If IsWindowVisible_(WindowID(#Window_Main))
@@ -2165,8 +2235,6 @@ Procedure MainLoop()
             Case #Menu_Tray_Settings
               EditSettings()
 
-
-
           Case #Menu_Tools_Settings
             EditSettings()
 
@@ -2197,9 +2265,8 @@ Procedure MainLoop()
           Case #Menu_Tray_OpenDbFolder
             OpenDbFolder(#Open_ShowError)
 
-Case #Menu_Tray_ShowIndexedCount
+          Case #Menu_Tray_ShowIndexedCount
              MessageRequester(#APP_NAME, "Indexed files: " + Str(GetIndexedCountFast()), #PB_MessageRequester_Info)
-
 
           Case #Menu_Tray_ShowDbPath
             MessageRequester(#APP_NAME, "DB path: " + ResolveDbPath(IndexDbPath), #PB_MessageRequester_Info)
@@ -2243,7 +2310,6 @@ Case #Menu_Tray_ShowIndexedCount
   StopIndexingAndWait()
 EndProcedure
 
-
 Procedure.s ResolveDbPath(dbPath.s)
   Protected p.s = Trim(dbPath)
   Protected appData.s
@@ -2277,7 +2343,6 @@ Procedure.s ResolveDbPath(dbPath.s)
  
   ProcedureReturn p
 EndProcedure
-
 
 Procedure InitDatabase()
   Protected dbPath.s
@@ -2314,13 +2379,15 @@ Procedure InitDatabase()
   LockMutex(DbMutex)
   DatabaseUpdate(IndexDbId, "PRAGMA journal_mode=WAL;")
   DatabaseUpdate(IndexDbId, "PRAGMA synchronous=NORMAL;")
+  DatabaseUpdate(IndexDbId, "PRAGMA temp_store=MEMORY;")
+  DatabaseUpdate(IndexDbId, "PRAGMA mmap_size=268435456;")
+  DatabaseUpdate(IndexDbId, "PRAGMA cache_size=-200000;")
   DatabaseUpdate(IndexDbId, "CREATE TABLE IF NOT EXISTS files(path TEXT PRIMARY KEY, name TEXT, dir TEXT, size INTEGER, mtime INTEGER);")
   DatabaseUpdate(IndexDbId, "CREATE INDEX IF NOT EXISTS idx_files_name ON files(name);")
   DatabaseUpdate(IndexDbId, "CREATE INDEX IF NOT EXISTS idx_files_dir ON files(dir);")
   DatabaseUpdate(IndexDbId, "CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);")
   UnlockMutex(DbMutex)
 EndProcedure
-
 
 ; === Main ===
 
@@ -2404,12 +2471,12 @@ If hMutex : CloseHandle_(hMutex) : EndIf
 ; UseIcon = HandySearch.ico
 ; Executable = ..\HandySearch.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,5
-; VersionField1 = 1,0,0,55
+; VersionField0 = 1,0,0,6
+; VersionField1 = 1,0,0,6
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandySearch
-; VersionField4 = 1.0.0.5
-; VersionField5 = 1.0.0.5
+; VersionField4 = 1.0.0.6
+; VersionField5 = 1.0.0.6
 ; VersionField6 = Everything-like search tool for desktop and web
 ; VersionField7 = HandySearch
 ; VersionField8 = HandySearch.exe
