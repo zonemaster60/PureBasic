@@ -16,7 +16,7 @@ LogPath = DataDir + #APP_NAME + ".log"
 
 Global FontUI.i, FontTitle.i, FontSmall.i
 Global MainStatusBar.i
-Global version.s = "v1.0.0.0"
+Global version.s = "v1.0.0.1"
 
 Declare ViewLog()
 
@@ -47,7 +47,7 @@ Procedure.s HelpText()
   t + "- Launches a game (EXE or Steam) and applies temporary boosts." + #CRLF$
   t + "- Always switches Windows power plan to High performance while the game runs, then restores your previous plan." + #CRLF$
   t + "- Optionally stops selected services during gameplay, then starts them again when you exit." + #CRLF$
-  t + "- Logs actions to SafeBooster.log and can restore after a crash." + #CRLF$ + #CRLF$
+  t + "- Logs actions to " + #APP_NAME + ".log and can restore after a crash." + #CRLF$ + #CRLF$
   t + "What it does NOT do" + #CRLF$
   t + "- It does not permanently change Windows settings." + #CRLF$
   t + "- It does not 'disable' services (startup type). It only stops/starts them temporarily." + #CRLF$ + #CRLF$
@@ -73,12 +73,12 @@ Procedure.s HelpText()
   t + "  - the effective list of stopped services" + #CRLF$
   t + "- Next time SafeBooster starts, it detects a dirty session and restores power plan/services." + #CRLF$ + #CRLF$
   t + "Where files are" + #CRLF$
-  t + "- games.ini, session.ini, SafeBooster.log are stored next to the EXE." + #CRLF$
-  t + "- Use the Log button to open SafeBooster.log." + #CRLF$ + #CRLF$
+  t + "- games.ini, session.ini, " + #APP_NAME + ".log are stored next to the EXE." + #CRLF$
+  t + "- Use the Log button to open " + #APP_NAME + ".log." + #CRLF$ + #CRLF$
   t + "Troubleshooting" + #CRLF$
   t + "- Admin rights: service control requires an elevated process. SafeBooster auto-prompts via UAC." + #CRLF$
   t + "- Steam games: SafeBooster waits for a new process whose EXE path starts with the game's install folder." + #CRLF$
-  t + "- If Run 'does nothing', make sure a game is selected, then check SafeBooster.log." + #CRLF$
+  t + "- If Run 'does nothing', make sure a game is selected, then check " + #APP_NAME + ".log." + #CRLF$
   ProcedureReturn t
 EndProcedure
 
@@ -135,6 +135,11 @@ EndProcedure
 #ABOVE_NORMAL_PRIORITY_CLASS= $00008000
 #HIGH_PRIORITY_CLASS        = $00000080
 
+; Process access rights
+CompilerIf Defined(PROCESS_QUERY_LIMITED_INFORMATION, #PB_Constant) = 0
+  #PROCESS_QUERY_LIMITED_INFORMATION = $1000
+CompilerEndIf
+
 #WAIT_OBJECT_0 = 0
 
 Structure GameEntry
@@ -149,6 +154,9 @@ Structure GameEntry
   LaunchMode.i   ; 0 = exe, 1 = steam
   SteamAppId.i
   SteamExe.s
+  SteamClientArgs.s        ; optional args for Steam.exe itself
+  SteamGameArgs.s          ; optional args passed after -applaunch <appid>
+  SteamDetectTimeoutMs.i   ; wait for game process detection
   GameRoot.s     ; for Steam: install folder prefix to match process
   ; Legacy (kept for backward compatibility; ignored)
   PowerGuid.s
@@ -240,6 +248,7 @@ Declare MarkSessionClean()
 Declare.i SetActivePowerGuid(guid.s)
 Declare.i SelectGameByIndex(idx.i, *out.GameEntry)
 Declare.s PshEscapeSingle(s.s)
+Declare.s GetSteamGameRootByAppId(steamExe.s, appId.i)
 Declare.i LaunchBoosted(*g.GameEntry)
 Declare.i LaunchSteamBoosted(*g.GameEntry)
 
@@ -452,6 +461,42 @@ Procedure.i GamesHasSteamApp(appId.i)
   ProcedureReturn 0
 EndProcedure
 
+Procedure.s GetSteamGameRootByAppId(steamExe.s, appId.i)
+  ; Returns install folder prefix (steamapps\common\<installdir>\) for an AppID.
+  ; Uses Steam's own library metadata, so the user doesn't need to edit paths.
+  Protected steamRoot.s, steamapps.s, acf.s, installdir.s
+  Protected NewList libs.s()
+  Protected lib.s, commonRoot.s
+
+  If appId <= 0 : ProcedureReturn "" : EndIf
+  If steamExe = "" Or FileSize(steamExe) <= 0
+    steamExe = FindSteamExe()
+  EndIf
+  If steamExe = "" Or FileSize(steamExe) <= 0 : ProcedureReturn "" : EndIf
+
+  steamRoot = EnsureTrailingSlash(GetPathPart(steamExe))
+  GetSteamLibraries(steamRoot, libs())
+  If ListSize(libs()) = 0 : ProcedureReturn "" : EndIf
+
+  ForEach libs()
+    lib = EnsureTrailingSlash(libs())
+    steamapps = PathJoin(lib, "steamapps\\")
+    If FileSize(steamapps) <> -2
+      Continue
+    EndIf
+    acf = PathJoin(steamapps, "appmanifest_" + Str(appId) + ".acf")
+    If FileSize(acf) > 0
+      installdir = ReadAcfField(acf, "installdir")
+      If installdir <> ""
+        commonRoot = PathJoin(lib, "steamapps\\common\\")
+        ProcedureReturn EnsureTrailingSlash(PathJoin(commonRoot, installdir))
+      EndIf
+    EndIf
+  Next
+
+  ProcedureReturn ""
+EndProcedure
+
 Procedure ImportSteamGames()
   Protected steamExe.s = FindSteamExe()
   If steamExe = ""
@@ -494,6 +539,9 @@ Procedure ImportSteamGames()
               Games()\LaunchMode = 1
               Games()\SteamAppId = appId
               Games()\SteamExe = steamExe
+              Games()\SteamClientArgs = ""
+              Games()\SteamGameArgs = ""
+              Games()\SteamDetectTimeoutMs = 60000
               commonRoot = PathJoin(lib, "steamapps\\common\\")
               Games()\GameRoot = EnsureTrailingSlash(PathJoin(commonRoot, installdir))
               Games()\PowerGuid = ""
@@ -1029,6 +1077,13 @@ Procedure.i EditGameByIndex(idx.i, listGadget.i)
 
   If cur\LaunchMode = 0
     cur\Args = InputRequester(#APP_NAME, "Launch arguments (optional):", cur\Args)
+  Else
+    cur\SteamGameArgs = InputRequester(#APP_NAME, "Game launch arguments (Steam - optional):", cur\SteamGameArgs)
+    cur\SteamClientArgs = InputRequester(#APP_NAME, "Steam client arguments (optional):", cur\SteamClientArgs)
+    ; GameRoot is auto-resolved from Steam libraries.
+    cur\SteamDetectTimeoutMs = Val(InputRequester(#APP_NAME, "Steam game detect timeout (ms):", Str(cur\SteamDetectTimeoutMs)))
+    If cur\SteamDetectTimeoutMs < 5000 : cur\SteamDetectTimeoutMs = 60000 : EndIf
+    If cur\SteamDetectTimeoutMs > 300000 : cur\SteamDetectTimeoutMs = 300000 : EndIf
   EndIf
 
   Protected pChoice.i = PriorityToChoice(cur\Priority)
@@ -1102,6 +1157,9 @@ Procedure AddExeEntry(exePath.s)
   ge\LaunchMode = 0
   ge\SteamAppId = 0
   ge\SteamExe = ""
+  ge\SteamClientArgs = ""
+  ge\SteamGameArgs = ""
+  ge\SteamDetectTimeoutMs = 60000
   ge\GameRoot = ""
   ge\PowerGuid = ""
 
@@ -1540,13 +1598,27 @@ Procedure LoadGames()
       g\LaunchMode = ReadPreferenceInteger("launchMode", 0)
       g\SteamAppId  = ReadPreferenceInteger("steamAppId", 0)
       g\SteamExe    = ReadPreferenceString("steamExe", "")
+      g\SteamClientArgs = ReadPreferenceString("steamClientArgs", "")
+      g\SteamGameArgs   = ReadPreferenceString("steamGameArgs", "")
+      g\SteamDetectTimeoutMs = ReadPreferenceInteger("steamTimeoutMs", 60000)
+      ; GameRoot is resolved dynamically from Steam libraries; keep legacy field for backward compatibility.
       g\GameRoot    = ReadPreferenceString("gameRoot", "")
       g\PowerGuid   = ReadPreferenceString("powerGuid", "")
       If g\LaunchMode <> 1
         g\LaunchMode = 0
         g\SteamAppId = 0
         g\SteamExe = ""
+        g\SteamClientArgs = ""
+        g\SteamGameArgs = ""
+        g\SteamDetectTimeoutMs = 60000
         g\GameRoot = ""
+      EndIf
+      If g\LaunchMode = 1
+        g\GameRoot = ""
+      EndIf
+      If g\LaunchMode = 1
+        If g\SteamDetectTimeoutMs < 5000 : g\SteamDetectTimeoutMs = 60000 : EndIf
+        If g\SteamDetectTimeoutMs > 300000 : g\SteamDetectTimeoutMs = 300000 : EndIf
       EndIf
       If g\Name <> "" And g\ExePath <> ""
         AddElement(Games())
@@ -1580,6 +1652,10 @@ Procedure SaveGames()
       WritePreferenceInteger("launchMode", Games()\LaunchMode)
       WritePreferenceInteger("steamAppId", Games()\SteamAppId)
       WritePreferenceString("steamExe", Games()\SteamExe)
+      WritePreferenceString("steamClientArgs", Games()\SteamClientArgs)
+      WritePreferenceString("steamGameArgs", Games()\SteamGameArgs)
+      WritePreferenceInteger("steamTimeoutMs", Games()\SteamDetectTimeoutMs)
+      ; gameRoot kept for backward compatibility; no longer user-editable.
       WritePreferenceString("gameRoot", Games()\GameRoot)
       WritePreferenceString("powerGuid", Games()\PowerGuid)
       i + 1
@@ -1687,9 +1763,13 @@ Procedure.i LaunchSteamBoosted(*g.GameEntry)
   Protected origPriority.l
   Protected processAffinity.q, systemAffinity.q
   Protected gotAffinity.i
+  Protected timeoutMs.i
 
   If *g\SteamExe = "" Or FileSize(*g\SteamExe) <= 0
-    MessageRequester(#APP_NAME, "Steam executable not set/found for this entry.")
+    *g\SteamExe = FindSteamExe()
+  EndIf
+  If *g\SteamExe = "" Or FileSize(*g\SteamExe) <= 0
+    MessageRequester(#APP_NAME, "Steam executable not set/found.")
     ProcedureReturn 0
   EndIf
   If *g\SteamAppId <= 0
@@ -1697,7 +1777,11 @@ Procedure.i LaunchSteamBoosted(*g.GameEntry)
     ProcedureReturn 0
   EndIf
   If *g\GameRoot = ""
-    MessageRequester(#APP_NAME, "Game install folder not known for this entry.")
+    *g\GameRoot = GetSteamGameRootByAppId(*g\SteamExe, *g\SteamAppId)
+  EndIf
+  If *g\GameRoot = ""
+    MessageRequester(#APP_NAME, "Could not resolve Steam install folder for this game." + #LF$ + #LF$ +
+                              "Try: Import Steam again (so appmanifest_*.acf is available) and make sure the game is installed.")
     ProcedureReturn 0
   EndIf
 
@@ -1726,7 +1810,10 @@ Procedure.i LaunchSteamBoosted(*g.GameEntry)
 
   si\cb = SizeOf(STARTUPINFO)
   workdir = GetPathPart(*g\SteamExe)
-  cmd = QuoteArg(*g\SteamExe) + " -applaunch " + Str(*g\SteamAppId)
+  cmd = QuoteArg(*g\SteamExe)
+  If Trim(*g\SteamClientArgs) <> "" : cmd + " " + Trim(*g\SteamClientArgs) : EndIf
+  cmd + " -applaunch " + Str(*g\SteamAppId)
+  If Trim(*g\SteamGameArgs) <> "" : cmd + " " + Trim(*g\SteamGameArgs) : EndIf
 
   Protected *cmdMem = AllocateMemory((Len(cmd) + 2) * SizeOf(Character))
   If *cmdMem = 0
@@ -1745,15 +1832,23 @@ Procedure.i LaunchSteamBoosted(*g.GameEntry)
   CloseHandle_(pi\hThread)
   CloseHandle_(pi\hProcess)
 
-  pidGame = FindNewProcessInFolder(*g\GameRoot, baseline(), 20000)
+  timeoutMs = *g\SteamDetectTimeoutMs
+  If timeoutMs < 5000 : timeoutMs = 60000 : EndIf
+  If timeoutMs > 300000 : timeoutMs = 300000 : EndIf
+  pidGame = FindNewProcessInFolder(*g\GameRoot, baseline(), timeoutMs)
   If pidGame = 0
     CleanupAfterLaunch(prevPowerGuid, didSwitchPower, stoppedServices)
-    MessageRequester(#APP_NAME, "Could not detect game process (timeout).")
+    MessageRequester(#APP_NAME, "Could not detect game process (timeout)." + #LF$ + #LF$ +
+                              "Try: Edit the game -> verify Install Folder + increase detect timeout.")
     ProcedureReturn 0
   EndIf
   LogLine("Detected game PID=" + Str(pidGame))
 
+  ; Some protected games deny PROCESS_QUERY_INFORMATION but allow limited query.
   hGame = OpenProcess_(#PROCESS_QUERY_INFORMATION | #PROCESS_SET_INFORMATION | #SYNCHRONIZE, #False, pidGame)
+  If hGame = 0
+    hGame = OpenProcess_(#PROCESS_QUERY_LIMITED_INFORMATION | #PROCESS_SET_INFORMATION | #SYNCHRONIZE, #False, pidGame)
+  EndIf
   If hGame = 0
     CleanupAfterLaunch(prevPowerGuid, didSwitchPower, stoppedServices)
     MessageRequester(#APP_NAME, "Detected game PID " + Str(pidGame) + " but could not open process.")
@@ -1895,6 +1990,9 @@ Procedure.i SelectGameByIndex(idx.i, *out.GameEntry)
       *out\LaunchMode = Games()\LaunchMode
       *out\SteamAppId  = Games()\SteamAppId
       *out\SteamExe    = Games()\SteamExe
+      *out\SteamClientArgs = Games()\SteamClientArgs
+      *out\SteamGameArgs   = Games()\SteamGameArgs
+      *out\SteamDetectTimeoutMs = Games()\SteamDetectTimeoutMs
       *out\GameRoot    = Games()\GameRoot
       *out\PowerGuid   = Games()\PowerGuid
       ProcedureReturn 1
@@ -1924,6 +2022,9 @@ Procedure AddGameSimple()
   g\LaunchMode = 0
   g\SteamAppId = 0
   g\SteamExe = ""
+  g\SteamClientArgs = ""
+  g\SteamGameArgs = ""
+  g\SteamDetectTimeoutMs = 60000
   g\GameRoot = ""
   g\PowerGuid = ""               ; legacy (ignored)
 
@@ -2099,23 +2200,23 @@ If OpenWindow(0, 0, 0, 980, 510, "SafeGameBooster" + " - " + version, #PB_Window
 EndIf
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 1879
-; FirstLine = 1857
-; Folding = -------------
+; CursorPosition = 18
+; Folding = --------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
 ; DllProtection
+; UseIcon = SafeGameBooster.ico
 ; Executable = SafeGameBooster.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = SafeGameBooster
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = A Safe Game Booster made with PureBasic
 ; VersionField7 = SafeGameBooster
 ; VersionField8 = SafeGameBooster.exe
