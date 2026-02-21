@@ -6,12 +6,14 @@ EnableExplicit
 
 #TRAY_ICON       = 1
 #TRAY_MENU       = 2
-#MENU_STARTUP    = 10
-#MENU_LOGTOGGLE  = 11
-#MENU_EDITSETTINGS = 12
-#MENU_RELOADSETTINGS = 13
-#MENU_ABOUT      = 14
-#MENU_EXIT       = 15
+#MENU_RUNNOW     = 10
+#MENU_STARTUP    = 11
+#MENU_LOGTOGGLE  = 12
+#MENU_EDITSETTINGS = 13
+#MENU_MEMTHRESHOLD = 14
+#MENU_RELOADSETTINGS = 15
+#MENU_ABOUT      = 16
+#MENU_EXIT       = 17
 #ICON_IDLE       = 100
 #ICON_ACTIVE     = 101
 
@@ -31,8 +33,12 @@ Global gTooltipOverrideText.s = ""
 
 ; Logging toggle
 Global loggingEnabled   = #True
-Global version.s = "v1.0.0.7"
+Global version.s = "v1.0.0.8"
 
+; Memory threshold (auto-clean when available RAM <= threshold)
+Global gMemThresholdEnabled.i = #False
+Global gMemThresholdAvailMB.i = 1024
+Global gMemThresholdWasBelow.i = #False
 ; Logging paths + rotation
 #LOG_FILE        = "ClearRam.log"
 Global gLogPath.s = ""
@@ -44,6 +50,9 @@ Global gLogRotateKeep.i = 3
 #INI_FILE        = "ClearRam.ini"
 #APP_NAME        = "ClearRam"
 #EMAIL_NAME      = "zonemaster60@gmail.com"
+
+Declare.i GetTotalPhysMB()
+Declare.i GetAvailPhysMB()
 
 Procedure.b HasArg(arg$)
   Protected i
@@ -144,6 +153,8 @@ Procedure LoadSettings()
   gLogRotateEnabled = #True
   gLogRotateMaxBytes = 1024 * 1024
   gLogRotateKeep = 3
+  gMemThresholdEnabled = #False
+  gMemThresholdAvailMB = 1024
 
   If OpenPreferences(iniFile)
     IntervalMinutes = ReadPreferenceInteger("IntervalMinutes", IntervalMinutes)
@@ -172,6 +183,30 @@ Procedure LoadSettings()
     If maxKb < 1 : maxKb = 1 : EndIf
     gLogRotateMaxBytes = maxKb * 1024
 
+    gMemThresholdEnabled = ReadPreferenceInteger("MemThresholdEnabled", 0)
+    If gMemThresholdEnabled <> 0 And gMemThresholdEnabled <> 1
+      gMemThresholdEnabled = #False
+    EndIf
+
+    ; Cache total RAM for clamping/conversions (0 if call fails)
+    Protected totalPhysMB.i = GetTotalPhysMB()
+
+    ; Available RAM threshold in MB (auto-clean triggers when avail <= this)
+    gMemThresholdAvailMB = ReadPreferenceInteger("MemThresholdAvailMB", -1)
+    If gMemThresholdAvailMB < 0
+      ; Backward-compat: derive from legacy MemThresholdPercent (used%) if present
+      Protected legacyUsedPct.i = ReadPreferenceInteger("MemThresholdPercent", 85)
+      If legacyUsedPct < 50 : legacyUsedPct = 50 : EndIf
+      If legacyUsedPct > 99 : legacyUsedPct = 99 : EndIf
+      If totalPhysMB > 0
+        gMemThresholdAvailMB = (totalPhysMB * (100 - legacyUsedPct)) / 100
+      Else
+        gMemThresholdAvailMB = 1024
+      EndIf
+    EndIf
+    If gMemThresholdAvailMB < 64 : gMemThresholdAvailMB = 64 : EndIf
+    If totalPhysMB > 0 And gMemThresholdAvailMB > totalPhysMB : gMemThresholdAvailMB = totalPhysMB : EndIf
+
     ClosePreferences()
   Else
     ; Create INI with defaults
@@ -182,6 +217,8 @@ Procedure LoadSettings()
       WritePreferenceInteger("LogRotateEnabled", 1)
       WritePreferenceInteger("LogRotateKeep", gLogRotateKeep)
       WritePreferenceInteger("LogRotateMaxKB", 1024)
+      WritePreferenceInteger("MemThresholdEnabled", 0)
+      WritePreferenceInteger("MemThresholdAvailMB", 1024)
       ClosePreferences()
     EndIf
   EndIf
@@ -192,7 +229,8 @@ Procedure LoadSettings()
   LogRotateIfNeeded()
 
    LogMessage("Loaded settings: Interval=" + Str(IntervalMinutes) + " minutes, Logging=" + Str(loggingEnabled) +
-              ", Rotate=" + Str(gLogRotateEnabled) + " keep=" + Str(gLogRotateKeep) + " maxKB=" + Str(gLogRotateMaxBytes / 1024))
+              ", Rotate=" + Str(gLogRotateEnabled) + " keep=" + Str(gLogRotateKeep) + " maxKB=" + Str(gLogRotateMaxBytes / 1024) +
+              ", MemThreshold=" + Str(gMemThresholdEnabled) + "@" + Str(gMemThresholdAvailMB) + "MB(avail)")
 
 EndProcedure
 
@@ -206,9 +244,106 @@ Procedure SaveSettings()
     WritePreferenceInteger("LogRotateEnabled", gLogRotateEnabled)
     WritePreferenceInteger("LogRotateKeep", gLogRotateKeep)
     WritePreferenceInteger("LogRotateMaxKB", gLogRotateMaxBytes / 1024)
+    WritePreferenceInteger("MemThresholdEnabled", gMemThresholdEnabled)
+    WritePreferenceInteger("MemThresholdAvailMB", gMemThresholdAvailMB)
     ClosePreferences()
     LogMessage("Settings saved.")
   EndIf
+EndProcedure
+
+; ---------------------------------------------------------
+; Memory threshold slider dialog
+; ---------------------------------------------------------
+
+Procedure.b EditMemoryThresholdSlider()
+  Protected oldEnabled.i = gMemThresholdEnabled
+  Protected oldMB.i = gMemThresholdAvailMB
+  Protected stepMB.i = 64
+
+  Protected w = 420
+  Protected h = 170
+
+  Protected win = OpenWindow(#PB_Any, 0, 0, w, h, "Memory Threshold", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  If win = 0
+    ProcedureReturn #False
+  EndIf
+
+  Protected gadEnable = CheckBoxGadget(#PB_Any, 12, 12, w - 24, 20, "Enable auto-clean when available memory is low")
+  SetGadgetState(gadEnable, gMemThresholdEnabled)
+
+  Protected gadLabel = TextGadget(#PB_Any, 12, 44, w - 24, 18, "Clean when Available RAM <= " + Str(gMemThresholdAvailMB) + " MB")
+  Protected totalMB.i = GetTotalPhysMB()
+  If totalMB < 64 : totalMB = 64 : EndIf
+  Protected gadSlider = TrackBarGadget(#PB_Any, 12, 66, w - 24, 28, 64, totalMB)
+  Protected initMB.i = gMemThresholdAvailMB
+  If initMB > totalMB : initMB = totalMB : EndIf
+  If initMB < 64 : initMB = 64 : EndIf
+  ; Snap to step increments (64MB by default)
+  initMB = ((initMB + (stepMB / 2)) / stepMB) * stepMB
+  If initMB > totalMB : initMB = totalMB : EndIf
+  SetGadgetState(gadSlider, initMB)
+
+  Protected gadCurr = TextGadget(#PB_Any, 12, 98, w - 24, 18, "Current Available RAM: " + Str(GetAvailPhysMB()) + " MB")
+
+  Protected gadOk = ButtonGadget(#PB_Any, w - 180, h - 42, 80, 26, "OK")
+  Protected gadCancel = ButtonGadget(#PB_Any, w - 92, h - 42, 80, 26, "Cancel")
+
+  Protected ev, g
+  Protected nextRefresh.q = ElapsedMilliseconds() + 500
+  Protected done.i = #False
+  Protected apply.i = #False
+
+  Repeat
+    ev = WaitWindowEvent(50)
+    If ElapsedMilliseconds() >= nextRefresh
+      SetGadgetText(gadCurr, "Current Available RAM: " + Str(GetAvailPhysMB()) + " MB")
+      nextRefresh = ElapsedMilliseconds() + 500
+    EndIf
+
+    Select ev
+      Case #PB_Event_CloseWindow
+        done = #True
+
+      Case #PB_Event_Gadget
+        g = EventGadget()
+        If g = gadSlider
+          Protected v.i = GetGadgetState(gadSlider)
+          Protected snapped.i = ((v + (stepMB / 2)) / stepMB) * stepMB
+          If snapped < 64 : snapped = 64 : EndIf
+          If snapped > totalMB : snapped = totalMB : EndIf
+          If snapped <> v
+            SetGadgetState(gadSlider, snapped)
+          EndIf
+          SetGadgetText(gadLabel, "Clean when Available RAM <= " + Str(snapped) + " MB")
+          SetGadgetText(gadCurr, "Current Available RAM: " + Str(GetAvailPhysMB()) + " MB")
+        ElseIf g = gadOk
+          apply = #True
+          done = #True
+        ElseIf g = gadCancel
+          done = #True
+        EndIf
+    EndSelect
+  Until done
+
+  If apply
+    gMemThresholdEnabled = Bool(GetGadgetState(gadEnable) <> 0)
+    gMemThresholdAvailMB = GetGadgetState(gadSlider)
+    gMemThresholdAvailMB = ((gMemThresholdAvailMB + (stepMB / 2)) / stepMB) * stepMB
+    If gMemThresholdAvailMB < 64 : gMemThresholdAvailMB = 64 : EndIf
+
+    ; Avoid an immediate trigger after changing threshold.
+    gMemThresholdWasBelow = Bool(gMemThresholdEnabled And GetAvailPhysMB() <= gMemThresholdAvailMB)
+
+    If oldEnabled <> gMemThresholdEnabled Or oldMB <> gMemThresholdAvailMB
+      SaveSettings()
+      LogMessage("Memory threshold updated: enabled=" + Str(gMemThresholdEnabled) + " availMB=" + Str(gMemThresholdAvailMB))
+      CloseWindow(win)
+      ProcedureReturn #True
+    EndIf
+  EndIf
+
+  CloseWindow(win)
+  ProcedureReturn #False
 EndProcedure
 
 ; ---------------------------------------------------------
@@ -507,6 +642,52 @@ Procedure.q GetAvailPhysBytes()
   ProcedureReturn ms\ullAvailPhys
 EndProcedure
 
+Procedure.i GetAvailPhysMB()
+  Protected b.q = GetAvailPhysBytes()
+  ProcedureReturn b / 1024 / 1024
+EndProcedure
+
+Procedure.i GetTotalPhysMB()
+  Protected ms.MEMORYSTATUSEX
+  ms\dwLength = SizeOf(MEMORYSTATUSEX)
+  If GlobalMemoryStatusEx_(@ms) = 0
+    ProcedureReturn 0
+  EndIf
+  ProcedureReturn ms\ullTotalPhys / 1024 / 1024
+EndProcedure
+
+Procedure.i GetUsedMemPercent()
+  Protected totalMB.i = GetTotalPhysMB()
+  If totalMB <= 0
+    ProcedureReturn 0
+  EndIf
+  Protected availMB.i = GetAvailPhysMB()
+  Protected usedMB.i = totalMB - availMB
+  If usedMB < 0 : usedMB = 0 : EndIf
+  If usedMB > totalMB : usedMB = totalMB : EndIf
+  ProcedureReturn (usedMB * 100) / totalMB
+EndProcedure
+
+
+Procedure.b ShouldTriggerThresholdClear()
+  If gMemThresholdEnabled = #False
+    gMemThresholdWasBelow = #False
+    ProcedureReturn #False
+  EndIf
+
+  Protected availMB.i = GetAvailPhysMB()
+  If availMB <= gMemThresholdAvailMB
+    If gMemThresholdWasBelow = #False
+      gMemThresholdWasBelow = #True
+      ProcedureReturn #True
+    EndIf
+  Else
+    gMemThresholdWasBelow = #False
+  EndIf
+
+  ProcedureReturn #False
+EndProcedure
+
 Declare ElevateAndClearOnce()
 
 Global gLastNtStatus.l
@@ -623,6 +804,11 @@ Procedure TimerThread(*unused)
     For i = 1 To IntervalMS / 1000
       If quitProgram : Break : EndIf
       Delay(1000)
+
+      If ShouldTriggerThresholdClear()
+        LogMessage("Memory threshold reached (avail <= " + Str(gMemThresholdAvailMB) + "MB), triggering clean")
+        CreateThread(@RunClearRam_Thread(), 0)
+      EndIf
     Next
 
     If quitProgram : Break : EndIf
@@ -651,6 +837,7 @@ EndProcedure
 
 Procedure ReloadSettingsFromFile()
   LoadSettings()
+  gMemThresholdWasBelow = Bool(gMemThresholdEnabled And GetAvailPhysMB() <= gMemThresholdAvailMB)
   UpdateStartupMenuLabel()
   UpdateLogMenuLabel()
   MessageRequester("Settings Reloaded", "Settings have been reloaded from " + #INI_FILE, #PB_MessageRequester_Info)
@@ -761,6 +948,7 @@ Procedure ShowAbout()
   Protected msg.s
   msg = #APP_NAME + " - " + version + #CRLF$ +
         "Interval: " + Str(IntervalMinutes) + " minutes" + #CRLF$ +
+        "Memory threshold: " + Str(gMemThresholdEnabled) + " @ " + Str(gMemThresholdAvailMB) + "MB available" + #CRLF$ +
         "Logging: " + logState + #CRLF$ +
         "INI file: " + #INI_FILE + #CRLF$ +
         "Contact: " + #EMAIL_NAME + #CRLF$ +
@@ -774,6 +962,9 @@ EndProcedure
 ; ---------------------------------------------------------
 
 LoadSettings()
+
+; Initialize threshold latch based on current usage
+gMemThresholdWasBelow = Bool(gMemThresholdEnabled And GetAvailPhysMB() <= gMemThresholdAvailMB)
 
 If gSingleRunMode
   ; Elevated helper mode: clear once then exit.
@@ -830,10 +1021,13 @@ UpdateTrayTooltip("Idle")
 
 ; Tray menu
 CreatePopupMenu(#TRAY_MENU)
+MenuItem(#MENU_RUNNOW,     "Run Now")
+MenuBar()
 MenuItem(#MENU_STARTUP,    "")
 MenuItem(#MENU_LOGTOGGLE,  "")
 MenuBar()
 MenuItem(#MENU_EDITSETTINGS, "Edit Settings")
+MenuItem(#MENU_MEMTHRESHOLD, "Memory Threshold...")
 MenuItem(#MENU_RELOADSETTINGS, "Reload Settings")
 MenuBar()
 MenuItem(#MENU_ABOUT,      "About")
@@ -879,9 +1073,19 @@ Repeat
           gTooltipOverrideUntil = 0
           remaining = g_TimerNextRun - ElapsedMilliseconds()
           If remaining < 0 : remaining = 0 : EndIf
-          Define availMem.q = GetAvailPhysBytes()
-          text = "Available Memory: " + Str(availMem/1024/1024) + "MB" + #CRLF$ +
-                 "LeftClick=RunNow; Next Run in: " + FormatCountdown(remaining)
+          Define availMB.i = GetAvailPhysMB()
+
+          ; Tray icon tooltips are length-limited (often ~64 chars).
+          ; Keep it compact + single-line so it doesn't truncate.
+          Define usedPct.i = GetUsedMemPercent()
+          text = "A:" + Str(availMB) + "MB U:" + Str(usedPct) + "%"
+          If gMemThresholdEnabled
+            text = text + " T<=" + Str(gMemThresholdAvailMB) + "MB"
+          Else
+            text = text + " T:off"
+          EndIf
+          text = text + " N:" + FormatCountdown(remaining) + " L:Run"
+
           SysTrayIconToolTip(#TRAY_ICON, text)
         EndIf
       EndIf
@@ -898,7 +1102,10 @@ Repeat
       menuID = EventMenu()
 
       Select menuID
-          
+
+        Case #MENU_RUNNOW
+          CreateThread(@RunClearRam_Thread(), 0)
+           
         Case #MENU_STARTUP
           If startupEnabled
             startupEnabled = #False
@@ -921,6 +1128,9 @@ Repeat
         Case #MENU_EDITSETTINGS
           EditSettings()
 
+        Case #MENU_MEMTHRESHOLD
+          EditMemoryThresholdSlider()
+
         Case #MENU_RELOADSETTINGS
           ReloadSettingsFromFile()
 
@@ -937,24 +1147,24 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 882
-; FirstLine = 866
-; Folding = ------
+; CursorPosition = 1056
+; FirstLine = 1030
+; Folding = -------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = ..\files\ClearRam-idle.ico
+; UseIcon = ClearRam-idle.ico
 ; Executable = ..\ClearRam.exe
 ; DisableDebugger
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,7
-; VersionField1 = 1,0,0,7
+; VersionField0 = 1,0,0,8
+; VersionField1 = 1,0,0,8
 ; VersionField2 = ZoneSoft
 ; VersionField3 = ClearRam
-; VersionField4 = 1.0.0.7
-; VersionField5 = 1.0.0.7
+; VersionField4 = 1.0.0.8
+; VersionField5 = 1.0.0.8
 ; VersionField6 = Clears RAM using native Windows APIs
 ; VersionField7 = ClearRam
 ; VersionField8 = ClearRam.exe
