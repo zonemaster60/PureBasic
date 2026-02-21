@@ -43,7 +43,7 @@ CompilerEndIf
 
 #EMAIL_NAME = "zonemaster60@gmail.com"
 #APP_NAME = "HandyDrvLED"
-Global version.s = "v1.0.3.0"
+Global version.s = "v1.0.3.1"
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 Global IniPath.s = AppPath + #APP_NAME + ".ini"
@@ -478,7 +478,7 @@ Procedure PurgeOldDailyLogs()
   Protected rest.s
   Protected logPos.i
   Protected head.s
-  Protected dateStr.s
+  Protected ds.s
   Protected year.i, month.i, day.i
   Protected fileDate.i
   Protected ok.i
@@ -486,7 +486,8 @@ Procedure PurgeOldDailyLogs()
   ; Delete dated logs older than retention:
   ;   HandyDrvLED.YYYY-MM-DD.log
   ;   HandyDrvLED.YYYY-MM-DD.log.N
-  ;   HandyDrvLED.legacy.YYYY-MM-DD.log(.N)
+  ;   HandyDrvLED.[YY-MM-DD].log(.N)         (older builds)
+  ;   HandyDrvLED.legacy.<date>.log(.N)
   dir = ExamineDirectory(#PB_Any, AppPath, #APP_NAME + ".*.log*")
   If dir = 0
     ProcedureReturn
@@ -501,31 +502,33 @@ Procedure PurgeOldDailyLogs()
         If logPos > 0
           head = Left(rest, logPos - 1)
 
-          dateStr = ""
-          If Left(head, 7) = "legacy." And Len(head) >= 17
-            dateStr = Mid(head, 8, 10)
-          ElseIf Len(head) >= 10
-            dateStr = Left(head, 10)
+          ; Head contains the dated portion before ".log".
+          ; Accept: YYYY-MM-DD, YY-MM-DD, [YY-MM-DD], legacy.<same>
+          If Left(head, 7) = "legacy."
+            ds = Mid(head, 8)
+          Else
+            ds = head
+          EndIf
+
+          ds = Trim(ds)
+          If Len(ds) >= 2 And Left(ds, 1) = "[" And Right(ds, 1) = "]"
+            ds = Mid(ds, 2, Len(ds) - 2)
           EndIf
 
           ok = #False
-          If Len(dateStr) = 10 And Mid(dateStr, 5, 1) = "-" And Mid(dateStr, 8, 1) = "-"
+          If Len(ds) = 10 And Mid(ds, 5, 1) = "-" And Mid(ds, 8, 1) = "-"
+            year = Val(Left(ds, 4))
+            month = Val(Mid(ds, 6, 2))
+            day = Val(Right(ds, 2))
             ok = #True
-            ; YYYYMMDD digits
-            If FindString("0123456789", Mid(dateStr, 1, 1), 1) = 0 : ok = #False : EndIf
-            If FindString("0123456789", Mid(dateStr, 2, 1), 1) = 0 : ok = #False : EndIf
-            If FindString("0123456789", Mid(dateStr, 3, 1), 1) = 0 : ok = #False : EndIf
-            If FindString("0123456789", Mid(dateStr, 4, 1), 1) = 0 : ok = #False : EndIf
-            If FindString("0123456789", Mid(dateStr, 6, 1), 1) = 0 : ok = #False : EndIf
-            If FindString("0123456789", Mid(dateStr, 7, 1), 1) = 0 : ok = #False : EndIf
-            If FindString("0123456789", Mid(dateStr, 9, 1), 1) = 0 : ok = #False : EndIf
-            If FindString("0123456789", Mid(dateStr, 10, 1), 1) = 0 : ok = #False : EndIf
+          ElseIf Len(ds) = 8 And Mid(ds, 3, 1) = "-" And Mid(ds, 6, 1) = "-"
+            year = 2000 + Val(Left(ds, 2))
+            month = Val(Mid(ds, 4, 2))
+            day = Val(Right(ds, 2))
+            ok = #True
           EndIf
 
           If ok
-            year = Val(Left(dateStr, 4))
-            month = Val(Mid(dateStr, 6, 2))
-            day = Val(Right(dateStr, 2))
             If year > 0 And month >= 1 And month <= 12 And day >= 1 And day <= 31
               fileDate = Date(year, month, day, 0, 0, 0)
               If fileDate < cutoff
@@ -542,7 +545,8 @@ Procedure PurgeOldDailyLogs()
 EndProcedure
 
 Procedure EnsureDailyLog()
-  Protected today.s = FormatDate("[%yy-%mm-%dd]", Date())
+  ; Use an ISO-like date in filenames so retention parsing works.
+  Protected today.s = FormatDate("%yyyy-%mm-%dd", Date())
   Protected target.s
   Protected legacy.s
   Protected legacyTarget.s
@@ -1916,12 +1920,12 @@ Cleanup()
 ; Executable = ..\HandyDrvLED.exe
 ; DisableDebugger
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,0
-; VersionField1 = 1,0,3,0
+; VersionField0 = 1,0,3,1
+; VersionField1 = 1,0,3,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyDrvLED
-; VersionField4 = 1.0.3.0
-; VersionField5 = 1.0.3.0
+; VersionField4 = 1.0.3.1
+; VersionField5 = 1.0.3.1
 ; VersionField6 = Monitors your disk read / write access
 ; VersionField7 = HandyDrvLED
 ; VersionField8 = HandyDrvLED.exe
