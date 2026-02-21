@@ -5,7 +5,7 @@
 
 EnableExplicit
 
-#APP_NAME = "starship_sim"
+#APP_NAME = "Starship_Sim"
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
@@ -2033,13 +2033,25 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 1578
-; FirstLine = 1569
-; Folding = ----------
+; CursorPosition = 7
+; Folding = -----------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
 ; UseIcon = starship_sim.ico
-; Executable = ..\starship_sim.exe
+; Executable = ..\Starship_Sim.exe
+; IncludeVersionInfo
+; VersionField0 = 1,0,0,0
+; VersionField1 = 1,0,0,0
+; VersionField2 = ZoneSoft
+; VersionField3 = StarShip_Sim
+; VersionField4 = 1.0.0.0
+; VersionField5 = 1.0.0.0
+; VersionField6 = A starship sim based on a scifi TV series
+; VersionField7 = StarShip_Sim
+; VersionField8 = StarShip_Sim.exe
+; VersionField9 = David Scouten
+; VersionField13 = zonemaster60@gmail.com
+; VersionField14 = https://github.com/zonemaster60
