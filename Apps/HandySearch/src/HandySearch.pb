@@ -4,7 +4,12 @@ EnableExplicit
 
 #APP_NAME   = "HandySearch"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-Global version.s = "v1.0.0.7"
+Global version.s = "v1.0.0.8"
+
+; Crash logging (best-effort)
+Declare InitCrashLogging()
+Declare LogLine(msg.s)
+Declare CrashErrorHandler()
 
 Procedure.b HasArg(arg$)
   Protected i
@@ -21,6 +26,8 @@ Global gRemoveStartupTaskMode.i  = HasArg("--removestartup")
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
+
+InitCrashLogging()
 
 ; Prevent multiple instances (don't rely on window title text)
 ; Allow helper modes to run even if the GUI app is running.
@@ -47,6 +54,7 @@ EndProcedure
 ; Forward declarations (avoid ordering issues)
 Declare.s ResolveDbPath(dbPath.s)
 Declare OpenPath(path.s, showError.i)
+Declare OpenCrashLog(showError.i)
 Declare EnqueueResult(path.s)
 Declare EnqueueResultsBatch(List batch.s())
 Declare InitDatabase()
@@ -106,6 +114,7 @@ Declare UpdateStartupMenuState()
   #Menu_Tray_ShowIndexedCount = 204
   #Menu_Tray_ShowDbPath = 205
   #Menu_Tray_Diagnostics = 206
+  #Menu_Tray_OpenCrashLog = 212
   #Menu_Tray_PauseResume = 207
   #Menu_Tray_RunAtStartup = 208
   #Menu_Tray_Settings = 211
@@ -518,6 +527,113 @@ Procedure.s RunAndCapture(exe.s, args.s)
   CloseProgram(program)
 
   ProcedureReturn output
+EndProcedure
+
+Global CrashLogPath.s
+Global CrashLogInHandler.i
+
+Procedure.i OpenCrashLogFile(filePath.s)
+  Protected f.i
+
+  If filePath = ""
+    ProcedureReturn 0
+  EndIf
+
+  If FileSize(filePath) >= 0
+    f = OpenFile(#PB_Any, filePath)
+    If f
+      FileSeek(f, Lof(f))
+    EndIf
+  Else
+    f = CreateFile(#PB_Any, filePath)
+  EndIf
+
+  ProcedureReturn f
+EndProcedure
+
+Procedure.s ChooseCrashLogPath()
+  Protected candidate.s
+  Protected appData.s
+  Protected folder.s
+  Protected f.i
+
+  ; Prefer EXE folder if writable.
+  candidate = AppPath + #APP_NAME + "_crash.log"
+  f = OpenCrashLogFile(candidate)
+  If f
+    CloseFile(f)
+    ProcedureReturn candidate
+  EndIf
+
+  ; Fall back to %APPDATA%\HandySearch\...
+  appData = GetEnvironmentVariable("APPDATA")
+  If appData <> "" And Right(appData, 1) <> "\"
+    appData + "\"
+  EndIf
+
+  folder = appData + #APP_NAME + "\"
+  If folder <> "" And FileSize(folder) <> -2
+    CreateDirectory(folder)
+  EndIf
+
+  candidate = folder + #APP_NAME + "_crash.log"
+  f = OpenCrashLogFile(candidate)
+  If f
+    CloseFile(f)
+    ProcedureReturn candidate
+  EndIf
+
+  ProcedureReturn ""
+EndProcedure
+
+Procedure LogLine(msg.s)
+  Protected f.i
+  Protected line.s
+
+  If CrashLogPath = ""
+    CrashLogPath = ChooseCrashLogPath()
+  EndIf
+
+  f = OpenCrashLogFile(CrashLogPath)
+  If f = 0
+    ProcedureReturn
+  EndIf
+
+  line = FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date()) + " | " + msg
+  WriteStringN(f, line, #PB_UTF8)
+  CloseFile(f)
+EndProcedure
+
+Procedure CrashErrorHandler()
+  ; Called by PB runtime on unhandled errors/exceptions.
+  If CrashLogInHandler
+    End
+  EndIf
+  CrashLogInHandler = 1
+
+  LogLine("CRASH")
+  LogLine("ErrorMessage: " + ErrorMessage())
+  LogLine("ErrorCode: " + Str(ErrorCode()))
+  LogLine("ErrorAddress: " + Str(ErrorAddress()))
+  LogLine("ErrorLine: " + Str(ErrorLine()))
+  LogLine("ErrorFile: " + ErrorFile())
+  LogLine("DB path: " + ResolveDbPath(IndexDbPath))
+
+  MessageRequester(#APP_NAME, "The application encountered an unexpected error and must close." + #CRLF$ +
+                            "Crash log: " + CrashLogPath, #PB_MessageRequester_Error)
+  End
+EndProcedure
+
+Procedure InitCrashLogging()
+  ; Best-effort: write a run header and install error handler.
+  CrashLogPath = ChooseCrashLogPath()
+  If CrashLogPath <> ""
+    LogLine("=== START " + #APP_NAME + " " + version + " ===")
+    LogLine("Exe: " + ProgramFilename())
+    LogLine("Cwd: " + GetCurrentDirectory())
+  EndIf
+
+  OnErrorCall(@CrashErrorHandler())
 EndProcedure
 
 Procedure.b IsProcessElevated()
@@ -1031,6 +1147,7 @@ Procedure InitGUI()
   MenuItem(#Menu_Tray_ShowIndexedCount, "Show indexed count")
   MenuItem(#Menu_Tray_ShowDbPath, "Show DB path")
   MenuItem(#Menu_Tray_Diagnostics, "Diagnostics")
+  MenuItem(#Menu_Tray_OpenCrashLog, "Open crash log")
   MenuItem(#Menu_Tray_PauseResume, "Pause")
   MenuBar()
   MenuItem(#Menu_Tray_RunAtStartup, "Run at startup")
@@ -1459,6 +1576,29 @@ Procedure OpenConfig(showError.i)
   OpenPath(iniPath, showError)
 EndProcedure
 
+Procedure OpenCrashLog(showError.i)
+  Protected f.i
+
+  If CrashLogPath = ""
+    CrashLogPath = ChooseCrashLogPath()
+  EndIf
+
+  If CrashLogPath = ""
+    If showError
+      MessageRequester(#APP_NAME, "Crash log path is not available.", #PB_MessageRequester_Error)
+    EndIf
+    ProcedureReturn
+  EndIf
+
+  ; Ensure the file exists so OpenPath() can open it.
+  f = OpenCrashLogFile(CrashLogPath)
+  If f
+    CloseFile(f)
+  EndIf
+
+  OpenPath(CrashLogPath, showError)
+EndProcedure
+
 Procedure.i ClampSettingInt(*changed.Integer, currentValue.i, newValue.i, minValue.i, maxValue.i)
   Protected v.i = newValue
   If v < minValue : v = minValue : EndIf
@@ -1614,6 +1754,7 @@ Procedure OpenDbFolder(showError.i)
   Protected args.s
  
   dbPath = ResolveDbPath(IndexDbPath)
+  LogLine("RebuildIndexDatabase dbPath=" + dbPath)
   folder = GetPathPart(dbPath)
   If folder = ""
     folder = AppPath
@@ -1704,6 +1845,7 @@ Procedure ShowDiagnostics()
   Protected hasWindows.i
  
   dbPath = ResolveDbPath(IndexDbPath)
+  LogLine("RebuildIndexDatabase dbPath=" + dbPath)
   iniPath = AppPath + #INI_FILE
  
   exDirCount = MapSize(ExcludeDirNames())
@@ -2101,6 +2243,7 @@ Procedure.b RebuildIndexDatabase()
   EndIf
 
   dbPath = ResolveDbPath(IndexDbPath)
+  LogLine("RebuildIndexDatabase dbPath=" + dbPath)
   If dbPath = ""
     MessageRequester(#APP_NAME, "Rebuild failed: DB path is empty.", #PB_MessageRequester_Error)
     ProcedureReturn #False
@@ -2149,6 +2292,7 @@ Procedure.b RebuildIndexDatabase()
 EndProcedure
 
 Procedure StartIndexing(rebuild.i)
+  LogLine("StartIndexing rebuild=" + Str(rebuild))
   Protected *params.SearchParams
 
   ; If already indexing and this is just "start/resume", do nothing.
@@ -2357,6 +2501,8 @@ Procedure MainLoop()
           Case #Menu_Tray_Diagnostics
             ShowDiagnostics()
 
+          Case #Menu_Tray_OpenCrashLog
+            OpenCrashLog(#Open_ShowError)
           Case #Menu_Tray_PauseResume
             If IndexingActive
               If IndexingPaused
@@ -2432,6 +2578,7 @@ Procedure InitDatabase()
   Protected folder.s
  
   dbPath = ResolveDbPath(IndexDbPath)
+  LogLine("RebuildIndexDatabase dbPath=" + dbPath)
   folder = GetPathPart(dbPath)
   If folder <> "" And FileSize(folder) <> -2
     CreateDirectory(folder)
@@ -2545,7 +2692,7 @@ If hMutex : CloseHandle_(hMutex) : EndIf
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 6
-; Folding = ------------
+; Folding = -------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -2554,12 +2701,12 @@ If hMutex : CloseHandle_(hMutex) : EndIf
 ; UseIcon = HandySearch.ico
 ; Executable = ..\HandySearch.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,7
-; VersionField1 = 1,0,0,7
+; VersionField0 = 1,0,0,8
+; VersionField1 = 1,0,0,8
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandySearch
-; VersionField4 = 1.0.0.7
-; VersionField5 = 1.0.0.7
+; VersionField4 = 1.0.0.8
+; VersionField5 = 1.0.0.8
 ; VersionField6 = Everything-like search tool for desktop and web
 ; VersionField7 = HandySearch
 ; VersionField8 = HandySearch.exe
