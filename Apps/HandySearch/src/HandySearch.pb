@@ -4,7 +4,7 @@ EnableExplicit
 
 #APP_NAME   = "HandySearch"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-Global version.s = "v1.0.0.6"
+Global version.s = "v1.0.0.7"
 
 Procedure.b HasArg(arg$)
   Protected i
@@ -2090,6 +2090,64 @@ Procedure StopIndexingAndWait()
   EndIf
 EndProcedure
 
+Procedure.b RebuildIndexDatabase()
+  ; Rebuild is implemented by recreating the SQLite file instead of VACUUM,
+  ; which can fail/crash on some setups (WAL/journal/locking edge cases).
+  Protected dbPath.s
+  Protected ok.i
+
+  If DbMutex = 0
+    DbMutex = CreateMutex()
+  EndIf
+
+  dbPath = ResolveDbPath(IndexDbPath)
+  If dbPath = ""
+    MessageRequester(#APP_NAME, "Rebuild failed: DB path is empty.", #PB_MessageRequester_Error)
+    ProcedureReturn #False
+  EndIf
+
+  ; Close current DB connection so the file can be recreated.
+  If IndexDbId
+    LockMutex(DbMutex)
+    CloseDatabase(IndexDbId)
+    IndexDbId = 0
+    UnlockMutex(DbMutex)
+  EndIf
+
+  ; Best-effort delete of DB and WAL/SHM sidecars.
+  If FileSize(dbPath) >= 0
+    DeleteFile(dbPath)
+  EndIf
+  If FileSize(dbPath + "-wal") >= 0
+    DeleteFile(dbPath + "-wal")
+  EndIf
+  If FileSize(dbPath + "-shm") >= 0
+    DeleteFile(dbPath + "-shm")
+  EndIf
+
+  InitDatabase()
+  ok = Bool(IndexDbId <> 0)
+  If ok = 0
+    MessageRequester(#APP_NAME, "Rebuild failed: could not open index database:" + #CRLF$ + dbPath + #CRLF$ + DatabaseError(), #PB_MessageRequester_Error)
+    ProcedureReturn #False
+  EndIf
+
+  ; Ensure a clean slate even if file deletion fails.
+  LockMutex(DbMutex)
+  DatabaseUpdate(IndexDbId, "DELETE FROM files;")
+  UnlockMutex(DbMutex)
+
+  ; Ensure meta starts at 0 for instant count.
+  LockMutex(DbMutex)
+  DatabaseUpdate(IndexDbId, "INSERT OR REPLACE INTO meta(key,value) VALUES('indexed_count','0');")
+  UnlockMutex(DbMutex)
+
+  IndexTotalFiles = 0
+  CachedIndexedCount = 0
+  CachedIndexedCountAtMS = ElapsedMilliseconds()
+  ProcedureReturn #True
+EndProcedure
+
 Procedure StartIndexing(rebuild.i)
   Protected *params.SearchParams
 
@@ -2100,22 +2158,17 @@ Procedure StartIndexing(rebuild.i)
  
   StopIndexingAndWait()
 
-  If rebuild And IndexDbId
-    LockMutex(DbMutex)
-    DatabaseUpdate(IndexDbId, "DELETE FROM files;")
-    DatabaseUpdate(IndexDbId, "VACUUM;")
-    UnlockMutex(DbMutex)
-    IndexTotalFiles = 0
-
-    ; Keep meta in sync for instant count.
-    If IndexDbId And DbMutex
-      LockMutex(DbMutex)
-      DatabaseUpdate(IndexDbId, "INSERT OR REPLACE INTO meta(key,value) VALUES('indexed_count','0');")
-      UnlockMutex(DbMutex)
+  If rebuild
+    If RebuildIndexDatabase() = #False
+      ; Don't start indexing if the DB couldn't be recreated.
+      IndexingActive = 0
+      UpdateControlStates()
+      ProcedureReturn
     EndIf
 
-    CachedIndexedCount = 0
-    CachedIndexedCountAtMS = ElapsedMilliseconds()
+    ; Force a UI refresh (DB is now empty).
+    QueryDirty = 1
+    QueryNextAtMS = ElapsedMilliseconds()
   EndIf
  
   StopSearch = 0
@@ -2501,12 +2554,12 @@ If hMutex : CloseHandle_(hMutex) : EndIf
 ; UseIcon = HandySearch.ico
 ; Executable = ..\HandySearch.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,6
-; VersionField1 = 1,0,0,6
+; VersionField0 = 1,0,0,7
+; VersionField1 = 1,0,0,7
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandySearch
-; VersionField4 = 1.0.0.6
-; VersionField5 = 1.0.0.6
+; VersionField4 = 1.0.0.7
+; VersionField5 = 1.0.0.7
 ; VersionField6 = Everything-like search tool for desktop and web
 ; VersionField7 = HandySearch
 ; VersionField8 = HandySearch.exe
