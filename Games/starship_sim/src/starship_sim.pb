@@ -11,6 +11,21 @@ Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
 ; Forward declarations (PureBasic requires declaring procedures used before definition)
+Declare.s Timestamp()
+Declare AppendFileLine(path.s, line.s)
+Declare InitLogging()
+Declare CrashHandler()
+Declare.i InitShipData()
+Declare.i LoadShipDataFromDat(path.s)
+Declare.s ReadAllText(path.s)
+Declare.i ChecksumFNV32(*mem, len.i)
+Declare XorScramble(*mem, len.i, seed.i)
+Declare.s IniGet(section.s, key.s, defaultValue.s)
+Declare.i IniGetLong(section.s, key.s, defaultValue.i)
+Declare.f IniGetFloat(section.s, key.s, defaultValue.f)
+Declare LoadAllocOverrides(section.s, *s.Ship)
+Declare.i PackShipsDatFromIni()
+Declare DefaultShipsIniText()
 Declare LogLine(s.s)
 Declare PrintLog()
 Declare RedrawGalaxy(*p.Ship)
@@ -36,10 +51,15 @@ Declare SaveAlloc(section.s, *s.Ship)
 Declare.i IsAlive(*s.Ship)
 Declare PrintStatusGalaxy(*p.Ship)
 Declare PrintStatusTactical(*p.Ship, *e.Ship, *cs.CombatState)
+Declare PrintArenaTactical(*p.Ship, *e.Ship, *cs.CombatState)
+Declare ArenaPositions(range.i, *posP.Integer, *posE.Integer, *interior.Integer)
+Declare PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i)
+Declare TacticalFxPhaser(range.i, attackerIsEnemy.i)
+Declare TacticalFxTorpedo(range.i, attackerIsEnemy.i)
 Declare.i EvasionBonus(*target.Ship)
 Declare.i HitChance(range.i, *attacker.Ship, *target.Ship)
 Declare ApplyDamage(*target.Ship, dmg.i)
-Declare RegenAndRepair(*s.Ship)
+Declare RegenAndRepair(*s.Ship, isEnemy.i)
 Declare.i CombatMaxMove(*p.Ship)
 Declare PlayerMove(*p.Ship, *cs.CombatState, dir.s, amount.i)
 Declare PlayerPhaser(*p.Ship, *e.Ship, *cs.CombatState, power.i)
@@ -57,10 +77,17 @@ Declare GenerateGalaxy()
 Declare PrintMap()
 Declare ScanGalaxy()
 Declare DockAtBase(*p.Ship)
+Declare DockAtShipyard(*p.Ship, *base.Ship)
 Declare MinePlanet(*p.Ship)
 Declare Nav(*p.Ship, dir.s, steps.i)
 Declare EnterCombat(*p.Ship, *enemy.Ship, *cs.CombatState)
 Declare LeaveCombat()
+
+; Autopilot
+Declare.i AutopilotToMission(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.CombatState)
+Declare.s FindPathMission(startMapX.i, startMapY.i, startX.i, startY.i, destMapX.i, destMapY.i, destX.i, destY.i, allowWormhole.i, allowBlackhole.i, allowEnemy.i)
+Declare.i StepCoord(mapX.i, mapY.i, x.i, y.i, dir.s, *outMapX.Integer, *outMapY.Integer, *outX.Integer, *outY.Integer)
+Declare.i IsDangerousCell(mapX.i, mapY.i, x.i, y.i)
 
 ; Missions
 Declare GenerateMission(*p.Ship)
@@ -69,6 +96,7 @@ Declare AcceptMission(*p.Ship)
 Declare AbandonMission()
 Declare DeliverMission(*p.Ship)
 Declare CheckMissionCompletion(*p.Ship)
+Declare DefendMissionTick(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.CombatState)
 Declare.i FindRandomCellOfType(entType.i, *outMapX.Integer, *outMapY.Integer, *outX.Integer, *outY.Integer)
 Declare.s LocText(mapX.i, mapY.i, x.i, y.i)
 Declare.i SaveGame(*p.Ship)
@@ -89,6 +117,8 @@ Enumeration
   #ENT_WORMHOLE
   #ENT_BLACKHOLE
   #ENT_SUN
+  ; Keep appended to preserve save-game entType values
+  #ENT_SHIPYARD
 EndEnumeration
 
 Enumeration
@@ -96,6 +126,7 @@ Enumeration
   #MIS_DELIVER_ORE
   #MIS_BOUNTY
   #MIS_SURVEY
+  #MIS_DEFEND_YARD
 EndEnumeration
 
 Enumeration
@@ -164,6 +195,8 @@ EndStructure
 Structure CombatState
   range.i
   turn.i
+  pAim.i
+  eAim.i
 EndStructure
 
 Structure Cell
@@ -190,11 +223,26 @@ Structure Mission
   destEntType.i
   destName.s
 
+  ; Defend shipyard mission
+  turnsLeft.i
+  yardHP.i
+  threatLevel.i
+
   rewardCredits.i
 EndStructure
 
 Global gIniPath.s = #APP_NAME + "_ships.ini"
+Global gDatPath.s = #APP_NAME + "_ships.dat"
+Global gUserIniPath.s = #APP_NAME + "_user.ini"
 Global gSavePath.s = #APP_NAME + "_save.txt"
+
+Global gSessionLogPath.s = #APP_NAME + "_session.log"
+Global gCrashLogPath.s   = #APP_NAME + "_crash.log"
+Global gLastCmdLine.s = ""
+
+Global gShipsText.s = ""
+Global gShipDataDesc.s = ""
+Global gShipDatErr.s = ""
 
 Global gCredits.i = 0
 Global gMission.Mission
@@ -214,6 +262,308 @@ Global gEnemyY.i = -1
 Global Dim gLog.s(11)
 Global gLogPos.i = 0
 
+Procedure.s Timestamp()
+  ProcedureReturn FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date())
+EndProcedure
+
+Procedure AppendFileLine(path.s, line.s)
+  ; Best-effort logging: never crash gameplay.
+  Protected f.i
+  If path = "" : ProcedureReturn : EndIf
+  f = OpenFile(#PB_Any, path, #PB_File_Append)
+  If f = 0
+    f = CreateFile(#PB_Any, path)
+  EndIf
+  If f
+    WriteStringN(f, line)
+    CloseFile(f)
+  EndIf
+EndProcedure
+
+Procedure.s ReadAllText(path.s)
+  Protected f.i = ReadFile(#PB_Any, path)
+  If f = 0 : ProcedureReturn "" : EndIf
+  Protected len.i = Lof(f)
+  If len <= 0
+    CloseFile(f)
+    ProcedureReturn ""
+  EndIf
+  Protected *m = AllocateMemory(len + 1)
+  If *m = 0
+    CloseFile(f)
+    ProcedureReturn ""
+  EndIf
+  ReadData(f, *m, len)
+  CloseFile(f)
+  PokeB(*m + len, 0)
+  Protected out.s = PeekS(*m, len, #PB_UTF8)
+  FreeMemory(*m)
+  ProcedureReturn out
+EndProcedure
+
+Procedure.i ChecksumFNV32(*mem, len.i)
+  ; 32-bit FNV-1a (good enough to detect casual tampering)
+  Protected h.q = 2166136261
+  Protected i.i, b.i
+  For i = 0 To len - 1
+    b = PeekB(*mem + i) & $FF
+    h = (h ! b) & $FFFFFFFF
+    h = (h * 16777619) & $FFFFFFFF
+  Next
+  ProcedureReturn h & $FFFFFFFF
+EndProcedure
+
+Procedure XorScramble(*mem, len.i, seed.i)
+  ; Simple stream XOR (obfuscation, not real security)
+  Protected x.q = (seed & $FFFFFFFF) ! $A5A5A5A5
+  Protected i.i, k.i, b.i
+  For i = 0 To len - 1
+    x = (x * 1664525 + 1013904223) & $FFFFFFFF
+    k = (x >> 24) & $FF
+    b = (PeekB(*mem + i) & $FF) ! k
+    PokeB(*mem + i, b)
+  Next
+EndProcedure
+
+Procedure.i LoadShipDataFromDat(path.s)
+  gShipDatErr = ""
+  Protected f.i = ReadFile(#PB_Any, path)
+  If f = 0
+    gShipDatErr = "open failed"
+    ProcedureReturn 0
+  EndIf
+  Protected len.i = Lof(f)
+  If len < 8 + 12
+    CloseFile(f)
+    gShipDatErr = "file too short"
+    ProcedureReturn 0
+  EndIf
+
+  Protected *m = AllocateMemory(len)
+  If *m = 0
+    CloseFile(f)
+    gShipDatErr = "alloc failed"
+    ProcedureReturn 0
+  EndIf
+  ReadData(f, *m, len)
+  CloseFile(f)
+
+  Protected magic.s = PeekS(*m, 8, #PB_Ascii)
+  If magic <> "SSIMDAT1"
+    FreeMemory(*m)
+    gShipDatErr = "bad magic"
+    ProcedureReturn 0
+  EndIf
+
+  ; PeekL() returns signed 32-bit. On x64 builds, assigning that to .i
+  ; sign-extends values with the high bit set (>= $80000000). Mask to 32-bit
+  ; so comparisons use the same bit pattern as the written unsigned value.
+  Protected seed.i = PeekL(*m + 8) & $FFFFFFFF
+  Protected plainLen.i = PeekL(*m + 12) & $FFFFFFFF
+  Protected want.i = PeekL(*m + 16) & $FFFFFFFF
+  Protected payloadOffset.i = 20
+
+  If plainLen <= 0 Or payloadOffset + plainLen > len
+    FreeMemory(*m)
+    gShipDatErr = "bad length"
+    ProcedureReturn 0
+  EndIf
+
+  Protected *p = *m + payloadOffset
+  XorScramble(*p, plainLen, seed)
+  Protected got.i = ChecksumFNV32(*p, plainLen) & $FFFFFFFF
+  If got <> want
+    FreeMemory(*m)
+    gShipDatErr = "checksum mismatch"
+    ProcedureReturn 0
+  EndIf
+
+  gShipsText = PeekS(*p, plainLen, #PB_UTF8)
+  FreeMemory(*m)
+  ProcedureReturn Bool(gShipsText <> "")
+EndProcedure
+
+Procedure.s IniGet(section.s, key.s, defaultValue.s)
+  Protected text.s = gShipsText
+  If text = "" : ProcedureReturn defaultValue : EndIf
+
+  text = ReplaceString(text, Chr(13), "")
+  Protected n.i = CountString(text, Chr(10)) + 1
+  Protected i.i, line.s, curSec.s, pos.i, k.s, v.s
+  For i = 1 To n
+    line = Trim(StringField(text, i, Chr(10)))
+    If line = "" : Continue : EndIf
+    If Left(line, 1) = ";" Or Left(line, 1) = "#" : Continue : EndIf
+
+    If Left(line, 1) = "[" And Right(line, 1) = "]"
+      curSec = Trim(Mid(line, 2, Len(line) - 2))
+      Continue
+    EndIf
+
+    If LCase(curSec) <> LCase(section) : Continue : EndIf
+    pos = FindString(line, "=", 1)
+    If pos <= 0 : Continue : EndIf
+    k = Trim(Left(line, pos - 1))
+    If LCase(k) <> LCase(key) : Continue : EndIf
+    v = Trim(Mid(line, pos + 1))
+    ProcedureReturn v
+  Next
+  ProcedureReturn defaultValue
+EndProcedure
+
+Procedure.i IniGetLong(section.s, key.s, defaultValue.i)
+  Protected t.s = IniGet(section, key, "")
+  If t = "" : ProcedureReturn defaultValue : EndIf
+  ProcedureReturn Val(t)
+EndProcedure
+
+Procedure.f IniGetFloat(section.s, key.s, defaultValue.f)
+  Protected t.s = IniGet(section, key, "")
+  If t = "" : ProcedureReturn defaultValue : EndIf
+  ProcedureReturn ValF(t)
+EndProcedure
+
+Procedure LoadAllocOverrides(section.s, *s.Ship)
+  If OpenPreferences(gUserIniPath) = 0
+    ProcedureReturn
+  EndIf
+  PreferenceGroup(section)
+  *s\allocShields = ReadPreferenceLong("AllocShields", *s\allocShields)
+  *s\allocWeapons = ReadPreferenceLong("AllocWeapons", *s\allocWeapons)
+  *s\allocEngines = ReadPreferenceLong("AllocEngines", *s\allocEngines)
+  ClosePreferences()
+EndProcedure
+
+Procedure.i InitShipData()
+  ; Prefer scrambled ships.dat; if missing, fall back to ships.ini.
+  gShipsText = ""
+  gShipDataDesc = "(embedded defaults)"
+
+  If FileSize(gDatPath) > 0
+    If LoadShipDataFromDat(gDatPath)
+      gShipDataDesc = gDatPath
+      LogLine("SHIPDATA: loaded " + gDatPath)
+      ProcedureReturn 1
+    Else
+      LogLine("SHIPDATA: invalid " + gDatPath + " (" + gShipDatErr + ") - trying " + gIniPath)
+    EndIf
+  EndIf
+
+  If FileSize(gIniPath) > 0
+    gShipsText = ReadAllText(gIniPath)
+    If gShipsText <> ""
+      gShipDataDesc = gIniPath
+      LogLine("SHIPDATA: loaded " + gIniPath)
+      ProcedureReturn 1
+    EndIf
+  EndIf
+
+  LogLine("SHIPDATA: no ships data found - using defaults")
+  DefaultShipsIniText()
+  gShipDataDesc = "defaults"
+  ProcedureReturn 1
+EndProcedure
+
+Procedure DefaultShipsIniText()
+  ; Minimal built-in defaults so the game runs even without ships.dat/ships.ini.
+  gShipsText = "[Game]" + Chr(10)
+  gShipsText + "PlayerSection=PlayerShip" + Chr(10)
+  gShipsText + "EnemySection=EnemyShip" + Chr(10)
+  gShipsText + Chr(10)
+  gShipsText + "[PlayerShip]" + Chr(10)
+  gShipsText + "Name=Player" + Chr(10)
+  gShipsText + "Class=Frigate" + Chr(10)
+  gShipsText + "HullMax=120" + Chr(10)
+  gShipsText + "ShieldsMax=120" + Chr(10)
+  gShipsText + "ReactorMax=240" + Chr(10)
+  gShipsText + "WarpMax=9.0" + Chr(10)
+  gShipsText + "ImpulseMax=1.0" + Chr(10)
+  gShipsText + "PhaserBanks=8" + Chr(10)
+  gShipsText + "TorpedoTubes=2" + Chr(10)
+  gShipsText + "TorpedoesMax=12" + Chr(10)
+  gShipsText + "SensorRange=20" + Chr(10)
+  gShipsText + "WeaponCapMax=240" + Chr(10)
+  gShipsText + "FuelMax=120" + Chr(10)
+  gShipsText + "OreMax=60" + Chr(10)
+  gShipsText + "AllocShields=40" + Chr(10)
+  gShipsText + "AllocWeapons=40" + Chr(10)
+  gShipsText + "AllocEngines=20" + Chr(10)
+  gShipsText + Chr(10)
+  gShipsText + "[EnemyShip]" + Chr(10)
+  gShipsText + "Name=Raider" + Chr(10)
+  gShipsText + "Class=Raider" + Chr(10)
+  gShipsText + "HullMax=100" + Chr(10)
+  gShipsText + "ShieldsMax=90" + Chr(10)
+  gShipsText + "ReactorMax=210" + Chr(10)
+  gShipsText + "WarpMax=8.0" + Chr(10)
+  gShipsText + "ImpulseMax=1.0" + Chr(10)
+  gShipsText + "PhaserBanks=6" + Chr(10)
+  gShipsText + "TorpedoTubes=2" + Chr(10)
+  gShipsText + "TorpedoesMax=8" + Chr(10)
+  gShipsText + "SensorRange=18" + Chr(10)
+  gShipsText + "WeaponCapMax=210" + Chr(10)
+  gShipsText + "FuelMax=100" + Chr(10)
+  gShipsText + "OreMax=0" + Chr(10)
+  gShipsText + "AllocShields=35" + Chr(10)
+  gShipsText + "AllocWeapons=45" + Chr(10)
+  gShipsText + "AllocEngines=20" + Chr(10)
+EndProcedure
+
+Procedure.i PackShipsDatFromIni()
+  Protected text.s = ReadAllText(gIniPath)
+  If text = "" : ProcedureReturn 0 : EndIf
+
+  Protected plainLen.i = StringByteLength(text, #PB_UTF8)
+  If plainLen <= 0 : ProcedureReturn 0 : EndIf
+
+  ; StringByteLength() excludes NUL; PokeS(...,-1,UTF8) writes a terminator.
+  ; Allocate one extra byte to avoid heap overrun/corruption.
+  Protected *p = AllocateMemory(plainLen + 1)
+  If *p = 0 : ProcedureReturn 0 : EndIf
+  PokeS(*p, text, -1, #PB_UTF8)
+  PokeB(*p + plainLen, 0)
+
+  Protected fnv.i = ChecksumFNV32(*p, plainLen)
+  Protected seed.i = (Date() & $7FFFFFFF) ! $13579BDF
+  XorScramble(*p, plainLen, seed)
+
+  Protected f.i = CreateFile(#PB_Any, gDatPath)
+  If f = 0
+    FreeMemory(*p)
+    ProcedureReturn 0
+  EndIf
+  WriteString(f, "SSIMDAT1", #PB_Ascii)
+  WriteLong(f, seed)
+  WriteLong(f, plainLen)
+  WriteLong(f, fnv)
+  WriteData(f, *p, plainLen)
+  CloseFile(f)
+  FreeMemory(*p)
+  ProcedureReturn 1
+EndProcedure
+
+Procedure InitLogging()
+  AppendFileLine(gSessionLogPath, "---")
+  AppendFileLine(gSessionLogPath, Timestamp() + " session start")
+  AppendFileLine(gSessionLogPath, "data=" + gDatPath + " (fallback " + gIniPath + ")")
+EndProcedure
+
+Procedure CrashHandler()
+  ; Called by OnErrorCall(); keep this short/safe.
+  Protected msg.s
+  msg = Timestamp() + " crash"
+  msg + " | msg=" + ErrorMessage()
+  msg + " | code=" + Str(ErrorCode())
+  msg + " | file=" + ErrorFile()
+  msg + " | line=" + Str(ErrorLine())
+  msg + " | addr=" + Str(ErrorAddress())
+  msg + " | mode=" + Str(gMode)
+  msg + " | loc=" + Str(gMapX) + "," + Str(gMapY) + "," + Str(gx) + "," + Str(gy)
+  msg + " | last_cmd=" + gLastCmdLine
+  AppendFileLine(gCrashLogPath, msg)
+  AppendFileLine(gSessionLogPath, msg)
+EndProcedure
+
 Macro CurCell(x, y)
   gGalaxy(gMapX, gMapY, x, y)
 EndMacro
@@ -224,6 +574,8 @@ Procedure LogLine(s.s)
   If gLogPos > ArraySize(gLog())
     gLogPos = 0
   EndIf
+
+  AppendFileLine(gSessionLogPath, Timestamp() + " " + s)
 EndProcedure
 
 Procedure PrintLog()
@@ -344,6 +696,7 @@ Procedure PrintLegendLine(indent.s)
   ConsoleColor(#C_LIGHTBLUE, #C_BLACK) : Print("O") : ResetColor() : Print("=Planet ")
   ConsoleColor(#C_YELLOW, #C_BLACK) : Print("*") : ResetColor() : Print("=Star(blocked) ")
   ConsoleColor(#C_LIGHTCYAN, #C_BLACK) : Print("%") : ResetColor() : Print("=Base ")
+  ConsoleColor(#C_GREEN, #C_BLACK) : Print("+") : ResetColor() : Print("=Shipyard ")
   ConsoleColor(#C_LIGHTRED, #C_BLACK) : Print("E") : ResetColor() : Print("=Enemy ")
   ConsoleColor(#C_LIGHTMAGENTA, #C_BLACK) : Print("#") : ResetColor() : Print("=Wormhole ")
   ConsoleColor(#C_WHITE, #C_BLACK) : Print("?") : ResetColor() : Print("=BlackHole ")
@@ -360,6 +713,8 @@ Procedure SetColorForEnt(t.i)
       ConsoleColor(#C_LIGHTBLUE, #C_BLACK)
     Case #ENT_BASE
       ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+    Case #ENT_SHIPYARD
+      ConsoleColor(#C_GREEN, #C_BLACK)
     Case #ENT_ENEMY
       ConsoleColor(#C_LIGHTRED, #C_BLACK)
     Case #ENT_WORMHOLE
@@ -404,6 +759,7 @@ Procedure PrintHelpGalaxy()
   PrintN("    Show the sector map")
   PrintN("    Legend:")
   PrintLegendLine("      ")
+  PrintN("      M=Mission map   !=Mission target")
   PrintN("")
   PrintCmd("SCAN")
   PrintN("    Show non-empty contents of adjacent sectors")
@@ -418,13 +774,18 @@ Procedure PrintHelpGalaxy()
   PrintN("    Example: MINE")
   PrintN("")
   PrintCmd("DOCK")
-  PrintN("    Dock when in a starbase sector (%): repair/refuel/rearm")
+  PrintN("    Dock when in a starbase (%) or shipyard (+): repair/refuel/rearm")
+  PrintN("    Shipyards also offer upgrades")
   PrintN("    Example: DOCK")
   PrintN("")
 
   PrintCmd("MISSIONS")
   PrintN("    Show mission board + current mission")
   PrintN("    Example: MISSIONS")
+  PrintN("")
+  PrintCmd("COMPUTER")
+  PrintN("    Autopilot to the active mission destination")
+  PrintN("    Stops early on enemy contact, hazards, or low fuel")
   PrintN("")
   PrintCmd("ACCEPT")
   PrintN("    Accept the offered mission")
@@ -438,6 +799,12 @@ Procedure PrintHelpGalaxy()
   PrintCmd("SAVE")
   PrintN("    Save the current session state")
   PrintN("    Example: SAVE")
+  PrintN("")
+
+  PrintCmd("PACK")
+  PrintN("    Create/refresh " + gDatPath + " from " + gIniPath)
+  PrintN("    This is an obfuscated ship data file with a tamper checksum")
+  PrintN("    Example: PACK")
   PrintN("")
 
   PrintCmd("LOAD")
@@ -458,7 +825,7 @@ Procedure PrintHelpGalaxy()
   PrintN("Hazards:")
   PrintN("    # = Wormhole (teleports you to a random map/sector, costs 1 fuel)")
   PrintN("    ? = Black hole (gravity well; on entry: random teleport, severe damage + scramble, or destruction)")
-  PrintN("    S = Sun (blocked; gravity well may pull you in if adjacent)")
+  PrintN("    S = Sun (fatal; gravity well may pull you in if adjacent)")
   PrintN("")
 
   PrintCmd("QUIT")
@@ -497,7 +864,8 @@ Procedure.i SaveGame(*p.Ship)
                   Str(gMission\killsRequired) + "|" + Str(gMission\killsDone) + "|" +
                   Str(gMission\destMapX) + "|" + Str(gMission\destMapY) + "|" + Str(gMission\destX) + "|" + Str(gMission\destY) + "|" +
                   Str(gMission\destEntType) + "|" + SafeField(gMission\destName) + "|" +
-                  Str(gMission\rewardCredits))
+                  Str(gMission\rewardCredits) + "|" +
+                  Str(gMission\turnsLeft) + "|" + Str(gMission\yardHP) + "|" + Str(gMission\threatLevel))
 
   ; Galaxy cells: store all non-empty cells.
   Protected mx.i, my.i, x.i, y.i
@@ -601,6 +969,9 @@ Procedure.i LoadGame(*p.Ship)
         gMission\destEntType   = Val(StringField(line, 13, "|"))
         gMission\destName      = StringField(line, 14, "|")
         gMission\rewardCredits = Val(StringField(line, 15, "|"))
+        gMission\turnsLeft     = Val(StringField(line, 16, "|"))
+        gMission\yardHP        = Val(StringField(line, 17, "|"))
+        gMission\threatLevel   = Val(StringField(line, 18, "|"))
       Case "cell"
         Protected cx.i = Val(StringField(line, 2, "|"))
         Protected cy.i = Val(StringField(line, 3, "|"))
@@ -661,7 +1032,7 @@ Procedure PrintHelpTactical()
   PrintN("")
   PrintCmd("TORPEDO [count]")
   PrintN("    Fire 1+ torpedoes; count capped by TorpedoTubes and remaining torps")
-  PrintN("    Effective range: <= 22")
+  PrintN("    Effective range: <= 24")
   PrintN("    Example: TORPEDO 1  |  TORPEDO 2")
   PrintN("")
   PrintCmd("FLEE")
@@ -677,32 +1048,54 @@ Procedure PrintHelpTactical()
 EndProcedure
 
 Procedure.i LoadShip(section.s, *s.Ship)
-  If OpenPreferences(gIniPath) = 0
-    ProcedureReturn 0
+  ; Load from ships.dat/ships.ini text; clamp to sane ranges.
+  Protected reactorDefault.i = 200
+  Protected hullDefault.i = 100
+  Protected shieldsDefault.i = 100
+
+  *s\name        = IniGet(section, "Name", section)
+  *s\class       = IniGet(section, "Class", "")
+  *s\hullMax     = IniGetLong(section, "HullMax", hullDefault)
+  *s\shieldsMax  = IniGetLong(section, "ShieldsMax", shieldsDefault)
+  *s\reactorMax  = IniGetLong(section, "ReactorMax", reactorDefault)
+  *s\warpMax     = IniGetFloat(section, "WarpMax", 9.0)
+  *s\impulseMax  = IniGetFloat(section, "ImpulseMax", 1.0)
+  *s\phaserBanks = IniGetLong(section, "PhaserBanks", 4)
+  *s\torpTubes   = IniGetLong(section, "TorpedoTubes", 2)
+  *s\torpMax     = IniGetLong(section, "TorpedoesMax", 10)
+  *s\sensorRange = IniGetLong(section, "SensorRange", 20)
+  *s\weaponCapMax= IniGetLong(section, "WeaponCapMax", *s\reactorMax)
+  *s\fuelMax     = IniGetLong(section, "FuelMax", 100)
+  *s\oreMax      = IniGetLong(section, "OreMax", 50)
+
+  *s\allocShields = IniGetLong(section, "AllocShields", 40)
+  *s\allocWeapons = IniGetLong(section, "AllocWeapons", 40)
+  *s\allocEngines = IniGetLong(section, "AllocEngines", 20)
+  LoadAllocOverrides(section, *s)
+
+  ; Sane clamps
+  *s\hullMax     = ClampInt(*s\hullMax, 10, 600)
+  *s\shieldsMax  = ClampInt(*s\shieldsMax, 0, 600)
+  *s\reactorMax  = ClampInt(*s\reactorMax, 50, 600)
+  *s\warpMax     = ClampF(*s\warpMax, 0.0, 12.0)
+  *s\impulseMax  = ClampF(*s\impulseMax, 0.0, 2.5)
+  *s\phaserBanks = ClampInt(*s\phaserBanks, 0, 20)
+  *s\torpMax     = ClampInt(*s\torpMax, 0, 50)
+  *s\torpTubes   = ClampInt(*s\torpTubes, 1, 6)
+  If *s\torpMax > 0 And *s\torpTubes > *s\torpMax : *s\torpTubes = *s\torpMax : EndIf
+  *s\sensorRange = ClampInt(*s\sensorRange, 1, 60)
+  *s\weaponCapMax= ClampInt(*s\weaponCapMax, 10, 1200)
+  *s\fuelMax     = ClampInt(*s\fuelMax, 10, 600)
+  *s\oreMax      = ClampInt(*s\oreMax, 0, 250)
+
+  *s\allocShields = ClampInt(*s\allocShields, 0, 100)
+  *s\allocWeapons = ClampInt(*s\allocWeapons, 0, 100)
+  *s\allocEngines = ClampInt(*s\allocEngines, 0, 100)
+  If *s\allocShields + *s\allocWeapons + *s\allocEngines > 100
+    *s\allocShields = 40
+    *s\allocWeapons = 40
+    *s\allocEngines = 20
   EndIf
-
-  PreferenceGroup(section)
-
-  *s\name        = ReadPreferenceString("Name", section)
-  *s\class       = ReadPreferenceString("Class", "")
-  *s\hullMax     = ReadPreferenceLong("HullMax", 100)
-  *s\shieldsMax  = ReadPreferenceLong("ShieldsMax", 100)
-  *s\reactorMax  = ReadPreferenceLong("ReactorMax", 200)
-  *s\warpMax     = ReadPreferenceFloat("WarpMax", 9.0)
-  *s\impulseMax  = ReadPreferenceFloat("ImpulseMax", 1.0)
-  *s\phaserBanks = ReadPreferenceLong("PhaserBanks", 4)
-  *s\torpTubes   = ReadPreferenceLong("TorpedoTubes", 2)
-  *s\torpMax     = ReadPreferenceLong("TorpedoesMax", 10)
-  *s\sensorRange = ReadPreferenceLong("SensorRange", 20)
-  *s\weaponCapMax= ReadPreferenceLong("WeaponCapMax", *s\reactorMax)
-  *s\fuelMax     = ReadPreferenceLong("FuelMax", 100)
-  *s\oreMax      = ReadPreferenceLong("OreMax", 50)
-
-  *s\allocShields = ReadPreferenceLong("AllocShields", 40)
-  *s\allocWeapons = ReadPreferenceLong("AllocWeapons", 40)
-  *s\allocEngines = ReadPreferenceLong("AllocEngines", 20)
-
-  ClosePreferences()
 
   *s\hull      = *s\hullMax
   *s\shields   = *s\shieldsMax
@@ -719,18 +1112,12 @@ Procedure.i LoadShip(section.s, *s.Ship)
 EndProcedure
 
 Procedure.s LoadGameSettingString(key.s, defaultValue.s)
-  Protected out.s = defaultValue
-  If OpenPreferences(gIniPath) = 0
-    ProcedureReturn out
-  EndIf
-  PreferenceGroup("Game")
-  out = ReadPreferenceString(key, defaultValue)
-  ClosePreferences()
-  ProcedureReturn out
+  ProcedureReturn IniGet("Game", key, defaultValue)
 EndProcedure
 
 Procedure SaveAlloc(section.s, *s.Ship)
-  If OpenPreferences(gIniPath) = 0
+  ; Store user overrides separately so ships data stays immutable.
+  If OpenPreferences(gUserIniPath) = 0
     ProcedureReturn
   EndIf
   PreferenceGroup(section)
@@ -817,6 +1204,8 @@ Procedure PrintStatusTactical(*p.Ship, *e.Ship, *cs.CombatState)
   ResetColor()
   PrintN("  Alloc: S " + Str(*p\allocShields) + "%  W " + Str(*p\allocWeapons) + "%  E " + Str(*p\allocEngines) + "%")
   PrintN("  Systems: Engines " + SysText(*p\sysEngines) + ", Weapons " + SysText(*p\sysWeapons) + ", Shields " + SysText(*p\sysShields))
+
+  PrintArenaTactical(*p, *e, *cs)
   PrintN("")
   ConsoleColor(#C_LIGHTRED, #C_BLACK)
   PrintN("Enemy: " + *e\name + " [" + *e\class + "]")
@@ -832,6 +1221,111 @@ Procedure PrintStatusTactical(*p.Ship, *e.Ship, *cs.CombatState)
   PrintDivider()
 EndProcedure
 
+Procedure PrintArenaTactical(*p.Ship, *e.Ship, *cs.CombatState)
+  Protected posP.Integer, posE.Integer, interior.Integer
+  ArenaPositions(*cs\range, @posP, @posE, @interior)
+  PrintN("")
+  PrintArenaFrame(posP\i, posE\i, -1, "", 0)
+EndProcedure
+
+Procedure ArenaPositions(range.i, *posP.Integer, *posE.Integer, *interior.Integer)
+  Protected aw.i = 33
+  Protected interior.i = aw - 2
+  Protected scaleMax.i = 40
+  Protected r.i = ClampInt(range, 1, scaleMax)
+
+  Protected posP.i = 2
+  Protected posE.i = posP + 2 + Int(r * (interior - 6) / scaleMax)
+  posE = ClampInt(posE, posP + 2, interior - 3)
+
+  *posP\i = posP
+  *posE\i = posE
+  *interior\i = interior
+EndProcedure
+
+Procedure PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i)
+  ; Draws a 5-row arena with optional effect: either a beam line or a single character.
+  Protected aw.i = 33
+  Protected interior.i = aw - 2
+  Protected rowMid.i = 2
+
+  ConsoleColor(#C_DARKGRAY, #C_BLACK)
+  PrintN("Arena")
+  PrintN("+" + LSet("", aw - 2, "-") + "+")
+  ResetColor()
+
+  Protected y.i, x.i
+  For y = 0 To 4
+    ConsoleColor(#C_DARKGRAY, #C_BLACK)
+    Print("|")
+    ResetColor()
+
+    For x = 0 To interior - 1
+      If y = rowMid And beam And x > posP And x < posE
+        ; Phaser beam
+        ConsoleColor(#C_RED, #C_BLACK)
+        Print("=")
+        ResetColor()
+        Continue
+      EndIf
+
+      If y = rowMid And fxPos >= 0 And x = fxPos
+        ; Torpedo marker
+        ConsoleColor(#C_WHITE, #C_BLACK)
+        Print(fxChar)
+        ResetColor()
+        Continue
+      EndIf
+
+      If y = rowMid And x = posP
+        ConsoleColor(#C_WHITE, #C_BLACK)
+        Print("@")
+        ResetColor()
+      ElseIf y = rowMid And x = posE
+        ConsoleColor(#C_LIGHTRED, #C_BLACK)
+        Print("E")
+        ResetColor()
+      Else
+        ConsoleColor(#C_DARKGRAY, #C_BLACK)
+        Print(".")
+        ResetColor()
+      EndIf
+    Next
+
+    ConsoleColor(#C_DARKGRAY, #C_BLACK)
+    PrintN("|")
+    ResetColor()
+  Next
+
+  ConsoleColor(#C_DARKGRAY, #C_BLACK)
+  PrintN("+" + LSet("", aw - 2, "-") + "+")
+  ResetColor()
+EndProcedure
+
+Procedure TacticalFxPhaser(range.i, attackerIsEnemy.i)
+  Protected posP.Integer, posE.Integer, interior.Integer
+  ArenaPositions(range, @posP, @posE, @interior)
+  ; Beam frame
+  PrintArenaFrame(posP\i, posE\i, -1, "", 1)
+EndProcedure
+
+Procedure TacticalFxTorpedo(range.i, attackerIsEnemy.i)
+  Protected posP.Integer, posE.Integer, interior.Integer
+  ArenaPositions(range, @posP, @posE, @interior)
+  Protected fromPos.i = posP\i
+  Protected toPos.i = posE\i
+  If attackerIsEnemy
+    fromPos = posE\i
+    toPos = posP\i
+  EndIf
+
+  ; Single-frame projectile marker roughly mid-flight.
+  Protected fx.i = (fromPos + toPos) / 2
+  If fx = fromPos : fx + 1 : EndIf
+  If fx = toPos : fx - 1 : EndIf
+  PrintArenaFrame(posP\i, posE\i, fx, "*", 0)
+EndProcedure
+
 Procedure.i EvasionBonus(*target.Ship)
   Protected bonus.i = *target\allocEngines / 10
   If (*target\sysEngines & #SYS_DAMAGED) : bonus / 2 : EndIf
@@ -840,11 +1334,12 @@ Procedure.i EvasionBonus(*target.Ship)
 EndProcedure
 
 Procedure.i HitChance(range.i, *attacker.Ship, *target.Ship)
-  Protected c.i = 85 - range * 4
+  ; Base hit chance: keep fights moving; range matters but shouldn't be a whiff-fest.
+  Protected c.i = 92 - range * 3
   c - EvasionBonus(*target)
   If (*attacker\sysWeapons & #SYS_DAMAGED) : c - 8 : EndIf
   If (*attacker\sysWeapons & #SYS_DISABLED) : c = 0 : EndIf
-  ProcedureReturn ClampInt(c, 5, 90)
+  ProcedureReturn ClampInt(c, 12, 92)
 EndProcedure
 
 Procedure ApplyDamage(*target.Ship, dmg.i)
@@ -875,14 +1370,24 @@ Procedure ApplyDamage(*target.Ship, dmg.i)
   If (*target\sysShields & #SYS_DAMAGED) And Random(99) < 10 : *target\sysShields = *target\sysShields | #SYS_DISABLED : EndIf
 EndProcedure
 
-Procedure RegenAndRepair(*s.Ship)
+Procedure RegenAndRepair(*s.Ship, isEnemy.i)
   Protected reactor.i = *s\reactorMax
   Protected shP.i = reactor * *s\allocShields / 100
   Protected wP.i  = reactor * *s\allocWeapons / 100
 
+  If isEnemy
+    ; Enemies regenerate/repair less so fights don't drag.
+    shP = Int(shP * 0.55)
+    wP  = Int(wP  * 0.55)
+  EndIf
+
   If (*s\sysShields & #SYS_DISABLED) = 0
     If (*s\sysShields & #SYS_DAMAGED) : shP / 2 : EndIf
-    *s\shields + (shP / 3)
+    If isEnemy
+      *s\shields + (shP / 4)
+    Else
+      *s\shields + (shP / 3)
+    EndIf
     If *s\shields > *s\shieldsMax : *s\shields = *s\shieldsMax : EndIf
   EndIf
 
@@ -892,13 +1397,17 @@ Procedure RegenAndRepair(*s.Ship)
     If *s\weaponCap > *s\weaponCapMax : *s\weaponCap = *s\weaponCapMax : EndIf
   EndIf
 
-  If *s\hull < *s\hullMax And Random(99) < 30
+  Protected hullRepairChance.i = 30
+  If isEnemy : hullRepairChance = 10 : EndIf
+  If *s\hull < *s\hullMax And Random(99) < hullRepairChance
     *s\hull + 1
   EndIf
 
-  If (*s\sysEngines & #SYS_DAMAGED) And Random(99) < 18 : *s\sysEngines = #SYS_OK : EndIf
-  If (*s\sysWeapons & #SYS_DAMAGED) And Random(99) < 18 : *s\sysWeapons = #SYS_OK : EndIf
-  If (*s\sysShields & #SYS_DAMAGED) And Random(99) < 18 : *s\sysShields = #SYS_OK : EndIf
+  Protected sysFixChance.i = 18
+  If isEnemy : sysFixChance = 8 : EndIf
+  If (*s\sysEngines & #SYS_DAMAGED) And Random(99) < sysFixChance : *s\sysEngines = #SYS_OK : EndIf
+  If (*s\sysWeapons & #SYS_DAMAGED) And Random(99) < sysFixChance : *s\sysWeapons = #SYS_OK : EndIf
+  If (*s\sysShields & #SYS_DAMAGED) And Random(99) < sysFixChance : *s\sysShields = #SYS_OK : EndIf
 EndProcedure
 
 Procedure.i CombatMaxMove(*p.Ship)
@@ -957,7 +1466,9 @@ Procedure PlayerPhaser(*p.Ship, *e.Ship, *cs.CombatState, power.i)
 
   *p\weaponCap - power
 
-  Protected chance.i = HitChance(*cs\range, *p, *e)
+  TacticalFxPhaser(*cs\range, 0)
+
+  Protected chance.i = HitChance(*cs\range, *p, *e) + *cs\pAim
   If Random(99) < chance
     Protected base.i = (power / 3) + Random(ClampInt(power / 3, 0, 999999))
     If base < 1 : base = 1 : EndIf
@@ -969,8 +1480,10 @@ Procedure PlayerPhaser(*p.Ship, *e.Ship, *cs.CombatState, power.i)
 
     ApplyDamage(*e, dmg)
     PrintN("Phasers hit (" + Str(dmg) + ").")
+    *cs\pAim = 0
   Else
     PrintN("Phasers miss.")
+    *cs\pAim = ClampInt(*cs\pAim + 7, 0, 28)
   EndIf
 EndProcedure
 
@@ -983,7 +1496,7 @@ Procedure PlayerTorpedo(*p.Ship, *e.Ship, *cs.CombatState, count.i)
     PrintN("No torpedoes remaining.")
     ProcedureReturn
   EndIf
-  If *cs\range > 22
+  If *cs\range > 24
     PrintN("Target out of torpedo effective range.")
     ProcedureReturn
   EndIf
@@ -994,15 +1507,31 @@ Procedure PlayerTorpedo(*p.Ship, *e.Ship, *cs.CombatState, count.i)
   Protected i.i
   For i = 1 To count
     *p\torp - 1
-    Protected chance.i = ClampInt(HitChance(*cs\range, *p, *e) - 8, 5, 85)
+
+    TacticalFxTorpedo(*cs\range, 0)
+    ; Torpedoes are more reliable at close range, less at long range.
+    Protected chance.i = HitChance(*cs\range, *p, *e) + 10 - Int(*cs\range / 2) + *cs\pAim
+    chance = ClampInt(chance, 20, 95)
     If Random(99) < chance
-      Protected dmg.i = 32 + Random(24)
-      If *cs\range > 16 : dmg - 6 : EndIf
+      Protected dmg.i = 44 + Random(34)
+      If *cs\range > 20 : dmg - 6 : EndIf
       If dmg < 1 : dmg = 1 : EndIf
-      ApplyDamage(*e, dmg)
-      PrintN("Torpedo impact (" + Str(dmg) + ").")
+
+      ; Torpedoes partially punch through shields to prevent endless shield regen stalemates.
+      Protected shieldDmg.i = dmg
+      Protected hullDmg.i = dmg / 5
+      If hullDmg < 1 : hullDmg = 1 : EndIf
+
+      ApplyDamage(*e, shieldDmg)
+      If *e\hull > 0
+        *e\hull - hullDmg
+        If *e\hull < 0 : *e\hull = 0 : EndIf
+      EndIf
+      PrintN("Torpedo impact (" + Str(dmg) + ", +" + Str(hullDmg) + " hull breach).")
+      *cs\pAim = 0
     Else
       PrintN("Torpedo misses.")
+      *cs\pAim = ClampInt(*cs\pAim + 7, 0, 28)
     EndIf
     If *e\hull <= 0 : Break : EndIf
   Next
@@ -1027,12 +1556,16 @@ Procedure EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
     Protected i.i
     For i = 1 To cnt
       *e\torp - 1
-      If Random(99) < ClampInt(HitChance(*cs\range, *e, *p) - 5, 10, 85)
+
+      TacticalFxTorpedo(*cs\range, 1)
+      If Random(99) < ClampInt(HitChance(*cs\range, *e, *p) - 10 + *cs\eAim, 10, 85)
         Protected tdmg.i = 28 + Random(22)
         ApplyDamage(*p, tdmg)
         PrintN("Enemy torpedo hits (" + Str(tdmg) + ").")
+        *cs\eAim = 0
       Else
         PrintN("Enemy torpedo misses.")
+        *cs\eAim = ClampInt(*cs\eAim + 4, 0, 16)
       EndIf
       If *p\hull <= 0 : Break : EndIf
     Next
@@ -1045,7 +1578,9 @@ Procedure EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
     spend = ClampInt(spend, 1, maxTurn)
     *e\weaponCap - spend
 
-    If Random(99) < HitChance(*cs\range, *e, *p)
+    TacticalFxPhaser(*cs\range, 1)
+
+    If Random(99) < ClampInt(HitChance(*cs\range, *e, *p) - 6 + *cs\eAim, 10, 90)
       Protected base.i = (spend / 3) + Random(ClampInt(spend / 3, 0, 999999))
       If base < 1 : base = 1 : EndIf
       Protected falloff.f = 1.0 - (*cs\range / 55.0)
@@ -1054,8 +1589,10 @@ Procedure EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
       If pdmg < 1 : pdmg = 1 : EndIf
       ApplyDamage(*p, pdmg)
       PrintN("Enemy phasers hit (" + Str(pdmg) + ").")
+      *cs\eAim = 0
     Else
       PrintN("Enemy phasers miss.")
+      *cs\eAim = ClampInt(*cs\eAim + 4, 0, 16)
     EndIf
   Else
     PrintN("Enemy holds fire.")
@@ -1083,6 +1620,7 @@ Procedure.s EntSymbol(t.i)
     Case #ENT_PLANET : ProcedureReturn "O"
     Case #ENT_BASE   : ProcedureReturn "%"
     Case #ENT_ENEMY  : ProcedureReturn "E"
+    Case #ENT_SHIPYARD: ProcedureReturn "+"
     Case #ENT_WORMHOLE: ProcedureReturn "#"
     Case #ENT_BLACKHOLE: ProcedureReturn "?"
     Case #ENT_SUN: ProcedureReturn "S"
@@ -1121,12 +1659,14 @@ Procedure.i ApplyGravityWell(*p.Ship)
     If Random(99) < 85
       gx = sunX : gy = sunY
       LogLine("SUN: gravity well pulls you in")
+      PrintN("Warning: sun gravity well! Pulled into the sun.")
       ProcedureReturn 1
     EndIf
   ElseIf foundBH
     If Random(99) < 55
       gx = bhX : gy = bhY
       LogLine("BLACK HOLE: gravity well pulls you in")
+      PrintN("Warning: black hole gravity well! Pulled into the black hole.")
       ProcedureReturn 1
     EndIf
   EndIf
@@ -1143,6 +1683,7 @@ Procedure.i HandleSun(*p.Ship)
   *p\hull = 0
   *p\shields = 0
   LogLine("SUN: ship incinerated")
+  PrintN("You are consumed by the sun. Ship incinerated.")
   ProcedureReturn 1
 EndProcedure
 
@@ -1173,6 +1714,7 @@ Procedure.i HandleArrival(*p.Ship)
       gMapX = mx : gMapY = my
       gx = nx : gy = ny
       LogLine("WORMHOLE: transit to Galaxy (" + Str(gMapX) + "," + Str(gMapY) + ") Sector (" + Str(gx) + "," + Str(gy) + ")")
+      PrintN("Wormhole transit! New location: Galaxy (" + Str(gMapX) + "," + Str(gMapY) + ") Sector (" + Str(gx) + "," + Str(gy) + ")")
       ProcedureReturn 1
     EndIf
   ElseIf t = #ENT_BLACKHOLE
@@ -1185,6 +1727,7 @@ Procedure.i HandleArrival(*p.Ship)
         gMapX = mx : gMapY = my
         gx = nx : gy = ny
         LogLine("BLACK HOLE: spacetime shear - displaced")
+        PrintN("Black hole encounter! Spacetime shear displaces you.")
         ProcedureReturn 1
       EndIf
     ElseIf r < 85
@@ -1192,6 +1735,7 @@ Procedure.i HandleArrival(*p.Ship)
       Protected dmg.i = 60 + Random(60)
       ApplyDamage(*p, dmg)
       LogLine("BLACK HOLE: tidal forces hit for " + Str(dmg))
+      PrintN("Black hole tidal forces hit for " + Str(dmg) + ".")
 
       ; Scramble to a nearby sector if possible
       Protected tries.i
@@ -1210,6 +1754,7 @@ Procedure.i HandleArrival(*p.Ship)
       *p\hull = 0
       *p\shields = 0
       LogLine("BLACK HOLE: ship lost")
+      PrintN("The black hole consumes your ship. Ship lost.")
       ProcedureReturn 0
     EndIf
   EndIf
@@ -1282,6 +1827,16 @@ Procedure GenerateSectorMap(mapX.i, mapY.i)
     EndIf
   EndIf
 
+  ; Shipyards (very rare)
+  If Random(99) < 10
+    bx = Random(#MAP_W - 1)
+    by = Random(#MAP_H - 1)
+    If gGalaxy(mapX, mapY, bx, by)\entType = #ENT_EMPTY
+      gGalaxy(mapX, mapY, bx, by)\entType = #ENT_SHIPYARD
+      gGalaxy(mapX, mapY, bx, by)\name = "Shipyard-" + Str(mapX) + "-" + Str(mapY)
+    EndIf
+  EndIf
+
   ; Enemies
   For x = 1 To 4 + Random(6)
     ex = Random(#MAP_W - 1)
@@ -1349,21 +1904,49 @@ Procedure PrintMap()
   ResetColor()
   PrintN("(" + Str(gMapX) + "," + Str(gMapY) + ") of " + Str(#GALAXY_W) + "x" + Str(#GALAXY_H))
 
+  ; Axis labels
+  ConsoleColor(#C_DARKGRAY, #C_BLACK)
+  Print("   ")
+  For x = 0 To #MAP_W - 1
+    Print(Str(x) + " ")
+  Next
+  Print("   ")
+  Print("   ")
+  For x = 0 To #GALAXY_W - 1
+    Print(Str(x) + " ")
+  Next
+  ResetColor()
+  PrintN("")
+
   For row = 0 To maxRows - 1
     ; Sector map (left)
     If row < #MAP_H
+      ConsoleColor(#C_DARKGRAY, #C_BLACK)
+      Print(" " + Str(row) + " ")
+      ResetColor()
       For x = 0 To #MAP_W - 1
         If x = gx And row = gy
           ConsoleColor(#C_WHITE, #C_BLACK)
           Print("@ ")
           ResetColor()
         Else
+          ; Mission bookmark in this map
+          If gMission\type <> #MIS_NONE And gMission\destEntType <> #ENT_EMPTY
+            If gMapX = gMission\destMapX And gMapY = gMission\destMapY And x = gMission\destX And row = gMission\destY
+              ConsoleColor(#C_YELLOW, #C_BLACK)
+              Print("! ")
+              ResetColor()
+              Continue
+            EndIf
+          EndIf
+
           SetColorForEnt(CurCell(x, row)\entType)
           Print(EntSymbol(CurCell(x, row)\entType) + " ")
           ResetColor()
         EndIf
       Next
     Else
+      Print("   ")
       Print(Space(#MAP_W * 2))
     EndIf
 
@@ -1371,7 +1954,27 @@ Procedure PrintMap()
 
     ; Galaxy map (right)
     If row < #GALAXY_H
+      ConsoleColor(#C_DARKGRAY, #C_BLACK)
+      Print(" " + Str(row) + " ")
+      ResetColor()
       For x = 0 To #GALAXY_W - 1
+        ; Bookmark the mission target map
+        If gMission\type <> #MIS_NONE And gMission\destEntType <> #ENT_EMPTY
+          If x = gMission\destMapX And row = gMission\destMapY
+            If x = gMapX And row = gMapY
+              ConsoleColor(#C_YELLOW, #C_BLACK)
+              Print("X ")
+              ResetColor()
+              Continue
+            Else
+              ConsoleColor(#C_YELLOW, #C_BLACK)
+              Print("M ")
+              ResetColor()
+              Continue
+            EndIf
+          EndIf
+        EndIf
+
         If x = gMapX And row = gMapY
           ConsoleColor(#C_WHITE, #C_BLACK)
           Print("X ")
@@ -1389,7 +1992,9 @@ Procedure PrintMap()
 
   PrintLegendLine("Legend: ")
   Print("Galaxy: ")
-  ConsoleColor(#C_WHITE, #C_BLACK) : Print("X") : ResetColor() : PrintN("=Current map")
+  ConsoleColor(#C_WHITE, #C_BLACK) : Print("X") : ResetColor() : Print("=Current map  ")
+  ConsoleColor(#C_YELLOW, #C_BLACK) : Print("M") : ResetColor() : PrintN("=Mission map")
+  PrintN("Sector: ! = Mission target")
   PrintDivider()
 EndProcedure
 
@@ -1459,7 +2064,24 @@ Procedure GenerateMission(*p.Ship)
   gMission\active = 0
 
   Protected roll.i = Random(99)
-  If roll < 50
+  If roll < 18
+    ; Defend a shipyard
+    Protected mxY.i, myY.i, xY.i, yY.i
+    If FindRandomCellOfType(#ENT_SHIPYARD, @mxY, @myY, @xY, @yY) = 0
+      ProcedureReturn
+    EndIf
+    gMission\type = #MIS_DEFEND_YARD
+    gMission\title = "Defend Shipyard"
+    gMission\destEntType = #ENT_SHIPYARD
+    gMission\destMapX = mxY : gMission\destMapY = myY : gMission\destX = xY : gMission\destY = yY
+    gMission\destName = gGalaxy(mxY, myY, xY, yY)\name
+    gMission\turnsLeft = 16 + Random(8)
+    gMission\yardHP = 6
+    gMission\threatLevel = 1 + Random(3) + (mxY + myY) / 6
+    gMission\rewardCredits = 220 + gMission\threatLevel * 120
+    gMission\desc = "Proceed to " + gMission\destName + " at " + LocText(mxY, myY, xY, yY) + " and DOCK to hold the line for " + Str(gMission\turnsLeft) + " turns."
+
+  ElseIf roll < 56
     ; Deliver ore to a starbase
     Protected mx.i, my.i, x.i, y.i
     If FindRandomCellOfType(#ENT_BASE, @mx, @my, @x, @y) = 0
@@ -1473,7 +2095,7 @@ Procedure GenerateMission(*p.Ship)
     gMission\destName = gGalaxy(mx, my, x, y)\name
     gMission\rewardCredits = 40 + gMission\oreRequired * 6
     gMission\desc = "Deliver " + Str(gMission\oreRequired) + " ore to " + gMission\destName + " at " + LocText(mx, my, x, y)
-  ElseIf roll < 85
+  ElseIf roll < 88
     ; Bounty
     gMission\type = #MIS_BOUNTY
     gMission\title = "Bounty"
@@ -1481,6 +2103,10 @@ Procedure GenerateMission(*p.Ship)
     gMission\killsDone = 0
     gMission\rewardCredits = 120 + gMission\killsRequired * 80
     gMission\desc = "Destroy " + Str(gMission\killsRequired) + " enemy ships (E)."
+    ; No fixed location for bounty missions
+    gMission\destMapX = -1 : gMission\destMapY = -1 : gMission\destX = -1 : gMission\destY = -1
+    gMission\destEntType = #ENT_EMPTY
+    gMission\destName = ""
   Else
     ; Survey a planet
     Protected mx2.i, my2.i, x2.i, y2.i
@@ -1495,6 +2121,7 @@ Procedure GenerateMission(*p.Ship)
     gMission\rewardCredits = 160 + Random(120)
     gMission\desc = "Travel to " + gMission\destName + " at " + LocText(mx2, my2, x2, y2) + " and perform a scan (SCAN)."
   EndIf
+
 EndProcedure
 
 Procedure PrintMission(*p.Ship)
@@ -1505,15 +2132,27 @@ Procedure PrintMission(*p.Ship)
   ElseIf gMission\active = 0
     PrintN("  Offer: " + gMission\title)
     PrintN("  " + gMission\desc)
+    If gMission\destEntType <> #ENT_EMPTY
+      PrintN("  Location: " + LocText(gMission\destMapX, gMission\destMapY, gMission\destX, gMission\destY))
+      PrintN("  From you: dGalaxy=(" + Str(gMission\destMapX - gMapX) + "," + Str(gMission\destMapY - gMapY) + ") dSector=(" + Str(gMission\destX - gx) + "," + Str(gMission\destY - gy) + ")")
+      PrintN("  Bookmark: MAP shows M/! markers")
+    EndIf
     PrintN("  Reward: " + Str(gMission\rewardCredits) + " credits")
     PrintN("  Type ACCEPT to take it")
   Else
     PrintN("  Active: " + gMission\title)
     PrintN("  " + gMission\desc)
+    If gMission\destEntType <> #ENT_EMPTY
+      PrintN("  Location: " + LocText(gMission\destMapX, gMission\destMapY, gMission\destX, gMission\destY))
+      PrintN("  From you: dGalaxy=(" + Str(gMission\destMapX - gMapX) + "," + Str(gMission\destMapY - gMapY) + ") dSector=(" + Str(gMission\destX - gx) + "," + Str(gMission\destY - gy) + ")")
+      PrintN("  Bookmark: MAP shows M/! markers")
+    EndIf
     If gMission\type = #MIS_BOUNTY
       PrintN("  Progress: " + Str(gMission\killsDone) + "/" + Str(gMission\killsRequired))
     ElseIf gMission\type = #MIS_DELIVER_ORE
       PrintN("  Cargo: need " + Str(gMission\oreRequired) + " ore; you have " + Str(*p\ore))
+    ElseIf gMission\type = #MIS_DEFEND_YARD
+      PrintN("  Defend: " + gMission\destName + "  Turns left: " + Str(gMission\turnsLeft) + "  Yard HP: " + Str(gMission\yardHP))
     EndIf
   EndIf
   PrintDivider()
@@ -1530,6 +2169,168 @@ Procedure AcceptMission(*p.Ship)
   EndIf
   gMission\active = 1
   LogLine("MISSION ACCEPTED: " + gMission\title)
+
+  ; Offer autopilot convenience immediately after accepting.
+  If gMission\destEntType <> #ENT_EMPTY
+    PrintN("Autopilot available: type COMPUTER to navigate to the mission destination.")
+  EndIf
+EndProcedure
+
+Procedure.i IsDangerousCell(mapX.i, mapY.i, x.i, y.i)
+  If mapX < 0 Or mapX >= #GALAXY_W Or mapY < 0 Or mapY >= #GALAXY_H : ProcedureReturn 1 : EndIf
+  If x < 0 Or x >= #MAP_W Or y < 0 Or y >= #MAP_H : ProcedureReturn 1 : EndIf
+  Select gGalaxy(mapX, mapY, x, y)\entType
+    Case #ENT_STAR, #ENT_SUN
+      ProcedureReturn 1
+    Case #ENT_BLACKHOLE
+      ; Very risky; autopilot tries to route around unless explicitly allowed.
+      ProcedureReturn 1
+  EndSelect
+  ProcedureReturn 0
+EndProcedure
+
+; Computes next coordinate for a direction with galaxy-edge wrapping rules (like NAV does).
+; Returns 1 if step is valid; 0 if galaxy edge blocks it.
+Procedure.i StepCoord(mapX.i, mapY.i, x.i, y.i, dir.s, *outMapX.Integer, *outMapY.Integer, *outX.Integer, *outY.Integer)
+  Protected nx.i = x
+  Protected ny.i = y
+  Protected mx.i = mapX
+  Protected my.i = mapY
+
+  Select dir
+    Case "n" : ny - 1
+    Case "s" : ny + 1
+    Case "w" : nx - 1
+    Case "e" : nx + 1
+    Default
+      ProcedureReturn 0
+  EndSelect
+
+  ; Wrap across sector edges into neighboring galaxy maps
+  If nx < 0
+    If mx > 0
+      mx - 1
+      nx = #MAP_W - 1
+    Else
+      ProcedureReturn 0
+    EndIf
+  ElseIf nx >= #MAP_W
+    If mx < #GALAXY_W - 1
+      mx + 1
+      nx = 0
+    Else
+      ProcedureReturn 0
+    EndIf
+  EndIf
+
+  If ny < 0
+    If my > 0
+      my - 1
+      ny = #MAP_H - 1
+    Else
+      ProcedureReturn 0
+    EndIf
+  ElseIf ny >= #MAP_H
+    If my < #GALAXY_H - 1
+      my + 1
+      ny = 0
+    Else
+      ProcedureReturn 0
+    EndIf
+  EndIf
+
+  *outMapX\i = mx
+  *outMapY\i = my
+  *outX\i = nx
+  *outY\i = ny
+  ProcedureReturn 1
+EndProcedure
+
+; Very small BFS pathfinder across the whole galaxy grid.
+; Returns a string of directions (n/s/e/w) or "" if no safe path.
+Procedure.s FindPathMission(startMapX.i, startMapY.i, startX.i, startY.i, destMapX.i, destMapY.i, destX.i, destY.i, allowWormhole.i, allowBlackhole.i, allowEnemy.i)
+  Protected total.i = #GALAXY_W * #GALAXY_H * #MAP_W * #MAP_H
+  If total <= 0 : ProcedureReturn "" : EndIf
+
+  Protected startIdx.i = (((startMapY * #GALAXY_W) + startMapX) * #MAP_H + startY) * #MAP_W + startX
+  Protected destIdx.i  = (((destMapY * #GALAXY_W) + destMapX) * #MAP_H + destY) * #MAP_W + destX
+  If startIdx = destIdx : ProcedureReturn "" : EndIf
+
+  Protected Dim prev.i(total - 1)
+  Protected Dim prevDir.b(total - 1)
+  Protected Dim q.i(total - 1)
+  Protected i.i
+  For i = 0 To total - 1
+    prev(i) = -2
+    prevDir(i) = 0
+  Next
+
+  Protected head.i = 0, tail.i = 0
+  q(tail) = startIdx : tail + 1
+  prev(startIdx) = -1
+
+  Protected dirs.s = "nsew"
+  Protected found.i = 0
+  While head < tail
+    Protected cur.i = q(head) : head + 1
+    If cur = destIdx : found = 1 : Break : EndIf
+
+    Protected tmp.i = cur
+    Protected cx.i = tmp % #MAP_W : tmp / #MAP_W
+    Protected cy.i = tmp % #MAP_H : tmp / #MAP_H
+    Protected cm.i = tmp % (#GALAXY_W * #GALAXY_H)
+    Protected cmx.i = cm % #GALAXY_W
+    Protected cmy.i = cm / #GALAXY_W
+
+    Protected di.i
+    For di = 1 To 4
+      Protected d.s = Mid(dirs, di, 1)
+      Protected nmx.Integer, nmy.Integer, nx.Integer, ny.Integer
+      If StepCoord(cmx, cmy, cx, cy, d, @nmx, @nmy, @nx, @ny) = 0
+        Continue
+      EndIf
+
+      ; Blocked hazards/obstacles
+      Protected ent.i = gGalaxy(nmx\i, nmy\i, nx\i, ny\i)\entType
+      If ent = #ENT_STAR Or ent = #ENT_SUN
+        Continue
+      EndIf
+      If ent = #ENT_BLACKHOLE And allowBlackhole = 0
+        Continue
+      EndIf
+      If ent = #ENT_WORMHOLE And allowWormhole = 0
+        Continue
+      EndIf
+      If ent = #ENT_ENEMY And allowEnemy = 0
+        Continue
+      EndIf
+
+      Protected nid.i = (((nmy\i * #GALAXY_W) + nmx\i) * #MAP_H + ny\i) * #MAP_W + nx\i
+      If prev(nid) <> -2
+        Continue
+      EndIf
+      prev(nid) = cur
+      prevDir(nid) = Asc(d)
+      q(tail) = nid : tail + 1
+      If tail >= total
+        ; Should not happen, but avoid overruns
+        Break
+      EndIf
+    Next
+  Wend
+
+  If found = 0
+    ProcedureReturn ""
+  EndIf
+
+  ; Reconstruct path
+  Protected path.s = ""
+  Protected at.i = destIdx
+  While at <> startIdx And at >= 0
+    path = Chr(prevDir(at)) + path
+    at = prev(at)
+  Wend
+  ProcedureReturn path
 EndProcedure
 
 Procedure AbandonMission()
@@ -1552,7 +2353,88 @@ Procedure CheckMissionCompletion(*p.Ship)
       ; Completion is handled at starbase delivery
     Case #MIS_SURVEY
       ; Completion is handled via SCAN at destination
+    Case #MIS_DEFEND_YARD
+      ; Completion handled by DefendMissionTick()
   EndSelect
+EndProcedure
+
+Procedure DefendMissionTick(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.CombatState)
+  If gMission\active = 0 Or gMission\type <> #MIS_DEFEND_YARD
+    ProcedureReturn
+  EndIf
+
+  ; Fail if yard is gone (by mission state)
+  If gMission\yardHP <= 0
+    PrintDivider()
+    PrintN("Mission failed: shipyard destroyed.")
+    PrintDivider()
+    LogLine("MISSION FAILED: shipyard destroyed")
+    ClearStructure(@gMission, Mission)
+    gMission\type = #MIS_NONE
+    ProcedureReturn
+  EndIf
+
+  ; Only tick down while player is physically at the yard
+  If gMode <> #MODE_GALAXY : ProcedureReturn : EndIf
+  If CurCell(gx, gy)\entType <> #ENT_SHIPYARD : ProcedureReturn : EndIf
+  If gMapX <> gMission\destMapX Or gMapY <> gMission\destMapY Or gx <> gMission\destX Or gy <> gMission\destY
+    ProcedureReturn
+  EndIf
+
+  gMission\turnsLeft - 1
+
+  ; Chance of attack each turn while defending
+  Protected attackChance.i = ClampInt(35 + gMission\threatLevel * 8, 35, 70)
+  If Random(99) < attackChance
+    LogLine("ALERT: shipyard under attack")
+    ; Spawn an enemy encounter
+    *enemy\name = *enemyTemplate\name
+    *enemy\class = *enemyTemplate\class
+    *enemy\hullMax = *enemyTemplate\hullMax
+    *enemy\shieldsMax = *enemyTemplate\shieldsMax
+    *enemy\reactorMax = *enemyTemplate\reactorMax
+    *enemy\warpMax = *enemyTemplate\warpMax
+    *enemy\impulseMax = *enemyTemplate\impulseMax
+    *enemy\phaserBanks = *enemyTemplate\phaserBanks
+    *enemy\torpTubes = *enemyTemplate\torpTubes
+    *enemy\torpMax = *enemyTemplate\torpMax
+    *enemy\sensorRange = *enemyTemplate\sensorRange
+    *enemy\weaponCapMax = *enemyTemplate\weaponCapMax
+    *enemy\fuelMax = *enemyTemplate\fuelMax
+    *enemy\oreMax = *enemyTemplate\oreMax
+    *enemy\allocShields = *enemyTemplate\allocShields
+    *enemy\allocWeapons = *enemyTemplate\allocWeapons
+    *enemy\allocEngines = *enemyTemplate\allocEngines
+    *enemy\sysEngines = #SYS_OK
+    *enemy\sysWeapons = #SYS_OK
+    *enemy\sysShields = #SYS_OK
+
+    Protected lvl.i = ClampInt(gMission\threatLevel, 1, 10)
+    *enemy\hullMax + (lvl * 10) : *enemy\hull = *enemy\hullMax
+    *enemy\shieldsMax + (lvl * 12) : *enemy\shields = *enemy\shieldsMax
+    *enemy\weaponCapMax + (lvl * 20) : *enemy\weaponCap = *enemy\weaponCapMax / 2
+    *enemy\torp = *enemy\torpMax
+
+    EnterCombat(*p, *enemy, *cs)
+    ProcedureReturn
+  EndIf
+
+  ; Yard takes attrition sometimes even without direct combat
+  If Random(99) < ClampInt(10 + gMission\threatLevel * 4, 10, 35)
+    gMission\yardHP - 1
+    If gMission\yardHP < 0 : gMission\yardHP = 0 : EndIf
+    LogLine("YARD HIT: hp=" + Str(gMission\yardHP))
+  EndIf
+
+  If gMission\turnsLeft <= 0
+    gCredits + gMission\rewardCredits
+    PrintDivider()
+    PrintN("Mission complete: shipyard secured ( +" + Str(gMission\rewardCredits) + " credits )")
+    PrintDivider()
+    LogLine("MISSION COMPLETE: defend shipyard (+" + Str(gMission\rewardCredits) + " credits)")
+    ClearStructure(@gMission, Mission)
+    gMission\type = #MIS_NONE
+  EndIf
 EndProcedure
 
 Procedure DeliverMission(*p.Ship)
@@ -1613,13 +2495,96 @@ Procedure MinePlanet(*p.Ship)
     ProcedureReturn
   EndIf
 
-  Protected pull.i = 1 + Random(CurCell(gx, gy)\richness)
+  Protected rmax.i = CurCell(gx, gy)\richness
+  If rmax < 0 : rmax = 0 : EndIf
+  Protected pull.i = 1 + Random(rmax)
   pull = ClampInt(pull, 1, 20)
   Protected space.i = *p\oreMax - *p\ore
   If pull > space : pull = space : EndIf
   *p\ore + pull
   *p\fuel - 2
   LogLine("MINE: +" + Str(pull) + " ore")
+EndProcedure
+
+Procedure DockAtShipyard(*p.Ship, *base.Ship)
+  If CurCell(gx, gy)\entType <> #ENT_SHIPYARD
+    PrintN("No shipyard in this sector.")
+    ProcedureReturn
+  EndIf
+
+  ; Same baseline services as a starbase
+  *p\hull = *p\hullMax
+  *p\shields = *p\shieldsMax
+  *p\weaponCap = *p\weaponCapMax
+  *p\fuel = *p\fuelMax
+  *p\sysEngines = #SYS_OK
+  *p\sysWeapons = #SYS_OK
+  *p\sysShields = #SYS_OK
+  LogLine("DOCK: shipyard services")
+
+  ; Upgrade menu
+  While #True
+    PrintDivider()
+    PrintN("Shipyard: " + CurCell(gx, gy)\name)
+    PrintN("Credits: " + Str(gCredits))
+    PrintN("")
+    PrintN("1) Reinforced Hull  (+20 HullMax)     cost 120")
+    PrintN("2) Shield Grid      (+20 ShieldsMax)  cost 140")
+    PrintN("3) Reactor Upgrade  (+30 ReactorMax)  cost 180")
+    PrintN("4) Torpedo Racks    (+4 TorpMax)      cost 110")
+    PrintN("5) Phaser Banks     (+1 PhaserBanks)  cost 160")
+    PrintN("0) Leave")
+    Print("")
+    Print("YARD> ")
+    Protected choice.s = TrimLower(Input())
+    If choice = "0" Or choice = "leave" Or choice = "exit" : Break : EndIf
+
+    Protected cost.i = 0
+    Select choice
+      Case "1"
+        cost = 120
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        *p\hullMax = ClampInt(*p\hullMax + 20, 10, 800)
+        *p\hull = *p\hullMax
+        LogLine("UPGRADE: hull +20 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed.")
+      Case "2"
+        cost = 140
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        *p\shieldsMax = ClampInt(*p\shieldsMax + 20, 0, 800)
+        *p\shields = *p\shieldsMax
+        LogLine("UPGRADE: shields +20 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed.")
+      Case "3"
+        cost = 180
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        *p\reactorMax = ClampInt(*p\reactorMax + 30, 50, 900)
+        *p\weaponCapMax = ClampInt(*p\weaponCapMax + 30, 10, 1400)
+        *p\weaponCap = ClampInt(*p\weaponCap, 0, *p\weaponCapMax)
+        LogLine("UPGRADE: reactor +30 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed.")
+      Case "4"
+        cost = 110
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        *p\torpMax = ClampInt(*p\torpMax + 4, 0, 80)
+        *p\torp = ClampInt(*p\torp + 4, 0, *p\torpMax)
+        LogLine("UPGRADE: torpMax +4 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed.")
+      Case "5"
+        cost = 160
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        *p\phaserBanks = ClampInt(*p\phaserBanks + 1, 0, 30)
+        LogLine("UPGRADE: phasers +1 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed.")
+      Default
+        PrintN("Unknown selection.")
+    EndSelect
+  Wend
 EndProcedure
 
 Procedure Nav(*p.Ship, dir.s, steps.i)
@@ -1758,10 +2723,96 @@ Procedure Nav(*p.Ship, dir.s, steps.i)
   EndIf
 EndProcedure
 
+; Returns 1 if it did something (moved or provided a message).
+Procedure.i AutopilotToMission(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.CombatState)
+  If gMission\active = 0
+    PrintN("Autopilot: no active mission.")
+    ProcedureReturn 1
+  EndIf
+  If gMission\destEntType = #ENT_EMPTY
+    PrintN("Autopilot: this mission has no fixed destination.")
+    ProcedureReturn 1
+  EndIf
+
+  ; Already there
+  If gMapX = gMission\destMapX And gMapY = gMission\destMapY And gx = gMission\destX And gy = gMission\destY
+    PrintN("Autopilot: you are at the mission destination.")
+    ProcedureReturn 1
+  EndIf
+
+  Protected path.s
+  path = FindPathMission(gMapX, gMapY, gx, gy, gMission\destMapX, gMission\destMapY, gMission\destX, gMission\destY, 0, 0, 0)
+  If path = ""
+    ; Try again allowing wormholes (still avoids black holes)
+    path = FindPathMission(gMapX, gMapY, gx, gy, gMission\destMapX, gMission\destMapY, gMission\destX, gMission\destY, 1, 0, 0)
+  EndIf
+  If path = ""
+    PrintN("Autopilot: no safe route found (blocked by hazards/obstacles).")
+    PrintN("Tip: you can try manual NAV around stars/suns, or risk a wormhole (#).")
+    ProcedureReturn 1
+  EndIf
+
+  Protected movedAny.i = 0
+  Protected i.i
+  For i = 1 To Len(path)
+    If *p\fuel <= 0
+      PrintN("Autopilot: fuel depleted.")
+      Break
+    EndIf
+    If *p\hull <= 0
+      Break
+    EndIf
+
+    Protected d.s = Mid(path, i, 1)
+    Protected beforeMapX.i = gMapX, beforeMapY.i = gMapY, beforeX.i = gx, beforeY.i = gy
+    Nav(*p, d, 1)
+    If gMapX <> beforeMapX Or gMapY <> beforeMapY Or gx <> beforeX Or gy <> beforeY
+      movedAny = 1
+    EndIf
+
+    ; Enemy contact should interrupt. Let the player choose whether to engage.
+    If CurCell(gx, gy)\entType = #ENT_ENEMY
+      PrintN("Autopilot: enemy contact detected.")
+      Print("Engage? (F)ight / (A)bort > ")
+      Protected respRaw.s = Input()
+      respRaw = ReplaceString(respRaw, Chr(13), "")
+      respRaw = ReplaceString(respRaw, Chr(10), "")
+      respRaw = CleanLine(respRaw)
+      Protected resp.s = TrimLower(Trim(respRaw))
+
+      If resp = "f" Or resp = "fight" Or resp = "y" Or resp = "yes" Or resp = ""
+        *enemy = *enemyTemplate
+        Protected lvl.i = CurCell(gx, gy)\enemyLevel
+        If lvl < 1 : lvl = 1 : EndIf
+        *enemy\hullMax + (lvl * 10) : *enemy\hull = *enemy\hullMax
+        *enemy\shieldsMax + (lvl * 12) : *enemy\shields = *enemy\shieldsMax
+        *enemy\weaponCapMax + (lvl * 20) : *enemy\weaponCap = *enemy\weaponCapMax / 2
+        EnterCombat(*p, *enemy, *cs)
+        PrintN("Autopilot: engaging.")
+      Else
+        PrintN("Autopilot: aborted. Manual control.")
+      EndIf
+      Break
+    EndIf
+
+    If gMapX = gMission\destMapX And gMapY = gMission\destMapY And gx = gMission\destX And gy = gMission\destY
+      PrintN("Autopilot: arrived at mission destination.")
+      Break
+    EndIf
+  Next
+
+  If movedAny = 0
+    PrintN("Autopilot: unable to make progress.")
+  EndIf
+  ProcedureReturn 1
+EndProcedure
+
 Procedure EnterCombat(*p.Ship, *enemy.Ship, *cs.CombatState)
   gMode = #MODE_TACTICAL
   *cs\range = 16 + Random(10)
   *cs\turn = 1
+  *cs\pAim = 0
+  *cs\eAim = 0
   PrintN("")
   PrintN("Red alert! Entering tactical mode.")
   PrintHelpTactical()
@@ -1787,24 +2838,29 @@ Procedure Main()
     End
   EndIf
 
+  InitLogging()
+  OnErrorCall(@CrashHandler())
+
   ConsoleColor(#C_LIGHTGRAY, #C_BLACK)
   PrintN("Starship Console (Galaxy + Tactical)")
   ConsoleColor(#C_DARKGRAY, #C_BLACK)
-  PrintN("Data: " + gIniPath)
+  PrintN("Data: " + gDatPath + " (fallback " + gIniPath + ")")
   ResetColor()
   PrintN("")
+
+  InitShipData()
 
   playerSection = LoadGameSettingString("PlayerSection", "PlayerShip")
   enemySection  = LoadGameSettingString("EnemySection",  "EnemyShip")
 
   If LoadShip(playerSection, @player) = 0
-    PrintN("Could not open " + #APP_NAME + "_ships.ini. Place it Next To the executable.")
+    PrintN("Could not load ship data section '" + playerSection + "'.")
     Input()
     End
   EndIf
 
   If LoadShip(enemySection, @enemyTemplate) = 0
-    PrintN("Missing enemy section '" + enemySection + "' in " + #APP_NAME + "_ships.ini.")
+    PrintN("Could not load ship data section '" + enemySection + "'.")
     Input()
     End
   EndIf
@@ -1826,6 +2882,8 @@ Procedure Main()
     lineRaw = ReplaceString(lineRaw, Chr(13), "")
     lineRaw = ReplaceString(lineRaw, Chr(10), "")
     lineRaw = CleanLine(lineRaw)
+
+    gLastCmdLine = lineRaw
 
     Protected line.s = Trim(lineRaw)
     Protected cmd.s  = TrimLower(TokenAt(line, 1))
@@ -1850,12 +2908,17 @@ Procedure Main()
         ScanGalaxy()
         PrintN("Press Enter...")
         Input()
+
+        CheckMissionCompletion(@player)
+        DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         RedrawGalaxy(@player)
       ElseIf cmd = "nav"
         Protected navDir.s = TokenAt(line, 2)
         Protected navSteps.i = ParseIntSafe(TokenAt(line, 3), 1)
         Nav(@player, navDir, navSteps)
 
+        CheckMissionCompletion(@player)
+        DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         RedrawGalaxy(@player)
 
         If CurCell(gx, gy)\entType = #ENT_ENEMY
@@ -1867,11 +2930,32 @@ Procedure Main()
           enemy\weaponCapMax + (lvl * 20) : enemy\weaponCap = enemy\weaponCapMax / 2
           EnterCombat(@player, @enemy, @cs)
         EndIf
+
+        ; If we're defending a yard and left, give the yard a chance to take damage.
+        If gMission\active And gMission\type = #MIS_DEFEND_YARD
+          If (gMapX <> gMission\destMapX Or gMapY <> gMission\destMapY Or gx <> gMission\destX Or gy <> gMission\destY)
+            If Random(99) < ClampInt(25 + gMission\threatLevel * 8, 25, 70)
+              gMission\yardHP - 1
+              If gMission\yardHP < 0 : gMission\yardHP = 0 : EndIf
+              LogLine("YARD HIT (away): hp=" + Str(gMission\yardHP))
+            EndIf
+          EndIf
+        EndIf
       ElseIf cmd = "mine"
         MinePlanet(@player)
+
+        CheckMissionCompletion(@player)
+        DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         RedrawGalaxy(@player)
       ElseIf cmd = "dock"
-        DockAtBase(@player)
+        If CurCell(gx, gy)\entType = #ENT_SHIPYARD
+          DockAtShipyard(@player, @enemyTemplate)
+        Else
+          DockAtBase(@player)
+        EndIf
+
+        CheckMissionCompletion(@player)
+        DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         RedrawGalaxy(@player)
       ElseIf cmd = "missions"
         ClearConsole()
@@ -1883,13 +2967,32 @@ Procedure Main()
       ElseIf cmd = "accept"
         GenerateMission(@player)
         AcceptMission(@player)
+
+        DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
+        RedrawGalaxy(@player)
+
+      ElseIf cmd = "computer"
+        ; Autopilot to mission destination (best-effort)
+        AutopilotToMission(@player, @enemyTemplate, @enemy, @cs)
+
+        CheckMissionCompletion(@player)
+        DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         RedrawGalaxy(@player)
       ElseIf cmd = "abandon"
         AbandonMission()
         GenerateMission(@player)
+
+        DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         RedrawGalaxy(@player)
       ElseIf cmd = "save"
         SaveGame(@player)
+        RedrawGalaxy(@player)
+      ElseIf cmd = "pack"
+        If PackShipsDatFromIni()
+          LogLine("SHIPDATA: packed " + gIniPath + " -> " + gDatPath)
+        Else
+          LogLine("SHIPDATA: pack failed (need readable " + gIniPath + ")")
+        EndIf
         RedrawGalaxy(@player)
       ElseIf cmd = "load"
         If LoadGame(@player)
@@ -1907,6 +3010,11 @@ Procedure Main()
       Else
         LogLine("Unknown: " + cmd)
         RedrawGalaxy(@player)
+      EndIf
+
+      ; Mission housekeeping after any galaxy command that consumes a turn.
+      If gMode = #MODE_GALAXY
+        GenerateMission(@player)
       EndIf
 
     Else
@@ -1948,6 +3056,7 @@ Procedure Main()
           SaveAlloc("PlayerShip", @player)
           PrintN("Allocation updated.")
         EndIf
+        Continue
       ElseIf cmd = "move"
         Protected moveDir.s = TokenAt(line, 2)
         Protected moveAmt.i = ParseIntSafe(TokenAt(line, 3), 2)
@@ -1961,7 +3070,7 @@ Procedure Main()
       ElseIf cmd = "flee"
         If player\fuel <= 0
           PrintN("Fuel depleted. Cannot flee.")
-        ElseIf Random(99) < ClampInt(55 - cs\range, 15, 60)
+        ElseIf Random(99) < ClampInt(18 + (cs\range * 2), 15, 65)
           player\fuel - 1
           PrintN("You disengage and escape to the galaxy map.")
           LeaveCombat()
@@ -1976,11 +3085,12 @@ Procedure Main()
         Break
       Else
         PrintN("Unknown command. Type HELP.")
+        Continue
       EndIf
 
       If gMode = #MODE_TACTICAL And IsAlive(@player) And IsAlive(@enemy)
-        RegenAndRepair(@player)
-        RegenAndRepair(@enemy)
+        RegenAndRepair(@player, 0)
+        RegenAndRepair(@enemy, 1)
         EnemyAI(@enemy, @player, @cs)
         cs\turn + 1
 
@@ -2008,6 +3118,7 @@ Procedure Main()
             gGalaxy(gEnemyMapX, gEnemyMapY, gEnemyX, gEnemyY)\enemyLevel = 0
           EndIf
           player\ore = ClampInt(player\ore + (3 + Random(10)), 0, player\oreMax)
+          player\torp = ClampInt(player\torp + (1 + Random(2)), 0, player\torpMax)
           LeaveCombat()
           PrintHelpGalaxy()
         ElseIf player\hull <= 0
@@ -2034,7 +3145,7 @@ Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 7
-; Folding = -----------
+; Folding = --------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -2043,13 +3154,13 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
-; VersionField6 = A starship sim based on a scifi TV series
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
+; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
 ; VersionField9 = David Scouten
