@@ -1,4 +1,4 @@
-; Starship simulation (PureBasic 6.30)
+﻿; Starship simulation (PureBasic 6.30)
 ; - Galaxy map: planets (mining), stars (obstacles), starbases (dock)
 ; - Tactical combat when you encounter enemies
 ; Data-driven ship stats loaded from ships.ini
@@ -6,9 +6,11 @@
 EnableExplicit
 
 #APP_NAME = "Starship_Sim"
+#EMAIL_NAME = "zonemaster60@gmail.com"
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
+Global version.s = "v1.0.0.4"
 
 ; Forward declarations (PureBasic requires declaring procedures used before definition)
 Declare.s Timestamp()
@@ -42,6 +44,7 @@ Declare SetColorForPercent(pct.i)
 Declare.s SysText(flags.i)
 Declare PrintHelpGalaxy()
 Declare PrintHelpTactical()
+Declare PrintAbout()
 Declare PrintCmd(cmd.s)
 Declare PrintLegendLine(indent.s)
 Declare.i LoadShip(section.s, *s.Ship)
@@ -65,6 +68,7 @@ Declare PlayerMove(*p.Ship, *cs.CombatState, dir.s, amount.i)
 Declare PlayerPhaser(*p.Ship, *e.Ship, *cs.CombatState, power.i)
 Declare PlayerTorpedo(*p.Ship, *e.Ship, *cs.CombatState, count.i)
 Declare EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
+Declare EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
 Declare PrintScanTactical(*p.Ship, *e.Ship, *cs.CombatState)
 Declare.s EntSymbol(t.i)
 Declare.i RandomEmptyCell(mapX.i, mapY.i, *outX.Integer, *outY.Integer)
@@ -752,6 +756,9 @@ Procedure PrintHelpGalaxy()
   PrintCmd("HELP")
   PrintN("    Show this help")
   PrintN("")
+  PrintCmd("ABOUT")
+  PrintN("    Show app info (name, version, creator, email, website)")
+  PrintN("")
   PrintCmd("STATUS")
   PrintN("    Show ship status, fuel, ore, and systems")
   PrintN("")
@@ -764,10 +771,13 @@ Procedure PrintHelpGalaxy()
   PrintCmd("SCAN")
   PrintN("    Show non-empty contents of adjacent sectors")
   PrintN("")
-  PrintCmd("NAV <N|S|E|W> [steps]")
+  PrintCmd("LONGSCAN")
+  PrintN("    Long range scan - shows sectors within 2 steps")
+  PrintN("")
+  PrintCmd("NAV <N|S|E|W|NW|NE|SW|SE> [steps]")
   PrintN("    Move 1-5 sectors, costs 1 fuel per step")
   PrintN("    Crossing the sector-map edge moves to the next map in the galaxy")
-  PrintN("    Examples: NAV N     | NAV E 3")
+  PrintN("    Examples: NAV N     | NAV E 3 | NAV NW 2 | NAV SE")
   PrintN("")
   PrintCmd("MINE")
   PrintN("    Mine ore when in a planet sector (O), costs 2 fuel")
@@ -830,6 +840,18 @@ Procedure PrintHelpGalaxy()
 
   PrintCmd("QUIT")
   PrintN("    Exit the game")
+  PrintDivider()
+EndProcedure
+
+Procedure PrintAbout()
+  PrintDivider()
+  ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+  PrintN(#APP_NAME + " - " + version)
+  ResetColor()
+  PrintN("-----------------------")
+  PrintN("Creator: David Scouten (zonemaster60")
+  PrintN("Email: " + #EMAIL_NAME)
+  PrintN("Website: https://github.com/zonemaster60")
   PrintDivider()
 EndProcedure
 
@@ -1009,6 +1031,9 @@ Procedure PrintHelpTactical()
   PrintN("Tactical Commands:")
   PrintCmd("HELP")
   PrintN("    Show this help")
+  PrintN("")
+  PrintCmd("ABOUT")
+  PrintN("    Show app info (name, version, creator, email, website)")
   PrintN("")
   PrintCmd("STATUS")
   PrintN("    Show tactical status (range, hull, shields, capacitor, torps)")
@@ -1599,6 +1624,99 @@ Procedure EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
   EndIf
 EndProcedure
 
+Procedure EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
+  Protected mx.i, my.i, x.i, y.i, dx.i, dy.i, nx.i, ny.i
+  Protected targetFound.i, targetX.i, targetY.i
+  Protected moveChance.i = 35
+  Protected enemy.Ship
+  
+  If Random(99) >= moveChance
+    ProcedureReturn
+  EndIf
+  
+  For my = 0 To #GALAXY_H - 1
+    For mx = 0 To #GALAXY_W - 1
+      For y = 0 To #MAP_H - 1
+        For x = 0 To #MAP_W - 1
+          If gGalaxy(mx, my, x, y)\entType <> #ENT_ENEMY
+            Continue
+          EndIf
+          
+          targetFound = 0
+          targetX = -1
+          targetY = -1
+          
+          For dy = -1 To 1
+            For dx = -1 To 1
+              If dx = 0 And dy = 0 : Continue : EndIf
+              nx = x + dx
+              ny = y + dy
+              
+              If nx < 0 Or nx >= #MAP_W Or ny < 0 Or ny >= #MAP_H
+                Continue
+              EndIf
+              
+              Protected ent.i = gGalaxy(mx, my, nx, ny)\entType
+              
+              If mx = gMapX And my = gMapY And nx = gx And ny = gy
+                Protected lvl.i = gGalaxy(mx, my, x, y)\enemyLevel
+                If lvl < 1 : lvl = 1 : EndIf
+                CopyStructure(*enemyTemplate, @enemy, Ship)
+                enemy\hullMax = enemy\hullMax + (lvl * 10) : enemy\hull = enemy\hullMax
+                enemy\shieldsMax = enemy\shieldsMax + (lvl * 12) : enemy\shields = enemy\shieldsMax
+                enemy\weaponCapMax = enemy\weaponCapMax + (lvl * 20) : enemy\weaponCap = enemy\weaponCapMax / 2
+                gEnemyMapX = mx : gEnemyMapY = my : gEnemyX = x : gEnemyY = y
+                EnterCombat(*p, @enemy, *cs)
+                ProcedureReturn
+              EndIf
+              
+              If ent = #ENT_BASE Or ent = #ENT_PLANET Or ent = #ENT_WORMHOLE Or ent = #ENT_SHIPYARD
+                If targetFound = 0 Or Random(1) = 0
+                  targetFound = 1
+                  targetX = nx
+                  targetY = ny
+                EndIf
+              EndIf
+            Next
+          Next
+          
+          If targetFound = 1 And targetX >= 0 And targetY >= 0
+            If gGalaxy(mx, my, targetX, targetY)\entType = #ENT_EMPTY
+              Protected moveX.i = x + Sign(targetX - x)
+              Protected moveY.i = y + Sign(targetY - y)
+              
+              If moveX >= 0 And moveX < #MAP_W And moveY >= 0 And moveY < #MAP_H
+                If gGalaxy(mx, my, moveX, moveY)\entType = #ENT_EMPTY
+                  Protected oldName.s = gGalaxy(mx, my, x, y)\name
+                  Protected oldLevel.i = gGalaxy(mx, my, x, y)\enemyLevel
+                  gGalaxy(mx, my, x, y)\entType = #ENT_EMPTY
+                  gGalaxy(mx, my, x, y)\name = ""
+                  gGalaxy(mx, my, x, y)\enemyLevel = 0
+                  gGalaxy(mx, my, moveX, moveY)\entType = #ENT_ENEMY
+                  gGalaxy(mx, my, moveX, moveY)\name = oldName
+                  gGalaxy(mx, my, moveX, moveY)\enemyLevel = oldLevel
+                  
+                  If mx = gMapX And my = gMapY And moveX = gx And moveY = gy
+                    Protected newLvl.i = gGalaxy(mx, my, moveX, moveY)\enemyLevel
+                    If newLvl < 1 : newLvl = 1 : EndIf
+                    CopyStructure(*enemyTemplate, @enemy, Ship)
+                    enemy\hullMax = enemy\hullMax + (newLvl * 10) : enemy\hull = enemy\hullMax
+                    enemy\shieldsMax = enemy\shieldsMax + (newLvl * 12) : enemy\shields = enemy\shieldsMax
+                    enemy\weaponCapMax = enemy\weaponCapMax + (newLvl * 20) : enemy\weaponCap = enemy\weaponCapMax / 2
+                    gEnemyMapX = mx : gEnemyMapY = my : gEnemyX = moveX : gEnemyY = moveY
+                    EnterCombat(*p, @enemy, *cs)
+                    ProcedureReturn
+                  EndIf
+                EndIf
+              EndIf
+            EndIf
+          EndIf
+        Next
+      Next
+    Next
+  Next
+EndProcedure
+
 Procedure PrintScanTactical(*p.Ship, *e.Ship, *cs.CombatState)
   If *cs\range > *p\sensorRange
     PrintN("Sensors: contact beyond effective range.")
@@ -2015,6 +2133,30 @@ Procedure ScanGalaxy()
 
   For dy = -1 To 1
     For dx = -1 To 1
+      If dx = 0 And dy = 0 : Continue : EndIf
+      nx = gx + dx
+      ny = gy + dy
+      If nx >= 0 And nx < #MAP_W And ny >= 0 And ny < #MAP_H
+        If CurCell(nx, ny)\entType <> #ENT_EMPTY
+          Print("  (" + Str(nx) + "," + Str(ny) + ") ")
+          SetColorForEnt(CurCell(nx, ny)\entType)
+          Print(EntSymbol(CurCell(nx, ny)\entType))
+          ResetColor()
+          PrintN(" " + CurCell(nx, ny)\name)
+        EndIf
+      EndIf
+    Next
+  Next
+  PrintDivider()
+EndProcedure
+
+Procedure ScanGalaxyLong()
+  Protected dx.i, dy.i, nx.i, ny.i, range.i = 2
+  PrintDivider()
+  PrintN("Long Range Scan (2 sector range):")
+
+  For dy = -range To range
+    For dx = -range To range
       If dx = 0 And dy = 0 : Continue : EndIf
       nx = gx + dx
       ny = gy + dy
@@ -2604,8 +2746,14 @@ Procedure Nav(*p.Ship, dir.s, steps.i)
     Case "s" : dy = 1
     Case "w" : dx = -1
     Case "e" : dx = 1
+    Case "nw", "ne", "sw", "se"
+      If dir = "nw" : dx = -1 : dy = -1
+      ElseIf dir = "ne" : dx = 1 : dy = -1
+      ElseIf dir = "sw" : dx = -1 : dy = 1
+      ElseIf dir = "se" : dx = 1 : dy = 1
+      EndIf
     Default
-      PrintN("NAV expects N, S, E, or W.")
+      PrintN("NAV expects N, S, E, W, NW, NE, SW, or SE.")
       ProcedureReturn
   EndSelect
 
@@ -2889,11 +3037,17 @@ Procedure Main()
     Protected cmd.s  = TrimLower(TokenAt(line, 1))
     If cmd = "" : cmd = "end" : EndIf
 
-    If gMode = #MODE_GALAXY
+      If gMode = #MODE_GALAXY
       If cmd = "help"
         ClearConsole()
         PrintHelpGalaxy()
         PrintN("")
+        PrintN("Press Enter...")
+        Input()
+        RedrawGalaxy(@player)
+      ElseIf cmd = "about"
+        ClearConsole()
+        PrintAbout()
         PrintN("Press Enter...")
         Input()
         RedrawGalaxy(@player)
@@ -2911,6 +3065,12 @@ Procedure Main()
 
         CheckMissionCompletion(@player)
         DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
+        RedrawGalaxy(@player)
+      ElseIf cmd = "longscan"
+        ClearConsole()
+        ScanGalaxyLong()
+        PrintN("Press Enter...")
+        Input()
         RedrawGalaxy(@player)
       ElseIf cmd = "nav"
         Protected navDir.s = TokenAt(line, 2)
@@ -2941,11 +3101,14 @@ Procedure Main()
             EndIf
           EndIf
         EndIf
+        
+        EnemyGalaxyAI(@player, @enemyTemplate, @cs)
       ElseIf cmd = "mine"
         MinePlanet(@player)
 
         CheckMissionCompletion(@player)
         DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
+        EnemyGalaxyAI(@player, @enemyTemplate, @cs)
         RedrawGalaxy(@player)
       ElseIf cmd = "dock"
         If CurCell(gx, gy)\entType = #ENT_SHIPYARD
@@ -2956,6 +3119,7 @@ Procedure Main()
 
         CheckMissionCompletion(@player)
         DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
+        EnemyGalaxyAI(@player, @enemyTemplate, @cs)
         RedrawGalaxy(@player)
       ElseIf cmd = "missions"
         ClearConsole()
@@ -3000,6 +3164,11 @@ Procedure Main()
         Else
           RedrawGalaxy(@player)
         EndIf
+      ElseIf cmd = "showmethemoney"
+        gCredits + 500
+        LogLine("CHEAT: showmethemoney (+500 credits)")
+        PrintN("Cheat activated: +500 credits!")
+        RedrawGalaxy(@player)
       ElseIf cmd = "quit"
         Break
       ElseIf cmd = "end"
@@ -3023,6 +3192,13 @@ Procedure Main()
         ClearConsole()
         PrintHelpTactical()
         PrintN("")
+        PrintN("Press Enter...")
+        Input()
+        PrintStatusTactical(@player, @enemy, @cs)
+        Continue
+      ElseIf cmd = "about"
+        ClearConsole()
+        PrintAbout()
         PrintN("Press Enter...")
         Input()
         PrintStatusTactical(@player, @enemy, @cs)
@@ -3144,8 +3320,8 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 7
-; Folding = --------------
+; CursorPosition = 12
+; Folding = ----------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -3154,12 +3330,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
