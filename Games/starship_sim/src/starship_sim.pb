@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.1.1"
+Global version.s = "v1.0.1.5"
 
 ; Forward declarations (PureBasic requires declaring procedures used before definition)
 Declare.s Timestamp()
@@ -246,6 +246,7 @@ Structure Cell
   name.s
   richness.i
   enemyLevel.i
+  spawned.i  ; 1 if spawned by cheat, 0 otherwise
 EndStructure
 
 Structure Mission
@@ -315,6 +316,9 @@ Global gUndoOre.i, gUndoDilithium.i
 ; Autosave system
 Global gAutosaveInterval.i = 0  ; 0 = disabled, otherwise save every N turns
 Global gAutosaveCounter.i = 0
+
+; Warp system
+Global gWarpCooldown.i = 0  ; turns until next warp
 
 Global Dim gLog.s(11)
 Global gLogPos.i = 0
@@ -421,20 +425,20 @@ Procedure.i LoadShipDataFromDat(path.s)
   gShipDatErr = ""
   Protected f.i = ReadFile(#PB_Any, path)
   If f = 0
-    gShipDatErr = "open failed"
+    gShipDatErr = "open failed!"
     ProcedureReturn 0
   EndIf
   Protected len.i = Lof(f)
   If len < 8 + 12
     CloseFile(f)
-    gShipDatErr = "file too short"
+    gShipDatErr = "file too short!"
     ProcedureReturn 0
   EndIf
 
   Protected *m = AllocateMemory(len)
   If *m = 0
     CloseFile(f)
-    gShipDatErr = "alloc failed"
+    gShipDatErr = "alloc failed!"
     ProcedureReturn 0
   EndIf
   ReadData(f, *m, len)
@@ -443,7 +447,7 @@ Procedure.i LoadShipDataFromDat(path.s)
   Protected magic.s = PeekS(*m, 8, #PB_Ascii)
   If magic <> "SSIMDAT1"
     FreeMemory(*m)
-    gShipDatErr = "bad magic"
+    gShipDatErr = "bad magic!"
     ProcedureReturn 0
   EndIf
 
@@ -457,7 +461,7 @@ Procedure.i LoadShipDataFromDat(path.s)
 
   If plainLen <= 0 Or payloadOffset + plainLen > len
     FreeMemory(*m)
-    gShipDatErr = "bad length"
+    gShipDatErr = "bad length!"
     ProcedureReturn 0
   EndIf
 
@@ -466,7 +470,7 @@ Procedure.i LoadShipDataFromDat(path.s)
   Protected got.i = ChecksumFNV32(*p, plainLen) & $FFFFFFFF
   If got <> want
     FreeMemory(*m)
-    gShipDatErr = "checksum mismatch"
+    gShipDatErr = "checksum mismatch!"
     ProcedureReturn 0
   EndIf
 
@@ -698,15 +702,15 @@ EndProcedure
 Procedure RedrawGalaxy(*p.Ship)
   ClearConsole()
   ResetColor()
-  PrintN("Starship Console (Galaxy + Tactical)")
+  PrintN("Starship Console: (Galaxy + Tactical)")
   ConsoleColor(#C_DARKGRAY, #C_BLACK)
-  PrintN("Galaxy (" + Str(gMapX) + "," + Str(gMapY) + ") of " + Str(#GALAXY_W) + "x" + Str(#GALAXY_H) + "    Type HELP for commands")
+  PrintN("Galaxy: (" + Str(gMapX) + "," + Str(gMapY) + ") of " + Str(#GALAXY_W) + "x" + Str(#GALAXY_H) + " Type HELP for commands")
   ResetColor()
   PrintN("")
   PrintStatusGalaxy(*p)
   PrintMap()
   PrintDivider()
-  PrintN("Recent")
+  PrintN("Recent:")
   PrintLog()
   PrintDivider()
 EndProcedure
@@ -875,7 +879,7 @@ Procedure PrintHelpGalaxy()
   PrintN("    Show the sector map")
   PrintN("    Legend:")
   PrintLegendLine("      ")
-  PrintN("      M=Mission map   !=Mission target")
+  PrintN("    M=Mission map   !=Mission target")
   PrintN("")
   PrintCmd("CLEAR")
   PrintN("    Clear console and refresh the galaxy map")
@@ -894,6 +898,11 @@ Procedure PrintHelpGalaxy()
   PrintN("    Move 1-5 sectors, costs 1 fuel per step")
   PrintN("    Crossing the sector-map edge moves to the next map in the galaxy")
   PrintN("    Examples: NAV N     | NAV E 3 | NAV NW 2 | NAV SE")
+  PrintN("")
+  PrintCmd("WARP <x> <y>")
+  PrintN("    Warp to a specific galaxy location (right side map)")
+  PrintN("    Costs 5 dilithium, 10 turn cooldown between warps")
+  PrintN("    Example: WARP 3 2")
   PrintN("")
   PrintCmd("MINE")
   PrintN("    Mine ore when in a planet sector (O), costs 2 fuel")
@@ -926,6 +935,15 @@ Procedure PrintHelpGalaxy()
   PrintN("")
   PrintCmd("SPAWNBASE")
   PrintN("    Cheat: spawn a starbase in current sector")
+  PrintN("")
+  PrintCmd("SPAWNCLUSTER")
+  PrintN("    Cheat: spawn a dilithium cluster in current sector")
+  PrintN("")
+  PrintCmd("SPAWNWORMHOLE")
+  PrintN("    Cheat: spawn a wormhole in current sector")
+  PrintN("")
+  PrintCmd("REMOVESPAWN")
+  PrintN("    Remove spawned objects (base, yard, cluster, wormhole)")
   PrintN("")
   PrintCmd("SAVE")
   PrintN("    Save game to file")
@@ -984,6 +1002,7 @@ Procedure PrintHelpGalaxy()
   PrintN("")
 
   PrintCmd("QUIT")
+  PrintCmd("EXIT")
   PrintN("    Exit the game")
   PrintDivider()
 EndProcedure
@@ -1092,7 +1111,8 @@ Procedure.i LoadGame(*p.Ship)
       Case "version"
         ; reserved
       Case "mode"
-        gMode = Val(StringField(line, 2, "|"))
+        ; Always start in galaxy mode when loading - never load into combat
+        gMode = #MODE_GALAXY
       Case "pos"
         gMapX = Val(StringField(line, 2, "|"))
         gMapY = Val(StringField(line, 3, "|"))
@@ -1252,6 +1272,7 @@ Procedure PrintHelpTactical()
   PrintN("    End your turn (regen/repair happens, then enemy acts)")
   PrintN("")
   PrintCmd("QUIT")
+  PrintCmd("EXIT")
   PrintN("    Exit the game")
   PrintDivider()
 EndProcedure
@@ -1542,6 +1563,11 @@ Procedure PrintStatusGalaxy(*p.Ship)
   If gPowerBuff = 1
     ConsoleColor(#C_LIGHTMAGENTA, #C_BLACK)
     PrintN("  ** POWER OVERWHELMING BUFF: " + Str(gPowerBuffTurns) + " turns **")
+    ResetColor()
+  EndIf
+  If gWarpCooldown > 0
+    ConsoleColor(#C_YELLOW, #C_BLACK)
+    PrintN("  Warp ready in " + Str(gWarpCooldown) + " turn(s)")
     ResetColor()
   EndIf
   Print("  Hull: ")
@@ -1903,7 +1929,7 @@ Procedure PlayerPhaser(*p.Ship, *e.Ship, *cs.CombatState, power.i)
     If dmg < 1 : dmg = 1 : EndIf
 
     ApplyDamage(*e, dmg)
-    PrintN("Phasers hit (" + Str(dmg) + ").")
+    PrintN("Phasers hit! (" + Str(dmg) + ").")
     *cs\pAim = 0
     GainCrewXP(*p, #CREW_WEAPONS, 5 + dmg / 10)
   Else
@@ -1952,7 +1978,7 @@ Procedure PlayerTorpedo(*p.Ship, *e.Ship, *cs.CombatState, count.i)
         *e\hull - hullDmg
         If *e\hull < 0 : *e\hull = 0 : EndIf
       EndIf
-      PrintN("Torpedo impact (" + Str(dmg) + ", +" + Str(hullDmg) + " hull breach).")
+      PrintN("Torpedo impact! (" + Str(dmg) + ", +" + Str(hullDmg) + " hull breach).")
       *cs\pAim = 0
       GainCrewXP(*p, #CREW_WEAPONS, 8 + dmg / 8)
     Else
@@ -2271,14 +2297,14 @@ Procedure.i ApplyGravityWell(*p.Ship)
   If foundSun
     If Random(99) < 85
       gx = sunX : gy = sunY
-      LogLine("SUN: gravity well pulls you in")
+      LogLine("SUN: gravity well pulls you in!")
       PrintN("Warning: sun gravity well! Pulled into the sun.")
       ProcedureReturn 1
     EndIf
   ElseIf foundBH
     If Random(99) < 55
       gx = bhX : gy = bhY
-      LogLine("BLACK HOLE: gravity well pulls you in")
+      LogLine("BLACK HOLE: gravity well pulls you in!")
       PrintN("Warning: black hole gravity well! Pulled into the black hole.")
       ProcedureReturn 1
     EndIf
@@ -2295,7 +2321,7 @@ Procedure.i HandleSun(*p.Ship)
 
   *p\hull = 0
   *p\shields = 0
-  LogLine("SUN: ship incinerated")
+  LogLine("SUN: your ship was incinerated!")
   PrintN("You are consumed by the sun. Ship incinerated.")
   ProcedureReturn 1
 EndProcedure
@@ -2339,7 +2365,7 @@ Procedure.i HandleArrival(*p.Ship)
       If RandomEmptyCell(mx, my, @nx, @ny)
         gMapX = mx : gMapY = my
         gx = nx : gy = ny
-        LogLine("BLACK HOLE: spacetime shear - displaced")
+        LogLine("BLACK HOLE: spacetime shear - displaced.")
         PrintN("Black hole encounter! Spacetime shear displaces you.")
         ProcedureReturn 1
       EndIf
@@ -2347,7 +2373,7 @@ Procedure.i HandleArrival(*p.Ship)
       ; Severe damage
       Protected dmg.i = 60 + Random(60)
       ApplyDamage(*p, dmg)
-      LogLine("BLACK HOLE: tidal forces hit for " + Str(dmg))
+      LogLine("BLACK HOLE: tidal forces hit for " + Str(dmg) + "!")
       PrintN("Black hole tidal forces hit for " + Str(dmg) + ".")
 
       ; Scramble to a nearby sector if possible
@@ -2366,7 +2392,7 @@ Procedure.i HandleArrival(*p.Ship)
       ; Destroyed
       *p\hull = 0
       *p\shields = 0
-      LogLine("BLACK HOLE: ship lost")
+      LogLine("BLACK HOLE: your ship was lost!")
       PrintN("The black hole consumes your ship. Ship lost.")
       ProcedureReturn 0
     EndIf
@@ -3000,7 +3026,7 @@ Procedure AbandonMission()
   EndIf
   ClearStructure(@gMission, Mission)
   gMission\type = #MIS_NONE
-  LogLine("MISSION ABANDONED")
+  LogLine("MISSION ABANDONED!")
 EndProcedure
 
 Procedure CheckMissionCompletion(*p.Ship)
@@ -3046,7 +3072,7 @@ Procedure DefendMissionTick(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Comba
   ; Chance of attack each turn while defending
   Protected attackChance.i = ClampInt(35 + gMission\threatLevel * 8, 35, 70)
   If Random(99) < attackChance
-    LogLine("ALERT: shipyard under attack")
+    LogLine("ALERT: shipyard under attack!")
     ; Spawn an enemy encounter
     CopyStructure(*enemyTemplate, *enemy, Ship)
     *enemy\sysEngines = #SYS_OK
@@ -3054,6 +3080,21 @@ Procedure DefendMissionTick(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Comba
     *enemy\sysShields = #SYS_OK
 
     Protected lvl.i = ClampInt(gMission\threatLevel, 1, 10)
+    ; Ensure valid enemy stats
+    If *enemy\name = "" Or *enemy\hullMax <= 0
+      *enemy\name = "Raider"
+      *enemy\class = "Raider"
+      *enemy\hullMax = 100
+      *enemy\hull = 100
+      *enemy\shieldsMax = 90
+      *enemy\shields = 90
+      *enemy\weaponCapMax = 210
+      *enemy\weaponCap = 105
+      *enemy\phaserBanks = 6
+      *enemy\torpTubes = 2
+      *enemy\torpMax = 8
+      *enemy\torp = 8
+    EndIf
     *enemy\hullMax = *enemy\hullMax + (lvl * 10)
     *enemy\hull = *enemy\hullMax
     *enemy\shieldsMax = *enemy\shieldsMax + (lvl * 12)
@@ -3126,19 +3167,19 @@ Procedure DockAtBase(*p.Ship)
   If dockCmd = "poweroverwhelming"
     gPowerBuff = 1
     gPowerBuffTurns = 30
-    *p\hullMax = *p\hullMax * 1.5
-    *p\shieldsMax = *p\shieldsMax * 1.5
-    *p\reactorMax = *p\reactorMax * 1.5
-    *p\weaponCapMax = *p\weaponCapMax * 1.5
-    *p\warpMax = *p\warpMax * 1.5
-    *p\impulseMax = *p\impulseMax * 1.5
+    *p\hullMax = *p\hullMax * 2.0
+    *p\shieldsMax = *p\shieldsMax * 2.0
+    *p\reactorMax = *p\reactorMax * 2.0
+    *p\weaponCapMax = *p\weaponCapMax * 2.0
+    *p\warpMax = *p\warpMax * 2.0
+    *p\impulseMax = *p\impulseMax * 2.0
     *p\phaserBanks = *p\phaserBanks + 1
     *p\torpTubes = *p\torpTubes + 1
-    *p\torpMax = *p\torpMax * 1.5
+    *p\torpMax = *p\torpMax * 2.0
     *p\sensorRange = *p\sensorRange + 5
-    *p\fuelMax = *p\fuelMax * 1.5
-    *p\oreMax = *p\oreMax * 1.5
-    *p\dilithiumMax = *p\dilithiumMax * 1.5
+    *p\fuelMax = *p\fuelMax * 2.0
+    *p\oreMax = *p\oreMax * 2.0
+    *p\dilithiumMax = *p\dilithiumMax * 2.0
     *p\hull = *p\hullMax
     *p\shields = *p\shieldsMax
     *p\weaponCap = *p\weaponCapMax
@@ -3154,7 +3195,7 @@ Procedure DockAtBase(*p.Ship)
   PrintN("weapons rearmed, fuel refilled.")
   PrintN("")
   PrintN("CHEATS:")
-  PrintN("  poweroverwhelming = +50% all stats for 30 turns")
+  PrintN("  poweroverwhelming = all stats x2 for 30 turns")
   PrintN("")
   
   *p\hull = *p\hullMax
@@ -3287,12 +3328,30 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
     PrintN("")
     PrintN("CHEATS (type number/letter or word):")
     PrintN("  showmethemoney = +500 credits")
-    PrintN("  poweroverwhelming = +50% all stats for 30 turns")
+    PrintN("  poweroverwhelming = all stats x2 for 30 turns")
     Print("")
     Print("YARD> ")
     Protected choice.s = TrimLower(Input())
     If choice = "0" Or choice = "leave" Or choice = "exit" Or choice = "undock"
       gDocked = 0
+      ; Find an empty adjacent spot to undock to
+      Protected yardFoundEmpty.i = 0
+      Protected yardDx.i, yardDy.i
+      For yardDy = -1 To 1
+        For yardDx = -1 To 1
+          If yardDx = 0 And yardDy = 0 : Continue : EndIf
+          Protected ynx.i = gx + yardDx
+          Protected yny.i = gy + yardDy
+          If ynx >= 0 And ynx < #MAP_W And yny >= 0 And yny < #MAP_H
+            If gGalaxy(gMapX, gMapY, ynx, yny)\entType = #ENT_EMPTY
+              gx = ynx
+              gy = yny
+              yardFoundEmpty = 1
+              Break 2
+            EndIf
+          EndIf
+        Next
+      Next
       PrintN("Undocking...")
       Break
     EndIf
@@ -3305,26 +3364,26 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
     If choice = "poweroverwhelming"
       gPowerBuff = 1
       gPowerBuffTurns = 30
-      *p\hullMax = *p\hullMax * 1.5
-      *p\shieldsMax = *p\shieldsMax * 1.5
-      *p\reactorMax = *p\reactorMax * 1.5
-      *p\weaponCapMax = *p\weaponCapMax * 1.5
-      *p\warpMax = *p\warpMax * 1.5
-      *p\impulseMax = *p\impulseMax * 1.5
+      *p\hullMax = *p\hullMax * 2.0
+      *p\shieldsMax = *p\shieldsMax * 2.0
+      *p\reactorMax = *p\reactorMax * 2.0
+      *p\weaponCapMax = *p\weaponCapMax * 2.0
+      *p\warpMax = *p\warpMax * 2.0
+      *p\impulseMax = *p\impulseMax * 2.0
       *p\phaserBanks = *p\phaserBanks + 1
       *p\torpTubes = *p\torpTubes + 1
-      *p\torpMax = *p\torpMax * 1.5
+      *p\torpMax = *p\torpMax * 2.0
       *p\sensorRange = *p\sensorRange + 5
-      *p\fuelMax = *p\fuelMax * 1.5
-      *p\oreMax = *p\oreMax * 1.5
-      *p\dilithiumMax = *p\dilithiumMax * 1.5
+      *p\fuelMax = *p\fuelMax * 2.0
+      *p\oreMax = *p\oreMax * 2.0
+      *p\dilithiumMax = *p\dilithiumMax * 2.0
       *p\hull = *p\hullMax
       *p\shields = *p\shieldsMax
       *p\weaponCap = *p\weaponCapMax
       *p\torp = *p\torpMax
       *p\fuel = *p\fuelMax
       LogLine("CHEAT: poweroverwhelming (buff active)")
-      PrintN("Cheat activated: POWER OVERWHELMING! +50% all stats!")
+      PrintN("Cheat activated: POWER OVERWHELMING! all systems doubled!")
       PrintN("Buff will last for 30 turns or until death.")
       Continue
     EndIf
@@ -3647,6 +3706,21 @@ Procedure.i AutopilotToMission(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Co
         CopyStructure(*enemyTemplate, *enemy, Ship)
         Protected lvl.i = CurCell(gx, gy)\enemyLevel
         If lvl < 1 : lvl = 1 : EndIf
+        ; Ensure valid enemy stats
+        If *enemy\name = "" Or *enemy\hullMax <= 0
+          *enemy\name = "Raider"
+          *enemy\class = "Raider"
+          *enemy\hullMax = 100
+          *enemy\hull = 100
+          *enemy\shieldsMax = 90
+          *enemy\shields = 90
+          *enemy\weaponCapMax = 210
+          *enemy\weaponCap = 105
+          *enemy\phaserBanks = 6
+          *enemy\torpTubes = 2
+          *enemy\torpMax = 8
+          *enemy\torp = 8
+        EndIf
         *enemy\hullMax = *enemy\hullMax + (lvl * 10)
         *enemy\hull = *enemy\hullMax
         *enemy\shieldsMax = *enemy\shieldsMax + (lvl * 12)
@@ -3688,8 +3762,9 @@ Procedure EnterCombat(*p.Ship, *enemy.Ship, *cs.CombatState)
   *cs\eAim = 0
   PrintN("")
   PrintN("Red alert! Engaging enemy!")
-  PrintHelpTactical()
   PrintStatusTactical(*p, *enemy, *cs)
+  PrintN("")
+  PrintN("Type HELP for combat commands.")
 EndProcedure
 
 Procedure LeaveCombat()
@@ -3891,6 +3966,36 @@ Procedure Main()
         
         EnemyGalaxyAI(@player, @enemyTemplate, @cs)
         EndIf
+      ElseIf cmd = "warp"
+        If gDocked
+          PrintN("You are docked. Use UNDOCK first.")
+        ElseIf gWarpCooldown > 0
+          PrintN("Warp engines recharging. " + Str(gWarpCooldown) + " turn(s) remaining.")
+        ElseIf player\dilithium < 5
+          PrintN("Insufficient dilithium. Need 5 to warp.")
+        Else
+          Protected warpX.i = ParseIntSafe(TokenAt(line, 2), -1)
+          Protected warpY.i = ParseIntSafe(TokenAt(line, 3), -1)
+          If warpX < 0 Or warpX >= #GALAXY_W Or warpY < 0 Or warpY >= #GALAXY_H
+            PrintN("Invalid coordinates. Use: WARP x y (e.g., WARP 3 2) for galaxy coordinates 0-" + Str(#GALAXY_W-1) + ",0-" + Str(#GALAXY_H-1))
+          ElseIf warpX = gMapX And warpY = gMapY
+            PrintN("Already in that galaxy location. Use NAV to move within the sector.")
+          Else
+            SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode)
+            player\dilithium - 5
+            gWarpCooldown = 10
+            gMapX = warpX
+            gMapY = warpY
+            gx = Random(#MAP_W - 1)
+            gy = Random(#MAP_H - 1)
+            PrintN("Warping to galaxy (" + Str(warpX) + "," + Str(warpY) + ")!")
+            LogLine("WARP: to galaxy " + Str(warpX) + "," + Str(warpY))
+          EndIf
+        EndIf
+        CheckMissionCompletion(@player)
+        DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
+        EnemyGalaxyAI(@player, @enemyTemplate, @cs)
+        RedrawGalaxy(@player)
       ElseIf cmd = "mine"
         If gDocked
           PrintN("You are docked. Use UNDOCK first.")
@@ -3955,7 +4060,29 @@ Procedure Main()
           PrintN("You are not docked.")
         Else
           gDocked = 0
-          PrintN("Undocking...")
+          ; Find an empty adjacent spot to undock to
+          Protected foundEmpty.i = 0
+          Protected dx.i, dy.i
+          For dy = -1 To 1
+            For dx = -1 To 1
+              If dx = 0 And dy = 0 : Continue : EndIf
+              Protected nx.i = gx + dx
+              Protected ny.i = gy + dy
+              If nx >= 0 And nx < #MAP_W And ny >= 0 And ny < #MAP_H
+                If gGalaxy(gMapX, gMapY, nx, ny)\entType = #ENT_EMPTY
+                  gx = nx
+                  gy = ny
+                  foundEmpty = 1
+                  Break 2
+                EndIf
+              EndIf
+            Next
+          Next
+          If foundEmpty
+            PrintN("Undocking...")
+          Else
+            PrintN("Undocking... (no empty space, staying put)")
+          EndIf
         EndIf
         RedrawGalaxy(@player)
       ElseIf cmd = "refuel"
@@ -4021,42 +4148,115 @@ Procedure Main()
         RedrawGalaxy(@player)
       ElseIf cmd = "spawnyard"
         Protected spawnX.i = -1, spawnY.i = 0
-        For spawnY = 0 To #MAP_H - 1
-          For spawnX = 0 To #MAP_W - 1
-            If gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_EMPTY
-              gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_SHIPYARD
-              gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Shipyard-" + Str(gMapX) + "-" + Str(gMapY)
-              LogLine("CHEAT: spawnyard at " + Str(spawnX) + "," + Str(spawnY))
-              PrintN("Cheat activated: Shipyard spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
-              Break 2
-            EndIf
-          Next
-        Next
+        Protected attempts.i = 0
+        While attempts < 50 And spawnX = -1
+          spawnX = Random(#MAP_W - 1)
+          spawnY = Random(#MAP_H - 1)
+          If gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_EMPTY
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_SHIPYARD
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Shipyard-" + Str(gMapX) + "-" + Str(gMapY)
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\spawned = 1
+            LogLine("CHEAT: spawnyard at " + Str(spawnX) + "," + Str(spawnY))
+            PrintN("Cheat activated: Shipyard spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
+          Else
+            spawnX = -1
+          EndIf
+          attempts + 1
+        Wend
         If spawnX = -1
           PrintN("No empty space in sector!")
         EndIf
         RedrawGalaxy(@player)
       ElseIf cmd = "spawnbase"
         spawnX = -1
-        For spawnY = 0 To #MAP_H - 1
-          For spawnX = 0 To #MAP_W - 1
-            If gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_EMPTY
-              gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_BASE
-              gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Starbase-" + Str(gMapX) + "-" + Str(gMapY)
-              LogLine("CHEAT: spawnbase at " + Str(spawnX) + "," + Str(spawnY))
-              PrintN("Cheat activated: Starbase spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
-              Break 2
-            EndIf
-          Next
-        Next
+        attempts = 0
+        While attempts < 50 And spawnX = -1
+          spawnX = Random(#MAP_W - 1)
+          spawnY = Random(#MAP_H - 1)
+          If gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_EMPTY
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_BASE
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Starbase-" + Str(gMapX) + "-" + Str(gMapY)
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\spawned = 1
+            LogLine("CHEAT: spawnbase at " + Str(spawnX) + "," + Str(spawnY))
+            PrintN("Cheat activated: Starbase spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
+          Else
+            spawnX = -1
+          EndIf
+          attempts + 1
+        Wend
         If spawnX = -1
           PrintN("No empty space in sector!")
         EndIf
         RedrawGalaxy(@player)
-      ElseIf cmd = "quit"
-        Protected confirm.i = MessageRequester("Starship Sim", "Are you sure you want to exit?", #PB_MessageRequester_YesNoCancel)
+      ElseIf cmd = "spawncluster"
+        spawnX = -1
+        attempts = 0
+        While attempts < 50 And spawnX = -1
+          spawnX = Random(#MAP_W - 1)
+          spawnY = Random(#MAP_H - 1)
+          If gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_EMPTY
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_DILITHIUM
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Dilithium Cluster"
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\richness = 5 + Random(10)
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\spawned = 1
+            LogLine("CHEAT: spawncluster at " + Str(spawnX) + "," + Str(spawnY))
+            PrintN("Cheat activated: Dilithium cluster spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
+          Else
+            spawnX = -1
+          EndIf
+          attempts + 1
+        Wend
+        If spawnX = -1
+          PrintN("No empty space in sector!")
+        EndIf
+        RedrawGalaxy(@player)
+      ElseIf cmd = "spawnwormhole"
+        spawnX = -1
+        attempts = 0
+        While attempts < 50 And spawnX = -1
+          spawnX = Random(#MAP_W - 1)
+          spawnY = Random(#MAP_H - 1)
+          If gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_EMPTY
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_WORMHOLE
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Wormhole"
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\spawned = 1
+            LogLine("CHEAT: spawnwormhole at " + Str(spawnX) + "," + Str(spawnY))
+            PrintN("Cheat activated: Wormhole spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
+          Else
+            spawnX = -1
+          EndIf
+          attempts + 1
+        Wend
+        If spawnX = -1
+          PrintN("No empty space in sector!")
+        EndIf
+        RedrawGalaxy(@player)
+      ElseIf cmd = "removespawn"
+        If CurCell(gx, gy)\spawned = 1
+          Protected removedType.i = CurCell(gx, gy)\entType
+          CurCell(gx, gy)\entType = #ENT_EMPTY
+          CurCell(gx, gy)\name = ""
+          CurCell(gx, gy)\spawned = 0
+          Select removedType
+            Case #ENT_BASE
+              PrintN("Spawned starbase removed.")
+            Case #ENT_SHIPYARD
+              PrintN("Spawned shipyard removed.")
+            Case #ENT_DILITHIUM
+              PrintN("Spawned dilithium cluster removed.")
+            Case #ENT_WORMHOLE
+              PrintN("Spawned wormhole removed.")
+          EndSelect
+          LogLine("CHEAT: removespawn at " + Str(gx) + "," + Str(gy))
+        Else
+          PrintN("No spawned object here to remove.")
+        EndIf
+        RedrawGalaxy(@player)
+      ElseIf cmd = "quit" Or cmd = "exit"
+        Protected confirm.i = MessageRequester("Starship Sim", "Are you sure you want to exit?", #PB_MessageRequester_YesNo)
         If confirm = #PB_MessageRequester_Yes
-          Break
+          CloseConsole()
+          End
         Else
           RedrawGalaxy(@player)
         EndIf
@@ -4089,6 +4289,11 @@ Procedure Main()
             LogLine("AUTOSAVE: saved at turn " + Str(gAutosaveCounter))
             gAutosaveCounter = 0
           EndIf
+        EndIf
+        
+        ; Handle warp cooldown
+        If gWarpCooldown > 0
+          gWarpCooldown - 1
         EndIf
       EndIf
 
@@ -4174,8 +4379,9 @@ Procedure Main()
         PrintStatusTactical(@player, @enemy, @cs)
       ElseIf cmd = "end"
         ; no-op
-      ElseIf cmd = "quit"
-        Break
+      ElseIf cmd = "quit" Or cmd = "exit"
+        CloseConsole()
+        End
       Else
         PrintN("Unknown command. Type HELP.")
         Continue
@@ -4269,12 +4475,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,1
-; VersionField1 = 1,0,1,1
+; VersionField0 = 1,0,1,5
+; VersionField1 = 1,0,1,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.1.1
-; VersionField5 = 1.0.1.1
+; VersionField4 = 1.0.1.5
+; VersionField5 = 1.0.1.5
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
