@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.0.4"
+Global version.s = "v1.0.0.6"
 
 ; Forward declarations (PureBasic requires declaring procedures used before definition)
 Declare.s Timestamp()
@@ -121,6 +121,7 @@ Enumeration
   #ENT_WORMHOLE
   #ENT_BLACKHOLE
   #ENT_SUN
+  #ENT_DILITHIUM
   ; Keep appended to preserve save-game entType values
   #ENT_SHIPYARD
 EndEnumeration
@@ -186,6 +187,8 @@ Structure Ship
   fuel.i
   oreMax.i
   ore.i
+  dilithiumMax.i
+  dilithium.i
 
   allocShields.i
   allocWeapons.i
@@ -489,6 +492,7 @@ Procedure DefaultShipsIniText()
   gShipsText + "WeaponCapMax=240" + Chr(10)
   gShipsText + "FuelMax=120" + Chr(10)
   gShipsText + "OreMax=60" + Chr(10)
+  gShipsText + "DilithiumMax=20" + Chr(10)
   gShipsText + "AllocShields=40" + Chr(10)
   gShipsText + "AllocWeapons=40" + Chr(10)
   gShipsText + "AllocEngines=20" + Chr(10)
@@ -704,7 +708,8 @@ Procedure PrintLegendLine(indent.s)
   ConsoleColor(#C_LIGHTRED, #C_BLACK) : Print("E") : ResetColor() : Print("=Enemy ")
   ConsoleColor(#C_LIGHTMAGENTA, #C_BLACK) : Print("#") : ResetColor() : Print("=Wormhole ")
   ConsoleColor(#C_WHITE, #C_BLACK) : Print("?") : ResetColor() : Print("=BlackHole ")
-  ConsoleColor(#C_BROWN, #C_BLACK) : Print("S") : ResetColor() : PrintN("=Sun(blocked)")
+  ConsoleColor(#C_BROWN, #C_BLACK) : Print("S") : ResetColor() : Print("=Sun(blocked) ")
+  ConsoleColor(#C_MAGENTA, #C_BLACK) : Print("D") : ResetColor() : PrintN("=Dilithium")
 EndProcedure
 
 Procedure SetColorForEnt(t.i)
@@ -728,6 +733,8 @@ Procedure SetColorForEnt(t.i)
     Case #ENT_SUN
       ; Approx orange
       ConsoleColor(#C_BROWN, #C_BLACK)
+    Case #ENT_DILITHIUM
+      ConsoleColor(#C_MAGENTA, #C_BLACK)
     Default
       ResetColor()
   EndSelect
@@ -781,7 +788,12 @@ Procedure PrintHelpGalaxy()
   PrintN("")
   PrintCmd("MINE")
   PrintN("    Mine ore when in a planet sector (O), costs 2 fuel")
+  PrintN("    Can also mine dilithium crystals (D)")
   PrintN("    Example: MINE")
+  PrintN("")
+  PrintCmd("REFUEL")
+  PrintN("    Convert dilithium crystals to fuel (10 fuel per crystal)")
+  PrintN("    Example: REFUEL")
   PrintN("")
   PrintCmd("DOCK")
   PrintN("    Dock when in a starbase (%) or shipyard (+): repair/refuel/rearm")
@@ -877,6 +889,7 @@ Procedure.i SaveGame(*p.Ship)
                   Str(*p\weaponCapMax) + "|" + Str(*p\weaponCap) + "|" +
                   Str(*p\fuelMax) + "|" + Str(*p\fuel) + "|" +
                   Str(*p\oreMax) + "|" + Str(*p\ore) + "|" +
+                  Str(*p\dilithiumMax) + "|" + Str(*p\dilithium) + "|" +
                   Str(*p\allocShields) + "|" + Str(*p\allocWeapons) + "|" + Str(*p\allocEngines) + "|" +
                   Str(*p\sysEngines) + "|" + Str(*p\sysWeapons) + "|" + Str(*p\sysShields))
 
@@ -970,12 +983,17 @@ Procedure.i LoadGame(*p.Ship)
         *p\fuel        = Val(StringField(line, 19, "|"))
         *p\oreMax      = Val(StringField(line, 20, "|"))
         *p\ore         = Val(StringField(line, 21, "|"))
-        *p\allocShields= Val(StringField(line, 22, "|"))
-        *p\allocWeapons= Val(StringField(line, 23, "|"))
-        *p\allocEngines= Val(StringField(line, 24, "|"))
-        *p\sysEngines  = Val(StringField(line, 25, "|"))
-        *p\sysWeapons  = Val(StringField(line, 26, "|"))
-        *p\sysShields  = Val(StringField(line, 27, "|"))
+        *p\dilithiumMax = Val(StringField(line, 22, "|"))
+        *p\dilithium   = Val(StringField(line, 23, "|"))
+        *p\allocShields= Val(StringField(line, 24, "|"))
+        *p\allocWeapons= Val(StringField(line, 25, "|"))
+        *p\allocEngines= Val(StringField(line, 26, "|"))
+        *p\sysEngines  = Val(StringField(line, 27, "|"))
+        *p\sysWeapons  = Val(StringField(line, 28, "|"))
+        *p\sysShields  = Val(StringField(line, 29, "|"))
+        ; Backward compatibility: ensure dilithium fields exist
+        If *p\dilithiumMax <= 0 : *p\dilithiumMax = 20 : EndIf
+        If *p\dilithium > *p\dilithiumMax : *p\dilithium = *p\dilithiumMax : EndIf
       Case "mission"
         gMission\active        = Val(StringField(line, 2, "|"))
         gMission\type          = Val(StringField(line, 3, "|"))
@@ -1092,6 +1110,7 @@ Procedure.i LoadShip(section.s, *s.Ship)
   *s\weaponCapMax= IniGetLong(section, "WeaponCapMax", *s\reactorMax)
   *s\fuelMax     = IniGetLong(section, "FuelMax", 100)
   *s\oreMax      = IniGetLong(section, "OreMax", 50)
+  *s\dilithiumMax = IniGetLong(section, "DilithiumMax", 20)
 
   *s\allocShields = IniGetLong(section, "AllocShields", 40)
   *s\allocWeapons = IniGetLong(section, "AllocWeapons", 40)
@@ -1112,6 +1131,7 @@ Procedure.i LoadShip(section.s, *s.Ship)
   *s\weaponCapMax= ClampInt(*s\weaponCapMax, 10, 1200)
   *s\fuelMax     = ClampInt(*s\fuelMax, 10, 600)
   *s\oreMax      = ClampInt(*s\oreMax, 0, 250)
+  *s\dilithiumMax = ClampInt(*s\dilithiumMax, 0, 50)
 
   *s\allocShields = ClampInt(*s\allocShields, 0, 100)
   *s\allocWeapons = ClampInt(*s\allocWeapons, 0, 100)
@@ -1128,6 +1148,7 @@ Procedure.i LoadShip(section.s, *s.Ship)
   *s\weaponCap = *s\weaponCapMax / 2
   *s\fuel      = *s\fuelMax
   *s\ore       = 0
+  *s\dilithium = 0
 
   *s\sysEngines = #SYS_OK
   *s\sysWeapons = #SYS_OK
@@ -1178,7 +1199,11 @@ Procedure PrintStatusGalaxy(*p.Ship)
   ResetColor()
   Print("  Ore: ")
   ConsoleColor(#C_BROWN, #C_BLACK)
-  PrintN(Str(*p\ore) + "/" + Str(*p\oreMax))
+  Print(Str(*p\ore) + "/" + Str(*p\oreMax))
+  ResetColor()
+  Print("  Dilithium: ")
+  ConsoleColor(#C_MAGENTA, #C_BLACK)
+  PrintN(Str(*p\dilithium) + "/" + Str(*p\dilithiumMax))
   ResetColor()
   PrintN("Ship: " + *p\name + " [" + *p\class + "]")
   Print("  Hull: ")
@@ -1670,7 +1695,7 @@ Procedure EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
                 ProcedureReturn
               EndIf
               
-              If ent = #ENT_BASE Or ent = #ENT_PLANET Or ent = #ENT_WORMHOLE Or ent = #ENT_SHIPYARD
+              If ent = #ENT_BASE Or ent = #ENT_PLANET Or ent = #ENT_WORMHOLE Or ent = #ENT_SHIPYARD Or ent = #ENT_DILITHIUM
                 If targetFound = 0 Or Random(1) = 0
                   targetFound = 1
                   targetX = nx
@@ -1742,6 +1767,7 @@ Procedure.s EntSymbol(t.i)
     Case #ENT_WORMHOLE: ProcedureReturn "#"
     Case #ENT_BLACKHOLE: ProcedureReturn "?"
     Case #ENT_SUN: ProcedureReturn "S"
+    Case #ENT_DILITHIUM: ProcedureReturn "D"
   EndSelect
   ProcedureReturn "?"
 EndProcedure
@@ -1983,6 +2009,17 @@ Procedure GenerateSectorMap(mapX.i, mapY.i)
     If gGalaxy(mapX, mapY, px, py)\entType = #ENT_EMPTY
       gGalaxy(mapX, mapY, px, py)\entType = #ENT_BLACKHOLE
       gGalaxy(mapX, mapY, px, py)\name = "Black hole"
+    EndIf
+  EndIf
+
+  ; Dilithium crystals (rare, valuable for power)
+  If Random(99) < 8
+    px = Random(#MAP_W - 1)
+    py = Random(#MAP_H - 1)
+    If gGalaxy(mapX, mapY, px, py)\entType = #ENT_EMPTY
+      gGalaxy(mapX, mapY, px, py)\entType = #ENT_DILITHIUM
+      gGalaxy(mapX, mapY, px, py)\name = "Dilithium Cluster"
+      gGalaxy(mapX, mapY, px, py)\richness = 3 + Random(8)
     EndIf
   EndIf
 EndProcedure
@@ -2624,28 +2661,49 @@ Procedure DockAtBase(*p.Ship)
 EndProcedure
 
 Procedure MinePlanet(*p.Ship)
-  If CurCell(gx, gy)\entType <> #ENT_PLANET
-    PrintN("No planet in this sector.")
-    ProcedureReturn
-  EndIf
-  If *p\fuel < 2
-    PrintN("Insufficient fuel for mining operations.")
-    ProcedureReturn
-  EndIf
-  If *p\ore >= *p\oreMax
-    PrintN("Ore holds are full.")
-    ProcedureReturn
-  EndIf
+  If CurCell(gx, gy)\entType = #ENT_PLANET
+    If *p\fuel < 2
+      PrintN("Insufficient fuel for mining operations.")
+      ProcedureReturn
+    EndIf
+    If *p\ore >= *p\oreMax
+      PrintN("Ore holds are full.")
+      ProcedureReturn
+    EndIf
 
-  Protected rmax.i = CurCell(gx, gy)\richness
-  If rmax < 0 : rmax = 0 : EndIf
-  Protected pull.i = 1 + Random(rmax)
-  pull = ClampInt(pull, 1, 20)
-  Protected space.i = *p\oreMax - *p\ore
-  If pull > space : pull = space : EndIf
-  *p\ore + pull
-  *p\fuel - 2
-  LogLine("MINE: +" + Str(pull) + " ore")
+    Protected rmax.i = CurCell(gx, gy)\richness
+    If rmax < 0 : rmax = 0 : EndIf
+    Protected pull.i = 1 + Random(rmax)
+    pull = ClampInt(pull, 1, 20)
+    Protected space.i = *p\oreMax - *p\ore
+    If pull > space : pull = space : EndIf
+    *p\ore + pull
+    *p\fuel - 2
+    LogLine("MINE: +" + Str(pull) + " ore")
+    PrintN("Mined " + Str(pull) + " ore.")
+  ElseIf CurCell(gx, gy)\entType = #ENT_DILITHIUM
+    If *p\fuel < 2
+      PrintN("Insufficient fuel for mining operations.")
+      ProcedureReturn
+    EndIf
+    If *p\dilithium >= *p\dilithiumMax
+      PrintN("Dilithium holds are full.")
+      ProcedureReturn
+    EndIf
+
+    Protected drmax.i = CurCell(gx, gy)\richness
+    If drmax < 0 : drmax = 0 : EndIf
+    Protected dpull.i = 1 + Random(drmax)
+    dpull = ClampInt(dpull, 1, 8)
+    Protected dspace.i = *p\dilithiumMax - *p\dilithium
+    If dpull > dspace : dpull = dspace : EndIf
+    *p\dilithium + dpull
+    *p\fuel - 2
+    LogLine("MINE: +" + Str(dpull) + " dilithium")
+    PrintN("Mined " + Str(dpull) + " dilithium crystals.")
+  Else
+    PrintN("No mineable resource in this sector (need Planet O or Dilithium D).")
+  EndIf
 EndProcedure
 
 Procedure DockAtShipyard(*p.Ship, *base.Ship)
@@ -2670,11 +2728,30 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
     PrintN("Shipyard: " + CurCell(gx, gy)\name)
     PrintN("Credits: " + Str(gCredits))
     PrintN("")
+    PrintN("HULL & STRUCTURE:")
     PrintN("1) Reinforced Hull  (+20 HullMax)     cost 120")
-    PrintN("2) Shield Grid      (+20 ShieldsMax)  cost 140")
-    PrintN("3) Reactor Upgrade  (+30 ReactorMax)  cost 180")
-    PrintN("4) Torpedo Racks    (+4 TorpMax)      cost 110")
+    PrintN("2) Ablative Armor   (+15 HullMax)     cost 100")
+    PrintN("")
+    PrintN("SHIELDS:")
+    PrintN("3) Shield Grid      (+20 ShieldsMax)  cost 140")
+    PrintN("4) Shield Emitters  (+15 ShieldsMax)  cost 110")
+    PrintN("")
+    PrintN("WEAPONS:")
     PrintN("5) Phaser Banks     (+1 PhaserBanks)  cost 160")
+    PrintN("6) Torpedo Racks    (+4 TorpMax)      cost 110")
+    PrintN("7) Torpedo Tubes   (+1 TorpTubes)    cost 200")
+    PrintN("8) Targeting Matrix (+5 SensorRange)  cost 130")
+    PrintN("")
+    PrintN("PROPULSION:")
+    PrintN("9) Warp Core        (+1.0 WarpMax)    cost 250")
+    PrintN("A) Impulse Engines  (+0.3 ImpulseMax) cost 150")
+    PrintN("B) Fuel Tanks       (+25 FuelMax)     cost 100")
+    PrintN("")
+    PrintN("POWER & CARGO:")
+    PrintN("C) Reactor Upgrade  (+30 ReactorMax)   cost 180")
+    PrintN("D) Dilithium Bay   (+10 DilithiumMax)cost 90")
+    PrintN("E) Cargo Hold      (+20 OreMax)      cost 80")
+    PrintN("")
     PrintN("0) Leave")
     Print("")
     Print("YARD> ")
@@ -2692,6 +2769,14 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         LogLine("UPGRADE: hull +20 (-" + Str(cost) + ")")
         PrintN("Upgrade installed.")
       Case "2"
+        cost = 100
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        *p\hullMax = ClampInt(*p\hullMax + 15, 10, 800)
+        *p\hull = *p\hullMax
+        LogLine("UPGRADE: armor +15 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed.")
+      Case "3"
         cost = 140
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
         gCredits - cost
@@ -2699,7 +2784,67 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         *p\shields = *p\shieldsMax
         LogLine("UPGRADE: shields +20 (-" + Str(cost) + ")")
         PrintN("Upgrade installed.")
-      Case "3"
+      Case "4"
+        cost = 110
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        *p\shieldsMax = ClampInt(*p\shieldsMax + 15, 0, 800)
+        *p\shields = *p\shieldsMax
+        LogLine("UPGRADE: emitters +15 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed.")
+      Case "5"
+        cost = 160
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        *p\phaserBanks = ClampInt(*p\phaserBanks + 1, 0, 30)
+        LogLine("UPGRADE: phasers +1 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed.")
+      Case "6"
+        cost = 110
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        *p\torpMax = ClampInt(*p\torpMax + 4, 0, 80)
+        *p\torp = ClampInt(*p\torp + 4, 0, *p\torpMax)
+        LogLine("UPGRADE: torpMax +4 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed.")
+      Case "7"
+        cost = 200
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        *p\torpTubes = ClampInt(*p\torpTubes + 1, 1, 6)
+        If *p\torpTubes > *p\torpMax : *p\torpTubes = *p\torpMax : EndIf
+        LogLine("UPGRADE: tubes +1 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed.")
+      Case "8"
+        cost = 130
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        *p\sensorRange = ClampInt(*p\sensorRange + 5, 1, 60)
+        LogLine("UPGRADE: sensors +5 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed.")
+      Case "9"
+        cost = 250
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        *p\warpMax = ClampF(*p\warpMax + 1.0, 0.0, 12.0)
+        LogLine("UPGRADE: warp +1.0 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed.")
+      Case "a"
+        cost = 150
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        *p\impulseMax = ClampF(*p\impulseMax + 0.3, 0.0, 2.5)
+        LogLine("UPGRADE: impulse +0.3 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed.")
+      Case "b"
+        cost = 100
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        *p\fuelMax = ClampInt(*p\fuelMax + 25, 10, 600)
+        *p\fuel = *p\fuelMax
+        LogLine("UPGRADE: fuel +25 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed.")
+      Case "c"
         cost = 180
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
         gCredits - cost
@@ -2708,20 +2853,19 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         *p\weaponCap = ClampInt(*p\weaponCap, 0, *p\weaponCapMax)
         LogLine("UPGRADE: reactor +30 (-" + Str(cost) + ")")
         PrintN("Upgrade installed.")
-      Case "4"
-        cost = 110
+      Case "d"
+        cost = 90
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
         gCredits - cost
-        *p\torpMax = ClampInt(*p\torpMax + 4, 0, 80)
-        *p\torp = ClampInt(*p\torp + 4, 0, *p\torpMax)
-        LogLine("UPGRADE: torpMax +4 (-" + Str(cost) + ")")
+        *p\dilithiumMax = ClampInt(*p\dilithiumMax + 10, 0, 50)
+        LogLine("UPGRADE: dilithium +10 (-" + Str(cost) + ")")
         PrintN("Upgrade installed.")
-      Case "5"
-        cost = 160
+      Case "e"
+        cost = 80
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
         gCredits - cost
-        *p\phaserBanks = ClampInt(*p\phaserBanks + 1, 0, 30)
-        LogLine("UPGRADE: phasers +1 (-" + Str(cost) + ")")
+        *p\oreMax = ClampInt(*p\oreMax + 20, 0, 250)
+        LogLine("UPGRADE: cargo +20 (-" + Str(cost) + ")")
         PrintN("Upgrade installed.")
       Default
         PrintN("Unknown selection.")
@@ -3110,6 +3254,30 @@ Procedure Main()
         DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         EnemyGalaxyAI(@player, @enemyTemplate, @cs)
         RedrawGalaxy(@player)
+      ElseIf cmd = "refuel"
+        If player\dilithium <= 0
+          PrintN("No dilithium crystals to convert to fuel.")
+        ElseIf player\fuel >= player\fuelMax
+          PrintN("Fuel tanks already full.")
+        Else
+          Protected convert.i = 1
+          Protected fuelNeeded.i = player\fuelMax - player\fuel
+          If fuelNeeded < 10
+            convert = 1
+          ElseIf fuelNeeded >= 30
+            convert = 3
+          Else
+            convert = 2
+          EndIf
+          If convert > player\dilithium : convert = player\dilithium : EndIf
+          If convert > fuelNeeded / 10 : convert = (fuelNeeded + 9) / 10 : EndIf
+          player\dilithium - convert
+          player\fuel + (convert * 10)
+          If player\fuel > player\fuelMax : player\fuel = player\fuelMax : EndIf
+          LogLine("REFUEL: converted " + Str(convert) + " dilithium (+" + Str(convert * 10) + " fuel)")
+          PrintN("Converted " + Str(convert) + " dilithium crystals to " + Str(convert * 10) + " fuel.")
+        EndIf
+        RedrawGalaxy(@player)
       ElseIf cmd = "dock"
         If CurCell(gx, gy)\entType = #ENT_SHIPYARD
           DockAtShipyard(@player, @enemyTemplate)
@@ -3330,12 +3498,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,4
-; VersionField1 = 1,0,0,4
+; VersionField0 = 1,0,0,6
+; VersionField1 = 1,0,0,6
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.0.4
-; VersionField5 = 1.0.0.4
+; VersionField4 = 1.0.0.6
+; VersionField5 = 1.0.0.6
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
