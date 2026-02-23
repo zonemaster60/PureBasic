@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.1.5"
+Global version.s = "v1.0.1.6"
 
 ; Forward declarations (PureBasic requires declaring procedures used before definition)
 Declare.s Timestamp()
@@ -130,6 +130,7 @@ Enumeration
   #ENT_DILITHIUM
   ; Keep appended to preserve save-game entType values
   #ENT_SHIPYARD
+  #ENT_ANOMALY
 EndEnumeration
 
 Enumeration
@@ -319,6 +320,10 @@ Global gAutosaveCounter.i = 0
 
 ; Warp system
 Global gWarpCooldown.i = 0  ; turns until next warp
+
+; Anomaly effects
+Global gIonStormTurns.i = 0  ; ion storm reduces shields
+Global gRadiationTurns.i = 0  ; radiation lowers crew rank
 
 Global Dim gLog.s(11)
 Global gLogPos.i = 0
@@ -812,7 +817,7 @@ Procedure PrintLegendLine(indent.s)
   ConsoleColor(#C_WHITE, #C_BLACK) : Print("?") : ResetColor() : Print("=BlackHole ")
   ConsoleColor(#C_BROWN, #C_BLACK) : Print("S") : ResetColor() : Print("=Sun(blocked) ")
   ConsoleColor(#C_MAGENTA, #C_BLACK) : Print("D") : ResetColor() : Print("=Dilithium ")
-  ConsoleColor(#C_BROWN, #C_BLACK) : Print("Ore") : ResetColor() : PrintN("=cargo")
+  ConsoleColor(#C_LIGHTBLUE, #C_BLACK) : Print("A") : ResetColor() : PrintN("=Anomaly")
 EndProcedure
 
 Procedure SetColorForEnt(t.i)
@@ -838,6 +843,8 @@ Procedure SetColorForEnt(t.i)
       ConsoleColor(#C_BROWN, #C_BLACK)
     Case #ENT_DILITHIUM
       ConsoleColor(#C_MAGENTA, #C_BLACK)
+    Case #ENT_ANOMALY
+      ConsoleColor(#C_CYAN, #C_BLACK)
     Default
       ResetColor()
   EndSelect
@@ -942,8 +949,11 @@ Procedure PrintHelpGalaxy()
   PrintCmd("SPAWNWORMHOLE")
   PrintN("    Cheat: spawn a wormhole in current sector")
   PrintN("")
+  PrintCmd("SPAWNANOMALY")
+  PrintN("    Cheat: spawn a spatial anomaly in current sector")
+  PrintN("")
   PrintCmd("REMOVESPAWN")
-  PrintN("    Remove spawned objects (base, yard, cluster, wormhole)")
+  PrintN("    Remove spawned objects (base, yard, cluster, wormhole, anomaly)")
   PrintN("")
   PrintCmd("SAVE")
   PrintN("    Save game to file")
@@ -1568,6 +1578,16 @@ Procedure PrintStatusGalaxy(*p.Ship)
   If gWarpCooldown > 0
     ConsoleColor(#C_YELLOW, #C_BLACK)
     PrintN("  Warp ready in " + Str(gWarpCooldown) + " turn(s)")
+    ResetColor()
+  EndIf
+  If gIonStormTurns > 0
+    ConsoleColor(#C_YELLOW, #C_BLACK)
+    PrintN("  !! ION STORM: shields reduced for " + Str(gIonStormTurns) + " turn(s) !!")
+    ResetColor()
+  EndIf
+  If gRadiationTurns > 0
+    ConsoleColor(#C_YELLOW, #C_BLACK)
+    PrintN("  !! RADIATION: crew effectiveness reduced for " + Str(gRadiationTurns) + " turn(s) !!")
     ResetColor()
   EndIf
   Print("  Hull: ")
@@ -2263,6 +2283,7 @@ Procedure.s EntSymbol(t.i)
     Case #ENT_BLACKHOLE: ProcedureReturn "?"
     Case #ENT_SUN: ProcedureReturn "S"
     Case #ENT_DILITHIUM: ProcedureReturn "D"
+    Case #ENT_ANOMALY: ProcedureReturn "A"
   EndSelect
   ProcedureReturn "?"
 EndProcedure
@@ -2520,6 +2541,16 @@ Procedure GenerateSectorMap(mapX.i, mapY.i)
       gGalaxy(mapX, mapY, px, py)\richness = 3 + Random(8)
     EndIf
   EndIf
+
+  ; Anomalies (rare, random effects)
+  If Random(99) < 5
+    px = Random(#MAP_W - 1)
+    py = Random(#MAP_H - 1)
+    If gGalaxy(mapX, mapY, px, py)\entType = #ENT_EMPTY
+      gGalaxy(mapX, mapY, px, py)\entType = #ENT_ANOMALY
+      gGalaxy(mapX, mapY, px, py)\name = "Spatial Anomaly"
+    EndIf
+  EndIf
 EndProcedure
 
 Procedure GenerateGalaxy()
@@ -2654,9 +2685,9 @@ Procedure PrintMap()
 
   PrintLegendLine("Legend: ")
   Print("Galaxy: ")
-  ConsoleColor(#C_WHITE, #C_BLACK) : Print("X") : ResetColor() : Print("=Current map  ")
-  ConsoleColor(#C_YELLOW, #C_BLACK) : Print("M") : ResetColor() : PrintN("=Mission map")
-  PrintN("Sector: ! = Mission target")
+  ConsoleColor(#C_WHITE, #C_BLACK) : Print("X") : ResetColor() : Print("=Current map ")
+  ConsoleColor(#C_YELLOW, #C_BLACK) : Print("M") : ResetColor() : Print("=Mission map ")
+  ConsoleColor(#C_YELLOW, #C_BLACK) : Print("!") : ResetColor() : PrintN("=Mission target")
   PrintDivider()
 EndProcedure
 
@@ -3615,6 +3646,26 @@ Procedure Nav(*p.Ship, dir.s, steps.i)
           Break
         EndIf
       EndIf
+      
+      ; Anomaly effects
+      If CurCell(gx, gy)\entType = #ENT_ANOMALY
+        Protected anomalyRoll.i = Random(99)
+        If anomalyRoll < 40
+          ; Ion storm - reduces shields
+          gIonStormTurns = 1 + Random(4)
+          *p\shields = Int(*p\shields / 2)
+          PrintN("WARNING: Ion storm detected! Shields scrambled.")
+          LogLine("ANOMALY: ion storm - " + Str(gIonStormTurns) + " turns")
+        ElseIf anomalyRoll < 70
+          ; Radiation - lowers crew rank
+          gRadiationTurns = 1 + Random(4)
+          PrintN("WARNING: Radiation anomaly! Crew effectiveness reduced.")
+          LogLine("ANOMALY: radiation - " + Str(gRadiationTurns) + " turns")
+        Else
+          PrintN("Sensors detect anomalous readings. No immediate effect.")
+        EndIf
+      EndIf
+      
       If ApplyGravityWell(*p)
         ; Pulled into a hazard; process arrival next loop iteration.
         Continue
@@ -4231,6 +4282,27 @@ Procedure Main()
           PrintN("No empty space in sector!")
         EndIf
         RedrawGalaxy(@player)
+      ElseIf cmd = "spawnanomaly"
+        spawnX = -1
+        attempts = 0
+        While attempts < 50 And spawnX = -1
+          spawnX = Random(#MAP_W - 1)
+          spawnY = Random(#MAP_H - 1)
+          If gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_EMPTY
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_ANOMALY
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Spatial Anomaly"
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\spawned = 1
+            LogLine("CHEAT: spawnanomaly at " + Str(spawnX) + "," + Str(spawnY))
+            PrintN("Cheat activated: Anomaly spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
+          Else
+            spawnX = -1
+          EndIf
+          attempts + 1
+        Wend
+        If spawnX = -1
+          PrintN("No empty space in sector!")
+        EndIf
+        RedrawGalaxy(@player)
       ElseIf cmd = "removespawn"
         If CurCell(gx, gy)\spawned = 1
           Protected removedType.i = CurCell(gx, gy)\entType
@@ -4246,6 +4318,8 @@ Procedure Main()
               PrintN("Spawned dilithium cluster removed.")
             Case #ENT_WORMHOLE
               PrintN("Spawned wormhole removed.")
+            Case #ENT_ANOMALY
+              PrintN("Spawned anomaly removed.")
           EndSelect
           LogLine("CHEAT: removespawn at " + Str(gx) + "," + Str(gy))
         Else
@@ -4294,6 +4368,14 @@ Procedure Main()
         ; Handle warp cooldown
         If gWarpCooldown > 0
           gWarpCooldown - 1
+        EndIf
+        
+        ; Handle anomaly effects
+        If gIonStormTurns > 0
+          gIonStormTurns - 1
+        EndIf
+        If gRadiationTurns > 0
+          gRadiationTurns - 1
         EndIf
       EndIf
 
@@ -4465,7 +4547,8 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 12
+; CursorPosition = 2689
+; FirstLine = 2677
 ; Folding = -----------------
 ; Optimizer
 ; EnableThread
@@ -4475,12 +4558,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,5
-; VersionField1 = 1,0,1,5
+; VersionField0 = 1,0,1,6
+; VersionField1 = 1,0,1,6
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.1.5
-; VersionField5 = 1.0.1.5
+; VersionField4 = 1.0.1.6
+; VersionField5 = 1.0.1.6
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
