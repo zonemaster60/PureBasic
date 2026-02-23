@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.0.6"
+Global version.s = "v1.0.0.7"
 
 ; Forward declarations (PureBasic requires declaring procedures used before definition)
 Declare.s Timestamp()
@@ -702,14 +702,19 @@ Procedure PrintLegendLine(indent.s)
   ConsoleColor(#C_WHITE, #C_BLACK) : Print("@") : ResetColor() : Print("=You ")
   ConsoleColor(#C_DARKGRAY, #C_BLACK) : Print(".") : ResetColor() : Print("=Empty ")
   ConsoleColor(#C_LIGHTBLUE, #C_BLACK) : Print("O") : ResetColor() : Print("=Planet ")
-  ConsoleColor(#C_YELLOW, #C_BLACK) : Print("*") : ResetColor() : Print("=Star(blocked) ")
+  ConsoleColor(#C_YELLOW, #C_BLACK) : Print("*") : ResetColor() : Print("=Star(blocked)")
+  PrintN("")
+  Print(indent)
   ConsoleColor(#C_LIGHTCYAN, #C_BLACK) : Print("%") : ResetColor() : Print("=Base ")
   ConsoleColor(#C_GREEN, #C_BLACK) : Print("+") : ResetColor() : Print("=Shipyard ")
   ConsoleColor(#C_LIGHTRED, #C_BLACK) : Print("E") : ResetColor() : Print("=Enemy ")
-  ConsoleColor(#C_LIGHTMAGENTA, #C_BLACK) : Print("#") : ResetColor() : Print("=Wormhole ")
+  ConsoleColor(#C_LIGHTMAGENTA, #C_BLACK) : Print("#") : ResetColor() : Print("=Wormhole")
+  PrintN("")
+  Print(indent)
   ConsoleColor(#C_WHITE, #C_BLACK) : Print("?") : ResetColor() : Print("=BlackHole ")
   ConsoleColor(#C_BROWN, #C_BLACK) : Print("S") : ResetColor() : Print("=Sun(blocked) ")
-  ConsoleColor(#C_MAGENTA, #C_BLACK) : Print("D") : ResetColor() : PrintN("=Dilithium")
+  ConsoleColor(#C_MAGENTA, #C_BLACK) : Print("D") : ResetColor() : Print("=Dilithium ")
+  ConsoleColor(#C_BROWN, #C_BLACK) : Print("Ore") : ResetColor() : PrintN("=cargo")
 EndProcedure
 
 Procedure SetColorForEnt(t.i)
@@ -861,7 +866,7 @@ Procedure PrintAbout()
   PrintN(#APP_NAME + " - " + version)
   ResetColor()
   PrintN("-----------------------")
-  PrintN("Creator: David Scouten (zonemaster60")
+  PrintN("Creator: David Scouten (zonemaster60)")
   PrintN("Email: " + #EMAIL_NAME)
   PrintN("Website: https://github.com/zonemaster60")
   PrintDivider()
@@ -3498,12 +3503,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,6
-; VersionField1 = 1,0,0,6
+; VersionField0 = 1,0,0,7
+; VersionField1 = 1,0,0,7
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.0.6
-; VersionField5 = 1.0.0.6
+; VersionField4 = 1.0.0.7
+; VersionField5 = 1.0.0.7
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
