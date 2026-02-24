@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.1.6"
+Global version.s = "v1.0.2.0"
 
 ; Forward declarations (PureBasic requires declaring procedures used before definition)
 Declare.s Timestamp()
@@ -73,6 +73,7 @@ Declare PrintCrew(*s.Ship)
 Declare PlayerMove(*p.Ship, *cs.CombatState, dir.s, amount.i)
 Declare PlayerPhaser(*p.Ship, *e.Ship, *cs.CombatState, power.i)
 Declare PlayerTorpedo(*p.Ship, *e.Ship, *cs.CombatState, count.i)
+Declare PlayerTractor(*p.Ship, *e.Ship, *cs.CombatState, mode.s)
 Declare EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
 Declare EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
 Declare PrintScanTactical(*p.Ship, *e.Ship, *cs.CombatState)
@@ -111,6 +112,13 @@ Declare.i FindRandomCellOfType(entType.i, *outMapX.Integer, *outMapY.Integer, *o
 Declare.s LocText(mapX.i, mapY.i, x.i, y.i)
 Declare.i SaveGame(*p.Ship)
 Declare.i LoadGame(*p.Ship)
+
+; Crew recruitment
+Declare InitRecruitNames()
+Declare GenerateRecruits()
+Declare DismissCrew(*p.Ship, role.i)
+Declare RecruitCrew(*p.Ship, index.i)
+Declare.i CrewPositionFilled(*p.Ship, role.i)
 Declare Main()
 
 Enumeration
@@ -131,6 +139,7 @@ Enumeration
   ; Keep appended to preserve save-game entType values
   #ENT_SHIPYARD
   #ENT_ANOMALY
+  #ENT_PLANETKILLER
 EndEnumeration
 
 Enumeration
@@ -139,6 +148,7 @@ Enumeration
   #MIS_BOUNTY
   #MIS_SURVEY
   #MIS_DEFEND_YARD
+  #MIS_PLANETKILLER
 EndEnumeration
 
 Enumeration
@@ -164,6 +174,7 @@ EnumerationBinary
   #SYS_OK = 1
   #SYS_DAMAGED = 2
   #SYS_DISABLED = 4
+  #SYS_TRACTOR = 8  ; Tractor beam active this turn
 EndEnumeration
 
 #GALAXY_W = 10
@@ -228,6 +239,7 @@ Structure Ship
   sysEngines.i
   sysWeapons.i
   sysShields.i
+  sysTractor.i
   
   crew1.Crew
   crew2.Crew
@@ -324,6 +336,14 @@ Global gWarpCooldown.i = 0  ; turns until next warp
 ; Anomaly effects
 Global gIonStormTurns.i = 0  ; ion storm reduces shields
 Global gRadiationTurns.i = 0  ; radiation lowers crew rank
+
+; Crew recruitment system
+Global Dim gRecruitNames.s(3)
+Global Dim gRecruitRoles.s(3)
+Global gRecruitCount.i = 0
+
+Global Dim gFirstNames.s(30)
+Global Dim gLastNames.s(30)
 
 Global Dim gLog.s(11)
 Global gLogPos.i = 0
@@ -818,6 +838,8 @@ Procedure PrintLegendLine(indent.s)
   ConsoleColor(#C_BROWN, #C_BLACK) : Print("S") : ResetColor() : Print("=Sun(blocked) ")
   ConsoleColor(#C_MAGENTA, #C_BLACK) : Print("D") : ResetColor() : Print("=Dilithium ")
   ConsoleColor(#C_LIGHTBLUE, #C_BLACK) : Print("A") : ResetColor() : PrintN("=Anomaly")
+  Print(indent)
+  ConsoleColor(#C_LIGHTCYAN, #C_BLACK) : Print("<") : ResetColor() : PrintN("=Planet Killer")
 EndProcedure
 
 Procedure SetColorForEnt(t.i)
@@ -845,6 +867,8 @@ Procedure SetColorForEnt(t.i)
       ConsoleColor(#C_MAGENTA, #C_BLACK)
     Case #ENT_ANOMALY
       ConsoleColor(#C_CYAN, #C_BLACK)
+    Case #ENT_PLANETKILLER
+      ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
     Default
       ResetColor()
   EndSelect
@@ -930,6 +954,14 @@ Procedure PrintHelpGalaxy()
   PrintN("    Undock from a starbase or shipyard to resume flying")
   PrintN("    Example: UNDOCK")
   PrintN("")
+  PrintCmd("RECRUIT <number>")
+  PrintN("    Hire a recruit (available at starbases)")
+  PrintN("    Example: RECRUIT 1")
+  PrintN("")
+  PrintCmd("DISMISS <role>")
+  PrintN("    Dismiss crew member: HELM, WEAPONS, SHIELDS, or ENGINEERING")
+  PrintN("    Example: DISMISS WEAPONS")
+  PrintN("")
   PrintCmd("CLEAR")
   PrintN("    Clear console and refresh the galaxy map display")
   PrintN("    Example: CLEAR")
@@ -952,8 +984,11 @@ Procedure PrintHelpGalaxy()
   PrintCmd("SPAWNANOMALY")
   PrintN("    Cheat: spawn a spatial anomaly in current sector")
   PrintN("")
+  PrintCmd("SPAWNPLANETKILLER")
+  PrintN("    Cheat: spawn a Planet Killer in current sector")
+  PrintN("")
   PrintCmd("REMOVESPAWN")
-  PrintN("    Remove spawned objects (base, yard, cluster, wormhole, anomaly)")
+  PrintN("    Remove spawned objects (base, yard, cluster, wormhole, anomaly, planetkiller)")
   PrintN("")
   PrintCmd("SAVE")
   PrintN("    Save game to file")
@@ -978,39 +1013,32 @@ Procedure PrintHelpGalaxy()
   PrintN("    Abandon your current mission")
   PrintN("    Example: ABANDON")
   PrintN("")
-
   PrintCmd("SAVE")
   PrintN("    Save the current session state")
   PrintN("    Example: SAVE")
   PrintN("")
-
   PrintCmd("PACK")
   PrintN("    Create/refresh " + gDatPath + " from " + gIniPath)
   PrintN("    This is an obfuscated ship data file with a tamper checksum")
   PrintN("    Example: PACK")
   PrintN("")
-
   PrintCmd("LOAD")
   PrintN("    Load the last saved session state")
   PrintN("    Example: LOAD")
   PrintN("")
-
   PrintN("Notes:")
   PrintN("    Deliver missions complete when you DOCK at the destination base.")
   PrintN("    Survey missions complete when you SCAN while at the destination planet.")
   PrintN("")
-
   PrintN("Combat:")
   PrintN("    Enemies are marked E. Moving into an enemy sector enters tactical mode.")
   PrintN("    In tactical mode, type HELP for PHASER/TORPEDO/MOVE/ALLOC/FLEE.")
   PrintN("")
-
   PrintN("Hazards:")
   PrintN("    # = Wormhole (teleports you to a random map/sector, costs 1 fuel)")
   PrintN("    ? = Black hole (gravity well; on entry: random teleport, severe damage + scramble, or destruction)")
   PrintN("    S = Sun (fatal; gravity well may pull you in if adjacent)")
   PrintN("")
-
   PrintCmd("QUIT")
   PrintCmd("EXIT")
   PrintN("    Exit the game")
@@ -1059,6 +1087,13 @@ Procedure.i SaveGame(*p.Ship)
   WriteStringN(f, "crew|1|" + SafeField(*p\crew2\name) + "|" + Str(*p\crew2\role) + "|" + Str(*p\crew2\rank) + "|" + Str(*p\crew2\xp) + "|" + Str(*p\crew2\level))
   WriteStringN(f, "crew|2|" + SafeField(*p\crew3\name) + "|" + Str(*p\crew3\role) + "|" + Str(*p\crew3\rank) + "|" + Str(*p\crew3\xp) + "|" + Str(*p\crew3\level))
   WriteStringN(f, "crew|3|" + SafeField(*p\crew4\name) + "|" + Str(*p\crew4\role) + "|" + Str(*p\crew4\rank) + "|" + Str(*p\crew4\xp) + "|" + Str(*p\crew4\level))
+
+  ; Save recruits
+  WriteStringN(f, "recruits|" + Str(gRecruitCount))
+  Protected r.i
+  For r = 0 To gRecruitCount - 1
+    WriteStringN(f, "recruit|" + Str(r) + "|" + SafeField(gRecruitNames(r)) + "|" + SafeField(gRecruitRoles(r)))
+  Next
 
   WriteStringN(f, "mission|" + Str(gMission\active) + "|" + Str(gMission\type) + "|" +
                   SafeField(gMission\title) + "|" + SafeField(gMission\desc) + "|" +
@@ -1190,6 +1225,17 @@ Procedure.i LoadGame(*p.Ship)
             *p\crew4\xp     = Val(StringField(line, 6, "|"))
             *p\crew4\level  = Val(StringField(line, 7, "|"))
         EndSelect
+      Case "recruits"
+        gRecruitCount = Val(StringField(line, 2, "|"))
+        If gRecruitCount < 0 Or gRecruitCount > 3
+          gRecruitCount = 0
+        EndIf
+      Case "recruit"
+        Protected recIdx.i = Val(StringField(line, 2, "|"))
+        If recIdx >= 0 And recIdx < 3
+          gRecruitNames(recIdx) = StringField(line, 3, "|")
+          gRecruitRoles(recIdx) = StringField(line, 4, "|")
+        EndIf
       Case "mission"
         gMission\active        = Val(StringField(line, 2, "|"))
         gMission\type          = Val(StringField(line, 3, "|"))
@@ -1257,22 +1303,29 @@ Procedure PrintHelpTactical()
   PrintN("")
   PrintCmd("ALLOC <shields%> <weapons%> <engines%>")
   PrintN("    Set reactor allocation; sum must be <= 100")
-  PrintN("    Examples: ALLOC 50 30 20  |  ALLOC 40 40 20")
+  PrintN("    Examples: ALLOC 50 30 20 | ALLOC 40 40 20")
   PrintN("")
   PrintCmd("MOVE <APPROACH|RETREAT|HOLD> [amount]")
   PrintN("    Change range; amount is limited by Engines allocation")
   PrintN("    Costs 1 fuel per MOVE")
-  PrintN("    Examples: MOVE APPROACH 2  |  MOVE RETREAT 1  |  MOVE HOLD")
+  PrintN("    Examples: MOVE APPROACH 2 | MOVE RETREAT 1 | MOVE HOLD")
   PrintN("")
   PrintCmd("PHASER <power>")
   PrintN("    Fire phasers using WeaponCap; power is capped per turn by PhaserBanks")
   PrintN("    Tip: if WeaponCap is 0, use END to recharge or ALLOC more to weapons")
   PrintN("    Example: PHASER 40")
   PrintN("")
-  PrintCmd("TORPEDO [count]")
+  PrintCmd("TORPEDO <count>")
   PrintN("    Fire 1+ torpedoes; count capped by TorpedoTubes and remaining torps")
   PrintN("    Effective range: <= 24")
-  PrintN("    Example: TORPEDO 1  |  TORPEDO 2")
+  PrintN("    Example: TORPEDO 1 | TORPEDO 2")
+  PrintN("")
+  PrintCmd("TRACTOR <HOLD|PULL|PUSH>")
+  PrintN("    Tractor beam (green) - costs 1 fuel/dilithium per use")
+  PrintN("    HOLD - lock enemy in place, prevents movement this turn")
+  PrintN("    PULL - pull enemy 2 sectors closer (1 dilithium or fuel)")
+  PrintN("    PUSH - push enemy into adjacent hazard (sun/blackhole/wormhole)")
+  PrintN("    Example: TRACTOR HOLD | TRACTOR PULL | TRACTOR PUSH")
   PrintN("")
   PrintCmd("FLEE")
   PrintN("    Attempt to disengage; success improves at longer range")
@@ -1449,6 +1502,183 @@ Procedure PrintCrew(*s.Ship)
   PrintN("")
 EndProcedure
 
+Procedure InitRecruitNames()
+  gFirstNames(0) = "James"
+  gFirstNames(1) = "John"
+  gFirstNames(2) = "Robert"
+  gFirstNames(3) = "Michael"
+  gFirstNames(4) = "William"
+  gFirstNames(5) = "David"
+  gFirstNames(6) = "Richard"
+  gFirstNames(7) = "Joseph"
+  gFirstNames(8) = "Thomas"
+  gFirstNames(9) = "Charles"
+  gFirstNames(10) = "Mary"
+  gFirstNames(11) = "Patricia"
+  gFirstNames(12) = "Jennifer"
+  gFirstNames(13) = "Linda"
+  gFirstNames(14) = "Elizabeth"
+  gFirstNames(15) = "Barbara"
+  gFirstNames(16) = "Susan"
+  gFirstNames(17) = "Jessica"
+  gFirstNames(18) = "Sarah"
+  gFirstNames(19) = "Karen"
+  gFirstNames(20) = "Nancy"
+  gFirstNames(21) = "Lisa"
+  gFirstNames(22) = "Betty"
+  gFirstNames(23) = "Margaret"
+  gFirstNames(24) = "Sandra"
+  gFirstNames(25) = "Ashley"
+  gFirstNames(26) = "Kimberly"
+  gFirstNames(27) = "Emily"
+  gFirstNames(28) = "Donna"
+  gFirstNames(29) = "Michelle"
+
+  gLastNames(0) = "Smith"
+  gLastNames(1) = "Johnson"
+  gLastNames(2) = "Williams"
+  gLastNames(3) = "Brown"
+  gLastNames(4) = "Jones"
+  gLastNames(5) = "Garcia"
+  gLastNames(6) = "Miller"
+  gLastNames(7) = "Davis"
+  gLastNames(8) = "Rodriguez"
+  gLastNames(9) = "Martinez"
+  gLastNames(10) = "Hernandez"
+  gLastNames(11) = "Lopez"
+  gLastNames(12) = "Gonzalez"
+  gLastNames(13) = "Wilson"
+  gLastNames(14) = "Anderson"
+  gLastNames(15) = "Thomas"
+  gLastNames(16) = "Taylor"
+  gLastNames(17) = "Moore"
+  gLastNames(18) = "Jackson"
+  gLastNames(19) = "Martin"
+  gLastNames(20) = "Lee"
+  gLastNames(21) = "Perez"
+  gLastNames(22) = "Thompson"
+  gLastNames(23) = "White"
+  gLastNames(24) = "Harris"
+  gLastNames(25) = "Sanchez"
+  gLastNames(26) = "Clark"
+  gLastNames(27) = "Ramirez"
+  gLastNames(28) = "Lewis"
+  gLastNames(29) = "Robinson"
+EndProcedure
+
+Procedure GenerateRecruits()
+  gRecruitCount = 3
+  Protected i.i
+  For i = 0 To 2
+    Protected firstIdx.i = Random(29)
+    Protected lastIdx.i = Random(29)
+    Protected roleRoll.i = Random(3)
+    Protected roleName.s
+    Select roleRoll
+      Case 0 : roleName = "Helm"
+      Case 1 : roleName = "Weapons"
+      Case 2 : roleName = "Shields"
+      Case 3 : roleName = "Engineering"
+    EndSelect
+    gRecruitNames(i) = gFirstNames(firstIdx) + " " + gLastNames(lastIdx)
+    gRecruitRoles(i) = roleName
+  Next
+EndProcedure
+
+Procedure DismissCrew(*p.Ship, role.i)
+  Select role
+    Case #CREW_HELM
+      *p\crew1\name = ""
+      *p\crew1\rank = #RANK_ENSIGN
+      *p\crew1\xp = 0
+      *p\crew1\level = 1
+      PrintN("Helm officer dismissed.")
+    Case #CREW_WEAPONS
+      *p\crew2\name = ""
+      *p\crew2\rank = #RANK_ENSIGN
+      *p\crew2\xp = 0
+      *p\crew2\level = 1
+      PrintN("Weapons officer dismissed.")
+    Case #CREW_SHIELDS
+      *p\crew3\name = ""
+      *p\crew3\rank = #RANK_ENSIGN
+      *p\crew3\xp = 0
+      *p\crew3\level = 1
+      PrintN("Shields officer dismissed.")
+    Case #CREW_ENGINEERING
+      *p\crew4\name = ""
+      *p\crew4\rank = #RANK_ENSIGN
+      *p\crew4\xp = 0
+      *p\crew4\level = 1
+      PrintN("Engineering officer dismissed.")
+  EndSelect
+  LogLine("CREW: dismissed " + Str(role))
+EndProcedure
+
+Procedure RecruitCrew(*p.Ship, index.i)
+  If index < 0 Or index >= gRecruitCount
+    PrintN("Invalid recruit number.")
+    ProcedureReturn
+  EndIf
+  
+  Protected roleName.s = gRecruitRoles(index)
+  Protected newName.s = gRecruitNames(index)
+  
+  Select roleName
+    Case "Helm"
+      *p\crew1\name = newName
+      *p\crew1\rank = #RANK_ENSIGN
+      *p\crew1\xp = 0
+      *p\crew1\level = 1
+      PrintN(newName + " recruited as Helm officer (Lv1).")
+    Case "Weapons"
+      *p\crew2\name = newName
+      *p\crew2\rank = #RANK_ENSIGN
+      *p\crew2\xp = 0
+      *p\crew2\level = 1
+      PrintN(newName + " recruited as Weapons officer (Lv1).")
+    Case "Shields"
+      *p\crew3\name = newName
+      *p\crew3\rank = #RANK_ENSIGN
+      *p\crew3\xp = 0
+      *p\crew3\level = 1
+      PrintN(newName + " recruited as Shields officer (Lv1).")
+    Case "Engineering"
+      *p\crew4\name = newName
+      *p\crew4\rank = #RANK_ENSIGN
+      *p\crew4\xp = 0
+      *p\crew4\level = 1
+      PrintN(newName + " recruited as Engineering officer (Lv1).")
+  EndSelect
+  
+  LogLine("CREW: recruited " + newName + " as " + roleName)
+  
+  ; Generate new recruits
+  GenerateRecruits()
+EndProcedure
+
+Procedure.i CrewPositionFilled(*p.Ship, role.i)
+  Select role
+    Case #CREW_HELM
+      If *p\crew1\name <> "" : ProcedureReturn 1 : Else : ProcedureReturn 0 : EndIf
+    Case #CREW_WEAPONS
+      If *p\crew2\name <> "" : ProcedureReturn 1 : Else : ProcedureReturn 0 : EndIf
+    Case #CREW_SHIELDS
+      If *p\crew3\name <> "" : ProcedureReturn 1 : Else : ProcedureReturn 0 : EndIf
+    Case #CREW_ENGINEERING
+      If *p\crew4\name <> "" : ProcedureReturn 1 : Else : ProcedureReturn 0 : EndIf
+  EndSelect
+  ProcedureReturn 0
+EndProcedure
+
+Procedure.i AllCrewPositionsFilled(*p.Ship)
+  If *p\crew1\name = "" : ProcedureReturn 0 : EndIf
+  If *p\crew2\name = "" : ProcedureReturn 0 : EndIf
+  If *p\crew3\name = "" : ProcedureReturn 0 : EndIf
+  If *p\crew4\name = "" : ProcedureReturn 0 : EndIf
+  ProcedureReturn 1
+EndProcedure
+
 Procedure.i LoadShip(section.s, *s.Ship)
   ; Load from ships.dat/ships.ini text; clamp to sane ranges.
   Protected reactorDefault.i = 200
@@ -1470,10 +1700,9 @@ Procedure.i LoadShip(section.s, *s.Ship)
   *s\fuelMax     = IniGetLong(section, "FuelMax", 100)
   *s\oreMax      = IniGetLong(section, "OreMax", 50)
   *s\dilithiumMax = IniGetLong(section, "DilithiumMax", 20)
-
-  *s\allocShields = IniGetLong(section, "AllocShields", 40)
-  *s\allocWeapons = IniGetLong(section, "AllocWeapons", 40)
-  *s\allocEngines = IniGetLong(section, "AllocEngines", 20)
+  *s\allocShields = IniGetLong(section, "AllocShields", 33)
+  *s\allocWeapons = IniGetLong(section, "AllocWeapons", 34)
+  *s\allocEngines = IniGetLong(section, "AllocEngines", 33)
   LoadAllocOverrides(section, *s)
 
   ; Sane clamps
@@ -1491,14 +1720,13 @@ Procedure.i LoadShip(section.s, *s.Ship)
   *s\fuelMax     = ClampInt(*s\fuelMax, 10, 600)
   *s\oreMax      = ClampInt(*s\oreMax, 0, 250)
   *s\dilithiumMax = ClampInt(*s\dilithiumMax, 0, 50)
-
   *s\allocShields = ClampInt(*s\allocShields, 0, 100)
   *s\allocWeapons = ClampInt(*s\allocWeapons, 0, 100)
   *s\allocEngines = ClampInt(*s\allocEngines, 0, 100)
   If *s\allocShields + *s\allocWeapons + *s\allocEngines > 100
-    *s\allocShields = 40
-    *s\allocWeapons = 40
-    *s\allocEngines = 20
+    *s\allocShields = 33
+    *s\allocWeapons = 34
+    *s\allocEngines = 33
   EndIf
 
   *s\hull      = *s\hullMax
@@ -1512,6 +1740,7 @@ Procedure.i LoadShip(section.s, *s.Ship)
   *s\sysEngines = #SYS_OK
   *s\sysWeapons = #SYS_OK
   *s\sysShields = #SYS_OK
+  *s\sysTractor = #SYS_OK
 
   ProcedureReturn 1
 EndProcedure
@@ -1548,6 +1777,10 @@ Procedure PrintStatusGalaxy(*p.Ship)
       PrintN("  Deliver: " + Str(gMission\oreRequired) + " ore to " + gMission\destName)
     ElseIf gMission\type = #MIS_SURVEY
       PrintN("  Survey: " + gMission\destName)
+    ElseIf gMission\type = #MIS_PLANETKILLER
+      ConsoleColor(#C_CYAN, #C_BLACK)
+      PrintN("  DESTROY: " + gMission\destName)
+      ResetColor()
     EndIf
   ElseIf gMission\type <> #MIS_NONE
     PrintN("Mission offer: " + gMission\title + " (type MISSIONS)")
@@ -2009,6 +2242,141 @@ Procedure PlayerTorpedo(*p.Ship, *e.Ship, *cs.CombatState, count.i)
   Next
 EndProcedure
 
+Procedure PlayerTractor(*p.Ship, *e.Ship, *cs.CombatState, mode.s)
+  If (*p\sysTractor & #SYS_DISABLED)
+    PrintN("Tractor beam is disabled.")
+    ProcedureReturn
+  EndIf
+  
+  mode = TrimLower(mode)
+  
+  Protected costType.s = "fuel"
+  Protected costAmount.i = 1
+  
+  If mode = "pull"
+    ; Pull mode costs dilithium
+    If *p\dilithium < 1 And *p\fuel < 1
+      PrintN("Not enough fuel or dilithium for tractor beam.")
+      ProcedureReturn
+    EndIf
+    If *p\dilithium >= 1
+      *p\dilithium - 1
+      costType = "dilithium"
+    Else
+      *p\fuel - 1
+    EndIf
+    
+    ; Cannot pull if already very close
+    If *cs\range <= 3
+      PrintN("Target already in close range!")
+      ProcedureReturn
+    EndIf
+    
+    ; Pull enemy 2 sectors closer
+    *cs\range - 2
+    If *cs\range < 1 : *cs\range = 1 : EndIf
+    
+    ; Check if enemy can resist (smaller chance at close range)
+    Protected resistChance.i = 40 - (30 - *cs\range) * 2
+    If resistChance < 10 : resistChance = 10 : EndIf
+    
+    If Random(99) < resistChance
+      ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+      PrintN(">>> TRACTOR BEAM: Pulling target closer! <<<")
+      ResetColor()
+      PrintN("Target is now at range " + Str(*cs\range) + ".")
+    Else
+      PrintN("Tractor beam fails to hold the target.")
+    EndIf
+    
+  ElseIf mode = "push"
+    ; Push mode - push enemy into adjacent hazard
+    If *p\fuel < 1
+      PrintN("Not enough fuel for tractor beam (1 fuel/turn).")
+      ProcedureReturn
+    EndIf
+    *p\fuel - 1
+    
+    ; Find adjacent hazard cells (sun, blackhole, wormhole)
+    Protected foundHazard.i = 0
+    Protected pushX.i = gEnemyX
+    Protected pushY.i = gEnemyY
+    Protected hazardType.i = #ENT_EMPTY
+    
+    ; Check all adjacent cells for hazards
+    Protected dx.i, dy.i
+    For dy = -1 To 1
+      For dx = -1 To 1
+        If dx = 0 And dy = 0 : Continue : EndIf
+        Protected nx.i = gEnemyX + dx
+        Protected ny.i = gEnemyY + dy
+        If nx >= 0 And nx < #MAP_W And ny >= 0 And ny < #MAP_H
+          Protected adjEnt.i = gGalaxy(gMapX, gMapY, nx, ny)\entType
+          If adjEnt = #ENT_SUN Or adjEnt = #ENT_BLACKHOLE Or adjEnt = #ENT_WORMHOLE
+            foundHazard = 1
+            pushX = nx
+            pushY = ny
+            hazardType = adjEnt
+            Break 2
+          EndIf
+        EndIf
+      Next
+    Next
+    
+    If foundHazard = 0
+      ; No hazard nearby, just push enemy further away
+      *cs\range + 2 + Random(2)
+      If *cs\range > 40 : *cs\range = 40 : EndIf
+      
+      ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+      PrintN(">>> TRACTOR BEAM: Pushing target away! <<<")
+      ResetColor()
+      PrintN("Target pushed to range " + Str(*cs\range) + ".")
+    Else
+      ; Push into hazard!
+      ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+      PrintN(">>> TRACTOR BEAM: Pushing target into hazard! <<<")
+      ResetColor()
+      
+      Select hazardType
+        Case #ENT_SUN
+          *e\hull = 0
+          PrintN("The enemy is pushed into a SUN and disintegrates!")
+          LogLine("TRACTOR: pushed enemy into sun")
+        Case #ENT_BLACKHOLE
+          *e\hull = 0
+          PrintN("The enemy is swallowed by a BLACK HOLE!")
+          LogLine("TRACTOR: pushed enemy into black hole")
+        Case #ENT_WORMHOLE
+          PrintN("The enemy is pulled into a WORMHOLE and teleports away!")
+          *e\hull = 0
+          LogLine("TRACTOR: pushed enemy into wormhole")
+      EndSelect
+      
+      ; Enemy is destroyed - trigger victory
+      *cs\range = -1
+    EndIf
+    
+  Else
+    ; HOLD mode (default) - costs 1 fuel
+    If *p\fuel < 1
+      PrintN("Not enough fuel for tractor beam (1 fuel/turn).")
+      ProcedureReturn
+    EndIf
+    *p\fuel - 1
+    
+    ; Hold enemy in place - affects enemy movement
+    *p\sysTractor = *p\sysTractor | #SYS_TRACTOR
+    
+    ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+    PrintN(">>> TRACTOR BEAM: Target locked in place! <<<")
+    ResetColor()
+    PrintN("Enemy cannot move this turn.")
+  EndIf
+  
+  LogLine("TRACTOR: " + mode + " (range=" + Str(*cs\range) + ")")
+EndProcedure
+
 Procedure EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
   If *e\hull <= 0 : ProcedureReturn : EndIf
   
@@ -2087,6 +2455,14 @@ Procedure EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
   
   ; Movement (remaining 40% or if can't attack)
   Protected moveChance.i = 35
+  
+  ; Check if tractor beam is holding enemy
+  If (*p\sysTractor & #SYS_TRACTOR)
+    PrintN("Tractor beam holds enemy in place!")
+    *p\sysTractor = *p\sysTractor & ~#SYS_TRACTOR  ; Clear tractor flag
+    ProcedureReturn
+  EndIf
+  
   If Random(99) >= moveChance
     PrintN("Enemy holds position.")
     ProcedureReturn
@@ -2146,8 +2522,20 @@ Procedure EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
                 Protected lvl.i = gGalaxy(mx, my, x, y)\enemyLevel
                 If lvl < 1 : lvl = 1 : EndIf
                 CopyStructure(*enemyTemplate, @enemy, Ship)
-                ; Ensure enemy has valid stats and name
-                If enemy\name = "" Or enemy\hullMax <= 0
+                ; Check for Planet Killer (very powerful)
+                If enemy\name = "Planet Killer"
+                  enemy\class = "Planet Killer"
+                  enemy\hullMax = 500 + (lvl * 50)
+                  enemy\hull = enemy\hullMax
+                  enemy\shieldsMax = 400 + (lvl * 40)
+                  enemy\shields = enemy\shieldsMax
+                  enemy\weaponCapMax = 600 + (lvl * 50)
+                  enemy\weaponCap = enemy\weaponCapMax
+                  enemy\phaserBanks = 12
+                  enemy\torpTubes = 4
+                  enemy\torpMax = 20
+                  enemy\torp = enemy\torpMax
+                ElseIf enemy\name = "" Or enemy\hullMax <= 0
                   enemy\name = "Raider"
                   enemy\class = "Raider"
                   enemy\hullMax = 100
@@ -2284,6 +2672,7 @@ Procedure.s EntSymbol(t.i)
     Case #ENT_SUN: ProcedureReturn "S"
     Case #ENT_DILITHIUM: ProcedureReturn "D"
     Case #ENT_ANOMALY: ProcedureReturn "A"
+    Case #ENT_PLANETKILLER: ProcedureReturn "<"
   EndSelect
   ProcedureReturn "?"
 EndProcedure
@@ -2549,6 +2938,17 @@ Procedure GenerateSectorMap(mapX.i, mapY.i)
     If gGalaxy(mapX, mapY, px, py)\entType = #ENT_EMPTY
       gGalaxy(mapX, mapY, px, py)\entType = #ENT_ANOMALY
       gGalaxy(mapX, mapY, px, py)\name = "Spatial Anomaly"
+    EndIf
+  EndIf
+
+  ; Planet Killers (very rare - less than 1% chance)
+  If Random(99) < 1
+    px = Random(#MAP_W - 1)
+    py = Random(#MAP_H - 1)
+    If gGalaxy(mapX, mapY, px, py)\entType = #ENT_EMPTY
+      gGalaxy(mapX, mapY, px, py)\entType = #ENT_PLANETKILLER
+      gGalaxy(mapX, mapY, px, py)\name = "Planet Killer"
+      gGalaxy(mapX, mapY, px, py)\enemyLevel = 5 + Random(10)  ; very high level
     EndIf
   EndIf
 EndProcedure
@@ -2824,7 +3224,7 @@ Procedure GenerateMission(*p.Ship)
     gMission\destMapX = -1 : gMission\destMapY = -1 : gMission\destX = -1 : gMission\destY = -1
     gMission\destEntType = #ENT_EMPTY
     gMission\destName = ""
-  Else
+  ElseIf roll < 96
     ; Survey a planet
     Protected mx2.i, my2.i, x2.i, y2.i
     If FindRandomCellOfType(#ENT_PLANET, @mx2, @my2, @x2, @y2) = 0
@@ -2837,6 +3237,19 @@ Procedure GenerateMission(*p.Ship)
     gMission\destName = gGalaxy(mx2, my2, x2, y2)\name
     gMission\rewardCredits = 160 + Random(120)
     gMission\desc = "Travel to " + gMission\destName + " at " + LocText(mx2, my2, x2, y2) + " and perform a scan (SCAN)."
+  Else
+    ; Hunt a Planet Killer (rare mission)
+    Protected mxPK.i, myPK.i, xPK.i, yPK.i
+    If FindRandomCellOfType(#ENT_PLANETKILLER, @mxPK, @myPK, @xPK, @yPK) = 0
+      ProcedureReturn
+    EndIf
+    gMission\type = #MIS_PLANETKILLER
+    gMission\title = "Hunt Planet Killer"
+    gMission\destEntType = #ENT_PLANETKILLER
+    gMission\destMapX = mxPK : gMission\destMapY = myPK : gMission\destX = xPK : gMission\destY = yPK
+    gMission\destName = gGalaxy(mxPK, myPK, xPK, yPK)\name
+    gMission\rewardCredits = 800 + Random(600)
+    gMission\desc = "Locate and destroy the Planet Killer at " + LocText(mxPK, myPK, xPK, yPK) + ". Warning: extremely dangerous!"
   EndIf
 
 EndProcedure
@@ -2870,6 +3283,10 @@ Procedure PrintMission(*p.Ship)
       PrintN("  Cargo: need " + Str(gMission\oreRequired) + " ore; you have " + Str(*p\ore))
     ElseIf gMission\type = #MIS_DEFEND_YARD
       PrintN("  Defend: " + gMission\destName + "  Turns left: " + Str(gMission\turnsLeft) + "  Yard HP: " + Str(gMission\yardHP))
+    ElseIf gMission\type = #MIS_PLANETKILLER
+      ConsoleColor(#C_CYAN, #C_BLACK)
+      PrintN("  TARGET: " + gMission\destName + " at " + LocText(gMission\destMapX, gMission\destMapY, gMission\destX, gMission\destY))
+      ResetColor()
     EndIf
   EndIf
   PrintDivider()
@@ -3085,7 +3502,7 @@ Procedure DefendMissionTick(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Comba
     PrintDivider()
     PrintN("Mission failed: shipyard destroyed.")
     PrintDivider()
-    LogLine("MISSION FAILED: shipyard destroyed")
+    LogLine("MISSION FAILED: shipyard destroyed!")
     ClearStructure(@gMission, Mission)
     gMission\type = #MIS_NONE
     ProcedureReturn
@@ -3109,6 +3526,7 @@ Procedure DefendMissionTick(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Comba
     *enemy\sysEngines = #SYS_OK
     *enemy\sysWeapons = #SYS_OK
     *enemy\sysShields = #SYS_OK
+    *enemy\sysTractor = #SYS_OK
 
     Protected lvl.i = ClampInt(gMission\threatLevel, 1, 10)
     ; Ensure valid enemy stats
@@ -3229,6 +3647,19 @@ Procedure DockAtBase(*p.Ship)
   PrintN("  poweroverwhelming = all stats x2 for 30 turns")
   PrintN("")
   
+  ; Show available recruits
+  PrintN("Recruits available:")
+  Protected i.i
+  For i = 0 To gRecruitCount - 1
+    ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+    Print("  [" + Str(i + 1) + "] ")
+    ResetColor()
+    Print(gRecruitNames(i) + " - " + gRecruitRoles(i))
+    PrintN("")
+  Next
+  PrintN("Commands: RECRUIT <1-3> to hire | DISMISS <HELM|WEAPONS|SHIELDS|ENGINEERING> to fire")
+  PrintN("")
+  
   *p\hull = *p\hullMax
   *p\shields = *p\shieldsMax
   *p\weaponCap = *p\weaponCapMax
@@ -3342,7 +3773,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
     PrintN("WEAPONS:")
     PrintN("5) Phaser Banks     (+1 PhaserBanks)  cost 160")
     PrintN("6) Torpedo Racks    (+4 TorpMax)      cost 110")
-    PrintN("7) Torpedo Tubes   (+1 TorpTubes)    cost 200")
+    PrintN("7) Torpedo Tubes    (+1 TorpTubes)    cost 200")
     PrintN("8) Targeting Matrix (+5 SensorRange)  cost 130")
     PrintN("")
     PrintN("PROPULSION:")
@@ -3351,9 +3782,9 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
     PrintN("B) Fuel Tanks       (+25 FuelMax)     cost 100")
     PrintN("")
     PrintN("POWER & CARGO:")
-    PrintN("C) Reactor Upgrade  (+30 ReactorMax)   cost 180")
-    PrintN("D) Dilithium Bay   (+10 DilithiumMax)cost 90")
-    PrintN("E) Cargo Hold      (+20 OreMax)      cost 80")
+    PrintN("C) Reactor Upgrade (+30 ReactorMax)   cost 180")
+    PrintN("D) Dilithium Bay   (+10 DilithiumMax) cost 90")
+    PrintN("E) Cargo Hold      (+20 OreMax)       cost 80")
     PrintN("")
     PrintN("0) Leave")
     PrintN("")
@@ -3558,7 +3989,7 @@ Procedure Nav(*p.Ship, dir.s, steps.i)
       ElseIf dir = "se" : dx = 1 : dy = 1
       EndIf
     Default
-      PrintN("NAV expects N, S, E, W, NW, NE, SW, or SE.")
+      PrintN("NAV expects N, NE, E, SE, S, SW, W, NW")
       ProcedureReturn
   EndSelect
 
@@ -3682,7 +4113,7 @@ Procedure Nav(*p.Ship, dir.s, steps.i)
       gEnemyMapY = gMapY
       gEnemyX = gx
       gEnemyY = gy
-      LogLine("CONTACT: enemy detected")
+      LogLine("CONTACT: enemy detected!")
       Break
     EndIf
   Next
@@ -3867,6 +4298,8 @@ Procedure Main()
   EndIf
 
   GenerateGalaxy()
+  InitRecruitNames()
+  GenerateRecruits()
   GenerateMission(@player)
   LogLine("Welcome aboard")
   RedrawGalaxy(@player)
@@ -3895,13 +4328,13 @@ Procedure Main()
         ClearConsole()
         PrintHelpGalaxy()
         PrintN("")
-        PrintN("Press Enter...")
+        PrintN("< Press ENTER >")
         Input()
         RedrawGalaxy(@player)
       ElseIf cmd = "about"
         ClearConsole()
         PrintAbout()
-        PrintN("Press Enter...")
+        PrintN("< Press ENTER >")
         Input()
         RedrawGalaxy(@player)
       ElseIf cmd = "status"
@@ -3911,7 +4344,7 @@ Procedure Main()
         PrintN("Crew Status:")
         PrintN("")
         PrintCrew(@player)
-        PrintN("Press Enter...")
+        PrintN("< Press ENTER >")
         Input()
         RedrawGalaxy(@player)
       ElseIf cmd = "map"
@@ -3949,7 +4382,7 @@ Procedure Main()
         PrintHelpGalaxy()
         PrintN("")
         ScanGalaxy()
-        PrintN("Press Enter...")
+        PrintN("< Press ENTER >")
         Input()
 
         CheckMissionCompletion(@player)
@@ -3958,7 +4391,7 @@ Procedure Main()
       ElseIf cmd = "longscan"
         ClearConsole()
         ScanGalaxyLong()
-        PrintN("Press Enter...")
+        PrintN("< Press ENTER >")
         Input()
         RedrawGalaxy(@player)
       ElseIf cmd = "nav"
@@ -3979,8 +4412,21 @@ Procedure Main()
           CopyStructure(@enemyTemplate, @enemy, Ship)
           Protected lvl.i = CurCell(gx, gy)\enemyLevel
           If lvl < 1 : lvl = 1 : EndIf
-          ; Ensure enemy has valid stats and name
-          If enemy\name = "" Or enemy\hullMax <= 0
+          ; Check for Planet Killer (very powerful)
+          If CurCell(gx, gy)\entType = #ENT_PLANETKILLER
+            enemy\name = "Planet Killer"
+            enemy\class = "Planet Killer"
+            enemy\hullMax = 500 + (lvl * 50)
+            enemy\hull = enemy\hullMax
+            enemy\shieldsMax = 400 + (lvl * 40)
+            enemy\shields = enemy\shieldsMax
+            enemy\weaponCapMax = 600 + (lvl * 50)
+            enemy\weaponCap = enemy\weaponCapMax
+            enemy\phaserBanks = 12
+            enemy\torpTubes = 4
+            enemy\torpMax = 20
+            enemy\torp = enemy\torpMax
+          ElseIf enemy\name = "" Or enemy\hullMax <= 0
             enemy\name = "Raider"
             enemy\class = "Raider"
             enemy\hullMax = 100
@@ -4136,12 +4582,56 @@ Procedure Main()
           EndIf
         EndIf
         RedrawGalaxy(@player)
+      ElseIf cmd = "recruit"
+        If gDocked = 0
+          PrintN("You must be docked at a starbase to recruit crew.")
+        Else
+          Protected recruitIdx.s = TokenAt(line, 2)
+          If recruitIdx = ""
+            PrintN("Usage: RECRUIT <1-3>")
+            PrintN("  Shows available recruits: RECRUIT")
+          Else
+            Protected idx.i = ParseIntSafe(recruitIdx, 0) - 1
+            If idx < 0 Or idx >= gRecruitCount
+              PrintN("Invalid recruit number. Choose 1-" + Str(gRecruitCount) + ".")
+            Else
+              RecruitCrew(@player, idx)
+            EndIf
+          EndIf
+        EndIf
+        RedrawGalaxy(@player)
+      ElseIf cmd = "dismiss"
+        If gDocked = 0
+          PrintN("You must be docked at a starbase to dismiss crew.")
+        Else
+          Protected dismissRole.s = TrimLower(TokenAt(line, 2))
+          If dismissRole = ""
+            PrintN("Usage: DISMISS <HELM|WEAPONS|SHIELDS|ENGINEERING>")
+          Else
+            Protected dismissRoleId.i = 0
+            If dismissRole = "helm"
+              dismissRoleId = #CREW_HELM
+            ElseIf dismissRole = "weapons"
+              dismissRoleId = #CREW_WEAPONS
+            ElseIf dismissRole = "shields"
+              dismissRoleId = #CREW_SHIELDS
+            ElseIf dismissRole = "engineering"
+              dismissRoleId = #CREW_ENGINEERING
+            Else
+              PrintN("Invalid role. Use: HELM, WEAPONS, SHIELDS, or ENGINEERING")
+            EndIf
+            If dismissRoleId > 0
+              DismissCrew(@player, dismissRoleId)
+            EndIf
+          EndIf
+        EndIf
+        RedrawGalaxy(@player)
       ElseIf cmd = "refuel"
         SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode)
         ClearConsole()
         GenerateMission(@player)
         PrintMission(@player)
-        PrintN("Press Enter...")
+        PrintN("< Press ENTER >")
         Input()
         RedrawGalaxy(@player)
       ElseIf cmd = "accept"
@@ -4303,6 +4793,27 @@ Procedure Main()
           PrintN("No empty space in sector!")
         EndIf
         RedrawGalaxy(@player)
+      ElseIf cmd = "spawnplanetkiller"
+        spawnX = -1
+        attempts = 0
+        While attempts < 50 And spawnX = -1
+          spawnX = Random(#MAP_W - 1)
+          spawnY = Random(#MAP_H - 1)
+          If gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_EMPTY
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_PLANETKILLER
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Planet Killer"
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\spawned = 1
+            LogLine("CHEAT: spawnplanetkiller at " + Str(spawnX) + "," + Str(spawnY))
+            PrintN("Cheat activated: Planet Killer spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
+          Else
+            spawnX = -1
+          EndIf
+          attempts + 1
+        Wend
+        If spawnX = -1
+          PrintN("No empty space in sector!")
+        EndIf
+        RedrawGalaxy(@player)
       ElseIf cmd = "removespawn"
         If CurCell(gx, gy)\spawned = 1
           Protected removedType.i = CurCell(gx, gy)\entType
@@ -4320,6 +4831,8 @@ Procedure Main()
               PrintN("Spawned wormhole removed.")
             Case #ENT_ANOMALY
               PrintN("Spawned anomaly removed.")
+            Case #ENT_PLANETKILLER
+              PrintN("Spawned Planet Killer removed.")
           EndSelect
           LogLine("CHEAT: removespawn at " + Str(gx) + "," + Str(gy))
         Else
@@ -4385,14 +4898,14 @@ Procedure Main()
         ClearConsole()
         PrintHelpTactical()
         PrintN("")
-        PrintN("Press Enter...")
+        PrintN("< Press ENTER >")
         Input()
         PrintStatusTactical(@player, @enemy, @cs)
         Continue
       ElseIf cmd = "about"
         ClearConsole()
         PrintAbout()
-        PrintN("Press Enter...")
+        PrintN("< Press ENTER >")
         Input()
         PrintStatusTactical(@player, @enemy, @cs)
         Continue
@@ -4403,7 +4916,7 @@ Procedure Main()
         ClearConsole()
         PrintScanTactical(@player, @enemy, @cs)
         PrintN("")
-        PrintN("Press Enter...")
+        PrintN("< Press ENTER >")
         Input()
         PrintStatusTactical(@player, @enemy, @cs)
         Continue
@@ -4446,6 +4959,15 @@ Procedure Main()
           PrintN("Enemy destroyed!")
           Goto HandleEnemyDestroyed
         EndIf
+      ElseIf cmd = "tractor"
+        Protected tractorMode.s = TokenAt(line, 2)
+        If tractorMode = ""
+          PrintN("Usage: TRACTOR <HOLD|PULL|PUSH>")
+          PrintN("  HOLD - lock enemy in place (1 fuel/turn)")
+          PrintN("  PULL - pull enemy closer (1 dilithium or fuel)")
+          Continue
+        EndIf
+        PlayerTractor(@player, @enemy, @cs, tractorMode)
       ElseIf cmd = "flee"
         If player\fuel <= 0
           PrintN("Fuel depleted. Cannot flee.")
@@ -4500,6 +5022,20 @@ Procedure Main()
             EndIf
           EndIf
 
+          ; Mission: Planet Killer hunt
+          If gMission\active And gMission\type = #MIS_PLANETKILLER
+            gCredits + gMission\rewardCredits
+            LogLine("MISSION COMPLETE: Planet Killer hunt (+" + Str(gMission\rewardCredits) + " credits)")
+            ClearStructure(@gMission, Mission)
+            gMission\type = #MIS_NONE
+          EndIf
+
+          ; Bonus XP for destroying Planet Killer
+          If enemy\name = "Planet Killer"
+            GainCrewXP(@player, #CREW_WEAPONS, 50)
+            PrintN("The crew earned extra experience from defeating the Planet Killer!")
+          EndIf
+
           If gEnemyMapX >= 0 And gEnemyMapY >= 0 And gEnemyX >= 0 And gEnemyY >= 0
             gGalaxy(gEnemyMapX, gEnemyMapY, gEnemyX, gEnemyY)\entType = #ENT_EMPTY
             gGalaxy(gEnemyMapX, gEnemyMapY, gEnemyX, gEnemyY)\name = ""
@@ -4540,16 +5076,16 @@ Procedure Main()
     PrintN("Session ended.")
   EndIf
   PrintDivider()
-  PrintN("Press Enter...")
+  PrintN("< Press ENTER >")
   Input()
 EndProcedure
 
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 2689
-; FirstLine = 2677
-; Folding = -----------------
+; CursorPosition = 1305
+; FirstLine = 2163
+; Folding = ------------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -4558,12 +5094,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,6
-; VersionField1 = 1,0,1,6
+; VersionField0 = 1,0,2,0
+; VersionField1 = 1,0,2,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.1.6
-; VersionField5 = 1.0.1.6
+; VersionField4 = 1.0.2.0
+; VersionField5 = 1.0.2.0
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
