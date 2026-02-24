@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.2.0"
+Global version.s = "v1.0.2.5"
 
 ; Forward declarations (PureBasic requires declaring procedures used before definition)
 Declare.s Timestamp()
@@ -925,10 +925,11 @@ Procedure PrintHelpGalaxy()
   PrintCmd("LONGSCAN")
   PrintN("    Long range scan - shows sectors within 2 steps")
   PrintN("")
-  PrintCmd("NAV <N|S|E|W|NW|NE|SW|SE> [steps]")
-  PrintN("    Move 1-5 sectors, costs 1 fuel per step")
-  PrintN("    Crossing the sector-map edge moves to the next map in the galaxy")
-  PrintN("    Examples: NAV N     | NAV E 3 | NAV NW 2 | NAV SE")
+  PrintCmd("NAV <heading> <steps>")
+  PrintN("    Move using compass heading: 0=N, 45=NE, 90=E, 135=SE,")
+  PrintN("    180=S, 225=SW, 270=W, 315=NW")
+  PrintN("    Costs 1 fuel per sector")
+  PrintN("    Examples: NAV 0 2 | NAV 90 3 | NAV 315 1")
   PrintN("")
   PrintCmd("WARP <x> <y>")
   PrintN("    Warp to a specific galaxy location (right side map)")
@@ -1032,7 +1033,7 @@ Procedure PrintHelpGalaxy()
   PrintN("")
   PrintN("Combat:")
   PrintN("    Enemies are marked E. Moving into an enemy sector enters tactical mode.")
-  PrintN("    In tactical mode, type HELP for PHASER/TORPEDO/MOVE/ALLOC/FLEE.")
+  PrintN("    In tactical mode, type HELP for PHASER/TRACTOR/TORPEDO/MOVE/ALLOC/FLEE.")
   PrintN("")
   PrintN("Hazards:")
   PrintN("    # = Wormhole (teleports you to a random map/sector, costs 1 fuel)")
@@ -1305,7 +1306,7 @@ Procedure PrintHelpTactical()
   PrintN("    Set reactor allocation; sum must be <= 100")
   PrintN("    Examples: ALLOC 50 30 20 | ALLOC 40 40 20")
   PrintN("")
-  PrintCmd("MOVE <APPROACH|RETREAT|HOLD> [amount]")
+  PrintCmd("MOVE <APPROACH|RETREAT|HOLD> <amount>")
   PrintN("    Change range; amount is limited by Engines allocation")
   PrintN("    Costs 1 fuel per MOVE")
   PrintN("    Examples: MOVE APPROACH 2 | MOVE RETREAT 1 | MOVE HOLD")
@@ -1472,7 +1473,7 @@ Procedure PrintCrew(*s.Ship)
   ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
   Print("  " + *s\crew1\name + " [" + RankName(*s\crew1\rank) + "] ")
   ResetColor()
-  Print("Helm Lv" + Str(*s\crew1\level))
+  Print("Helm Lvl" + Str(*s\crew1\level))
   Protected xpNeed1.i = *s\crew1\level * 100
   Print(" XP: " + Str(*s\crew1\xp) + "/" + Str(xpNeed1))
   PrintN("")
@@ -1480,7 +1481,7 @@ Procedure PrintCrew(*s.Ship)
   ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
   Print("  " + *s\crew2\name + " [" + RankName(*s\crew2\rank) + "] ")
   ResetColor()
-  Print("Weapons Lv" + Str(*s\crew2\level))
+  Print("Weapons Lvl" + Str(*s\crew2\level))
   Protected xpNeed2.i = *s\crew2\level * 100
   Print(" XP: " + Str(*s\crew2\xp) + "/" + Str(xpNeed2))
   PrintN("")
@@ -1488,7 +1489,7 @@ Procedure PrintCrew(*s.Ship)
   ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
   Print("  " + *s\crew3\name + " [" + RankName(*s\crew3\rank) + "] ")
   ResetColor()
-  Print("Shields Lv" + Str(*s\crew3\level))
+  Print("Shields Lvl" + Str(*s\crew3\level))
   Protected xpNeed3.i = *s\crew3\level * 100
   Print(" XP: " + Str(*s\crew3\xp) + "/" + Str(xpNeed3))
   PrintN("")
@@ -1496,7 +1497,7 @@ Procedure PrintCrew(*s.Ship)
   ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
   Print("  " + *s\crew4\name + " [" + RankName(*s\crew4\rank) + "] ")
   ResetColor()
-  Print("Engineering Lv" + Str(*s\crew4\level))
+  Print("Engineering Lvl" + Str(*s\crew4\level))
   Protected xpNeed4.i = *s\crew4\level * 100
   Print(" XP: " + Str(*s\crew4\xp) + "/" + Str(xpNeed4))
   PrintN("")
@@ -2181,8 +2182,17 @@ Procedure PlayerPhaser(*p.Ship, *e.Ship, *cs.CombatState, power.i)
     Protected dmg.i = Int(base * falloff)
     If dmg < 1 : dmg = 1 : EndIf
 
-    ApplyDamage(*e, dmg)
-    PrintN("Phasers hit! (" + Str(dmg) + ").")
+    ; Phasers only damage shields, not hull
+    If *e\shields > 0 And ((*e\sysShields & #SYS_DISABLED) = 0)
+      If dmg > *e\shields
+        *e\shields = 0
+      Else
+        *e\shields - dmg
+      EndIf
+      PrintN("Phasers hit! (" + Str(dmg) + " shields).")
+    Else
+      PrintN("Phasers hit! (shields down).")
+    EndIf
     *cs\pAim = 0
     GainCrewXP(*p, #CREW_WEAPONS, 5 + dmg / 10)
   Else
@@ -2221,17 +2231,36 @@ Procedure PlayerTorpedo(*p.Ship, *e.Ship, *cs.CombatState, count.i)
       If *cs\range > 20 : dmg - 6 : EndIf
       If dmg < 1 : dmg = 1 : EndIf
 
-      ; Torpedoes partially punch through shields to prevent endless shield regen stalemates.
-      Protected shieldDmg.i = dmg
-      Protected hullDmg.i = dmg / 5
-      If hullDmg < 1 : hullDmg = 1 : EndIf
-
-      ApplyDamage(*e, shieldDmg)
-      If *e\hull > 0
-        *e\hull - hullDmg
+      ; Torpedo shield penetration chance based on range
+      ; Close range = high penetration, far range = low penetration
+      Protected penetrationChance.i = 90 - (*cs\range * 2)
+      If penetrationChance < 10 : penetrationChance = 10 : EndIf
+      
+      ; Torpedoes punch through shields at close range, otherwise damage both
+      If *e\shields > 0 And ((*e\sysShields & #SYS_DISABLED) = 0)
+        If Random(99) < penetrationChance
+          ; Shield penetration - damage hull directly
+          If dmg > *e\shields
+            Protected remaining.i = dmg - *e\shields
+            *e\shields = 0
+            *e\hull - remaining
+            If *e\hull < 0 : *e\hull = 0 : EndIf
+            PrintN("Torpedo impact! PENETRATION (" + Str(dmg) + " shields, " + Str(remaining) + " hull)!")
+          Else
+            *e\shields - dmg
+            PrintN("Torpedo impact! PENETRATION (" + Str(dmg) + " shields)!")
+          EndIf
+        Else
+          ; No penetration - damage shields only
+          *e\shields - dmg
+          PrintN("Torpedo impact! (" + Str(dmg) + " shields).")
+        EndIf
+      Else
+        ; No shields - direct hull damage
+        *e\hull - dmg
         If *e\hull < 0 : *e\hull = 0 : EndIf
+        PrintN("Torpedo impact! (" + Str(dmg) + " hull damage)!")
       EndIf
-      PrintN("Torpedo impact! (" + Str(dmg) + ", +" + Str(hullDmg) + " hull breach).")
       *cs\pAim = 0
       GainCrewXP(*p, #CREW_WEAPONS, 8 + dmg / 8)
     Else
@@ -2403,8 +2432,17 @@ Procedure EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
       Protected dmg.i = Int(base * falloff)
       If dmg < 1 : dmg = 1 : EndIf
       
-      ApplyDamage(*p, dmg)
-      PrintN("Enemy fires disruptors! (" + Str(dmg) + ")")
+      ; Enemy phasers only damage shields
+      If *p\shields > 0 And ((*p\sysShields & #SYS_DISABLED) = 0)
+        If dmg > *p\shields
+          *p\shields = 0
+        Else
+          *p\shields - dmg
+        EndIf
+        PrintN("Enemy fires disruptors! (" + Str(dmg) + " shields).")
+      Else
+        PrintN("Enemy fires disruptors! (shields down).")
+      EndIf
       *cs\eAim = 0
     Else
       PrintN("Enemy disruptors miss.")
@@ -2434,16 +2472,35 @@ Procedure EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
         If *cs\range > 20 : torpDmg - 6 : EndIf
         If torpDmg < 1 : torpDmg = 1 : EndIf
         
-        Protected shieldDmg.i = torpDmg
-        Protected hullDmg.i = torpDmg / 5
-        If hullDmg < 1 : hullDmg = 1 : EndIf
+        ; Torpedo shield penetration chance based on range
+        Protected penetrationChance.i = 90 - (*cs\range * 2)
+        If penetrationChance < 10 : penetrationChance = 10 : EndIf
         
-        ApplyDamage(*p, shieldDmg)
-        If *p\hull > 0
-          *p\hull - hullDmg
+        ; Enemy torpedoes punch through shields at close range
+        If *p\shields > 0 And ((*p\sysShields & #SYS_DISABLED) = 0)
+          If Random(99) < penetrationChance
+            ; Shield penetration - damage hull directly
+            If torpDmg > *p\shields
+              Protected remaining.i = torpDmg - *p\shields
+              *p\shields = 0
+              *p\hull - remaining
+              If *p\hull < 0 : *p\hull = 0 : EndIf
+              PrintN("Enemy torpedo impact! PENETRATION (" + Str(torpDmg) + " shields, " + Str(remaining) + " hull)!")
+            Else
+              *p\shields - torpDmg
+              PrintN("Enemy torpedo impact! PENETRATION (" + Str(torpDmg) + " shields)!")
+            EndIf
+          Else
+            ; No penetration - damage shields only
+            *p\shields - torpDmg
+            PrintN("Enemy torpedo impact! (" + Str(torpDmg) + " shields).")
+          EndIf
+        Else
+          ; No shields - direct hull damage
+          *p\hull - torpDmg
           If *p\hull < 0 : *p\hull = 0 : EndIf
+          PrintN("Enemy torpedo impact! (" + Str(torpDmg) + " hull damage)!")
         EndIf
-        PrintN("Enemy torpedo impact! (" + Str(torpDmg) + ", +" + Str(hullDmg) + " hull breach).")
         *cs\eAim = 0
       Else
         PrintN("Enemy torpedo misses.")
@@ -3977,19 +4034,29 @@ Procedure Nav(*p.Ship, dir.s, steps.i)
 
   Protected dx.i = 0
   Protected dy.i = 0
-  Select dir
-    Case "n" : dy = -1
-    Case "s" : dy = 1
-    Case "w" : dx = -1
-    Case "e" : dx = 1
-    Case "nw", "ne", "sw", "se"
-      If dir = "nw" : dx = -1 : dy = -1
-      ElseIf dir = "ne" : dx = 1 : dy = -1
-      ElseIf dir = "sw" : dx = -1 : dy = 1
-      ElseIf dir = "se" : dx = 1 : dy = 1
-      EndIf
+  
+  ; Convert compass heading to direction
+  Protected heading.i = ParseIntSafe(dir, -1)
+  Select heading
+    Case 0    ; North
+      dy = -1
+    Case 180  ; South
+      dy = 1
+    Case 90   ; East
+      dx = 1
+    Case 270  ; West
+      dx = -1
+    Case 45   ; Northeast
+      dx = 1 : dy = -1
+    Case 135  ; Southeast
+      dx = 1 : dy = 1
+    Case 225  ; Southwest
+      dx = -1 : dy = 1
+    Case 315  ; Northwest
+      dx = -1 : dy = -1
     Default
-      PrintN("NAV expects N, NE, E, SE, S, SW, W, NW")
+      PrintN("NAV expects compass heading: 0=N, 45=NE, 90=E, 135=SE, 180=S, 225=SW, 270=W, 315=NW")
+      PrintN("Example: NAV 45 2  (northeast 2 sectors)")
       ProcedureReturn
   EndSelect
 
@@ -5083,8 +5150,7 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 1305
-; FirstLine = 2163
+; CursorPosition = 12
 ; Folding = ------------------
 ; Optimizer
 ; EnableThread
@@ -5094,12 +5160,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,2,0
-; VersionField1 = 1,0,2,0
+; VersionField0 = 1,0,2,5
+; VersionField1 = 1,0,2,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.2.0
-; VersionField5 = 1.0.2.0
+; VersionField4 = 1.0.2.5
+; VersionField5 = 1.0.2.5
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
