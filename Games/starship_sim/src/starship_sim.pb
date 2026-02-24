@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.2.5"
+Global version.s = "v1.0.3.2"
 
 ; Forward declarations (PureBasic requires declaring procedures used before definition)
 Declare.s Timestamp()
@@ -30,6 +30,10 @@ Declare.i PackShipsDatFromIni()
 Declare DefaultShipsIniText()
 Declare LogLine(s.s)
 Declare PrintLog()
+Declare AddCaptainLog(entry.s)
+Declare PrintCaptainLog(search.s)
+Declare AdvanceStardate(steps.i = 1)
+Declare.s FormatStardate()
 Declare RedrawGalaxy(*p.Ship)
 Declare.i ClampInt(v.i, lo.i, hi.i)
 Declare.f ClampF(v.f, lo.f, hi.f)
@@ -88,6 +92,7 @@ Declare GenerateGalaxy()
 Declare PrintMap()
 Declare ScanGalaxy()
 Declare DockAtBase(*p.Ship)
+Declare DockAtRefinery(*p.Ship)
 Declare DockAtShipyard(*p.Ship, *base.Ship)
 Declare MinePlanet(*p.Ship)
 Declare Nav(*p.Ship, dir.s, steps.i)
@@ -140,6 +145,7 @@ Enumeration
   #ENT_SHIPYARD
   #ENT_ANOMALY
   #ENT_PLANETKILLER
+  #ENT_REFINERY
 EndEnumeration
 
 Enumeration
@@ -301,6 +307,14 @@ Global gShipDataDesc.s = ""
 Global gShipDatErr.s = ""
 
 Global gCredits.i = 0
+
+; Refined metals cargo
+Global gIron.i = 0
+Global gAluminum.i = 0
+Global gCopper.i = 0
+Global gTin.i = 0
+Global gBronze.i = 0
+
 Global gPowerBuff.i = 0
 Global gPowerBuffTurns.i = 0
 Global gMission.Mission
@@ -325,13 +339,20 @@ Global gUndoMapX.i, gUndoMapY.i, gUndoX.i, gUndoY.i
 Global gUndoFuel.i, gUndoHull.i, gUndoShields.i
 Global gUndoCredits.i, gUndoMode.i
 Global gUndoOre.i, gUndoDilithium.i
+Global gUndoIron.i, gUndoAluminum.i, gUndoCopper.i, gUndoTin.i, gUndoBronze.i
 
 ; Autosave system
-Global gAutosaveInterval.i = 0  ; 0 = disabled, otherwise save every N turns
+Global gAutosaveInterval.i = 10  ; 0 = disabled, otherwise save every N turns
 Global gAutosaveCounter.i = 0
+Global gAutoclearInterval.i = 5  ; 0 = disabled, otherwise clear every N steps
+Global gAutoclearCounter.i = 0
 
 ; Warp system
 Global gWarpCooldown.i = 0  ; turns until next warp
+
+; Stardate / Julian time system
+Global gStardate.f = 25000.0  ; Starting stardate (simplified julian)
+Global gGameDay.i = 1  ; Day counter
 
 ; Anomaly effects
 Global gIonStormTurns.i = 0  ; ion storm reduces shields
@@ -348,8 +369,27 @@ Global Dim gLastNames.s(30)
 Global Dim gLog.s(11)
 Global gLogPos.i = 0
 
+; Captain's Log - records all player actions with archives
+Global Dim gCaptainLog.s(500)  ; Current log (500 entries)
+Global gCaptainLogCount.i = 0
+Global gCurrentArchive.i = 0  ; 0 = current log, 1-10 = archives
+
+; Archives - up to 10 archives of 500 entries each (5000 total)
+Global Dim gCaptainArchive1.s(500)
+Global Dim gCaptainArchive2.s(500)
+Global Dim gCaptainArchive3.s(500)
+Global Dim gCaptainArchive4.s(500)
+Global Dim gCaptainArchive5.s(500)
+Global Dim gCaptainArchive6.s(500)
+Global Dim gCaptainArchive7.s(500)
+Global Dim gCaptainArchive8.s(500)
+Global Dim gCaptainArchive9.s(500)
+Global Dim gCaptainArchive10.s(500)
+Global Dim gArchive1Count.i(10)
+Global gTotalArchives.i = 0
+
 ; Undo system
-Procedure SaveUndoState(fuel.i, hull.i, shields.i, credits.i, ore.i, dilithium.i, mapX.i, mapY.i, x.i, y.i, mode.i)
+Procedure SaveUndoState(fuel.i, hull.i, shields.i, credits.i, ore.i, dilithium.i, mapX.i, mapY.i, x.i, y.i, mode.i, iron.i, aluminum.i, copper.i, tin.i, bronze.i)
   gUndoFuel = fuel
   gUndoHull = hull
   gUndoShields = shields
@@ -361,10 +401,15 @@ Procedure SaveUndoState(fuel.i, hull.i, shields.i, credits.i, ore.i, dilithium.i
   gUndoX = x
   gUndoY = y
   gUndoMode = mode
+  gUndoIron = iron
+  gUndoAluminum = aluminum
+  gUndoCopper = copper
+  gUndoTin = tin
+  gUndoBronze = bronze
   gUndoAvailable = 1
 EndProcedure
 
-Procedure RestoreUndoState(*fuel.Integer, *hull.Integer, *shields.Integer, *credits.Integer, *ore.Integer, *dilithium.Integer, *mapX.Integer, *mapY.Integer, *x.Integer, *y.Integer, *mode.Integer)
+Procedure RestoreUndoState(*fuel.Integer, *hull.Integer, *shields.Integer, *credits.Integer, *ore.Integer, *dilithium.Integer, *mapX.Integer, *mapY.Integer, *x.Integer, *y.Integer, *mode.Integer, *iron.Integer, *aluminum.Integer, *copper.Integer, *tin.Integer, *bronze.Integer)
   If gUndoAvailable = 0
     ProcedureReturn 0
   EndIf
@@ -379,6 +424,11 @@ Procedure RestoreUndoState(*fuel.Integer, *hull.Integer, *shields.Integer, *cred
   *x\i = gUndoX
   *y\i = gUndoY
   *mode\i = gUndoMode
+  *iron\i = gUndoIron
+  *aluminum\i = gUndoAluminum
+  *copper\i = gUndoCopper
+  *tin\i = gUndoTin
+  *bronze\i = gUndoBronze
   gUndoAvailable = 0
   ProcedureReturn 1
 EndProcedure
@@ -715,6 +765,247 @@ Procedure PrintLog()
   Next
 EndProcedure
 
+Procedure AdvanceStardate(steps.i = 1)
+  ; Each turn advances stardate by 0.1 per step
+  gStardate = gStardate + (0.1 * steps)
+  ; Every 10 turns = 1 day
+  Protected totalTurns.i = Int(gStardate * 10) - 250000
+  gGameDay = Int(totalTurns / 10) + 1
+EndProcedure
+
+Procedure.s FormatStardate()
+  Protected dayStr.s = "Day " + Str(gGameDay)
+  Protected stardateStr.s = " [" + FormatNumber(gStardate, 1) + "]"
+  ProcedureReturn dayStr + stardateStr
+EndProcedure
+
+Procedure AddCaptainLog(entry.s)
+  ; Prepend stardate to entry
+  Protected loggedEntry.s = FormatStardate() + " " + entry
+  
+  If gCaptainLogCount < ArraySize(gCaptainLog())
+    gCaptainLog(gCaptainLogCount) = entry
+    gCaptainLogCount + 1
+  Else
+    ; Log is full - archive it
+    If gTotalArchives < 10
+      ; Archive current log
+      gTotalArchives + 1
+      Protected arcNum.i = gTotalArchives
+      
+      ; Copy current log to archive
+      Protected j.i
+      Select arcNum
+        Case 1
+          For j = 0 To ArraySize(gCaptainLog()) - 1
+            gCaptainArchive1(j) = gCaptainLog(j)
+          Next
+          gArchive1Count(1) = ArraySize(gCaptainLog())
+        Case 2
+          For j = 0 To ArraySize(gCaptainLog()) - 1
+            gCaptainArchive2(j) = gCaptainLog(j)
+          Next
+          gArchive1Count(2) = ArraySize(gCaptainLog())
+        Case 3
+          For j = 0 To ArraySize(gCaptainLog()) - 1
+            gCaptainArchive3(j) = gCaptainLog(j)
+          Next
+          gArchive1Count(3) = ArraySize(gCaptainLog())
+        Case 4
+          For j = 0 To ArraySize(gCaptainLog()) - 1
+            gCaptainArchive4(j) = gCaptainLog(j)
+          Next
+          gArchive1Count(4) = ArraySize(gCaptainLog())
+        Case 5
+          For j = 0 To ArraySize(gCaptainLog()) - 1
+            gCaptainArchive5(j) = gCaptainLog(j)
+          Next
+          gArchive1Count(5) = ArraySize(gCaptainLog())
+        Case 6
+          For j = 0 To ArraySize(gCaptainLog()) - 1
+            gCaptainArchive6(j) = gCaptainLog(j)
+          Next
+          gArchive1Count(6) = ArraySize(gCaptainLog())
+        Case 7
+          For j = 0 To ArraySize(gCaptainLog()) - 1
+            gCaptainArchive7(j) = gCaptainLog(j)
+          Next
+          gArchive1Count(7) = ArraySize(gCaptainLog())
+        Case 8
+          For j = 0 To ArraySize(gCaptainLog()) - 1
+            gCaptainArchive8(j) = gCaptainLog(j)
+          Next
+          gArchive1Count(8) = ArraySize(gCaptainLog())
+        Case 9
+          For j = 0 To ArraySize(gCaptainLog()) - 1
+            gCaptainArchive9(j) = gCaptainLog(j)
+          Next
+          gArchive1Count(9) = ArraySize(gCaptainLog())
+        Case 10
+          For j = 0 To ArraySize(gCaptainLog()) - 1
+            gCaptainArchive10(j) = gCaptainLog(j)
+          Next
+          gArchive1Count(10) = ArraySize(gCaptainLog())
+      EndSelect
+      
+      ; Clear current log and add new entry
+      Protected k.i
+      For k = 0 To ArraySize(gCaptainLog()) - 1
+        gCaptainLog(k) = ""
+      Next
+      gCaptainLog(0) = entry
+      gCaptainLogCount = 1
+    Else
+      ; All archives full - shift current log like before
+      Protected m.i
+      For m = 0 To ArraySize(gCaptainLog()) - 2
+        gCaptainLog(m) = gCaptainLog(m + 1)
+      Next
+      gCaptainLog(ArraySize(gCaptainLog())) = entry
+    EndIf
+  EndIf
+EndProcedure
+
+Procedure PrintCaptainLog(search.s)
+  Protected shownCount.i, a.i, viewArc.i, startIdx.i, j.i
+  Protected searchArc.s, arcPrefix.s, arcNum.s, arrPtr.s, entryLower.s
+  Protected maxShow.i = 20
+  Protected i.i
+  
+  PrintDivider()
+  
+  ; Check for archive selection
+  search = TrimLower(search)
+  shownCount = 0
+  
+  ; Handle archive commands
+  If search = "archives" Or search = "archive"
+    PrintN("Captain's Log Archives:")
+    PrintN("")
+    PrintN("Current Log: " + Str(gCaptainLogCount) + " entries")
+    For a = 1 To gTotalArchives
+      PrintN("Archive " + Str(a) + ": " + Str(gArchive1Count(a)) + " entries")
+    Next
+    If gTotalArchives = 0
+      PrintN("No archives yet.")
+    EndIf
+    PrintN("")
+    PrintN("Use LOG to view current, or LOG ARCHIVE <1-" + Str(gTotalArchives) + "> to view an archive.")
+    PrintDivider()
+    ProcedureReturn
+  EndIf
+  
+  arcPrefix = "ARCHIVE "
+  If FindString(search, arcPrefix) = 1
+    ; View specific archive
+    arcNum = RemoveString(search, arcPrefix)
+    arcNum = RemoveString(arcNum, " ")
+    viewArc = ParseIntSafe(arcNum, 0)
+    
+    If viewArc < 1 Or viewArc > gTotalArchives
+      PrintN("Archive " + Str(viewArc) + " does not exist.")
+      PrintDivider()
+      ProcedureReturn
+    EndIf
+    
+    ; Show archive
+    PrintN("Captain's Log - Archive " + Str(viewArc) + ":")
+    PrintN("")
+    
+    startIdx = gArchive1Count(viewArc) - 20
+    If startIdx < 0 : startIdx = 0 : EndIf
+    
+    searchArc = RemoveString(search, "archive " + arcNum)
+    searchArc = Trim(searchArc)
+    
+    For j = startIdx To gArchive1Count(viewArc) - 1
+      Select viewArc
+        Case 1 : arrPtr = gCaptainArchive1(j)
+        Case 2 : arrPtr = gCaptainArchive2(j)
+        Case 3 : arrPtr = gCaptainArchive3(j)
+        Case 4 : arrPtr = gCaptainArchive4(j)
+        Case 5 : arrPtr = gCaptainArchive5(j)
+        Case 6 : arrPtr = gCaptainArchive6(j)
+        Case 7 : arrPtr = gCaptainArchive7(j)
+        Case 8 : arrPtr = gCaptainArchive8(j)
+        Case 9 : arrPtr = gCaptainArchive9(j)
+        Case 10 : arrPtr = gCaptainArchive10(j)
+      EndSelect
+      
+      If arrPtr <> ""
+        If searchArc <> ""
+          If FindString(TrimLower(arrPtr), searchArc) > 0
+            PrintN(arrPtr)
+            shownCount + 1
+          EndIf
+        Else
+          PrintN(arrPtr)
+          shownCount + 1
+        EndIf
+      EndIf
+    Next
+    
+    If shownCount = 0
+      If searchArc <> ""
+        PrintN("No entries found matching: " + searchArc)
+      Else
+        PrintN("No entries in this archive.")
+      EndIf
+    EndIf
+    PrintN("")
+    PrintN("Total entries: " + Str(gArchive1Count(viewArc)))
+    PrintDivider()
+    ProcedureReturn
+  EndIf
+  
+  ; Show current log
+  PrintN("Captain's Log:")
+  PrintN("")
+  
+  If search = ""
+    ; Show last entries
+    startIdx = gCaptainLogCount - maxShow
+    If startIdx < 0 : startIdx = 0 : EndIf
+    
+    For i = startIdx To gCaptainLogCount - 1
+      If i >= 0 And i < ArraySize(gCaptainLog()) + 1
+        If gCaptainLog(i) <> ""
+          PrintN(gCaptainLog(i))
+          shownCount + 1
+        EndIf
+      EndIf
+    Next
+  Else
+    ; Search entries
+    For i = 0 To gCaptainLogCount - 1
+      If gCaptainLog(i) <> ""
+        entryLower = TrimLower(gCaptainLog(i))
+        If FindString(entryLower, search) > 0
+          PrintN(gCaptainLog(i))
+          shownCount + 1
+        EndIf
+      EndIf
+    Next
+  EndIf
+  
+  If shownCount = 0
+    If search <> ""
+      PrintN("No entries found matching: " + search)
+    Else
+      PrintN("No log entries yet.")
+    EndIf
+  EndIf
+  PrintN("")
+  PrintN("Total entries: " + Str(gCaptainLogCount))
+  If gTotalArchives > 0
+    PrintN("Archives available: " + Str(gTotalArchives))
+  EndIf
+  PrintN("Usage: LOG - show recent | LOG <search> - search entries")
+  PrintN("       LOG ARCHIVES - list all archives")
+  PrintN("       LOG ARCHIVE <1-10> - view archive (add search term)")
+  PrintDivider()
+EndProcedure
+
 Procedure ClearLog()
   Protected n.i = ArraySize(gLog()) + 1
   Protected i.i
@@ -822,24 +1113,24 @@ EndProcedure
 Procedure PrintLegendLine(indent.s)
   ; Prints a colorized legend line (caller controls surrounding text)
   Print(indent)
-  ConsoleColor(#C_WHITE, #C_BLACK) : Print("@") : ResetColor() : Print("=You ")
+    ConsoleColor(#C_WHITE, #C_BLACK) : Print("@") : ResetColor() : Print("=Your Ship ")
   ConsoleColor(#C_DARKGRAY, #C_BLACK) : Print(".") : ResetColor() : Print("=Empty ")
   ConsoleColor(#C_LIGHTBLUE, #C_BLACK) : Print("O") : ResetColor() : Print("=Planet ")
-  ConsoleColor(#C_YELLOW, #C_BLACK) : Print("*") : ResetColor() : Print("=Star(blocked)")
+  ConsoleColor(#C_YELLOW, #C_BLACK) : Print("*") : ResetColor() : Print("=Star(blocked) ")
+  ConsoleColor(#C_LIGHTCYAN, #C_BLACK) : Print("%") : ResetColor() : Print("=Starbase")
   PrintN("")
   Print(indent)
-  ConsoleColor(#C_LIGHTCYAN, #C_BLACK) : Print("%") : ResetColor() : Print("=Base ")
   ConsoleColor(#C_GREEN, #C_BLACK) : Print("+") : ResetColor() : Print("=Shipyard ")
   ConsoleColor(#C_LIGHTRED, #C_BLACK) : Print("E") : ResetColor() : Print("=Enemy ")
-  ConsoleColor(#C_LIGHTMAGENTA, #C_BLACK) : Print("#") : ResetColor() : Print("=Wormhole")
+  ConsoleColor(#C_LIGHTMAGENTA, #C_BLACK) : Print("#") : ResetColor() : Print("=Wormhole ")
+  ConsoleColor(#C_WHITE, #C_BLACK) : Print("?") : ResetColor() : Print("=Blackhole ")
+  ConsoleColor(#C_BROWN, #C_BLACK) : Print("S") : ResetColor() : Print("=Sun(blocked)")
   PrintN("")
   Print(indent)
-  ConsoleColor(#C_WHITE, #C_BLACK) : Print("?") : ResetColor() : Print("=BlackHole ")
-  ConsoleColor(#C_BROWN, #C_BLACK) : Print("S") : ResetColor() : Print("=Sun(blocked) ")
-  ConsoleColor(#C_MAGENTA, #C_BLACK) : Print("D") : ResetColor() : Print("=Dilithium ")
-  ConsoleColor(#C_LIGHTBLUE, #C_BLACK) : Print("A") : ResetColor() : PrintN("=Anomaly")
-  Print(indent)
-  ConsoleColor(#C_LIGHTCYAN, #C_BLACK) : Print("<") : ResetColor() : PrintN("=Planet Killer")
+  ConsoleColor(#C_MAGENTA, #C_BLACK) : Print("D") : ResetColor() : Print("=Di-lithium ")
+  ConsoleColor(#C_LIGHTBLUE, #C_BLACK) : Print("A") : ResetColor() : Print("=Anomaly ")
+  ConsoleColor(#C_LIGHTCYAN, #C_BLACK) : Print("<") : ResetColor() : Print("=Planet Killer ")
+  ConsoleColor(#C_YELLOW, #C_BLACK) : Print("R") : ResetColor() : PrintN("=Refinery")
 EndProcedure
 
 Procedure SetColorForEnt(t.i)
@@ -869,6 +1160,8 @@ Procedure SetColorForEnt(t.i)
       ConsoleColor(#C_CYAN, #C_BLACK)
     Case #ENT_PLANETKILLER
       ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+    Case #ENT_REFINERY
+      ConsoleColor(#C_YELLOW, #C_BLACK)
     Default
       ResetColor()
   EndSelect
@@ -906,11 +1199,18 @@ Procedure PrintHelpGalaxy()
   PrintCmd("CREW")
   PrintN("    Show crew members and their experience")
   PrintN("")
+  PrintCmd("LOG <search>")
+  PrintN("    View captain's log or search for entries")
+  PrintN("    LOG ARCHIVES - list all archives")
+  PrintN("    LOG ARCHIVE <1-10> <search> - view archive")
+  PrintN("    Example: LOG        (show recent)")
+  PrintN("    Example: LOG planet (search for 'planet')")
+  PrintN("")
   PrintCmd("MAP")
   PrintN("    Show the sector map")
   PrintN("    Legend:")
   PrintLegendLine("      ")
-  PrintN("    M=Mission map   !=Mission target")
+  PrintN("      X=Current map M=Mission map !=Mission target")
   PrintN("")
   PrintCmd("CLEAR")
   PrintN("    Clear console and refresh the galaxy map")
@@ -933,26 +1233,27 @@ Procedure PrintHelpGalaxy()
   PrintN("")
   PrintCmd("WARP <x> <y>")
   PrintN("    Warp to a specific galaxy location (right side map)")
-  PrintN("    Costs 5 dilithium, 10 turn cooldown between warps")
+  PrintN("    Costs 5 di-lithium, 10 turn cooldown between warps")
   PrintN("    Example: WARP 3 2")
   PrintN("")
   PrintCmd("MINE")
   PrintN("    Mine ore when in a planet sector (O), costs 2 fuel")
-  PrintN("    Can also mine dilithium crystals (D)")
+  PrintN("    Can also mine di-lithium crystals (D)")
   PrintN("    Example: MINE")
   PrintN("    Cheat: MINE miner2049er fills cargo hold")
   PrintN("")
   PrintCmd("REFUEL")
-  PrintN("    Convert dilithium crystals to fuel (10 fuel per crystal)")
+  PrintN("    Convert di-lithium crystals to fuel (10 fuel per crystal)")
   PrintN("    Example: REFUEL")
   PrintN("")
   PrintCmd("DOCK")
-  PrintN("    Dock when in a starbase (%) or shipyard (+): repair/refuel/rearm")
-  PrintN("    Shipyards also offer upgrades")
+  PrintN("    Dock when in a starbase (%), shipyard (+), or refinery (R)")
+  PrintN("    Starbases/shipyards: repair/refuel/rearm")
+  PrintN("    Refineries: REFINE ore, SELL ore/metals")
   PrintN("    Example: DOCK")
   PrintN("")
   PrintCmd("UNDOCK")
-  PrintN("    Undock from a starbase or shipyard to resume flying")
+  PrintN("    Undock from a starbase, shipyard, or refinery to resume flying")
   PrintN("    Example: UNDOCK")
   PrintN("")
   PrintCmd("RECRUIT <number>")
@@ -976,8 +1277,11 @@ Procedure PrintHelpGalaxy()
   PrintCmd("SPAWNBASE")
   PrintN("    Cheat: spawn a starbase in current sector")
   PrintN("")
+  PrintCmd("SPAWNREFINERY")
+  PrintN("    Cheat: spawn a refinery in current sector")
+  PrintN("")
   PrintCmd("SPAWNCLUSTER")
-  PrintN("    Cheat: spawn a dilithium cluster in current sector")
+  PrintN("    Cheat: spawn a di-lithium cluster in current sector")
   PrintN("")
   PrintCmd("SPAWNWORMHOLE")
   PrintN("    Cheat: spawn a wormhole in current sector")
@@ -997,6 +1301,10 @@ Procedure PrintHelpGalaxy()
   PrintCmd("AUTOSAVE <turns>")
   PrintN("    Enable autosave every N turns (0 to disable)")
   PrintN("    Example: AUTOSAVE 10")
+  PrintN("")
+  PrintCmd("AUTOCLEAR <turns>")
+  PrintN("    Enable autoclear every N turns (0 to disable)")
+  PrintN("    Example: AUTOCLEAR 5")
   PrintN("")
   PrintCmd("MISSIONS")
   PrintN("    Show mission board + current mission")
@@ -1069,6 +1377,9 @@ Procedure.i SaveGame(*p.Ship)
   WriteStringN(f, "mode|" + Str(gMode))
   WriteStringN(f, "pos|" + Str(gMapX) + "|" + Str(gMapY) + "|" + Str(gx) + "|" + Str(gy))
   WriteStringN(f, "credits|" + Str(gCredits))
+  WriteStringN(f, "stardate|" + StrF(gStardate) + "|" + Str(gGameDay))
+  WriteStringN(f, "metals|" + Str(gIron) + "|" + Str(gAluminum) + "|" + Str(gCopper) + "|" + Str(gTin) + "|" + Str(gBronze))
+  WriteStringN(f, "settings|" + Str(gAutosaveInterval) + "|" + Str(gAutoclearInterval))
 
   WriteStringN(f, "player|" + SafeField(*p\name) + "|" + SafeField(*p\class) + "|" +
                   Str(*p\hullMax) + "|" + Str(*p\hull) + "|" +
@@ -1166,6 +1477,18 @@ Procedure.i LoadGame(*p.Ship)
         gy    = Val(StringField(line, 5, "|"))
       Case "credits"
         gCredits = Val(StringField(line, 2, "|"))
+      Case "stardate"
+        gStardate = ValF(StringField(line, 2, "|"))
+        gGameDay = Val(StringField(line, 3, "|"))
+      Case "metals"
+        gIron      = Val(StringField(line, 2, "|"))
+        gAluminum  = Val(StringField(line, 3, "|"))
+        gCopper    = Val(StringField(line, 4, "|"))
+        gTin       = Val(StringField(line, 5, "|"))
+        gBronze    = Val(StringField(line, 6, "|"))
+      Case "settings"
+        gAutosaveInterval  = Val(StringField(line, 2, "|"))
+        gAutoclearInterval = Val(StringField(line, 3, "|"))
       Case "player"
         *p\name        = StringField(line, 2, "|")
         *p\class       = StringField(line, 3, "|")
@@ -1322,9 +1645,9 @@ Procedure PrintHelpTactical()
   PrintN("    Example: TORPEDO 1 | TORPEDO 2")
   PrintN("")
   PrintCmd("TRACTOR <HOLD|PULL|PUSH>")
-  PrintN("    Tractor beam (green) - costs 1 fuel/dilithium per use")
+  PrintN("    Tractor beam (green) - costs 1 fuel/di-lithium per use")
   PrintN("    HOLD - lock enemy in place, prevents movement this turn")
-  PrintN("    PULL - pull enemy 2 sectors closer (1 dilithium or fuel)")
+  PrintN("    PULL - pull enemy 2 sectors closer (1 di-lithium or fuel)")
   PrintN("    PUSH - push enemy into adjacent hazard (sun/blackhole/wormhole)")
   PrintN("    Example: TRACTOR HOLD | TRACTOR PULL | TRACTOR PUSH")
   PrintN("")
@@ -1768,6 +2091,9 @@ EndProcedure
 
 Procedure PrintStatusGalaxy(*p.Ship)
   PrintDivider()
+  ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+  PrintN(FormatStardate())
+  ResetColor()
   PrintN("Galaxy: (" + Str(gMapX) + "," + Str(gMapY) + ")  Sector: (" + Str(gx) + "," + Str(gy) + ")")
   PrintN("Credits: " + Str(gCredits))
   If gMission\active
@@ -1803,6 +2129,11 @@ Procedure PrintStatusGalaxy(*p.Ship)
   ConsoleColor(#C_MAGENTA, #C_BLACK)
   PrintN(Str(*p\dilithium) + "/" + Str(*p\dilithiumMax))
   ResetColor()
+  Print("  Iron: " + Str(gIron))
+  Print("  Aluminum: " + Str(gAluminum))
+  Print("  Copper: " + Str(gCopper))
+  Print("  Tin: " + Str(gTin))
+  PrintN("  Bronze: " + Str(gBronze))
   PrintN("Ship: " + *p\name + " [" + *p\class + "]")
   If gPowerBuff = 1
     ConsoleColor(#C_LIGHTMAGENTA, #C_BLACK)
@@ -2048,6 +2379,7 @@ Procedure ApplyDamage(*target.Ship, dmg.i)
     Protected sHit.i = dmg
     If sHit > *target\shields : sHit = *target\shields : EndIf
     *target\shields - sHit
+    If *target\shields < 0 : *target\shields = 0 : EndIf
     dmg - sHit
   EndIf
 
@@ -2079,14 +2411,14 @@ Procedure RegenAndRepair(*s.Ship, isEnemy.i)
 
   If isEnemy
     ; Enemies regenerate/repair less so fights don't drag.
-    shP = Int(shP * 0.55)
+    shP = Int(shP * 0.25)
     wP  = Int(wP  * 0.55)
   EndIf
-
+  
   If (*s\sysShields & #SYS_DISABLED) = 0
     If (*s\sysShields & #SYS_DAMAGED) : shP / 2 : EndIf
     If isEnemy
-      *s\shields + (shP / 4)
+      *s\shields + 1  ; Enemies get minimal shield regen (1 per turn)
     Else
       *s\shields + (shP / 3)
     EndIf
@@ -2182,16 +2514,24 @@ Procedure PlayerPhaser(*p.Ship, *e.Ship, *cs.CombatState, power.i)
     Protected dmg.i = Int(base * falloff)
     If dmg < 1 : dmg = 1 : EndIf
 
-    ; Phasers only damage shields, not hull
+    ; Phasers damage shields first, then hull when shields are down
     If *e\shields > 0 And ((*e\sysShields & #SYS_DISABLED) = 0)
       If dmg > *e\shields
+        Protected remaining.i = dmg - *e\shields
         *e\shields = 0
-      Else
-        *e\shields - dmg
-      EndIf
-      PrintN("Phasers hit! (" + Str(dmg) + " shields).")
+        *e\hull - remaining
+        If *e\hull < 0 : *e\hull = 0 : EndIf
+        PrintN("Phasers hit! (" + Str(dmg) + " shields, " + Str(remaining) + " hull)!")
     Else
-      PrintN("Phasers hit! (shields down).")
+      *p\shields - dmg
+      If *p\shields < 0 : *p\shields = 0 : EndIf
+      PrintN("Phasers hit! (" + Str(dmg) + " shields).")
+    EndIf
+  Else
+    ; Shields down - phasers damage hull directly
+      *e\hull - dmg
+      If *e\hull < 0 : *e\hull = 0 : EndIf
+      PrintN("Phasers hit HULL! (" + Str(dmg) + " hull damage)!")
     EndIf
     *cs\pAim = 0
     GainCrewXP(*p, #CREW_WEAPONS, 5 + dmg / 10)
@@ -2248,11 +2588,17 @@ Procedure PlayerTorpedo(*p.Ship, *e.Ship, *cs.CombatState, count.i)
             PrintN("Torpedo impact! PENETRATION (" + Str(dmg) + " shields, " + Str(remaining) + " hull)!")
           Else
             *e\shields - dmg
+            If *e\shields < 0 : *e\shields = 0 : EndIf
             PrintN("Torpedo impact! PENETRATION (" + Str(dmg) + " shields)!")
           EndIf
         Else
           ; No penetration - damage shields only
-          *e\shields - dmg
+          If dmg > *e\shields
+            *e\shields = 0
+          Else
+            *e\shields - dmg
+            If *e\shields < 0 : *e\shields = 0 : EndIf
+          EndIf
           PrintN("Torpedo impact! (" + Str(dmg) + " shields).")
         EndIf
       Else
@@ -2285,7 +2631,7 @@ Procedure PlayerTractor(*p.Ship, *e.Ship, *cs.CombatState, mode.s)
   If mode = "pull"
     ; Pull mode costs dilithium
     If *p\dilithium < 1 And *p\fuel < 1
-      PrintN("Not enough fuel or dilithium for tractor beam.")
+      PrintN("Not enough fuel or di-lithium for tractor beam.")
       ProcedureReturn
     EndIf
     If *p\dilithium >= 1
@@ -2432,16 +2778,24 @@ Procedure EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
       Protected dmg.i = Int(base * falloff)
       If dmg < 1 : dmg = 1 : EndIf
       
-      ; Enemy phasers only damage shields
+      ; Enemy phasers damage shields first, then hull when shields are down
       If *p\shields > 0 And ((*p\sysShields & #SYS_DISABLED) = 0)
         If dmg > *p\shields
+          Protected rem.i = dmg - *p\shields
           *p\shields = 0
+          *p\hull - rem
+          If *p\hull < 0 : *p\hull = 0 : EndIf
+          PrintN("Enemy fires disruptors! (" + Str(dmg) + " shields, " + Str(rem) + " hull)!")
         Else
           *p\shields - dmg
+          If *p\shields < 0 : *p\shields = 0 : EndIf
+          PrintN("Enemy fires disruptors! (" + Str(dmg) + " shields).")
         EndIf
-        PrintN("Enemy fires disruptors! (" + Str(dmg) + " shields).")
       Else
-        PrintN("Enemy fires disruptors! (shields down).")
+        ; Shields down - phasers damage hull directly
+        *p\hull - dmg
+        If *p\hull < 0 : *p\hull = 0 : EndIf
+        PrintN("Enemy disruptors hit HULL! (" + Str(dmg) + " hull damage)!")
       EndIf
       *cs\eAim = 0
     Else
@@ -2488,11 +2842,17 @@ Procedure EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
               PrintN("Enemy torpedo impact! PENETRATION (" + Str(torpDmg) + " shields, " + Str(remaining) + " hull)!")
             Else
               *p\shields - torpDmg
+              If *p\shields < 0 : *p\shields = 0 : EndIf
               PrintN("Enemy torpedo impact! PENETRATION (" + Str(torpDmg) + " shields)!")
             EndIf
           Else
             ; No penetration - damage shields only
-            *p\shields - torpDmg
+            If torpDmg > *p\shields
+              *p\shields = 0
+            Else
+              *p\shields - torpDmg
+              If *p\shields < 0 : *p\shields = 0 : EndIf
+            EndIf
             PrintN("Enemy torpedo impact! (" + Str(torpDmg) + " shields).")
           EndIf
         Else
@@ -2730,6 +3090,7 @@ Procedure.s EntSymbol(t.i)
     Case #ENT_DILITHIUM: ProcedureReturn "D"
     Case #ENT_ANOMALY: ProcedureReturn "A"
     Case #ENT_PLANETKILLER: ProcedureReturn "<"
+    Case #ENT_REFINERY: ProcedureReturn "R"
   EndSelect
   ProcedureReturn "?"
 EndProcedure
@@ -2942,6 +3303,16 @@ Procedure GenerateSectorMap(mapX.i, mapY.i)
       gGalaxy(mapX, mapY, bx, by)\name = "Shipyard-" + Str(mapX) + "-" + Str(mapY)
     EndIf
   EndIf
+  
+  ; Refineries (rare)
+  If Random(99) < 8
+    bx = Random(#MAP_W - 1)
+    by = Random(#MAP_H - 1)
+    If gGalaxy(mapX, mapY, bx, by)\entType = #ENT_EMPTY
+      gGalaxy(mapX, mapY, bx, by)\entType = #ENT_REFINERY
+      gGalaxy(mapX, mapY, bx, by)\name = "Refinery-" + Str(mapX) + "-" + Str(mapY)
+    EndIf
+  EndIf
 
   ; Enemies
   For x = 1 To 4 + Random(6)
@@ -2983,7 +3354,7 @@ Procedure GenerateSectorMap(mapX.i, mapY.i)
     py = Random(#MAP_H - 1)
     If gGalaxy(mapX, mapY, px, py)\entType = #ENT_EMPTY
       gGalaxy(mapX, mapY, px, py)\entType = #ENT_DILITHIUM
-      gGalaxy(mapX, mapY, px, py)\name = "Dilithium Cluster"
+      gGalaxy(mapX, mapY, px, py)\name = "Di-lithium Cluster"
       gGalaxy(mapX, mapY, px, py)\richness = 3 + Random(8)
     EndIf
   EndIf
@@ -3771,7 +4142,7 @@ Procedure MinePlanet(*p.Ship)
       ProcedureReturn
     EndIf
     If *p\dilithium >= *p\dilithiumMax
-      PrintN("Dilithium holds are full.")
+      PrintN("Di-lithium holds are full.")
       ProcedureReturn
     EndIf
 
@@ -3783,10 +4154,10 @@ Procedure MinePlanet(*p.Ship)
     If dpull > dspace : dpull = dspace : EndIf
     *p\dilithium + dpull
     *p\fuel - 2
-    LogLine("MINE: +" + Str(dpull) + " dilithium")
-    PrintN("Mined " + Str(dpull) + " dilithium crystals.")
+    LogLine("MINE: +" + Str(dpull) + " di-lithium")
+    PrintN("Mined " + Str(dpull) + " di-lithium crystals.")
   Else
-    PrintN("No mineable resource in this sector (need Planet O or Dilithium D).")
+    PrintN("No mineable resource in this sector (need Planet O or Di-lithium D).")
   EndIf
 EndProcedure
 
@@ -3839,9 +4210,9 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
     PrintN("B) Fuel Tanks       (+25 FuelMax)     cost 100")
     PrintN("")
     PrintN("POWER & CARGO:")
-    PrintN("C) Reactor Upgrade (+30 ReactorMax)   cost 180")
-    PrintN("D) Dilithium Bay   (+10 DilithiumMax) cost 90")
-    PrintN("E) Cargo Hold      (+20 OreMax)       cost 80")
+    PrintN("C) Reactor Upgrade (+30 ReactorMax)    cost 180")
+    PrintN("D) Di-lithium Bay  (+10 Di-lithiumMax) cost 90")
+    PrintN("E) Cargo Hold      (+20 OreMax)        cost 80")
     PrintN("")
     PrintN("0) Leave")
     PrintN("")
@@ -4007,7 +4378,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
         gCredits - cost
         *p\dilithiumMax = ClampInt(*p\dilithiumMax + 10, 0, 50)
-        LogLine("UPGRADE: dilithium +10 (-" + Str(cost) + ")")
+        LogLine("UPGRADE: di-lithium +10 (-" + Str(cost) + ")")
         PrintN("Upgrade installed.")
       Case "e"
         cost = 80
@@ -4019,6 +4390,209 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
       Default
         PrintN("Unknown selection.")
     EndSelect
+  Wend
+EndProcedure
+
+Procedure DockAtRefinery(*p.Ship)
+  If CurCell(gx, gy)\entType <> #ENT_REFINERY
+    PrintN("No refinery in this sector.")
+    ProcedureReturn
+  EndIf
+  
+  If gDocked
+    PrintN("You are already docked.")
+    ProcedureReturn
+  EndIf
+  
+  gDocked = 1
+  
+  While #True
+    PrintDivider()
+    PrintN("Refinery: " + CurCell(gx, gy)\name)
+    PrintN("Credits: " + Str(gCredits))
+    PrintN("")
+    PrintN("CARGO HOLD:")
+    PrintN("  Ore: " + Str(*p\ore) + "/" + Str(*p\oreMax))
+    PrintN("  Iron: " + Str(gIron))
+    PrintN("  Aluminum: " + Str(gAluminum))
+    PrintN("  Copper: " + Str(gCopper))
+    PrintN("  Tin: " + Str(gTin))
+    PrintN("  Bronze: " + Str(gBronze))
+    PrintN("")
+    PrintN("COMMANDS:")
+    PrintN("  REFINE           - Convert 1 ore to random refined metal (free)")
+    PrintN("  SELL ORE         - Sell all ore (1 credit each)")
+    PrintN("  SELL IRON        - Sell all iron (5 credits each)")
+    PrintN("  SELL ALUMINUM    - Sell all aluminum (8 credits each)")
+    PrintN("  SELL COPPER      - Sell all copper (12 credits each)")
+    PrintN("  SELL TIN         - Sell all tin (15 credits each)")
+    PrintN("  SELL BRONZE      - Sell all bronze (25 credits each)")
+    PrintN("  SELL ALL         - Sell all cargo")
+    PrintN("  UNDOCK           - Leave the refinery")
+    Print("")
+    Print("REFINERY> ")
+    Protected cmd.s = TrimLower(Input())
+    
+    If cmd = "undock" Or cmd = "leave" Or cmd = "exit" Or cmd = "0"
+      gDocked = 0
+      Protected refFoundEmpty.i = 0
+      Protected refDx.i, refDy.i
+      For refDy = -1 To 1
+        For refDx = -1 To 1
+          If refDx = 0 And refDy = 0 : Continue : EndIf
+          Protected rnx.i = gx + refDx
+          Protected rny.i = gy + refDy
+          If rnx >= 0 And rnx < #MAP_W And rny >= 0 And rny < #MAP_H
+            If gGalaxy(gMapX, gMapY, rnx, rny)\entType = #ENT_EMPTY
+              gx = rnx
+              gy = rny
+              refFoundEmpty = 1
+              Break 2
+            EndIf
+          EndIf
+        Next
+      Next
+      PrintN("Undocking...")
+      Break
+    EndIf
+    
+    If cmd = "refine"
+      If *p\ore <= 0
+        PrintN("No ore to refine.")
+        Continue
+      EndIf
+      *p\ore - 1
+      Protected metalType.i = Random(4)
+      Select metalType
+        Case 0
+          gIron + 1
+          PrintN("Refined 1 ore -> 1 Iron")
+        Case 1
+          gAluminum + 1
+          PrintN("Refined 1 ore -> 1 Aluminum")
+        Case 2
+          gCopper + 1
+          PrintN("Refined 1 ore -> 1 Copper")
+        Case 3
+          gTin + 1
+          PrintN("Refined 1 ore -> 1 Tin")
+        Case 4
+          gBronze + 1
+          PrintN("Refined 1 ore -> 1 Bronze")
+      EndSelect
+      LogLine("REFINE: ore -> metal type " + Str(metalType))
+      Continue
+    EndIf
+    
+    Protected sellCmd.s = StringField(cmd, 1, " ")
+    Protected sellQty.i = 0
+    Protected sellPrice.i = 0
+    
+    If sellCmd = "sell"
+      Protected sellTarget.s = TrimLower(StringField(cmd, 2, " "))
+      
+      If sellTarget = "ore"
+        If *p\ore <= 0
+          PrintN("No ore to sell.")
+          Continue
+        EndIf
+        sellQty = *p\ore
+        sellPrice = 1
+        *p\ore = 0
+        gCredits + (sellQty * sellPrice)
+        PrintN("Sold " + Str(sellQty) + " ore for " + Str(sellQty * sellPrice) + " credits.")
+        LogLine("SELL: " + Str(sellQty) + " ore for " + Str(sellQty * sellPrice))
+      ElseIf sellTarget = "iron"
+        If gIron <= 0
+          PrintN("No iron to sell.")
+          Continue
+        EndIf
+        sellQty = gIron
+        sellPrice = 5
+        gIron = 0
+        gCredits + (sellQty * sellPrice)
+        PrintN("Sold " + Str(sellQty) + " iron for " + Str(sellQty * sellPrice) + " credits.")
+        LogLine("SELL: " + Str(sellQty) + " iron for " + Str(sellQty * sellPrice))
+      ElseIf sellTarget = "aluminum"
+        If gAluminum <= 0
+          PrintN("No aluminum to sell.")
+          Continue
+        EndIf
+        sellQty = gAluminum
+        sellPrice = 8
+        gAluminum = 0
+        gCredits + (sellQty * sellPrice)
+        PrintN("Sold " + Str(sellQty) + " aluminum for " + Str(sellQty * sellPrice) + " credits.")
+        LogLine("SELL: " + Str(sellQty) + " aluminum for " + Str(sellQty * sellPrice))
+      ElseIf sellTarget = "copper"
+        If gCopper <= 0
+          PrintN("No copper to sell.")
+          Continue
+        EndIf
+        sellQty = gCopper
+        sellPrice = 12
+        gCopper = 0
+        gCredits + (sellQty * sellPrice)
+        PrintN("Sold " + Str(sellQty) + " copper for " + Str(sellQty * sellPrice) + " credits.")
+        LogLine("SELL: " + Str(sellQty) + " copper for " + Str(sellQty * sellPrice))
+      ElseIf sellTarget = "tin"
+        If gTin <= 0
+          PrintN("No tin to sell.")
+          Continue
+        EndIf
+        sellQty = gTin
+        sellPrice = 15
+        gTin = 0
+        gCredits + (sellQty * sellPrice)
+        PrintN("Sold " + Str(sellQty) + " tin for " + Str(sellQty * sellPrice) + " credits.")
+        LogLine("SELL: " + Str(sellQty) + " tin for " + Str(sellQty * sellPrice))
+      ElseIf sellTarget = "bronze"
+        If gBronze <= 0
+          PrintN("No bronze to sell.")
+          Continue
+        EndIf
+        sellQty = gBronze
+        sellPrice = 25
+        gBronze = 0
+        gCredits + (sellQty * sellPrice)
+        PrintN("Sold " + Str(sellQty) + " bronze for " + Str(sellQty * sellPrice) + " credits.")
+        LogLine("SELL: " + Str(sellQty) + " bronze for " + Str(sellQty * sellPrice))
+      ElseIf sellTarget = "all"
+        Protected totalCredits.i = 0
+        If *p\ore > 0
+          totalCredits + (*p\ore * 1)
+          *p\ore = 0
+        EndIf
+        If gIron > 0
+          totalCredits + (gIron * 5)
+          gIron = 0
+        EndIf
+        If gAluminum > 0
+          totalCredits + (gAluminum * 8)
+          gAluminum = 0
+        EndIf
+        If gCopper > 0
+          totalCredits + (gCopper * 12)
+          gCopper = 0
+        EndIf
+        If gTin > 0
+          totalCredits + (gTin * 15)
+          gTin = 0
+        EndIf
+        If gBronze > 0
+          totalCredits + (gBronze * 25)
+          gBronze = 0
+        EndIf
+        gCredits + totalCredits
+        PrintN("Sold all cargo for " + Str(totalCredits) + " credits.")
+        LogLine("SELL ALL: " + Str(totalCredits) + " credits")
+      Else
+        PrintN("Unknown sell target. Use: ORE, IRON, ALUMINUM, COPPER, TIN, BRONZE, or ALL")
+      EndIf
+      Continue
+    EndIf
+    
+    PrintN("Unknown command. Type UNDOCK to leave.")
   Wend
 EndProcedure
 
@@ -4314,6 +4888,9 @@ Procedure EnterCombat(*p.Ship, *enemy.Ship, *cs.CombatState)
   PrintStatusTactical(*p, *enemy, *cs)
   PrintN("")
   PrintN("Type HELP for combat commands.")
+  
+  ; Log combat entry
+  AddCaptainLog("COMBAT: Engaged " + *enemy\name + " at range " + Str(*cs\range))
 EndProcedure
 
 Procedure LeaveCombat()
@@ -4414,6 +4991,12 @@ Procedure Main()
         PrintN("< Press ENTER >")
         Input()
         RedrawGalaxy(@player)
+      ElseIf cmd = "log"
+        Protected logSearch.s = Trim(TokenAt(line, 2))
+        PrintCaptainLog(logSearch)
+        PrintN("< Press ENTER >")
+        Input()
+        RedrawGalaxy(@player)
       ElseIf cmd = "map"
         RedrawGalaxy(@player)
       ElseIf cmd = "clear"
@@ -4425,7 +5008,8 @@ Procedure Main()
         Else
           Protected fuel.i, hull.i, shields.i, credits.i, ore.i, dilithium.i
           Protected mapX.i, mapY.i, x.i, y.i, mode.i
-          If RestoreUndoState(@fuel, @hull, @shields, @credits, @ore, @dilithium, @mapX, @mapY, @x, @y, @mode)
+          Protected iron.i, aluminum.i, copper.i, tin.i, bronze.i
+          If RestoreUndoState(@fuel, @hull, @shields, @credits, @ore, @dilithium, @mapX, @mapY, @x, @y, @mode, @iron, @aluminum, @copper, @tin, @bronze)
             player\fuel = fuel
             player\hull = hull
             player\shields = shields
@@ -4437,6 +5021,11 @@ Procedure Main()
             gx = x
             gy = y
             gMode = mode
+            gIron = iron
+            gAluminum = aluminum
+            gCopper = copper
+            gTin = tin
+            gBronze = bronze
             PrintN("*** UNDO: Time rewound! ***")
             LogLine("UNDO: state restored")
             RedrawGalaxy(@player)
@@ -4466,14 +5055,22 @@ Procedure Main()
           PrintN("You are docked. Use UNDOCK first.")
           RedrawGalaxy(@player)
         Else
-          SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode)
+          SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode, gIron, gAluminum, gCopper, gTin, gBronze)
           Protected navDir.s = TokenAt(line, 2)
           Protected navSteps.i = ParseIntSafe(TokenAt(line, 3), 1)
+          Protected oldX.i = gx
+          Protected oldY.i = gy
           Nav(@player, navDir, navSteps)
-
-        CheckMissionCompletion(@player)
-        DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
-        RedrawGalaxy(@player)
+          
+          ; Log the movement
+          If gx <> oldX Or gy <> oldY
+            AddCaptainLog("NAV: " + navDir + " to (" + Str(gMapX) + "," + Str(gMapY) + ") sector (" + Str(gx) + "," + Str(gy) + ")")
+          EndIf
+          
+          CheckMissionCompletion(@player)
+          DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
+          AdvanceStardate(navSteps)
+          RedrawGalaxy(@player)
 
         If CurCell(gx, gy)\entType = #ENT_ENEMY
           CopyStructure(@enemyTemplate, @enemy, Ship)
@@ -4536,7 +5133,7 @@ Procedure Main()
         ElseIf gWarpCooldown > 0
           PrintN("Warp engines recharging. " + Str(gWarpCooldown) + " turn(s) remaining.")
         ElseIf player\dilithium < 5
-          PrintN("Insufficient dilithium. Need 5 to warp.")
+          PrintN("Insufficient di-lithium. Need 5 to warp.")
         Else
           Protected warpX.i = ParseIntSafe(TokenAt(line, 2), -1)
           Protected warpY.i = ParseIntSafe(TokenAt(line, 3), -1)
@@ -4545,7 +5142,7 @@ Procedure Main()
           ElseIf warpX = gMapX And warpY = gMapY
             PrintN("Already in that galaxy location. Use NAV to move within the sector.")
           Else
-            SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode)
+            SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode, gIron, gAluminum, gCopper, gTin, gBronze)
             player\dilithium - 5
             gWarpCooldown = 10
             gMapX = warpX
@@ -4559,6 +5156,7 @@ Procedure Main()
         CheckMissionCompletion(@player)
         DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         EnemyGalaxyAI(@player, @enemyTemplate, @cs)
+        AdvanceStardate()
         RedrawGalaxy(@player)
       ElseIf cmd = "mine"
         If gDocked
@@ -4571,7 +5169,7 @@ Procedure Main()
             LogLine("CHEAT: miner2049er (filled cargo)")
             PrintN("Cheat activated: Cargo hold filled!")
           Else
-            SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode)
+            SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode, gIron, gAluminum, gCopper, gTin, gBronze)
             MinePlanet(@player)
           EndIf
         EndIf
@@ -4579,10 +5177,11 @@ Procedure Main()
         CheckMissionCompletion(@player)
         DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         EnemyGalaxyAI(@player, @enemyTemplate, @cs)
+        AdvanceStardate()
         RedrawGalaxy(@player)
       ElseIf cmd = "refuel"
         If player\dilithium <= 0
-          PrintN("No dilithium crystals to convert to fuel.")
+          PrintN("No di-lithium crystals to convert to fuel.")
         ElseIf player\fuel >= player\fuelMax
           PrintN("Fuel tanks already full.")
         Else
@@ -4600,26 +5199,32 @@ Procedure Main()
           player\dilithium - convert
           player\fuel + (convert * 10)
           If player\fuel > player\fuelMax : player\fuel = player\fuelMax : EndIf
-          LogLine("REFUEL: converted " + Str(convert) + " dilithium (+" + Str(convert * 10) + " fuel)")
-          PrintN("Converted " + Str(convert) + " dilithium crystals to " + Str(convert * 10) + " fuel.")
+          LogLine("REFUEL: converted " + Str(convert) + " di-lithium (+" + Str(convert * 10) + " fuel)")
+          PrintN("Converted " + Str(convert) + " di-lithium crystals to " + Str(convert * 10) + " fuel.")
         EndIf
         RedrawGalaxy(@player)
       ElseIf cmd = "dock"
-        SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode)
+        SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode, gIron, gAluminum, gCopper, gTin, gBronze)
         If CurCell(gx, gy)\entType = #ENT_SHIPYARD
           DockAtShipyard(@player, @enemyTemplate)
+          AddCaptainLog("DOCKED at shipyard")
         ElseIf CurCell(gx, gy)\entType = #ENT_BASE
           DockAtBase(@player)
+          AddCaptainLog("DOCKED at starbase")
+        ElseIf CurCell(gx, gy)\entType = #ENT_REFINERY
+          DockAtRefinery(@player)
+          AddCaptainLog("DOCKED at refinery")
         Else
-          PrintN("No starbase or shipyard in this sector.")
+          PrintN("No starbase, shipyard, or refinery in this sector.")
         EndIf
 
         CheckMissionCompletion(@player)
         DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         EnemyGalaxyAI(@player, @enemyTemplate, @cs)
+        AdvanceStardate()
         RedrawGalaxy(@player)
       ElseIf cmd = "undock"
-        SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode)
+        SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode, gIron, gAluminum, gCopper, gTin, gBronze)
         If gDocked = 0
           PrintN("You are not docked.")
         Else
@@ -4644,6 +5249,7 @@ Procedure Main()
           Next
           If foundEmpty
             PrintN("Undocking...")
+            AddCaptainLog("UNDOCKED from starbase")
           Else
             PrintN("Undocking... (no empty space, staying put)")
           EndIf
@@ -4694,7 +5300,7 @@ Procedure Main()
         EndIf
         RedrawGalaxy(@player)
       ElseIf cmd = "refuel"
-        SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode)
+        SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode, gIron, gAluminum, gCopper, gTin, gBronze)
         ClearConsole()
         GenerateMission(@player)
         PrintMission(@player)
@@ -4734,6 +5340,18 @@ Procedure Main()
           gAutosaveInterval = autosaveVal
           gAutosaveCounter = 0
           PrintN("Autosave enabled: save every " + Str(autosaveVal) + " turn(s).")
+        EndIf
+        RedrawGalaxy(@player)
+      ElseIf cmd = "autoclear"
+        Protected autoclearVal.i = ParseIntSafe(TokenAt(line, 2), 0)
+        If autoclearVal <= 0
+          gAutoclearInterval = 0
+          gAutoclearCounter = 0
+          PrintN("Autoclear disabled.")
+        Else
+          gAutoclearInterval = autoclearVal
+          gAutoclearCounter = 0
+          PrintN("Autoclear enabled: clear every " + Str(autoclearVal) + " turn(s).")
         EndIf
         RedrawGalaxy(@player)
       ElseIf cmd = "pack"
@@ -4796,6 +5414,27 @@ Procedure Main()
           PrintN("No empty space in sector!")
         EndIf
         RedrawGalaxy(@player)
+      ElseIf cmd = "spawnrefinery"
+        spawnX = -1
+        attempts = 0
+        While attempts < 50 And spawnX = -1
+          spawnX = Random(#MAP_W - 1)
+          spawnY = Random(#MAP_H - 1)
+          If gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_EMPTY
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_REFINERY
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Refinery-" + Str(gMapX) + "-" + Str(gMapY)
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\spawned = 1
+            LogLine("CHEAT: spawnrefinery at " + Str(spawnX) + "," + Str(spawnY))
+            PrintN("Cheat activated: Refinery spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
+          Else
+            spawnX = -1
+          EndIf
+          attempts + 1
+        Wend
+        If spawnX = -1
+          PrintN("No empty space in sector!")
+        EndIf
+        RedrawGalaxy(@player)
       ElseIf cmd = "spawncluster"
         spawnX = -1
         attempts = 0
@@ -4804,11 +5443,11 @@ Procedure Main()
           spawnY = Random(#MAP_H - 1)
           If gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_EMPTY
             gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_DILITHIUM
-            gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Dilithium Cluster"
+            gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Di-lithium Cluster"
             gGalaxy(gMapX, gMapY, spawnX, spawnY)\richness = 5 + Random(10)
             gGalaxy(gMapX, gMapY, spawnX, spawnY)\spawned = 1
             LogLine("CHEAT: spawncluster at " + Str(spawnX) + "," + Str(spawnY))
-            PrintN("Cheat activated: Dilithium cluster spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
+            PrintN("Cheat activated: Di-lithium cluster spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
           Else
             spawnX = -1
           EndIf
@@ -4893,7 +5532,7 @@ Procedure Main()
             Case #ENT_SHIPYARD
               PrintN("Spawned shipyard removed.")
             Case #ENT_DILITHIUM
-              PrintN("Spawned dilithium cluster removed.")
+              PrintN("Spawned di-lithium cluster removed.")
             Case #ENT_WORMHOLE
               PrintN("Spawned wormhole removed.")
             Case #ENT_ANOMALY
@@ -4921,6 +5560,26 @@ Procedure Main()
         RedrawGalaxy(@player)
       EndIf
 
+      ; Handle autoclear and autosave (run even if mode changed to tactical during command)
+      If gAutoclearInterval > 0
+        gAutoclearCounter + 1
+        If gAutoclearCounter >= gAutoclearInterval
+          ClearLog()
+          ClearConsole()
+          RedrawGalaxy(@player)
+          gAutoclearCounter = 0
+        EndIf
+      EndIf
+      
+      If gAutosaveInterval > 0
+        gAutosaveCounter + 1
+        If gAutosaveCounter >= gAutosaveInterval
+          SaveGame(@player)
+          LogLine("AUTOSAVE: saved at turn " + Str(gAutosaveCounter))
+          gAutosaveCounter = 0
+        EndIf
+      EndIf
+
       ; Mission housekeeping after any galaxy command that consumes a turn.
       If gMode = #MODE_GALAXY
         GenerateMission(@player)
@@ -4932,16 +5591,6 @@ Procedure Main()
             gPowerBuff = 0
             LogLine("POWERBUFF: expired")
             PrintN("The power overwhelming buff has expired.")
-          EndIf
-        EndIf
-        
-        ; Handle autosave
-        If gAutosaveInterval > 0
-          gAutosaveCounter + 1
-          If gAutosaveCounter >= gAutosaveInterval
-            SaveGame(@player)
-            LogLine("AUTOSAVE: saved at turn " + Str(gAutosaveCounter))
-            gAutosaveCounter = 0
           EndIf
         EndIf
         
@@ -5031,7 +5680,7 @@ Procedure Main()
         If tractorMode = ""
           PrintN("Usage: TRACTOR <HOLD|PULL|PUSH>")
           PrintN("  HOLD - lock enemy in place (1 fuel/turn)")
-          PrintN("  PULL - pull enemy closer (1 dilithium or fuel)")
+          PrintN("  PULL - pull enemy closer   (1 di-lithium or fuel)")
           Continue
         EndIf
         PlayerTractor(@player, @enemy, @cs, tractorMode)
@@ -5075,6 +5724,9 @@ Procedure Main()
           PrintDivider()
           PrintN("Enemy destroyed!")
           PrintDivider()
+          
+          ; Log victory
+          AddCaptainLog("COMBAT: Destroyed " + enemy\name)
 
           ; Mission: bounty progress
           If gMission\active And gMission\type = #MIS_BOUNTY
@@ -5150,8 +5802,9 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 12
-; Folding = ------------------
+; CursorPosition = 1119
+; FirstLine = 1241
+; Folding = -------------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -5160,12 +5813,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,2,5
-; VersionField1 = 1,0,2,5
+; VersionField0 = 1,0,3,2
+; VersionField1 = 1,0,3,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.2.5
-; VersionField5 = 1.0.2.5
+; VersionField4 = 1.0.3.2
+; VersionField5 = 1.0.3.2
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
