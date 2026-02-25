@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.3.8"
+Global version.s = "v1.0.3.9"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -20,6 +20,15 @@ Global gProbeAccuracy.i = 75
 Global gTransporterPower.i = 50
 Global gTransporterRange.i = 3
 Global gTransporterCrew.i = 2
+
+; Shuttle system
+Global gShuttleLaunched.i = 0
+Global gShuttleCrew.i = 2
+Global gShuttleCargoOre.i = 0
+Global gShuttleCargoDilithium.i = 0
+Global gShuttleMaxCargo.i = 10
+Global gShuttleMaxCrew.i = 4
+Global gShuttleAttackRange.i = 10
 
 ; Refinery system
 Global gIron.i = 0
@@ -1507,6 +1516,14 @@ Procedure PrintHelpGalaxy()
   PrintN("    Reveals all stars, planets, enemies, bases, etc.")
   PrintN("    Example: LAUNCHPROBE 3 2")
   PrintN("")
+  PrintCmd("LAUNCHSHUTTLE [LAUNCH|RECALL|MINE] [crew]")
+  PrintN("    Launch shuttle craft (must be docked at starbase)")
+  PrintN("    LAUNCHSHUTTLE LAUNCH [n] - Launch with 1-" + Str(gShuttleMaxCrew) + " crew")
+  PrintN("    LAUNCHSHUTTLE RECALL    - Return shuttle, transfer cargo to ship")
+  PrintN("    LAUNCHSHUTTLE MINE      - Collect resources from planet/cluster")
+  PrintN("    Can attack enemies in combat or mine resources from planets")
+  PrintN("    Shuttle capacity: " + Str(gShuttleMaxCargo) + " units ore/dilithium, up to " + Str(gShuttleMaxCrew) + " crew")
+  PrintN("")
   PrintCmd("TRANSPORTER <ORE|DILITHIUM|ALL>")
   PrintN("    Beam up mined resources from planet/cluster to cargo")
   PrintN("    Use after MINE to transport extracted resources")
@@ -1958,6 +1975,13 @@ Procedure PrintHelpTactical()
   PrintN("    ATTACK - send away team to attack and capture enemy")
   PrintN("    Success depends on power, crew size, and enemy range")
   PrintN("    Example: TRANSPORTER ATTACK")
+  PrintN("")
+  PrintCmd("SHUTTLE <ATTACK|INFO>")
+  PrintN("    Launch shuttle for combat operations (must be launched in galaxy mode)")
+  PrintN("    ATTACK - shuttle attacks enemy ship (range <= " + Str(gShuttleAttackRange) + ")")
+  PrintN("    INFO   - show shuttle status")
+  PrintN("    Shuttle has its own crew, can damage enemy systems")
+  PrintN("    Example: SHUTTLE ATTACK")
   PrintN("")
   PrintCmd("FLEE")
   PrintN("    Attempt to disengage; success improves at longer range")
@@ -4581,6 +4605,62 @@ Procedure TransporterBeam(*p.Ship, mode.s)
   EndIf
 EndProcedure
 
+Procedure ShuttleMine()
+  If gShuttleLaunched = 0
+    PrintN("Shuttle is not launched.")
+    ProcedureReturn
+  EndIf
+  
+  If CurCell(gx, gy)\entType <> #ENT_PLANET And CurCell(gx, gy)\entType <> #ENT_DILITHIUM
+    PrintN("No planet or dilithium cluster in this sector.")
+    ProcedureReturn
+  EndIf
+  
+  Protected shuttleSpace.i = gShuttleMaxCargo - (gShuttleCargoOre + gShuttleCargoDilithium)
+  If shuttleSpace <= 0
+    PrintN("Shuttle cargo full!")
+    ProcedureReturn
+  EndIf
+  
+  Protected oreCollect.i = 0
+  Protected dilCollect.i = 0
+  
+  If CurCell(gx, gy)\entType = #ENT_PLANET
+    oreCollect = CurCell(gx, gy)\ore
+    If oreCollect > shuttleSpace
+      oreCollect = shuttleSpace
+    EndIf
+    If oreCollect > 0
+      gShuttleCargoOre + oreCollect
+      CurCell(gx, gy)\ore - oreCollect
+      PrintN("Shuttle collected " + Str(oreCollect) + " ore!")
+    Else
+      PrintN("No ore on this planet.")
+    EndIf
+  EndIf
+  
+  If CurCell(gx, gy)\entType = #ENT_DILITHIUM
+    shuttleSpace = gShuttleMaxCargo - (gShuttleCargoOre + gShuttleCargoDilithium)
+    dilCollect = CurCell(gx, gy)\dilithium
+    If dilCollect > shuttleSpace
+      dilCollect = shuttleSpace
+    EndIf
+    If dilCollect > 0
+      gShuttleCargoDilithium + dilCollect
+      CurCell(gx, gy)\dilithium - dilCollect
+      PrintN("Shuttle collected " + Str(dilCollect) + " dilithium!")
+    Else
+      PrintN("No dilithium in this cluster.")
+    EndIf
+  EndIf
+  
+  If oreCollect = 0 And dilCollect = 0
+    PrintN("No resources collected.")
+  Else
+    AddCaptainLog("SHUTTLE: collected " + Str(oreCollect) + " ore, " + Str(dilCollect) + " dilithium")
+  EndIf
+EndProcedure
+
 Procedure DockAtShipyard(*p.Ship, *base.Ship)
   If CurCell(gx, gy)\entType <> #ENT_SHIPYARD
     PrintN("No shipyard in this sector.")
@@ -4638,6 +4718,11 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
     PrintN("F) Probe Bay        (+2 ProbesMax)      cost 60")
     PrintN("G) Probe Scanner   (+1 Probe Range)     cost 100")
     PrintN("H) Probe Targeting (+5% Probe Accuracy) cost 120")
+    PrintN("")
+    PrintN("SHUTTLE:")
+    PrintN("I) Shuttle Bay      (+10 Cargo Max)     cost 120")
+    PrintN("J) Shuttle Crew    (+2 Crew Max)       cost 150")
+    PrintN("K) Shuttle Attack  (+1 Attack Range)   cost 200")
     PrintN("")
     PrintN("0) Leave")
     PrintN("")
@@ -4835,6 +4920,27 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         gProbeAccuracy = ClampInt(gProbeAccuracy + 5, 50, 100)
         LogLine("UPGRADE: probe accuracy +5% (-" + Str(cost) + ")")
         PrintN("Upgrade installed. Probe accuracy: " + Str(gProbeAccuracy) + "%")
+      Case "i"
+        cost = 120
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        gShuttleMaxCargo = ClampInt(gShuttleMaxCargo + 10, 10, 50)
+        LogLine("UPGRADE: shuttle cargo +10 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed. Shuttle cargo max: " + Str(gShuttleMaxCargo))
+      Case "j"
+        cost = 150
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        gShuttleMaxCrew = ClampInt(gShuttleMaxCrew + 2, 2, 10)
+        LogLine("UPGRADE: shuttle crew +2 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed. Shuttle crew max: " + Str(gShuttleMaxCrew))
+      Case "k"
+        cost = 200
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        gShuttleAttackRange = ClampInt(gShuttleAttackRange + 1, 10, 20)
+        LogLine("UPGRADE: shuttle attack range +1 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed. Shuttle attack range: " + Str(gShuttleAttackRange))
       Default
         PrintN("Unknown selection.")
     EndSelect
@@ -5458,6 +5564,56 @@ Procedure Main()
         PrintCaptainLog(logSearch)
         PrintN("< Press ENTER >")
         Input()
+        RedrawGalaxy(@player)
+      ElseIf cmd = "launchshuttle"
+        If gShuttleLaunched = 1
+          PrintN("Shuttle is already launched.")
+        ElseIf gDocked = 0
+          PrintN("Must be docked at a starbase to launch shuttle.")
+        Else
+          Protected shuttleAction.s = TrimLower(TokenAt(line, 2))
+          If shuttleAction = ""
+            PrintN("LAUNCHSHUTTLE - Launch shuttle craft")
+            PrintN("  LAUNCHSHUTTLE LAUNCH [crew] - Launch shuttle with crew (1-" + Str(gShuttleMaxCrew) + ")")
+            PrintN("  LAUNCHSHUTTLE RECALL          - Recall shuttle to ship")
+            PrintN("  LAUNCHSHUTTLE ATTACK          - Attack enemy with shuttle (if in combat)")
+            PrintN("  LAUNCHSHUTTLE MINE            - Collect resources from planet (if on planet)")
+            PrintN("Current shuttle: Crew=" + Str(gShuttleCrew) + " Ore=" + Str(gShuttleCargoOre) + " Dilithium=" + Str(gShuttleCargoDilithium))
+          ElseIf shuttleAction = "launch"
+            Protected shuttleCrew.i = ParseIntSafe(TokenAt(line, 3), gShuttleCrew)
+            If shuttleCrew < 1 : shuttleCrew = 1 : EndIf
+            If shuttleCrew > gShuttleMaxCrew : shuttleCrew = gShuttleMaxCrew : EndIf
+            gShuttleCrew = shuttleCrew
+            gShuttleLaunched = 1
+            gShuttleCargoOre = 0
+            gShuttleCargoDilithium = 0
+            PrintN("Shuttle launched with " + Str(gShuttleCrew) + " crew.")
+            AddCaptainLog("SHUTTLE: launched with " + Str(gShuttleCrew) + " crew")
+            PlayEngineSound()
+          ElseIf shuttleAction = "recall"
+            If gShuttleLaunched = 0
+              PrintN("Shuttle is not launched.")
+            Else
+              player\ore + gShuttleCargoOre
+              player\dilithium + gShuttleCargoDilithium
+              PrintN("Shuttle recalled. Retrieved " + Str(gShuttleCargoOre) + " ore and " + Str(gShuttleCargoDilithium) + " dilithium.")
+              AddCaptainLog("SHUTTLE: recalled with " + Str(gShuttleCargoOre) + " ore, " + Str(gShuttleCargoDilithium) + " dilithium")
+              gShuttleLaunched = 0
+              gShuttleCargoOre = 0
+              gShuttleCargoDilithium = 0
+              PlayEngineSound()
+            EndIf
+          ElseIf shuttleAction = "mine" Or shuttleAction = "collect"
+            If gShuttleLaunched = 0
+              PrintN("Shuttle is not launched.")
+            Else
+              ShuttleMine()
+              PlayMiningSound()
+            EndIf
+          Else
+            PrintN("Unknown shuttle command. Use LAUNCHSHUTTLE for help.")
+          EndIf
+        EndIf
         RedrawGalaxy(@player)
       ElseIf cmd = "map"
         RedrawGalaxy(@player)
@@ -6288,6 +6444,52 @@ Procedure Main()
         Else
           PrintN("Unknown transporter command. Use: TRANSPORTER ATTACK")
         EndIf
+      ElseIf cmd = "shuttle" Or cmd = "launchshuttle"
+        Protected shutMode.s = TrimLower(TokenAt(line, 2))
+        If gShuttleLaunched = 0
+          PrintN("Shuttle is not launched. Use LAUNCHSHUTTLE LAUNCH from galaxy mode first.")
+        ElseIf shutMode = ""
+          PrintN("SHUTTLE - Shuttle combat operations")
+          PrintN("  SHUTTLE ATTACK - Launch shuttle attack on enemy ship")
+          PrintN("  SHUTTLE INFO   - Show shuttle status")
+          PrintN("  Current: Crew=" + Str(gShuttleCrew) + " Cargo Ore=" + Str(gShuttleCargoOre) + " Dilithium=" + Str(gShuttleCargoDilithium))
+        ElseIf shutMode = "attack" Or shutMode = "assault"
+          If cs\range > gShuttleAttackRange
+            PrintN("Enemy too far for shuttle attack! Range: " + Str(cs\range) + " (max " + Str(gShuttleAttackRange) + ")")
+          ElseIf gShuttleCrew < 1
+            PrintN("No crew in shuttle!")
+          Else
+            Protected shutPower.i = (gShuttleCrew * 40) + Random(50)
+            enemy\hull - shutPower
+            If enemy\hull < 0 : enemy\hull = 0 : EndIf
+            PrintN("Shuttle attack! " + Str(shutPower) + " damage to enemy!")
+            PlaySoundEffect("ENGAGE")
+            If Random(99) < 25
+              Protected sysHit.i = Random(2)
+              Select sysHit
+                Case 0
+                  enemy\sysWeapons = #SYS_DAMAGED
+                  PrintN("Shuttle damaged enemy weapons systems!")
+                Case 1
+                  enemy\sysShields = #SYS_DAMAGED
+                  PrintN("Shuttle damaged enemy shield generators!")
+                Case 2
+                  enemy\sysEngines = #SYS_DAMAGED
+                  PrintN("Shuttle damaged enemy engines!")
+              EndSelect
+            EndIf
+            If enemy\hull <= 0
+              PrintN("Enemy destroyed!")
+              Goto HandleEnemyDestroyed
+            EndIf
+          EndIf
+        ElseIf shutMode = "info"
+          PrintN("Shuttle Status:")
+          PrintN("  Crew: " + Str(gShuttleCrew) + "/" + Str(gShuttleMaxCrew) + " | Attack Range: " + Str(gShuttleAttackRange))
+          PrintN("  Cargo: Ore=" + Str(gShuttleCargoOre) + "/" + Str(gShuttleMaxCargo) + " | Dilithium=" + Str(gShuttleCargoDilithium) + "/" + Str(gShuttleMaxCargo))
+        Else
+          PrintN("Unknown shuttle command. Use SHUTTLE for help.")
+        EndIf
       ElseIf cmd = "flee"
         If player\fuel <= 0
           PrintN("Fuel depleted. Cannot flee.")
@@ -6400,6 +6602,10 @@ Procedure Main()
     PrintN("Session ended.")
   EndIf
   StopEngineLoop()
+  If gShuttleLaunched = 1
+    player\ore + gShuttleCargoOre
+    player\dilithium + gShuttleCargoDilithium
+  EndIf
   PrintDivider()
   PrintN("< Press ENTER >")
   Input()
@@ -6418,12 +6624,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,8
-; VersionField1 = 1,0,3,8
+; VersionField0 = 1,0,3,9
+; VersionField1 = 1,0,3,9
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.3.8
-; VersionField5 = 1.0.3.8
+; VersionField4 = 1.0.3.9
+; VersionField5 = 1.0.3.9
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
