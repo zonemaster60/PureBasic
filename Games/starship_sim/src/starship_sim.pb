@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.3.9"
+Global version.s = "v1.0.4.0"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -926,9 +926,9 @@ Procedure DefaultShipsIniText()
   gShipsText + "FuelMax=120" + Chr(10)
   gShipsText + "OreMax=60" + Chr(10)
   gShipsText + "DilithiumMax=20" + Chr(10)
-  gShipsText + "AllocShields=40" + Chr(10)
-  gShipsText + "AllocWeapons=40" + Chr(10)
-  gShipsText + "AllocEngines=20" + Chr(10)
+  gShipsText + "AllocShields=33" + Chr(10)
+  gShipsText + "AllocWeapons=34" + Chr(10)
+  gShipsText + "AllocEngines=33" + Chr(10)
   gShipsText + Chr(10)
   gShipsText + "[EnemyShip]" + Chr(10)
   gShipsText + "Name=Raider" + Chr(10)
@@ -945,9 +945,9 @@ Procedure DefaultShipsIniText()
   gShipsText + "WeaponCapMax=210" + Chr(10)
   gShipsText + "FuelMax=100" + Chr(10)
   gShipsText + "OreMax=0" + Chr(10)
-  gShipsText + "AllocShields=35" + Chr(10)
-  gShipsText + "AllocWeapons=45" + Chr(10)
-  gShipsText + "AllocEngines=20" + Chr(10)
+  gShipsText + "AllocShields=33" + Chr(10)
+  gShipsText + "AllocWeapons=34" + Chr(10)
+  gShipsText + "AllocEngines=33" + Chr(10)
 EndProcedure
 
 Procedure.i PackShipsDatFromIni()
@@ -2512,6 +2512,7 @@ Procedure PrintStatusGalaxy(*p.Ship)
   ConsoleColor(#C_CYAN, #C_BLACK)
   PrintN(Str(*p\probes) + "/" + Str(*p\probesMax))
   ResetColor()
+  PrintN("  Alloc: " + Str(*p\allocEngines) + " | " + Str(*p\allocWeapons) + " | " + Str(*p\allocShields))
   PrintN("  Systems: Engines " + SysText(*p\sysEngines) + ", Weapons " + SysText(*p\sysWeapons) + ", Shields " + SysText(*p\sysShields))
   PrintCrew(*p)
   PrintDivider()
@@ -2562,7 +2563,7 @@ Procedure PrintStatusTactical(*p.Ship, *e.Ship, *cs.CombatState)
   SetColorForPercent(Int(100.0 * *p\fuel / ClampInt(*p\fuelMax, 1, 999999)))
   PrintN(Str(*p\fuel))
   ResetColor()
-  PrintN("  Alloc: S " + Str(*p\allocShields) + "%  W " + Str(*p\allocWeapons) + "%  E " + Str(*p\allocEngines) + "%")
+  PrintN("  Alloc: " + Str(*p\allocEngines) + " | " + Str(*p\allocWeapons) + " | " + Str(*p\allocShields))
   PrintN("  Systems: Engines " + SysText(*p\sysEngines) + ", Weapons " + SysText(*p\sysWeapons) + ", Shields " + SysText(*p\sysShields))
 
   PrintArenaTactical(*p, *e, *cs)
@@ -6624,12 +6625,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,9
-; VersionField1 = 1,0,3,9
+; VersionField0 = 1,0,4,0
+; VersionField1 = 1,0,4,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.3.9
-; VersionField5 = 1.0.3.9
+; VersionField4 = 1.0.4.0
+; VersionField5 = 1.0.4.0
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
