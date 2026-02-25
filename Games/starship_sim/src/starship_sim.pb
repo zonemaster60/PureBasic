@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.4.0"
+Global version.s = "v1.0.4.1"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -1676,6 +1676,7 @@ Procedure.i SaveGame(*p.Ship)
   WriteStringN(f, "transporter|" + Str(gTransporterPower) + "|" + Str(gTransporterRange) + "|" + Str(gTransporterCrew))
   WriteStringN(f, "probesys|" + Str(gProbeRange) + "|" + Str(gProbeAccuracy))
   WriteStringN(f, "sound|" + Str(gSoundEnabled) + "|" + Str(gSoundVolume))
+  WriteStringN(f, "shuttle|" + Str(gShuttleLaunched) + "|" + Str(gShuttleCrew) + "|" + Str(gShuttleCargoOre) + "|" + Str(gShuttleCargoDilithium) + "|" + Str(gShuttleMaxCargo) + "|" + Str(gShuttleMaxCrew) + "|" + Str(gShuttleAttackRange))
 
   WriteStringN(f, "player|" + SafeField(*p\name) + "|" + SafeField(*p\class) + "|" +
                   Str(*p\hullMax) + "|" + Str(*p\hull) + "|" +
@@ -1712,6 +1713,13 @@ Procedure.i SaveGame(*p.Ship)
                   Str(gMission\destEntType) + "|" + SafeField(gMission\destName) + "|" +
                   Str(gMission\rewardCredits) + "|" +
                   Str(gMission\turnsLeft) + "|" + Str(gMission\yardHP) + "|" + Str(gMission\threatLevel))
+
+  ; Save captain's log
+  WriteStringN(f, "caplog|" + Str(gCaptainLogCount))
+  Protected c.i
+  For c = 0 To gCaptainLogCount - 1
+    WriteStringN(f, "capentry|" + SafeField(gCaptainLog(c)))
+  Next
 
   ; Galaxy cells: store all non-empty cells.
   Protected mx.i, my.i, x.i, y.i
@@ -1803,6 +1811,17 @@ Procedure.i LoadGame(*p.Ship)
         gSoundVolume = Val(StringField(line, 3, "|"))
         If gSoundVolume <= 0 : gSoundVolume = 50 : EndIf
         If gSoundEnabled < 0 Or gSoundEnabled > 1 : gSoundEnabled = 1 : EndIf
+      Case "shuttle"
+        gShuttleLaunched = Val(StringField(line, 2, "|"))
+        gShuttleCrew = Val(StringField(line, 3, "|"))
+        gShuttleCargoOre = Val(StringField(line, 4, "|"))
+        gShuttleCargoDilithium = Val(StringField(line, 5, "|"))
+        gShuttleMaxCargo = Val(StringField(line, 6, "|"))
+        gShuttleMaxCrew = Val(StringField(line, 7, "|"))
+        gShuttleAttackRange = Val(StringField(line, 8, "|"))
+        If gShuttleMaxCargo <= 0 : gShuttleMaxCargo = 10 : EndIf
+        If gShuttleMaxCrew <= 0 : gShuttleMaxCrew = 4 : EndIf
+        If gShuttleAttackRange <= 0 : gShuttleAttackRange = 10 : EndIf
       Case "player"
         *p\name        = StringField(line, 2, "|")
         *p\class       = StringField(line, 3, "|")
@@ -1897,6 +1916,13 @@ Procedure.i LoadGame(*p.Ship)
         gMission\turnsLeft     = Val(StringField(line, 16, "|"))
         gMission\yardHP        = Val(StringField(line, 17, "|"))
         gMission\threatLevel   = Val(StringField(line, 18, "|"))
+      Case "caplog"
+        gCaptainLogCount = 0
+      Case "capentry"
+        If gCaptainLogCount >= 0 And gCaptainLogCount < ArraySize(gCaptainLog())
+          gCaptainLog(gCaptainLogCount) = StringField(line, 2, "|")
+          gCaptainLogCount + 1
+        EndIf
       Case "cell"
         Protected cx.i = Val(StringField(line, 2, "|"))
         Protected cy.i = Val(StringField(line, 3, "|"))
@@ -1924,7 +1950,12 @@ Procedure.i LoadGame(*p.Ship)
   If gMode <> #MODE_GALAXY
     gMode = #MODE_GALAXY
   EndIf
-
+  
+  ; Start engine loop if undocked
+  If gDocked = 0
+    StartEngineLoop()
+  EndIf
+  
   LogLine("LOAD: loaded " + gSavePath)
   ProcedureReturn 1
 EndProcedure
@@ -5577,8 +5608,8 @@ Procedure Main()
             PrintN("LAUNCHSHUTTLE - Launch shuttle craft")
             PrintN("  LAUNCHSHUTTLE LAUNCH [crew] - Launch shuttle with crew (1-" + Str(gShuttleMaxCrew) + ")")
             PrintN("  LAUNCHSHUTTLE RECALL          - Recall shuttle to ship")
-            PrintN("  LAUNCHSHUTTLE ATTACK          - Attack enemy with shuttle (if in combat)")
             PrintN("  LAUNCHSHUTTLE MINE            - Collect resources from planet (if on planet)")
+            PrintN("  In combat: use SHUTTLE ATTACK to attack enemy")
             PrintN("Current shuttle: Crew=" + Str(gShuttleCrew) + " Ore=" + Str(gShuttleCargoOre) + " Dilithium=" + Str(gShuttleCargoDilithium))
           ElseIf shuttleAction = "launch"
             Protected shuttleCrew.i = ParseIntSafe(TokenAt(line, 3), gShuttleCrew)
@@ -6625,12 +6656,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,4,0
-; VersionField1 = 1,0,4,0
+; VersionField0 = 1,0,4,1
+; VersionField1 = 1,0,4,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.4.0
-; VersionField5 = 1.0.4.0
+; VersionField4 = 1.0.4.1
+; VersionField5 = 1.0.4.1
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
