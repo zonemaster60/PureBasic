@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.3.2"
+Global version.s = "v1.0.3.3"
 
 ; Forward declarations (PureBasic requires declaring procedures used before definition)
 Declare.s Timestamp()
@@ -1380,6 +1380,7 @@ Procedure.i SaveGame(*p.Ship)
   WriteStringN(f, "stardate|" + StrF(gStardate) + "|" + Str(gGameDay))
   WriteStringN(f, "metals|" + Str(gIron) + "|" + Str(gAluminum) + "|" + Str(gCopper) + "|" + Str(gTin) + "|" + Str(gBronze))
   WriteStringN(f, "settings|" + Str(gAutosaveInterval) + "|" + Str(gAutoclearInterval))
+  WriteStringN(f, "effects|" + Str(gPowerBuff) + "|" + Str(gPowerBuffTurns) + "|" + Str(gIonStormTurns) + "|" + Str(gRadiationTurns) + "|" + Str(gWarpCooldown))
 
   WriteStringN(f, "player|" + SafeField(*p\name) + "|" + SafeField(*p\class) + "|" +
                   Str(*p\hullMax) + "|" + Str(*p\hull) + "|" +
@@ -1405,6 +1406,40 @@ Procedure.i SaveGame(*p.Ship)
   Protected r.i
   For r = 0 To gRecruitCount - 1
     WriteStringN(f, "recruit|" + Str(r) + "|" + SafeField(gRecruitNames(r)) + "|" + SafeField(gRecruitRoles(r)))
+  Next
+
+  ; Save captain log archives
+  WriteStringN(f, "logarchives|" + Str(gTotalArchives))
+  Protected arc.i, l.i
+  For arc = 1 To 10
+    Protected count.i = 0
+    Select arc
+      Case 1: count = ArraySize(gCaptainArchive1()) + 1
+      Case 2: count = ArraySize(gCaptainArchive2()) + 1
+      Case 3: count = ArraySize(gCaptainArchive3()) + 1
+      Case 4: count = ArraySize(gCaptainArchive4()) + 1
+      Case 5: count = ArraySize(gCaptainArchive5()) + 1
+      Case 6: count = ArraySize(gCaptainArchive6()) + 1
+      Case 7: count = ArraySize(gCaptainArchive7()) + 1
+      Case 8: count = ArraySize(gCaptainArchive8()) + 1
+      Case 9: count = ArraySize(gCaptainArchive9()) + 1
+      Case 10: count = ArraySize(gCaptainArchive10()) + 1
+    EndSelect
+    WriteStringN(f, "logarc|" + Str(arc) + "|" + Str(count))
+    For l = 0 To count - 1
+      Select arc
+        Case 1: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive1(l)))
+        Case 2: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive2(l)))
+        Case 3: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive3(l)))
+        Case 4: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive4(l)))
+        Case 5: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive5(l)))
+        Case 6: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive6(l)))
+        Case 7: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive7(l)))
+        Case 8: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive8(l)))
+        Case 9: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive9(l)))
+        Case 10: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive10(l)))
+      EndSelect
+    Next
   Next
 
   WriteStringN(f, "mission|" + Str(gMission\active) + "|" + Str(gMission\type) + "|" +
@@ -1489,6 +1524,12 @@ Procedure.i LoadGame(*p.Ship)
       Case "settings"
         gAutosaveInterval  = Val(StringField(line, 2, "|"))
         gAutoclearInterval = Val(StringField(line, 3, "|"))
+      Case "effects"
+        gPowerBuff      = Val(StringField(line, 2, "|"))
+        gPowerBuffTurns = Val(StringField(line, 3, "|"))
+        gIonStormTurns  = Val(StringField(line, 4, "|"))
+        gRadiationTurns = Val(StringField(line, 5, "|"))
+        gWarpCooldown   = Val(StringField(line, 6, "|"))
       Case "player"
         *p\name        = StringField(line, 2, "|")
         *p\class       = StringField(line, 3, "|")
@@ -1559,6 +1600,30 @@ Procedure.i LoadGame(*p.Ship)
         If recIdx >= 0 And recIdx < 3
           gRecruitNames(recIdx) = StringField(line, 3, "|")
           gRecruitRoles(recIdx) = StringField(line, 4, "|")
+        EndIf
+      Case "logarchives"
+        gTotalArchives = Val(StringField(line, 2, "|"))
+        If gTotalArchives < 0 : gTotalArchives = 0 : EndIf
+        If gTotalArchives > 10 : gTotalArchives = 10 : EndIf
+      Case "logarc"
+        Protected arcNum.i = Val(StringField(line, 2, "|"))
+        Protected logCount.i = Val(StringField(line, 3, "|"))
+      Case "lgent"
+        Protected logIdx.i = Val(StringField(line, 2, "|"))
+        Protected logEntry.s = StringField(line, 3, "|")
+        If arcNum >= 1 And arcNum <= 10 And logIdx >= 0 And logIdx < 500
+          Select arcNum
+            Case 1: gCaptainArchive1(logIdx) = logEntry
+            Case 2: gCaptainArchive2(logIdx) = logEntry
+            Case 3: gCaptainArchive3(logIdx) = logEntry
+            Case 4: gCaptainArchive4(logIdx) = logEntry
+            Case 5: gCaptainArchive5(logIdx) = logEntry
+            Case 6: gCaptainArchive6(logIdx) = logEntry
+            Case 7: gCaptainArchive7(logIdx) = logEntry
+            Case 8: gCaptainArchive8(logIdx) = logEntry
+            Case 9: gCaptainArchive9(logIdx) = logEntry
+            Case 10: gCaptainArchive10(logIdx) = logEntry
+          EndSelect
         EndIf
       Case "mission"
         gMission\active        = Val(StringField(line, 2, "|"))
@@ -5802,8 +5867,7 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 1119
-; FirstLine = 1241
+; CursorPosition = 12
 ; Folding = -------------------
 ; Optimizer
 ; EnableThread
@@ -5813,12 +5877,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,2
-; VersionField1 = 1,0,3,2
+; VersionField0 = 1,0,3,3
+; VersionField1 = 1,0,3,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.3.2
-; VersionField5 = 1.0.3.2
+; VersionField4 = 1.0.3.3
+; VersionField5 = 1.0.3.3
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
