@@ -1,4 +1,4 @@
-﻿; Starship simulation (PureBasic 6.30)
+; Starship simulation (PureBasic 6.30)
 ; - Galaxy map: planets (mining), stars (obstacles), starbases (dock)
 ; - Tactical combat when you encounter enemies
 ; Data-driven ship stats loaded from ships.ini
@@ -10,7 +10,262 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.3.3"
+Global version.s = "v1.0.3.8"
+
+; Probe system
+Global gProbeRange.i = 3
+Global gProbeAccuracy.i = 75
+
+; Transporter system
+Global gTransporterPower.i = 50
+Global gTransporterRange.i = 3
+Global gTransporterCrew.i = 2
+
+; Refinery system
+Global gIron.i = 0
+Global gAluminum.i = 0
+Global gCopper.i = 0
+Global gTin.i = 0
+Global gBronze.i = 0
+
+; Sound system - PureBasic Sound library
+Global gSoundEnabled.i = 1
+Global gSoundVolume.i = 50
+Global gSoundInitialized.i = 0
+
+Global SoundPhaser.i
+Global SoundTorpedo.i
+Global SoundDisruptor.i
+Global SoundExplode.i
+Global SoundEngine.i
+Global SoundDock.i
+Global SoundAlarm.i
+Global SoundWarp.i
+Global SoundScan.i
+Global SoundRadio.i
+Global SoundPress.i
+Global SoundSelect.i
+Global SoundEngage.i
+Global SoundClapping.i
+
+Global gSoundEnabledSave = gSoundEnabled
+Global gSoundVolumeSave = gSoundVolume
+Global gEngineLoopChannel.i = -1
+
+Procedure InitSounds()
+  If gSoundInitialized = 1 : ProcedureReturn : EndIf
+  
+  InitSound()
+  
+  Protected altPath.s = AppPath + "sounds" + #PS$
+  
+  SoundPhaser = LoadSound(#PB_Any, altPath + "phaser.wav")
+  SoundTorpedo = LoadSound(#PB_Any, altPath + "torpedo.wav")
+  SoundDisruptor = LoadSound(#PB_Any, altPath + "disruptor.wav")
+  SoundExplode = LoadSound(#PB_Any, altPath + "explode.wav")
+  SoundEngine = LoadSound(#PB_Any, altPath + "engines.wav")
+  SoundDock = LoadSound(#PB_Any, altPath + "dock.wav")
+  SoundAlarm = LoadSound(#PB_Any, altPath + "alarm.wav")
+  SoundWarp = LoadSound(#PB_Any, altPath + "warp.wav")
+  SoundScan = LoadSound(#PB_Any, altPath + "scan.wav")
+  SoundRadio = LoadSound(#PB_Any, altPath + "radio.wav")
+  SoundPress = LoadSound(#PB_Any, altPath + "press.wav")
+  SoundSelect = LoadSound(#PB_Any, altPath + "select.wav")
+  SoundEngage = LoadSound(#PB_Any, altPath + "engage.wav")
+  SoundClapping = LoadSound(#PB_Any, altPath + "clapping.wav")
+  
+  gSoundInitialized = 1
+EndProcedure
+
+Procedure PlaySoundFX(id.i)
+  If gSoundEnabled = 0 : ProcedureReturn : EndIf
+  If gSoundVolume <= 0 : ProcedureReturn : EndIf
+  If id = 0 : ProcedureReturn : EndIf
+  If IsSound(id)
+    Delay(10)
+    PlaySound(id)
+  EndIf
+EndProcedure
+
+Declare PlayEngineSound()
+Declare StartEngineLoop()
+Declare StopEngineLoop()
+
+; All sound implementations using wav files
+Procedure PlayComputerBeep()
+  PlaySoundFX(SoundPress)
+  Delay(50)
+  PlaySoundFX(SoundSelect)
+EndProcedure
+
+Procedure PlayLogBeep()
+  PlaySoundFX(SoundPress)
+EndProcedure
+
+Procedure PlayErrorBeep()
+  PlaySoundFX(SoundAlarm)
+EndProcedure
+
+Procedure PlayPhaserSound()
+  PlaySoundFX(SoundPhaser)
+EndProcedure
+
+Procedure PlayTorpedoSound()
+  PlaySoundFX(SoundTorpedo)
+EndProcedure
+
+Procedure PlayDisruptorSound()
+  PlaySoundFX(SoundDisruptor)
+EndProcedure
+
+Procedure PlayImpactSound()
+  PlaySoundFX(SoundExplode)
+EndProcedure
+
+Procedure PlayTransportSound()
+  PlaySoundFX(SoundRadio)
+  Delay(40)
+  PlaySoundFX(SoundRadio)
+EndProcedure
+
+Procedure PlayMiningSound()
+  PlaySoundFX(SoundRadio)
+  Delay(50)
+  PlaySoundFX(SoundRadio)
+  Delay(50)
+  PlaySoundFX(SoundRadio)
+EndProcedure
+
+Procedure PlayRedAlert()
+  PlaySoundFX(SoundAlarm)
+  Delay(100)
+  PlaySoundFX(SoundAlarm)
+  Delay(100)
+  PlaySoundFX(SoundAlarm)
+EndProcedure
+
+Procedure PlayWeldingSound()
+  PlaySoundFX(SoundRadio)
+  Delay(30)
+  PlaySoundFX(SoundRadio)
+  Delay(30)
+  PlaySoundFX(SoundRadio)
+EndProcedure
+
+Procedure PlayDockingSound()
+  PlaySoundFX(SoundDock)
+EndProcedure
+
+Procedure PlayUndockingSound()
+  PlaySoundFX(SoundDock)
+  Delay(100)
+  PlaySoundFX(SoundEngine)
+EndProcedure
+
+Procedure PlayExplosionSound()
+  PlaySoundFX(SoundExplode)
+EndProcedure
+
+Procedure PlayProbeSound()
+  PlaySoundFX(SoundScan)
+EndProcedure
+
+Procedure PlayTractorBeamSound()
+  PlaySoundFX(SoundRadio)
+  Delay(40)
+  PlaySoundFX(SoundRadio)
+  Delay(40)
+  PlaySoundFX(SoundRadio)
+EndProcedure
+
+Procedure PlayCommunicationSound()
+  PlaySoundFX(SoundRadio)
+EndProcedure
+
+Procedure PlayCrewChatterSound()
+  PlaySoundFX(SoundRadio)
+  Delay(50)
+  PlaySoundFX(SoundRadio)
+EndProcedure
+
+Procedure PlayPlanetKillerSound()
+  PlaySoundFX(SoundAlarm)
+  Delay(50)
+  PlaySoundFX(SoundAlarm)
+  Delay(50)
+  PlaySoundFX(SoundAlarm)
+EndProcedure
+
+Procedure PlayPlanetKillerAttackSound()
+  PlaySoundFX(SoundExplode)
+  Delay(80)
+  PlaySoundFX(SoundExplode)
+  Delay(80)
+  PlaySoundFX(SoundExplode)
+EndProcedure
+
+Procedure PlayEngineSound()
+  If gSoundEnabled = 0 : ProcedureReturn : EndIf
+  PlaySoundFX(SoundEngine)
+EndProcedure
+
+Procedure StartEngineLoop()
+  If gSoundEnabled = 0 : ProcedureReturn : EndIf
+  If gSoundVolume <= 0 : ProcedureReturn : EndIf
+  If gEngineLoopChannel > 0
+    If IsSound(gEngineLoopChannel)
+      ProcedureReturn
+    EndIf
+  EndIf
+  If SoundEngine And IsSound(SoundEngine)
+    gEngineLoopChannel = PlaySound(SoundEngine, #PB_Sound_Loop)
+  EndIf
+EndProcedure
+
+Procedure StopEngineLoop()
+  If gEngineLoopChannel > 0
+    StopSound(gEngineLoopChannel)
+    gEngineLoopChannel = -1
+  EndIf
+EndProcedure
+
+Procedure PlayAmbientChatter()
+  If gSoundEnabled = 0 : ProcedureReturn : EndIf
+  If Random(100) < 15 : PlaySoundFX(SoundRadio) : EndIf
+EndProcedure
+
+Procedure PlayBeepTest()
+  PlaySoundFX(SoundSelect)
+  Delay(100)
+  PlaySoundFX(SoundEngage)
+  Delay(100)
+  PlaySoundFX(SoundPress)
+EndProcedure
+   
+Procedure PlaySoundEffect(n.s)
+  Select UCase(n)
+    Case "COMPUTER": PlayComputerBeep()
+    Case "LOG": PlayLogBeep()
+    Case "ERROR": PlayErrorBeep()
+    Case "PHASER": PlayPhaserSound()
+    Case "TORPEDO": PlayTorpedoSound()
+    Case "IMPACT": PlayImpactSound()
+    Case "TRANSPORT": PlayTransportSound()
+    Case "MINING": PlayMiningSound()
+    Case "REDALERT": PlayRedAlert()
+    Case "WELDING": PlayWeldingSound()
+    Case "DOCKING": PlayDockingSound()
+    Case "UNDOCKING": PlayUndockingSound()
+    Case "EXPLOSION": PlayExplosionSound()
+    Case "PROBE": PlayProbeSound()
+    Case "TRACTOR": PlayTractorBeamSound()
+    Case "COMM": PlayCommunicationSound()
+    Case "CHATTER": PlayCrewChatterSound()
+    Case "PLANETKILLER": PlayPlanetKillerSound()
+    Case "PKATTACK": PlayPlanetKillerAttackSound()
+    Case "ENGINE": PlayEngineSound()
+  EndSelect
+EndProcedure
 
 ; Forward declarations (PureBasic requires declaring procedures used before definition)
 Declare.s Timestamp()
@@ -238,6 +493,9 @@ Structure Ship
   dilithiumMax.i
   dilithium.i
 
+  probesMax.i
+  probes.i
+
   allocShields.i
   allocWeapons.i
   allocEngines.i
@@ -265,7 +523,9 @@ Structure Cell
   name.s
   richness.i
   enemyLevel.i
-  spawned.i  ; 1 if spawned by cheat, 0 otherwise
+  spawned.i
+  ore.i
+  dilithium.i
 EndStructure
 
 Structure Mission
@@ -1242,6 +1502,16 @@ Procedure PrintHelpGalaxy()
   PrintN("    Example: MINE")
   PrintN("    Cheat: MINE miner2049er fills cargo hold")
   PrintN("")
+  PrintCmd("LAUNCHPROBE <x> <y>")
+  PrintN("    Launch a probe to scan a distant galaxy sector")
+  PrintN("    Reveals all stars, planets, enemies, bases, etc.")
+  PrintN("    Example: LAUNCHPROBE 3 2")
+  PrintN("")
+  PrintCmd("TRANSPORTER <ORE|DILITHIUM|ALL>")
+  PrintN("    Beam up mined resources from planet/cluster to cargo")
+  PrintN("    Use after MINE to transport extracted resources")
+  PrintN("    Example: TRANSPORTER ALL")
+  PrintN("")
   PrintCmd("REFUEL")
   PrintN("    Convert di-lithium crystals to fuel (10 fuel per crystal)")
   PrintN("    Example: REFUEL")
@@ -1252,9 +1522,15 @@ Procedure PrintHelpGalaxy()
   PrintN("    Refineries: REFINE ore, SELL ore/metals")
   PrintN("    Example: DOCK")
   PrintN("")
-  PrintCmd("UNDOCK")
-  PrintN("    Undock from a starbase, shipyard, or refinery to resume flying")
-  PrintN("    Example: UNDOCK")
+  PrintN("Refinery Commands (when docked at R):")
+  PrintN("  REFINE           - Convert 1 ore to random refined metal (free)")
+  PrintN("  SELL ORE         - Sell all ore (1 credit each)")
+  PrintN("  SELL IRON        - Sell all iron (5 credits each)")
+  PrintN("  SELL ALUMINUM    - Sell all aluminum (8 credits each)")
+  PrintN("  SELL COPPER      - Sell all copper (12 credits each)")
+  PrintN("  SELL TIN         - Sell all tin (15 credits each)")
+  PrintN("  SELL BRONZE      - Sell all bronze (25 credits each)")
+  PrintN("  SELL ALL         - Sell all cargo")
   PrintN("")
   PrintCmd("RECRUIT <number>")
   PrintN("    Hire a recruit (available at starbases)")
@@ -1380,7 +1656,9 @@ Procedure.i SaveGame(*p.Ship)
   WriteStringN(f, "stardate|" + StrF(gStardate) + "|" + Str(gGameDay))
   WriteStringN(f, "metals|" + Str(gIron) + "|" + Str(gAluminum) + "|" + Str(gCopper) + "|" + Str(gTin) + "|" + Str(gBronze))
   WriteStringN(f, "settings|" + Str(gAutosaveInterval) + "|" + Str(gAutoclearInterval))
-  WriteStringN(f, "effects|" + Str(gPowerBuff) + "|" + Str(gPowerBuffTurns) + "|" + Str(gIonStormTurns) + "|" + Str(gRadiationTurns) + "|" + Str(gWarpCooldown))
+  WriteStringN(f, "transporter|" + Str(gTransporterPower) + "|" + Str(gTransporterRange) + "|" + Str(gTransporterCrew))
+  WriteStringN(f, "probesys|" + Str(gProbeRange) + "|" + Str(gProbeAccuracy))
+  WriteStringN(f, "sound|" + Str(gSoundEnabled) + "|" + Str(gSoundVolume))
 
   WriteStringN(f, "player|" + SafeField(*p\name) + "|" + SafeField(*p\class) + "|" +
                   Str(*p\hullMax) + "|" + Str(*p\hull) + "|" +
@@ -1393,6 +1671,7 @@ Procedure.i SaveGame(*p.Ship)
                   Str(*p\fuelMax) + "|" + Str(*p\fuel) + "|" +
                   Str(*p\oreMax) + "|" + Str(*p\ore) + "|" +
                   Str(*p\dilithiumMax) + "|" + Str(*p\dilithium) + "|" +
+                  Str(*p\probesMax) + "|" + Str(*p\probes) + "|" +
                   Str(*p\allocShields) + "|" + Str(*p\allocWeapons) + "|" + Str(*p\allocEngines) + "|" +
                   Str(*p\sysEngines) + "|" + Str(*p\sysWeapons) + "|" + Str(*p\sysShields))
   
@@ -1406,40 +1685,6 @@ Procedure.i SaveGame(*p.Ship)
   Protected r.i
   For r = 0 To gRecruitCount - 1
     WriteStringN(f, "recruit|" + Str(r) + "|" + SafeField(gRecruitNames(r)) + "|" + SafeField(gRecruitRoles(r)))
-  Next
-
-  ; Save captain log archives
-  WriteStringN(f, "logarchives|" + Str(gTotalArchives))
-  Protected arc.i, l.i
-  For arc = 1 To 10
-    Protected count.i = 0
-    Select arc
-      Case 1: count = ArraySize(gCaptainArchive1()) + 1
-      Case 2: count = ArraySize(gCaptainArchive2()) + 1
-      Case 3: count = ArraySize(gCaptainArchive3()) + 1
-      Case 4: count = ArraySize(gCaptainArchive4()) + 1
-      Case 5: count = ArraySize(gCaptainArchive5()) + 1
-      Case 6: count = ArraySize(gCaptainArchive6()) + 1
-      Case 7: count = ArraySize(gCaptainArchive7()) + 1
-      Case 8: count = ArraySize(gCaptainArchive8()) + 1
-      Case 9: count = ArraySize(gCaptainArchive9()) + 1
-      Case 10: count = ArraySize(gCaptainArchive10()) + 1
-    EndSelect
-    WriteStringN(f, "logarc|" + Str(arc) + "|" + Str(count))
-    For l = 0 To count - 1
-      Select arc
-        Case 1: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive1(l)))
-        Case 2: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive2(l)))
-        Case 3: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive3(l)))
-        Case 4: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive4(l)))
-        Case 5: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive5(l)))
-        Case 6: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive6(l)))
-        Case 7: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive7(l)))
-        Case 8: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive8(l)))
-        Case 9: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive9(l)))
-        Case 10: WriteStringN(f, "lgent|" + Str(l) + "|" + SafeField(gCaptainArchive10(l)))
-      EndSelect
-    Next
   Next
 
   WriteStringN(f, "mission|" + Str(gMission\active) + "|" + Str(gMission\type) + "|" +
@@ -1524,12 +1769,23 @@ Procedure.i LoadGame(*p.Ship)
       Case "settings"
         gAutosaveInterval  = Val(StringField(line, 2, "|"))
         gAutoclearInterval = Val(StringField(line, 3, "|"))
-      Case "effects"
-        gPowerBuff      = Val(StringField(line, 2, "|"))
-        gPowerBuffTurns = Val(StringField(line, 3, "|"))
-        gIonStormTurns  = Val(StringField(line, 4, "|"))
-        gRadiationTurns = Val(StringField(line, 5, "|"))
-        gWarpCooldown   = Val(StringField(line, 6, "|"))
+      Case "transporter"
+        gTransporterPower = Val(StringField(line, 2, "|"))
+        gTransporterRange = Val(StringField(line, 3, "|"))
+        gTransporterCrew = Val(StringField(line, 4, "|"))
+        If gTransporterPower <= 0 : gTransporterPower = 50 : EndIf
+        If gTransporterRange <= 0 : gTransporterRange = 3 : EndIf
+        If gTransporterCrew <= 0 : gTransporterCrew = 2 : EndIf
+      Case "probesys"
+        gProbeRange = Val(StringField(line, 2, "|"))
+        gProbeAccuracy = Val(StringField(line, 3, "|"))
+        If gProbeRange <= 0 : gProbeRange = 3 : EndIf
+        If gProbeAccuracy <= 0 : gProbeAccuracy = 75 : EndIf
+      Case "sound"
+        gSoundEnabled = Val(StringField(line, 2, "|"))
+        gSoundVolume = Val(StringField(line, 3, "|"))
+        If gSoundVolume <= 0 : gSoundVolume = 50 : EndIf
+        If gSoundEnabled < 0 Or gSoundEnabled > 1 : gSoundEnabled = 1 : EndIf
       Case "player"
         *p\name        = StringField(line, 2, "|")
         *p\class       = StringField(line, 3, "|")
@@ -1553,15 +1809,20 @@ Procedure.i LoadGame(*p.Ship)
         *p\ore         = Val(StringField(line, 21, "|"))
         *p\dilithiumMax = Val(StringField(line, 22, "|"))
         *p\dilithium   = Val(StringField(line, 23, "|"))
-        *p\allocShields= Val(StringField(line, 24, "|"))
-        *p\allocWeapons= Val(StringField(line, 25, "|"))
-        *p\allocEngines= Val(StringField(line, 26, "|"))
-        *p\sysEngines  = Val(StringField(line, 27, "|"))
-        *p\sysWeapons  = Val(StringField(line, 28, "|"))
-        *p\sysShields  = Val(StringField(line, 29, "|"))
+        *p\probesMax   = Val(StringField(line, 24, "|"))
+        *p\probes      = Val(StringField(line, 25, "|"))
+        *p\allocShields= Val(StringField(line, 26, "|"))
+        *p\allocWeapons= Val(StringField(line, 27, "|"))
+        *p\allocEngines= Val(StringField(line, 28, "|"))
+        *p\sysEngines  = Val(StringField(line, 29, "|"))
+        *p\sysWeapons  = Val(StringField(line, 30, "|"))
+        *p\sysShields  = Val(StringField(line, 31, "|"))
         ; Backward compatibility: ensure dilithium fields exist
         If *p\dilithiumMax <= 0 : *p\dilithiumMax = 20 : EndIf
         If *p\dilithium > *p\dilithiumMax : *p\dilithium = *p\dilithiumMax : EndIf
+        ; Backward compatibility: ensure probes exist
+        If *p\probesMax <= 0 : *p\probesMax = 5 : EndIf
+        If *p\probes > *p\probesMax : *p\probes = *p\probesMax : EndIf
       Case "crew"
         Protected crewIdx.i = Val(StringField(line, 2, "|"))
         Select crewIdx
@@ -1600,30 +1861,6 @@ Procedure.i LoadGame(*p.Ship)
         If recIdx >= 0 And recIdx < 3
           gRecruitNames(recIdx) = StringField(line, 3, "|")
           gRecruitRoles(recIdx) = StringField(line, 4, "|")
-        EndIf
-      Case "logarchives"
-        gTotalArchives = Val(StringField(line, 2, "|"))
-        If gTotalArchives < 0 : gTotalArchives = 0 : EndIf
-        If gTotalArchives > 10 : gTotalArchives = 10 : EndIf
-      Case "logarc"
-        Protected arcNum.i = Val(StringField(line, 2, "|"))
-        Protected logCount.i = Val(StringField(line, 3, "|"))
-      Case "lgent"
-        Protected logIdx.i = Val(StringField(line, 2, "|"))
-        Protected logEntry.s = StringField(line, 3, "|")
-        If arcNum >= 1 And arcNum <= 10 And logIdx >= 0 And logIdx < 500
-          Select arcNum
-            Case 1: gCaptainArchive1(logIdx) = logEntry
-            Case 2: gCaptainArchive2(logIdx) = logEntry
-            Case 3: gCaptainArchive3(logIdx) = logEntry
-            Case 4: gCaptainArchive4(logIdx) = logEntry
-            Case 5: gCaptainArchive5(logIdx) = logEntry
-            Case 6: gCaptainArchive6(logIdx) = logEntry
-            Case 7: gCaptainArchive7(logIdx) = logEntry
-            Case 8: gCaptainArchive8(logIdx) = logEntry
-            Case 9: gCaptainArchive9(logIdx) = logEntry
-            Case 10: gCaptainArchive10(logIdx) = logEntry
-          EndSelect
         EndIf
       Case "mission"
         gMission\active        = Val(StringField(line, 2, "|"))
@@ -1714,7 +1951,13 @@ Procedure PrintHelpTactical()
   PrintN("    HOLD - lock enemy in place, prevents movement this turn")
   PrintN("    PULL - pull enemy 2 sectors closer (1 di-lithium or fuel)")
   PrintN("    PUSH - push enemy into adjacent hazard (sun/blackhole/wormhole)")
-  PrintN("    Example: TRACTOR HOLD | TRACTOR PULL | TRACTOR PUSH")
+    PrintN("    Example: TRACTOR HOLD | TRACTOR PULL | TRACTOR PUSH")
+  PrintN("")
+  PrintCmd("TRANSPORTER <ATTACK>")
+  PrintN("    Beam away team to enemy ship for boarding action")
+  PrintN("    ATTACK - send away team to attack and capture enemy")
+  PrintN("    Success depends on power, crew size, and enemy range")
+  PrintN("    Example: TRANSPORTER ATTACK")
   PrintN("")
   PrintCmd("FLEE")
   PrintN("    Attempt to disengage; success improves at longer range")
@@ -2089,6 +2332,8 @@ Procedure.i LoadShip(section.s, *s.Ship)
   *s\fuelMax     = IniGetLong(section, "FuelMax", 100)
   *s\oreMax      = IniGetLong(section, "OreMax", 50)
   *s\dilithiumMax = IniGetLong(section, "DilithiumMax", 20)
+  *s\probesMax    = IniGetLong(section, "ProbesMax", 5)
+  *s\probes       = *s\probesMax
   *s\allocShields = IniGetLong(section, "AllocShields", 33)
   *s\allocWeapons = IniGetLong(section, "AllocWeapons", 34)
   *s\allocEngines = IniGetLong(section, "AllocEngines", 33)
@@ -2109,6 +2354,8 @@ Procedure.i LoadShip(section.s, *s.Ship)
   *s\fuelMax     = ClampInt(*s\fuelMax, 10, 600)
   *s\oreMax      = ClampInt(*s\oreMax, 0, 250)
   *s\dilithiumMax = ClampInt(*s\dilithiumMax, 0, 50)
+  *s\probesMax    = ClampInt(*s\probesMax, 0, 20)
+  If *s\probes > *s\probesMax : *s\probes = *s\probesMax : EndIf
   *s\allocShields = ClampInt(*s\allocShields, 0, 100)
   *s\allocWeapons = ClampInt(*s\allocWeapons, 0, 100)
   *s\allocEngines = ClampInt(*s\allocEngines, 0, 100)
@@ -2235,7 +2482,11 @@ Procedure PrintStatusGalaxy(*p.Ship)
   ResetColor()
   Print("  Torps: ")
   ConsoleColor(#C_YELLOW, #C_BLACK)
-  PrintN(Str(*p\torp))
+  Print(Str(*p\torp))
+  ResetColor()
+  Print("  Probes: ")
+  ConsoleColor(#C_CYAN, #C_BLACK)
+  PrintN(Str(*p\probes) + "/" + Str(*p\probesMax))
   ResetColor()
   PrintN("  Systems: Engines " + SysText(*p\sysEngines) + ", Weapons " + SysText(*p\sysWeapons) + ", Shields " + SysText(*p\sysShields))
   PrintCrew(*p)
@@ -2278,6 +2529,10 @@ Procedure PrintStatusTactical(*p.Ship, *e.Ship, *cs.CombatState)
   Print("  Torps: ")
   ConsoleColor(#C_YELLOW, #C_BLACK)
   Print(Str(*p\torp))
+  ResetColor()
+  Print("  Probes: ")
+  ConsoleColor(#C_YELLOW, #C_BLACK)
+  Print(Str(*p\probes) + "/" + Str(*p\probesMax))
   ResetColor()
   Print("  Fuel: ")
   SetColorForPercent(Int(100.0 * *p\fuel / ClampInt(*p\fuelMax, 1, 999999)))
@@ -2567,6 +2822,7 @@ Procedure PlayerPhaser(*p.Ship, *e.Ship, *cs.CombatState, power.i)
 
   *p\weaponCap - power
 
+  PlayPhaserSound()
   TacticalFxPhaser(*cs\range, 0)
 
   Protected chance.i = HitChance(*cs\range, *p, *e) + *cs\pAim
@@ -2627,6 +2883,7 @@ Procedure PlayerTorpedo(*p.Ship, *e.Ship, *cs.CombatState, count.i)
   For i = 1 To count
     *p\torp - 1
 
+    PlayTorpedoSound()
     TacticalFxTorpedo(*cs\range, 0)
     ; Torpedoes are more reliable at close range, less at long range.
     Protected chance.i = HitChance(*cs\range, *p, *e) + 10 - Int(*cs\range / 2) + *cs\pAim
@@ -2833,6 +3090,7 @@ Procedure EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
     If phaserPower < 5 : phaserPower = 5 : EndIf
     
     TacticalFxPhaser(*cs\range, 1)
+    PlayDisruptorSound()
     
     Protected chance.i = HitChance(*cs\range, *e, *p) + *cs\eAim
     If Random(99) < chance
@@ -2883,6 +3141,7 @@ Procedure EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
       *e\torp - 1
       
       TacticalFxTorpedo(*cs\range, 1)
+      PlayTorpedoSound()
       
       Protected torpChance.i = HitChance(*cs\range, *e, *p) + 10 - Int(*cs\range / 2) + *cs\eAim
       torpChance = ClampInt(torpChance, 20, 95)
@@ -4104,6 +4363,7 @@ Procedure DockAtBase(*p.Ship)
   EndIf
   
   gDocked = 1
+  StopEngineLoop()
   
   Protected dockCmd.s = TrimLower(TokenAt(gLastCmdLine, 1))
   If dockCmd = "poweroverwhelming"
@@ -4135,6 +4395,7 @@ Procedure DockAtBase(*p.Ship)
   
   PrintN("Starbase services: hull repaired, shields restored,")
   PrintN("weapons rearmed, fuel refilled.")
+  PlayDockingSound()
   PrintN("")
   PrintN("CHEATS:")
   PrintN("  poweroverwhelming = all stats x2 for 30 turns")
@@ -4199,6 +4460,7 @@ Procedure MinePlanet(*p.Ship)
     If pull > space : pull = space : EndIf
     *p\ore + pull
     *p\fuel - 2
+    PlayMiningSound()
     LogLine("MINE: +" + Str(pull) + " ore")
     PrintN("Mined " + Str(pull) + " ore.")
   ElseIf CurCell(gx, gy)\entType = #ENT_DILITHIUM
@@ -4219,10 +4481,103 @@ Procedure MinePlanet(*p.Ship)
     If dpull > dspace : dpull = dspace : EndIf
     *p\dilithium + dpull
     *p\fuel - 2
+    PlayMiningSound()
     LogLine("MINE: +" + Str(dpull) + " di-lithium")
     PrintN("Mined " + Str(dpull) + " di-lithium crystals.")
   Else
     PrintN("No mineable resource in this sector (need Planet O or Di-lithium D).")
+  EndIf
+EndProcedure
+
+Procedure PrintProbeScan(mapX.i, mapY.i)
+  PrintN("")
+  PrintN("=== PROBE SCAN: Galaxy (" + Str(mapX) + "," + Str(mapY) + ") ===")
+  Protected x.i, y.i
+  Protected hasContent.i = 0
+  
+  For y = 0 To #MAP_H - 1
+    Protected line.s = "  "
+    For x = 0 To #MAP_W - 1
+      Protected ent.i = gGalaxy(mapX, mapY, x, y)\entType
+      Select ent
+        Case #ENT_EMPTY
+          line + ". "
+        Case #ENT_PLANET
+          line + "O "
+        Case #ENT_STAR
+          line + "* "
+        Case #ENT_BASE
+          line + "% "
+        Case #ENT_SHIPYARD
+          line + "+ "
+        Case #ENT_ENEMY
+          line + "E "
+        Case #ENT_WORMHOLE
+          line + "# "
+        Case #ENT_BLACKHOLE
+          line + "? "
+        Case #ENT_SUN
+          line + "S "
+        Case #ENT_DILITHIUM
+          line + "D "
+        Case #ENT_ANOMALY
+          line + "A "
+        Case #ENT_PLANETKILLER
+          line + "< "
+        Case #ENT_REFINERY
+          line + "R "
+        Default
+          line + ". "
+      EndSelect
+    Next
+    PrintN(line)
+  Next
+  
+  PrintN("Legend: @=You .=Empty O=Planet *=Star %=Starbase +=Shipyard")
+  PrintN("        E=Enemy #=Wormhole ?=Blackhole S=Sun D=Di-lithium")
+  PrintN("        A=Anomaly <=Planet Killer R=Refinery")
+  PrintN("")
+EndProcedure
+
+Procedure TransporterBeam(*p.Ship, mode.s)
+  If CurCell(gx, gy)\entType <> #ENT_PLANET And CurCell(gx, gy)\entType <> #ENT_DILITHIUM
+    PrintN("No planet or dilithium cluster in this sector.")
+    ProcedureReturn
+  EndIf
+  
+  Protected oreToTrans.i = 0
+  Protected dilToTrans.i = 0
+  
+  If mode = "ore" Or mode = "all"
+    oreToTrans = CurCell(gx, gy)\ore
+    If oreToTrans > 0
+      Protected oreSpace.i = *p\oreMax - *p\ore
+      If oreToTrans > oreSpace : oreToTrans = oreSpace : EndIf
+      *p\ore + oreToTrans
+      CurCell(gx, gy)\ore - oreToTrans
+      PrintN("Transporter: +" + Str(oreToTrans) + " ore beamed to cargo.")
+      LogLine("TRANSPORTER: +" + Str(oreToTrans) + " ore")
+    Else
+      PrintN("No ore remaining on this planet.")
+    EndIf
+  EndIf
+  
+  If mode = "dilithium" Or mode = "all"
+    dilToTrans = CurCell(gx, gy)\dilithium
+    If dilToTrans > 0
+      Protected dilSpace.i = *p\dilithiumMax - *p\dilithium
+      If dilToTrans > dilSpace : dilToTrans = dilSpace : EndIf
+      *p\dilithium + dilToTrans
+      CurCell(gx, gy)\dilithium - dilToTrans
+      PrintN("Transporter: +" + Str(dilToTrans) + " dilithium beamed to cargo.")
+      LogLine("TRANSPORTER: +" + Str(dilToTrans) + " dilithium")
+    Else
+      PrintN("No dilithium remaining on this cluster.")
+    EndIf
+  EndIf
+  
+  If oreToTrans = 0 And dilToTrans = 0
+    PrintN("No resources to beam up.")
   EndIf
 EndProcedure
 
@@ -4279,6 +4634,11 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
     PrintN("D) Di-lithium Bay  (+10 Di-lithiumMax) cost 90")
     PrintN("E) Cargo Hold      (+20 OreMax)        cost 80")
     PrintN("")
+    PrintN("PROBES:")
+    PrintN("F) Probe Bay        (+2 ProbesMax)      cost 60")
+    PrintN("G) Probe Scanner   (+1 Probe Range)     cost 100")
+    PrintN("H) Probe Targeting (+5% Probe Accuracy) cost 120")
+    PrintN("")
     PrintN("0) Leave")
     PrintN("")
     PrintN("CHEATS (type number/letter or word):")
@@ -4308,6 +4668,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         Next
       Next
       PrintN("Undocking...")
+      StartEngineLoop()
       Break
     EndIf
     If choice = "showmethemoney"
@@ -4452,6 +4813,28 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         *p\oreMax = ClampInt(*p\oreMax + 20, 0, 250)
         LogLine("UPGRADE: cargo +20 (-" + Str(cost) + ")")
         PrintN("Upgrade installed.")
+      Case "f"
+        cost = 60
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        *p\probesMax = ClampInt(*p\probesMax + 2, 0, 20)
+        *p\probes = *p\probesMax
+        LogLine("UPGRADE: probes +2 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed. Probes: " + Str(*p\probes) + "/" + Str(*p\probesMax))
+      Case "g"
+        cost = 100
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        gProbeRange = ClampInt(gProbeRange + 1, 1, 10)
+        LogLine("UPGRADE: probe range +1 (-" + Str(cost) + ")")
+        PrintN("Upgrade installed. Probe range: " + Str(gProbeRange))
+      Case "h"
+        cost = 120
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        gProbeAccuracy = ClampInt(gProbeAccuracy + 5, 50, 100)
+        LogLine("UPGRADE: probe accuracy +5% (-" + Str(cost) + ")")
+        PrintN("Upgrade installed. Probe accuracy: " + Str(gProbeAccuracy) + "%")
       Default
         PrintN("Unknown selection.")
     EndSelect
@@ -4518,6 +4901,7 @@ Procedure DockAtRefinery(*p.Ship)
         Next
       Next
       PrintN("Undocking...")
+      StartEngineLoop()
       Break
     EndIf
     
@@ -4943,6 +5327,7 @@ Procedure EnterCombat(*p.Ship, *enemy.Ship, *cs.CombatState)
     *p\shields = *p\shieldsMax
   EndIf
   
+  PlayRedAlert()
   gMode = #MODE_TACTICAL
   *cs\range = 16 + Random(10)
   *cs\turn = 1
@@ -4960,6 +5345,9 @@ EndProcedure
 
 Procedure LeaveCombat()
   gMode = #MODE_GALAXY
+  If gDocked = 0
+    StartEngineLoop()
+  EndIf
 EndProcedure
 
 Procedure Main()
@@ -4988,6 +5376,7 @@ Procedure Main()
   PrintN("")
 
   InitShipData()
+  InitSounds()
 
   playerSection = LoadGameSettingString("PlayerSection", "PlayerShip")
   enemySection  = LoadGameSettingString("EnemySection",  "EnemyShip")
@@ -5011,6 +5400,11 @@ Procedure Main()
   GenerateRecruits()
   GenerateMission(@player)
   LogLine("Welcome aboard")
+  PrintN("Sound: " + Str(gSoundEnabled) + " Volume: " + Str(gSoundVolume))
+  PlayBeepTest()
+  If gDocked = 0
+    StartEngineLoop()
+  EndIf
   RedrawGalaxy(@player)
 
   While IsAlive(@player)
@@ -5031,6 +5425,8 @@ Procedure Main()
     Protected line.s = Trim(lineRaw)
     Protected cmd.s  = TrimLower(TokenAt(line, 1))
     If cmd = "" : cmd = "end" : EndIf
+    
+    PlaySoundFX(SoundSelect)
 
       If gMode = #MODE_GALAXY
         If cmd = "help"
@@ -5057,6 +5453,7 @@ Procedure Main()
         Input()
         RedrawGalaxy(@player)
       ElseIf cmd = "log"
+        PlaySoundFX(SoundRadio)
         Protected logSearch.s = Trim(TokenAt(line, 2))
         PrintCaptainLog(logSearch)
         PrintN("< Press ENTER >")
@@ -5135,6 +5532,8 @@ Procedure Main()
           CheckMissionCompletion(@player)
           DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
           AdvanceStardate(navSteps)
+          PlayEngineSound()
+          PlayAmbientChatter()
           RedrawGalaxy(@player)
 
         If CurCell(gx, gy)\entType = #ENT_ENEMY
@@ -5235,7 +5634,68 @@ Procedure Main()
             PrintN("Cheat activated: Cargo hold filled!")
           Else
             SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode, gIron, gAluminum, gCopper, gTin, gBronze)
-            MinePlanet(@player)
+          MinePlanet(@player)
+          EndIf
+        EndIf
+
+      ElseIf cmd = "launchprobe"
+        If gDocked
+          PrintN("You are docked. Use UNDOCK first.")
+        ElseIf player\probes <= 0
+          PrintN("No probes remaining!")
+        Else
+          Protected probeX.s = TokenAt(line, 2)
+          Protected probeY.s = TokenAt(line, 3)
+          If probeX = "" Or probeY = ""
+            PrintN("Usage: LAUNCHPROBE <galaxyX> <galaxyY>")
+            PrintN("  Example: LAUNCHPROBE 3 2")
+            PrintN("  Current probes: " + Str(player\probes))
+          Else
+            Protected targetMapX.i = Val(probeX)
+            Protected targetMapY.i = Val(probeY)
+            If targetMapX < 0 Or targetMapX >= #GALAXY_W Or targetMapY < 0 Or targetMapY >= #GALAXY_H
+              PrintN("Invalid coordinates. Galaxy is " + Str(#GALAXY_W) + "x" + Str(#GALAXY_H))
+            ElseIf targetMapX = gMapX And targetMapY = gMapY
+              PrintN("Target is current galaxy sector. Use SCAN instead.")
+            Else
+              player\probes - 1
+              SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode, gIron, gAluminum, gCopper, gTin, gBronze)
+              LogLine("PROBE: launched to " + Str(targetMapX) + "," + Str(targetMapY))
+              PrintN("Launching probe to galaxy (" + Str(targetMapX) + "," + Str(targetMapY) + ")...")
+              PlayProbeSound()
+              PrintProbeScan(targetMapX, targetMapY)
+              AdvanceStardate()
+              PlayEngineSound()
+              PlayAmbientChatter()
+              RedrawGalaxy(@player)
+            EndIf
+          EndIf
+        EndIf
+
+      ElseIf cmd = "transporter"
+        If gDocked
+          PrintN("You are docked. Use UNDOCK first.")
+        Else
+          Protected transMode.s = TrimLower(TokenAt(line, 2))
+          If transMode = ""
+            PrintN("TRANSPORTER - Beam up resources from planet/cluster")
+            PrintN("  TRANSPORTER ORE     - Beam up all ore")
+            PrintN("  TRANSPORTER DILITHIUM - Beam up all dilithium")
+            PrintN("  TRANSPORTER ALL     - Beam up all resources")
+            If CurCell(gx, gy)\ore > 0
+              PrintN("  Planet ore available: " + Str(CurCell(gx, gy)\ore))
+            EndIf
+            If CurCell(gx, gy)\dilithium > 0
+              PrintN("  Cluster dilithium available: " + Str(CurCell(gx, gy)\dilithium))
+            EndIf
+          ElseIf transMode = "ore"
+            TransporterBeam(@player, "ore")
+          ElseIf transMode = "dilithium"
+            TransporterBeam(@player, "dilithium")
+          ElseIf transMode = "all"
+            TransporterBeam(@player, "all")
+          Else
+            PrintN("Unknown transporter mode. Use: ORE, DILITHIUM, or ALL")
           EndIf
         EndIf
 
@@ -5243,8 +5703,10 @@ Procedure Main()
         DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         EnemyGalaxyAI(@player, @enemyTemplate, @cs)
         AdvanceStardate()
+        PlayEngineSound()
+        PlayAmbientChatter()
         RedrawGalaxy(@player)
-      ElseIf cmd = "refuel"
+        ElseIf cmd = "refuel"
         If player\dilithium <= 0
           PrintN("No di-lithium crystals to convert to fuel.")
         ElseIf player\fuel >= player\fuelMax
@@ -5287,6 +5749,8 @@ Procedure Main()
         DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         EnemyGalaxyAI(@player, @enemyTemplate, @cs)
         AdvanceStardate()
+        PlayEngineSound()
+        PlayAmbientChatter()
         RedrawGalaxy(@player)
       ElseIf cmd = "undock"
         SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode, gIron, gAluminum, gCopper, gTin, gBronze)
@@ -5294,6 +5758,7 @@ Procedure Main()
           PrintN("You are not docked.")
         Else
           gDocked = 0
+          PlayUndockingSound()
           ; Find an empty adjacent spot to undock to
           Protected foundEmpty.i = 0
           Protected dx.i, dy.i
@@ -5318,6 +5783,7 @@ Procedure Main()
           Else
             PrintN("Undocking... (no empty space, staying put)")
           EndIf
+          StartEngineLoop()
         EndIf
         RedrawGalaxy(@player)
       ElseIf cmd = "recruit"
@@ -5749,6 +6215,79 @@ Procedure Main()
           Continue
         EndIf
         PlayerTractor(@player, @enemy, @cs, tractorMode)
+      ElseIf cmd = "transporter"
+        Protected trMode.s = TokenAt(line, 2)
+        
+        ; Check if range is close enough
+        If cs\range > gTransporterRange
+          PrintN("Target out of transporter range! Range: " + Str(gTransporterRange) + ", Enemy distance: " + Str(cs\range))
+          PrintStatusTactical(@player, @enemy, @cs)
+          Continue
+        EndIf
+        
+        If trMode = ""
+          PrintN("TRANSPORTER - Away team combat boarding")
+          PrintN("  TRANSPORTER ATTACK - Send away team to capture enemy ship")
+          PrintN("  Requires: transporter range, crew")
+          PrintN("  Power: " + Str(gTransporterPower) + " | Range: " + Str(gTransporterRange) + " | Crew: " + Str(gTransporterCrew))
+          PrintN("  Enemy distance: " + Str(cs\range))
+          PrintStatusTactical(@player, @enemy, @cs)
+          Continue
+        ElseIf trMode = "attack" Or trMode = "away"
+          ; Calculate success chance
+          Protected attackRoll.i = Random(99) + 1
+          Protected successChance.i = gTransporterPower + (gTransporterCrew * 10) - (cs\range * 5)
+          successChance = ClampInt(successChance, 10, 95)
+          
+          PrintN("Away team beamed over!")
+          PrintN("Team size: " + Str(gTransporterCrew) + " | Power: " + Str(gTransporterPower) + " | Success chance: " + Str(successChance) + "%")
+          
+          If attackRoll <= successChance
+            ; Success - damage enemy and maybe capture
+            Protected dmgToEnemy.i = gTransporterPower + (gTransporterCrew * 15) + Random(30)
+            enemy\hull - dmgToEnemy
+            If enemy\hull < 0 : enemy\hull = 0 : EndIf
+            PrintN("Away team attacks! " + Str(dmgToEnemy) + " damage to enemy!")
+            PlaySoundEffect("ENGAGE")
+            
+            ; Chance to disable enemy systems
+            If Random(99) < 40
+              Protected sysRoll.i = Random(2)
+              Select sysRoll
+                Case 0
+                  enemy\sysWeapons = #SYS_DAMAGED
+                  PrintN("Away team damaged enemy weapons!")
+                Case 1
+                  enemy\sysShields = #SYS_DAMAGED
+                  PrintN("Away team damaged enemy shields!")
+                Case 2
+                  enemy\sysEngines = #SYS_DAMAGED
+                  PrintN("Away team damaged enemy engines!")
+              EndSelect
+            EndIf
+            
+            ; Chance to capture
+            If enemy\hull < enemy\hullMax / 4 And Random(99) < 30
+              Protected shipValue.i = enemy\hullMax * 10 + Random(500)
+              gCredits + shipValue
+              PrintN("Away team captured the enemy ship for " + Str(shipValue) + " credits!")
+              AddCaptainLog("CAPTURED enemy ship " + enemy\name + " for " + Str(shipValue) + " credits!")
+              enemy\hull = 0
+            EndIf
+            
+            LogLine("TRANSPORTER: away team attacked, " + Str(dmgToEnemy) + " dmg")
+          Else
+            PrintN("Away team failed to damage the enemy!")
+            LogLine("TRANSPORTER: away team failed")
+          EndIf
+          
+          If enemy\hull <= 0
+            PrintN("Enemy destroyed!")
+            Goto HandleEnemyDestroyed
+          EndIf
+        Else
+          PrintN("Unknown transporter command. Use: TRANSPORTER ATTACK")
+        EndIf
       ElseIf cmd = "flee"
         If player\fuel <= 0
           PrintN("Fuel depleted. Cannot flee.")
@@ -5786,6 +6325,7 @@ Procedure Main()
 
         If enemy\hull <= 0
           HandleEnemyDestroyed:
+          PlayExplosionSound()
           PrintDivider()
           PrintN("Enemy destroyed!")
           PrintDivider()
@@ -5859,6 +6399,7 @@ Procedure Main()
   Else
     PrintN("Session ended.")
   EndIf
+  StopEngineLoop()
   PrintDivider()
   PrintN("< Press ENTER >")
   Input()
@@ -5868,7 +6409,7 @@ Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 12
-; Folding = -------------------
+; Folding = ------------------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -5877,12 +6418,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,3
-; VersionField1 = 1,0,3,3
+; VersionField0 = 1,0,3,8
+; VersionField1 = 1,0,3,8
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.3.3
-; VersionField5 = 1.0.3.3
+; VersionField4 = 1.0.3.8
+; VersionField5 = 1.0.3.8
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
