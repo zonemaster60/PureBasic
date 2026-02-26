@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.7.1"
+Global version.s = "v1.0.7.2"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -18,7 +18,7 @@ Global gProbeAccuracy.i = 75
 
 ; Transporter system
 Global gTransporterPower.i = 50
-Global gTransporterRange.i = 3
+Global gTransporterRange.i = 5
 Global gTransporterCrew.i = 2
 
 ; Shuttle system
@@ -27,7 +27,7 @@ Global gShuttleCrew.i = 2
 Global gShuttleCargoOre.i = 0
 Global gShuttleCargoDilithium.i = 0
 Global gShuttleMaxCargo.i = 10
-Global gShuttleMaxCrew.i = 4
+Global gShuttleMaxCrew.i = 6
 Global gShuttleAttackRange.i = 10
 
 ; Shipyard upgrades tracking
@@ -48,7 +48,6 @@ Global gBronze.i = 0
 
 ; Sound system - PureBasic Sound library
 Global gSoundEnabled.i = 1
-Global gSoundVolume.i = 50
 Global gSoundInitialized.i = 0
 
 Global SoundPhaser.i
@@ -67,7 +66,6 @@ Global SoundEngage.i
 Global SoundClapping.i
 
 Global gSoundEnabledSave = gSoundEnabled
-Global gSoundVolumeSave = gSoundVolume
 Global gEngineLoopChannel.i = -1
 
 Procedure InitSounds()
@@ -97,7 +95,6 @@ EndProcedure
 
 Procedure PlaySoundFX(id.i)
   If gSoundEnabled = 0 : ProcedureReturn : EndIf
-  If gSoundVolume <= 0 : ProcedureReturn : EndIf
   If id = 0 : ProcedureReturn : EndIf
   If IsSound(id)
     Delay(10)
@@ -233,7 +230,6 @@ EndProcedure
 Procedure StartEngineLoop()
   Global gDocked
   If gSoundEnabled = 0 : ProcedureReturn : EndIf
-  If gSoundVolume <= 0 : ProcedureReturn : EndIf
   If gDocked = 1 : ProcedureReturn : EndIf
   If gEngineLoopChannel > 0
     ProcedureReturn
@@ -672,21 +668,21 @@ Global Dim gLog.s(11)
 Global gLogPos.i = 0
 
 ; Captain's Log - records all player actions with archives
-Global Dim gCaptainLog.s(500)  ; Current log (500 entries)
+Global Dim gCaptainLog.s(1000)  ; Current log (1000 entries)
 Global gCaptainLogCount.i = 0
 Global gCurrentArchive.i = 0  ; 0 = current log, 1-10 = archives
 
-; Archives - up to 10 archives of 500 entries each (5000 total)
-Global Dim gCaptainArchive1.s(500)
-Global Dim gCaptainArchive2.s(500)
-Global Dim gCaptainArchive3.s(500)
-Global Dim gCaptainArchive4.s(500)
-Global Dim gCaptainArchive5.s(500)
-Global Dim gCaptainArchive6.s(500)
-Global Dim gCaptainArchive7.s(500)
-Global Dim gCaptainArchive8.s(500)
-Global Dim gCaptainArchive9.s(500)
-Global Dim gCaptainArchive10.s(500)
+; Archives - up to 10 archives of 1000 entries each (10000 total)
+Global Dim gCaptainArchive1.s(1000)
+Global Dim gCaptainArchive2.s(1000)
+Global Dim gCaptainArchive3.s(1000)
+Global Dim gCaptainArchive4.s(1000)
+Global Dim gCaptainArchive5.s(1000)
+Global Dim gCaptainArchive6.s(1000)
+Global Dim gCaptainArchive7.s(1000)
+Global Dim gCaptainArchive8.s(1000)
+Global Dim gCaptainArchive9.s(1000)
+Global Dim gCaptainArchive10.s(1000)
 Global Dim gArchive1Count.i(10)
 Global gTotalArchives.i = 0
 
@@ -1566,7 +1562,7 @@ Procedure PrintHelpGalaxy()
   PrintN("")
   PrintCmd("LAUNCHSHUTTLE [LAUNCH|RECALL|MINE] [crew]")
   PrintN("    Launch shuttle craft (must be docked at starbase)")
-  PrintN("    LAUNCHSHUTTLE LAUNCH [n] - Launch with 1-" + Str(gShuttleMaxCrew) + " crew")
+  PrintN("    LAUNCHSHUTTLE LAUNCH [n] - Launch with 2-" + Str(gShuttleMaxCrew) + " crew")
   PrintN("    LAUNCHSHUTTLE RECALL    - Return shuttle, transfer cargo to ship")
   PrintN("    LAUNCHSHUTTLE MINE      - Collect resources from planet/cluster")
   PrintN("    Can attack enemies in combat or mine resources from planets")
@@ -1724,7 +1720,7 @@ Procedure.i SaveGame(*p.Ship)
   WriteStringN(f, "settings|" + Str(gAutosaveInterval) + "|" + Str(gAutoclearInterval))
   WriteStringN(f, "transporter|" + Str(gTransporterPower) + "|" + Str(gTransporterRange) + "|" + Str(gTransporterCrew))
   WriteStringN(f, "probesys|" + Str(gProbeRange) + "|" + Str(gProbeAccuracy))
-  WriteStringN(f, "sound|" + Str(gSoundEnabled) + "|" + Str(gSoundVolume))
+  WriteStringN(f, "sound|" + Str(gSoundEnabled))
   WriteStringN(f, "shuttle|" + Str(gShuttleLaunched) + "|" + Str(gShuttleCrew) + "|" + Str(gShuttleCargoOre) + "|" + Str(gShuttleCargoDilithium) + "|" + Str(gShuttleMaxCargo) + "|" + Str(gShuttleMaxCrew) + "|" + Str(gShuttleAttackRange))
   WriteStringN(f, "upgrades|" + Str(gUpgradeHull) + "|" + Str(gUpgradeShields) + "|" + Str(gUpgradeWeapons) + "|" + Str(gUpgradePropulsion) + "|" + Str(gUpgradePowerCargo) + "|" + Str(gUpgradeProbes) + "|" + Str(gUpgradeShuttle))
 
@@ -1858,7 +1854,7 @@ Procedure.i LoadGame(*p.Ship)
         gTransporterRange = Val(StringField(line, 3, "|"))
         gTransporterCrew = Val(StringField(line, 4, "|"))
         If gTransporterPower <= 0 : gTransporterPower = 50 : EndIf
-        If gTransporterRange <= 0 : gTransporterRange = 3 : EndIf
+        If gTransporterRange <= 0 : gTransporterRange = 5 : EndIf
         If gTransporterCrew <= 0 : gTransporterCrew = 2 : EndIf
       Case "probesys"
         gProbeRange = Val(StringField(line, 2, "|"))
@@ -1874,7 +1870,7 @@ Procedure.i LoadGame(*p.Ship)
         gShuttleMaxCrew = Val(StringField(line, 7, "|"))
         gShuttleAttackRange = Val(StringField(line, 8, "|"))
         If gShuttleMaxCargo <= 0 : gShuttleMaxCargo = 10 : EndIf
-        If gShuttleMaxCrew <= 0 : gShuttleMaxCrew = 4 : EndIf
+        If gShuttleMaxCrew <= 0 : gShuttleMaxCrew = 6 : EndIf
         If gShuttleAttackRange <= 0 : gShuttleAttackRange = 10 : EndIf
       Case "upgrades"
         gUpgradeHull = Val(StringField(line, 2, "|"))
@@ -5001,8 +4997,9 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
     PrintN("")
     PrintN("SHUTTLE:")
     PrintN("I) Shuttle Bay      (+10 Cargo Max)     cost 120")
-    PrintN("J) Shuttle Crew     (+2 Crew Max)       cost 150")
-    PrintN("K) Shuttle Attack   (+1 Attack Range)   cost 200")
+    PrintN("J) Shuttle Crew 1    (+2 Crew Max)      cost 150")
+    PrintN("K) Shuttle Crew 2    (+2 Crew Max)      cost 300")    
+    PrintN("L) Shuttle Attack   (+1 Attack Range)   cost 200")
     PrintN("")
     PrintN("0) Leave")
     PrintN("")
@@ -5236,6 +5233,14 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         LogLine("UPGRADE: shuttle crew +2 (-" + Str(cost) + ")")
         AddCaptainLog("SHIPYARD: shuttle crew +2")
       Case "k"
+        cost = 300
+        If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
+        gCredits - cost
+        gShuttleMaxCrew = ClampInt(gShuttleMaxCrew + 2, 2, 10)
+        gUpgradeShuttle + 1
+        LogLine("UPGRADE: shuttle crew +2 (-" + Str(cost) + ")")
+        AddCaptainLog("SHIPYARD: shuttle crew +2")
+      Case "l"
         cost = 200
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
         gCredits - cost
@@ -5928,7 +5933,7 @@ Procedure Main()
   GenerateRecruits()
   GenerateMission(@player)
   LogLine("Welcome aboard")
-  PrintN("Sound: " + Str(gSoundEnabled) + " Volume: " + Str(gSoundVolume))
+  PrintN("Sound: " + Str(gSoundEnabled))
   PlayBeepTest()
   If gDocked = 0
     StartEngineLoop()
@@ -7311,7 +7316,7 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 12
+; CursorPosition = 2
 ; Folding = ------------------------
 ; Optimizer
 ; EnableThread
@@ -7321,12 +7326,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,7,1
-; VersionField1 = 1,0,7,1
+; VersionField0 = 1,0,7,2
+; VersionField1 = 1,0,7,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.7.1
-; VersionField5 = 1.0.7.1
+; VersionField4 = 1.0.7.2
+; VersionField5 = 1.0.7.2
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
