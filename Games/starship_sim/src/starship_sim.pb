@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.5.0"
+Global version.s = "v1.0.7.0"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -339,7 +339,7 @@ Declare PrintStatusGalaxy(*p.Ship)
 Declare PrintStatusTactical(*p.Ship, *e.Ship, *cs.CombatState)
 Declare PrintArenaTactical(*p.Ship, *e.Ship, *cs.CombatState)
 Declare ArenaPositions(range.i, *posP.Integer, *posE.Integer, *interior.Integer)
-Declare PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsEnemy.i)
+Declare PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsEnemy.i, *cs.CombatState = 0)
 Declare TacticalFxPhaser(range.i, attackerIsEnemy.i)
 Declare TacticalFxTorpedo(range.i, attackerIsEnemy.i)
 Declare.i EvasionBonus(*target.Ship)
@@ -540,6 +540,11 @@ Structure CombatState
   turn.i
   pAim.i
   eAim.i
+  ; Fleet combat states
+  pFleetAttack.i  ; Which player fleet ship attacked (0 = none)
+  pFleetHit.i     ; Which player fleet ship got hit (0 = none)
+  eFleetAttack.i  ; Which enemy fleet ship attacked (0 = none)
+  eFleetHit.i     ; Which enemy fleet ship got hit (0 = none)
 EndStructure
 
 Structure Cell
@@ -614,6 +619,14 @@ Global gEnemyMapX.i = -1
 Global gEnemyMapY.i = -1
 Global gEnemyX.i = -1
 Global gEnemyY.i = -1
+
+; Player fleet - up to 5 computer-controlled ships
+Global Dim gPlayerFleet.Ship(5)
+Global gPlayerFleetCount.i = 0
+
+; Enemy fleet - up to 5 computer-controlled ships
+Global Dim gEnemyFleet.Ship(5)
+Global gEnemyFleetCount.i = 0
 
 Global gDocked.i = 0
 
@@ -1513,6 +1526,11 @@ Procedure PrintHelpGalaxy()
   PrintCmd("UPGRADES")
   PrintN("    Show installed shipyard upgrades")
   PrintN("")
+  PrintCmd("FLEET")
+  PrintN("    Manage your fleet (up to 5 computer-controlled ships)")
+  PrintN("    FLEET ADD    - Add ship to fleet (must be docked)")
+  PrintN("    FLEET REMOVE - Remove last fleet ship")
+  PrintN("")
   PrintCmd("SCAN")
   PrintN("    Show non-empty contents of adjacent sectors")
   PrintN("")
@@ -1705,6 +1723,15 @@ Procedure.i SaveGame(*p.Ship)
   WriteStringN(f, "shuttle|" + Str(gShuttleLaunched) + "|" + Str(gShuttleCrew) + "|" + Str(gShuttleCargoOre) + "|" + Str(gShuttleCargoDilithium) + "|" + Str(gShuttleMaxCargo) + "|" + Str(gShuttleMaxCrew) + "|" + Str(gShuttleAttackRange))
   WriteStringN(f, "upgrades|" + Str(gUpgradeHull) + "|" + Str(gUpgradeShields) + "|" + Str(gUpgradeWeapons) + "|" + Str(gUpgradePropulsion) + "|" + Str(gUpgradePowerCargo) + "|" + Str(gUpgradeProbes) + "|" + Str(gUpgradeShuttle))
 
+  ; Save player fleet
+  WriteStringN(f, "playerfleet|" + Str(gPlayerFleetCount))
+  Protected pf.i
+  For pf = 1 To gPlayerFleetCount
+    WriteStringN(f, "pfleet|" + Str(pf) + "|" + SafeField(gPlayerFleet(pf)\name) + "|" + SafeField(gPlayerFleet(pf)\class) + "|" +
+                    Str(gPlayerFleet(pf)\hullMax) + "|" + Str(gPlayerFleet(pf)\hull) + "|" +
+                    Str(gPlayerFleet(pf)\shieldsMax) + "|" + Str(gPlayerFleet(pf)\shields))
+  Next
+
   WriteStringN(f, "player|" + SafeField(*p\name) + "|" + SafeField(*p\class) + "|" +
                   Str(*p\hullMax) + "|" + Str(*p\hull) + "|" +
                   Str(*p\shieldsMax) + "|" + Str(*p\shields) + "|" +
@@ -1859,6 +1886,20 @@ Procedure.i LoadGame(*p.Ship)
         If gUpgradePowerCargo < 0 : gUpgradePowerCargo = 0 : EndIf
         If gUpgradeProbes < 0 : gUpgradeProbes = 0 : EndIf
         If gUpgradeShuttle < 0 : gUpgradeShuttle = 0 : EndIf
+      Case "playerfleet"
+        gPlayerFleetCount = Val(StringField(line, 2, "|"))
+        If gPlayerFleetCount < 0 : gPlayerFleetCount = 0 : EndIf
+        If gPlayerFleetCount > 5 : gPlayerFleetCount = 5 : EndIf
+      Case "pfleet"
+        Protected pfLoad.i = Val(StringField(line, 2, "|"))
+        If pfLoad >= 1 And pfLoad <= 5
+          gPlayerFleet(pfLoad)\name     = StringField(line, 3, "|")
+          gPlayerFleet(pfLoad)\class    = StringField(line, 4, "|")
+          gPlayerFleet(pfLoad)\hullMax   = Val(StringField(line, 5, "|"))
+          gPlayerFleet(pfLoad)\hull      = Val(StringField(line, 6, "|"))
+          gPlayerFleet(pfLoad)\shieldsMax = Val(StringField(line, 7, "|"))
+          gPlayerFleet(pfLoad)\shields   = Val(StringField(line, 8, "|"))
+        EndIf
       Case "player"
         *p\name        = StringField(line, 2, "|")
         *p\class       = StringField(line, 3, "|")
@@ -2606,6 +2647,12 @@ Procedure PrintStatusTactical(*p.Ship, *e.Ship, *cs.CombatState)
   
   PrintDivider()
   PrintN("Tactical Turn: " + Str(*cs\turn) + "  Range: " + Str(*cs\range))
+  If gPlayerFleetCount > 0
+    PrintN("Your Fleet: " + Str(gPlayerFleetCount) + " ships")
+  EndIf
+  If gEnemyFleetCount > 0
+    PrintN("Enemy Fleet: " + Str(gEnemyFleetCount) + " ships")
+  EndIf
   PrintN("You:   " + *p\name + " [" + *p\class + "]")
   Print("  Hull: ")
   SetColorForPercent(Int(100.0 * *p\hull / ClampInt(*p\hullMax, 1, 999999)))
@@ -2655,7 +2702,7 @@ Procedure PrintArenaTactical(*p.Ship, *e.Ship, *cs.CombatState)
   Protected posP.Integer, posE.Integer, interior.Integer
   ArenaPositions(*cs\range, @posP, @posE, @interior)
   PrintN("")
-  PrintArenaFrame(posP\i, posE\i, -1, "", 0, 0)
+  PrintArenaFrame(posP\i, posE\i, -1, "", 0, 0, *cs)
 EndProcedure
 
 Procedure ArenaPositions(range.i, *posP.Integer, *posE.Integer, *interior.Integer)
@@ -2673,15 +2720,20 @@ Procedure ArenaPositions(range.i, *posP.Integer, *posE.Integer, *interior.Intege
   *interior\i = interior
 EndProcedure
 
-Procedure PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsEnemy.i)
+Procedure PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsEnemy.i, *cs.CombatState = 0)
   ; Draws a 5-row arena with optional effect: either a beam line or a single character.
   ; attackerIsEnemy: 0 = player, 1 = enemy
   ; Player phaser: cyan '=' | Player torpedo: yellow '*'
   ; Enemy disruptor: red '-' | Enemy torpedo: green '*'
+  ; Fleet ships: '>' for player fleet (white=idle, yellow=attacking, red=hit)
+  ;              '<' for enemy fleet (white=idle, yellow=attacking, red=hit)
   Protected aw.i = 33
   Protected interior.i = aw - 2
   Protected rowMid.i = 2
-
+  
+  Protected pFleetOffset.i = 3  ; Distance from player ship to first fleet ship
+  Protected eFleetOffset.i = 3  ; Distance from enemy ship to first fleet ship (to the left)
+  
   ConsoleColor(#C_DARKGRAY, #C_BLACK)
   PrintN("Arena")
   PrintN("+" + LSet("", aw - 2, "-") + "+")
@@ -2694,6 +2746,102 @@ Procedure PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsE
     ResetColor()
 
     For x = 0 To interior - 1
+      Protected isFleetPos.i = 0
+      
+      ; Player fleet formation: 1 above, 2 below, 1-2 behind
+      ; Ship 1: above @ (y=1, x=posP)
+      ; Ship 2: below @ first (y=3, x=posP)
+      ; Ship 3: below @ second (y=3, x=posP+2)
+      ; Ship 4: behind @ (y=2, x=posP+2)
+      ; Ship 5: behind @ (y=2, x=posP+4)
+      If gPlayerFleetCount > 0
+        Protected pfi.i
+        For pfi = 1 To gPlayerFleetCount
+          Protected pfY.i, pfX.i
+          Select pfi
+            Case 1
+              pfY = 1  ; above
+              pfX = posP
+            Case 2
+              pfY = 3  ; below first
+              pfX = posP
+            Case 3
+              pfY = 3  ; below second
+              pfX = posP + 2
+            Case 4
+              pfY = 2  ; behind
+              pfX = posP + 2
+            Case 5
+              pfY = 2  ; behind second
+              pfX = posP + 4
+          EndSelect
+          If pfX < posE - 2 And y = pfY And x = pfX
+            If *cs And *cs\pFleetHit = pfi
+              ConsoleColor(#C_RED, #C_LIGHTGRAY)
+              Print(">")
+            ElseIf *cs And *cs\pFleetAttack = pfi
+              ConsoleColor(#C_YELLOW, #C_LIGHTGRAY)
+              Print(">")
+            Else
+              ConsoleColor(#C_WHITE, #C_BLACK)
+              Print(">")
+            EndIf
+            ResetColor()
+            isFleetPos = 1
+            Break
+          EndIf
+        Next
+      EndIf
+      
+      ; Enemy fleet formation: 1 above, 2 below, 1-2 behind
+      ; Ship 1: above E (y=1, x=posE)
+      ; Ship 2: below E first (y=3, x=posE)
+      ; Ship 3: below E second (y=3, x=posE-2)
+      ; Ship 4: behind E (y=2, x=posE-2)
+      ; Ship 5: behind E (y=2, x=posE-4)
+      If isFleetPos = 0 And gEnemyFleetCount > 0
+        Protected efi.i
+        For efi = 1 To gEnemyFleetCount
+          Protected efY.i, efX.i
+          Select efi
+            Case 1
+              efY = 1  ; above
+              efX = posE
+            Case 2
+              efY = 3  ; below first
+              efX = posE
+            Case 3
+              efY = 3  ; below second
+              efX = posE - 2
+            Case 4
+              efY = 2  ; behind
+              efX = posE - 2
+            Case 5
+              efY = 2  ; behind second
+              efX = posE - 4
+          EndSelect
+          If efX > posP + 2 And y = efY And x = efX
+            If *cs And *cs\eFleetHit = efi
+              ConsoleColor(#C_RED, #C_LIGHTGRAY)
+              Print("<")
+            ElseIf *cs And *cs\eFleetAttack = efi
+              ConsoleColor(#C_YELLOW, #C_LIGHTGRAY)
+              Print("<")
+            Else
+              ConsoleColor(#C_WHITE, #C_BLACK)
+              Print("<")
+            EndIf
+            ResetColor()
+            isFleetPos = 1
+            Break
+          EndIf
+        Next
+      EndIf
+      
+      If isFleetPos = 1
+        Continue
+      EndIf
+
       If y = rowMid And beam And x > posP And x < posE
         ; Beam: cyan '=' for player, red '-' for enemy
         If attackerIsEnemy = 0
@@ -2748,7 +2896,7 @@ Procedure TacticalFxPhaser(range.i, attackerIsEnemy.i)
   Protected posP.Integer, posE.Integer, interior.Integer
   ArenaPositions(range, @posP, @posE, @interior)
   ; Beam frame
-  PrintArenaFrame(posP\i, posE\i, -1, "", 1, attackerIsEnemy)
+  PrintArenaFrame(posP\i, posE\i, -1, "", 1, attackerIsEnemy, 0)
 EndProcedure
 
 Procedure TacticalFxTorpedo(range.i, attackerIsEnemy.i)
@@ -2765,7 +2913,7 @@ Procedure TacticalFxTorpedo(range.i, attackerIsEnemy.i)
   Protected fx.i = (fromPos + toPos) / 2
   If fx = fromPos : fx + 1 : EndIf
   If fx = toPos : fx - 1 : EndIf
-  PrintArenaFrame(posP\i, posE\i, fx, "*", 0, attackerIsEnemy)
+  PrintArenaFrame(posP\i, posE\i, fx, "*", 0, attackerIsEnemy, 0)
 EndProcedure
 
 Procedure.i EvasionBonus(*target.Ship)
@@ -3453,9 +3601,33 @@ Procedure EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
                     gEnemyMapX = mx : gEnemyMapY = my : gEnemyX = moveX : gEnemyY = moveY
                     EnterCombat(*p, @enemy, *cs)
                     ProcedureReturn
-                  EndIf
+            EndIf
+          EndIf
+        EndIf
+        
+        ; Player's fleet attacks automatically after player fires (BEFORE display so color shows)
+        If gPlayerFleetCount > 0 And enemy\hull > 0
+          Protected pf.i, pfDmg.i
+          For pf = 1 To gPlayerFleetCount
+            If gPlayerFleet(pf)\hull > 0
+              pfDmg = Random(25) + 5
+              *cs\pFleetAttack = pf
+              PlaySoundFX(SoundPhaser)
+              If Random(99) < 50
+                enemy\shields - pfDmg
+                If enemy\shields < 0
+                  enemy\hull + enemy\shields
+                  enemy\shields = 0
                 EndIf
+                PrintN("Fleet ship " + Str(pf) + " fires at enemy! " + Str(pfDmg) + " damage!")
+              Else
+                PrintN("Fleet ship " + Str(pf) + " fires but misses!")
               EndIf
+            EndIf
+          Next
+        EndIf
+        
+        PrintStatusTactical(*p, @enemy, *cs)
             EndIf
           EndIf
         Next
@@ -5662,6 +5834,10 @@ Procedure EnterCombat(*p.Ship, *enemy.Ship, *cs.CombatState)
   *cs\turn = 1
   *cs\pAim = 0
   *cs\eAim = 0
+  *cs\pFleetAttack = 0
+  *cs\pFleetHit = 0
+  *cs\eFleetAttack = 0
+  *cs\eFleetHit = 0
   PrintN("")
   PrintN("Red alert! Engaging enemy!")
   PrintStatusTactical(*p, *enemy, *cs)
@@ -5670,11 +5846,28 @@ Procedure EnterCombat(*p.Ship, *enemy.Ship, *cs.CombatState)
   
   ; Log combat entry
   AddCaptainLog("COMBAT: Engaged " + *enemy\name + " at range " + Str(*cs\range))
+  
+  ; Spawn enemy fleet based on enemy level
+  Protected enemyLvl.i = CurCell(gx, gy)\enemyLevel
+  If enemyLvl > 3
+    gEnemyFleetCount = Random(2)  ; 0-2 fleet ships
+    Protected efSetup.i
+    For efSetup = 1 To gEnemyFleetCount
+      CopyStructure(*enemy, @gEnemyFleet(efSetup), Ship)
+      gEnemyFleet(efSetup)\hull = gEnemyFleet(efSetup)\hullMax
+      gEnemyFleet(efSetup)\shields = gEnemyFleet(efSetup)\shieldsMax
+      gEnemyFleet(efSetup)\name = "Enemy Fleet " + Str(efSetup)
+    Next
+    If gEnemyFleetCount > 0
+      PrintN("WARNING: Enemy has " + Str(gEnemyFleetCount) + " supporting ships!")
+    EndIf
+  EndIf
 EndProcedure
 
 Procedure LeaveCombat()
   gMode = #MODE_GALAXY
   gEngineLoopChannel = -1
+  gEnemyFleetCount = 0
   If gDocked = 0
     StartEngineLoop()
   EndIf
@@ -5814,7 +6007,7 @@ Procedure Main()
         PlaySoundFX(SoundRadio)
         Protected logSearch.s = Trim(TokenAt(line, 2))
         If logSearch = "purge" Or logSearch = "clear"
-          Protected confirm.s = Trim(TokenAt(line, 3))
+          Protected confirm.s = Trim(LCase(TokenAt(line, 3)))
           If confirm = "yes"
             Protected clearIdx.i
             For clearIdx = 0 To ArraySize(gCaptainLog()) - 1
@@ -5900,6 +6093,48 @@ Procedure Main()
         PrintN("SHUTTLE:           " + Str(gUpgradeShuttle) + " upgrades")
         PrintN("")
         PrintN("Total upgrades: " + Str(gUpgradeHull + gUpgradeShields + gUpgradeWeapons + gUpgradePropulsion + gUpgradePowerCargo + gUpgradeProbes + gUpgradeShuttle))
+        RedrawGalaxy(@player)
+      ElseIf cmd = "fleet"
+        Protected fleetCmd.s = TrimLower(TokenAt(line, 2))
+        If fleetCmd = ""
+          PrintN("=== YOUR FLEET ===")
+          PrintN("Player ship: " + player\name + " (" + player\class + ")")
+          If gPlayerFleetCount > 0
+            Protected f.i
+            For f = 1 To gPlayerFleetCount
+              PrintN("  Fleet " + Str(f) + ": " + gPlayerFleet(f)\name + " (" + gPlayerFleet(f)\class + ") - Hull: " + Str(gPlayerFleet(f)\hull) + "/" + Str(gPlayerFleet(f)\hullMax))
+            Next
+          EndIf
+          PrintN("Total fleet ships: " + Str(gPlayerFleetCount) + "/5")
+          ElseIf fleetCmd = "add"
+          If gPlayerFleetCount >= 5
+            PrintN("Fleet is full (max 5 ships).")
+          ElseIf gDocked = 0
+            PrintN("Must be docked at a starbase to add fleet ships.")
+          Else
+            gPlayerFleetCount = gPlayerFleetCount + 1
+            Protected newFleetIdx.i = gPlayerFleetCount
+            CopyStructure(@player, @gPlayerFleet(newFleetIdx), Ship)
+            gPlayerFleet(newFleetIdx)\name = "Fleet Ship " + Str(newFleetIdx)
+            gPlayerFleet(newFleetIdx)\hull = gPlayerFleet(newFleetIdx)\hullMax
+            gPlayerFleet(newFleetIdx)\shields = gPlayerFleet(newFleetIdx)\shieldsMax
+            PrintN("Added " + gPlayerFleet(newFleetIdx)\name + " to fleet.")
+            AddCaptainLog("FLEET: added ship to fleet")
+          EndIf
+        ElseIf fleetCmd = "remove"
+          If gPlayerFleetCount = 0
+            PrintN("No fleet ships to remove.")
+          Else
+            gPlayerFleetCount = gPlayerFleetCount - 1
+            PrintN("Removed last fleet ship from fleet.")
+            AddCaptainLog("FLEET: removed ship from fleet")
+          EndIf
+        Else
+          PrintN("FLEET - Manage your fleet (up to 5 ships)")
+          PrintN("  FLEET           - Show fleet status")
+          PrintN("  FLEET ADD       - Add current ship to fleet (docked at starbase)")
+          PrintN("  FLEET REMOVE    - Remove last fleet ship")
+        EndIf
         RedrawGalaxy(@player)
       ElseIf cmd = "undo"
         If gUndoAvailable = 0
@@ -6664,6 +6899,29 @@ Procedure Main()
       ElseIf cmd = "phaser"
         Protected pwr.i = ParseIntSafe(TokenAt(line, 2), 30)
         PlayerPhaser(@player, @enemy, @cs, pwr)
+        
+        ; Check if player wants to target fleet
+        Protected phaserTarget.s = TokenAt(line, 3)
+        If phaserTarget = "fleet" And gEnemyFleetCount > 0
+          Protected pfHit.i = Random(gEnemyFleetCount) + 1
+          If gEnemyFleet(pfHit)\hull > 0
+            Protected pfDmg.i = Random(pwr / 2) + 5
+            gEnemyFleet(pfHit)\hull - pfDmg
+            cs\eFleetHit = pfHit  ; Mark enemy fleet ship as hit
+            PrintN("Phasers hit enemy fleet ship " + Str(pfHit) + " for " + Str(pfDmg) + " damage!")
+            If gEnemyFleet(pfHit)\hull <= 0
+              PrintN("Enemy fleet ship " + Str(pfHit) + " destroyed!")
+              Protected efCompact1.i
+              For efCompact1 = pfHit To gEnemyFleetCount - 1
+                CopyStructure(@gEnemyFleet(efCompact1 + 1), @gEnemyFleet(efCompact1), Ship)
+              Next
+              gEnemyFleetCount - 1
+            EndIf
+          EndIf
+        EndIf
+        
+        PrintStatusTactical(@player, @enemy, @cs)
+        
         If enemy\hull <= 0
           PrintN("Enemy destroyed!")
           Goto HandleEnemyDestroyed
@@ -6671,6 +6929,51 @@ Procedure Main()
       ElseIf cmd = "torpedo"
         Protected cnt.i = ParseIntSafe(TokenAt(line, 2), 1)
         PlayerTorpedo(@player, @enemy, @cs, cnt)
+        
+        ; Check if player wants to target fleet
+        Protected torpTarget.s = TokenAt(line, 3)
+        If torpTarget = "fleet" And gEnemyFleetCount > 0
+          Protected tfHit.i = Random(gEnemyFleetCount) + 1
+          If gEnemyFleet(tfHit)\hull > 0
+            Protected tfDmg.i = Random(50) + 30
+            gEnemyFleet(tfHit)\hull - tfDmg
+            cs\eFleetHit = tfHit  ; Mark enemy fleet ship as hit
+            PrintN("Torpedo hits enemy fleet ship " + Str(tfHit) + " for " + Str(tfDmg) + " damage!")
+            If gEnemyFleet(tfHit)\hull <= 0
+              PrintN("Enemy fleet ship " + Str(tfHit) + " destroyed!")
+              Protected efCompact2.i
+              For efCompact2 = tfHit To gEnemyFleetCount - 1
+                CopyStructure(@gEnemyFleet(efCompact2 + 1), @gEnemyFleet(efCompact2), Ship)
+              Next
+              gEnemyFleetCount - 1
+            EndIf
+          EndIf
+        EndIf
+        
+        ; Player's fleet attacks automatically after player fires (BEFORE display so color shows)
+        If gPlayerFleetCount > 0 And enemy\hull > 0
+          Protected pf.i
+          For pf = 1 To gPlayerFleetCount
+            If gPlayerFleet(pf)\hull > 0
+              pfDmg.i = Random(25) + 5
+              cs\pFleetAttack = pf
+              PlaySoundFX(SoundPhaser)
+              If Random(99) < 50
+                enemy\shields - pfDmg
+                If enemy\shields < 0
+                  enemy\hull + enemy\shields
+                  enemy\shields = 0
+                EndIf
+                PrintN("Fleet ship " + Str(pf) + " fires at enemy! " + Str(pfDmg) + " damage!")
+              Else
+                PrintN("Fleet ship " + Str(pf) + " fires but misses!")
+              EndIf
+            EndIf
+          Next
+        EndIf
+        
+        PrintStatusTactical(@player, @enemy, @cs)
+        
         If enemy\hull <= 0
           PrintN("Enemy destroyed!")
           Goto HandleEnemyDestroyed
@@ -6817,6 +7120,29 @@ Procedure Main()
         EndIf
         PrintStatusTactical(@player, @enemy, @cs)
       ElseIf cmd = "end"
+        ; Player's fleet attacks enemy
+        If gPlayerFleetCount > 0 And enemy\hull > 0
+          For pf = 1 To gPlayerFleetCount
+            If gPlayerFleet(pf)\hull > 0
+              pfDmg.i = Random(25) + 5
+              cs\pFleetAttack = pf
+              PlaySoundFX(SoundPhaser)
+              If Random(99) < 50
+                enemy\shields - pfDmg
+                If enemy\shields < 0
+                  enemy\hull + enemy\shields
+                  enemy\shields = 0
+                EndIf
+                PrintN("Fleet ship " + Str(pf) + " fires at enemy! " + Str(pfDmg) + " damage!")
+              Else
+                PrintN("Fleet ship " + Str(pf) + " fires but misses!")
+              EndIf
+            EndIf
+          Next
+        EndIf
+        
+        PrintStatusTactical(@player, @enemy, @cs)
+        
         ; no-op
       ElseIf cmd = "quit" Or cmd = "exit"
         CloseConsole()
@@ -6827,6 +7153,12 @@ Procedure Main()
       EndIf
 
       If gMode = #MODE_TACTICAL And IsAlive(@player) And IsAlive(@enemy)
+        ; Reset fleet combat states at start of turn
+        cs\pFleetAttack = 0
+        cs\pFleetHit = 0
+        cs\eFleetAttack = 0
+        cs\eFleetHit = 0
+        
         RegenAndRepair(@player, 0)
         
         ; Check if enemy already dead before AI runs
@@ -6836,6 +7168,51 @@ Procedure Main()
         
         RegenAndRepair(@enemy, 1)
         EnemyAI(@enemy, @player, @cs)
+        
+        ; Enemy fleet attacks player and player's fleet
+        If gEnemyFleetCount > 0 And enemy\hull > 0
+          Protected ef.i
+          For ef = 1 To gEnemyFleetCount
+            If gEnemyFleet(ef)\hull > 0
+              Protected efDmg.i = Random(30) + 10
+              cs\eFleetAttack = ef  ; Mark enemy fleet ship as attacking (show yellow even on miss)
+              PlaySoundFX(SoundDisruptor)  ; Enemy fleet fires
+              If Random(99) < 60  ; 60% chance to hit
+                ; 50% chance to hit player, 50% chance to hit fleet
+                If gPlayerFleetCount > 0 And Random(99) < 50
+                  Protected pfTarget.i = Random(gPlayerFleetCount) + 1
+                  If gPlayerFleet(pfTarget)\hull > 0
+                    gPlayerFleet(pfTarget)\hull - efDmg
+                    cs\pFleetHit = pfTarget  ; Mark player fleet ship as hit
+                    PlaySoundFX(SoundExplode)  ; Fleet ship hit!
+                    PrintN("Enemy fleet ship " + Str(ef) + " fires at your fleet! " + Str(efDmg) + " damage to fleet " + Str(pfTarget) + "!")
+                    If gPlayerFleet(pfTarget)\hull <= 0
+                      PrintN("Your fleet ship " + Str(pfTarget) + " was destroyed!")
+                      ; Compact array - shift remaining ships down
+                      Protected compact.i
+                      For compact = pfTarget To gPlayerFleetCount - 1
+                        CopyStructure(@gPlayerFleet(compact + 1), @gPlayerFleet(compact), Ship)
+                      Next
+                      gPlayerFleetCount - 1
+                    EndIf
+                  EndIf
+                Else
+                  player\shields - efDmg
+                  If player\shields < 0
+                    player\hull + player\shields
+                    player\shields = 0
+                  EndIf
+                  PrintN("Enemy fleet ship " + Str(ef) + " fires! " + Str(efDmg) + " damage to shields!")
+                EndIf
+              Else
+                PrintN("Enemy fleet ship " + Str(ef) + " fires but misses!")
+              EndIf
+            EndIf
+          Next
+        EndIf
+        
+        PrintStatusTactical(@player, @enemy, @cs)
+        
         cs\turn + 1
 
         If enemy\hull <= 0
@@ -6911,6 +7288,8 @@ Procedure Main()
     PrintN("Your ship is lost.")
     gPowerBuff = 0
     gPowerBuffTurns = 0
+    gPlayerFleetCount = 0
+    gEnemyFleetCount = 0
   Else
     PrintN("Session ended.")
   EndIf
@@ -6927,7 +7306,8 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 12
+; CursorPosition = 6950
+; FirstLine = 6949
 ; Folding = ------------------------
 ; Optimizer
 ; EnableThread
@@ -6937,12 +7317,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,5,0
-; VersionField1 = 1,0,5,0
+; VersionField0 = 1,0,7,0
+; VersionField1 = 1,0,7,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.5.0
-; VersionField5 = 1.0.5.0
+; VersionField4 = 1.0.7.0
+; VersionField5 = 1.0.7.0
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
