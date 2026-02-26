@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.7.0"
+Global version.s = "v1.0.7.1"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -582,15 +582,20 @@ Structure Mission
   rewardCredits.i
 EndStructure
 
-Global gIniPath.s = #APP_NAME + "_ships.ini"
-Global gDatPath.s = #APP_NAME + "_ships.dat"
-Global gUserIniPath.s = #APP_NAME + "_user.ini"
-Global gSavePath.s = #APP_NAME + "_save.txt"
+Global LogPath.s = AppPath + "logs" + #PS$
+Global DataPath.s = AppPath + "data" + #PS$
+Global SavePath.s = AppPath + "save" + #PS$
 
-Global gSessionLogPath.s = #APP_NAME + "_session.log"
-Global gCrashLogPath.s   = #APP_NAME + "_crash.log"
+Global gIniPath.s = DataPath + #APP_NAME + "_ships.ini"
+Global gDatPath.s = DataPath + #APP_NAME + "_ships.dat"
+Global gUserIniPath.s = DataPath + #APP_NAME + "_user.ini"
+
+Global gSavePath.s = SavePath + #APP_NAME + "_save.txt"
+
+Global gSessionLogPath.s = LogPath + #APP_NAME + "_session.log"
+Global gCrashLogPath.s = LogPath + #APP_NAME + "_crash.log"
+
 Global gLastCmdLine.s = ""
-
 Global gShipsText.s = ""
 Global gShipDataDesc.s = ""
 Global gShipDatErr.s = ""
@@ -7306,8 +7311,7 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 6950
-; FirstLine = 6949
+; CursorPosition = 12
 ; Folding = ------------------------
 ; Optimizer
 ; EnableThread
@@ -7317,12 +7321,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,7,0
-; VersionField1 = 1,0,7,0
+; VersionField0 = 1,0,7,1
+; VersionField1 = 1,0,7,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.7.0
-; VersionField5 = 1.0.7.0
+; VersionField4 = 1.0.7.1
+; VersionField5 = 1.0.7.1
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
