@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.4.8"
+Global version.s = "v1.0.5.0"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -1287,6 +1287,7 @@ Procedure PrintCaptainLog(search.s)
   PrintN("Usage: LOG - show recent | LOG <search> - search entries")
   PrintN("       LOG ARCHIVES - list all archives")
   PrintN("       LOG ARCHIVE <1-10> - view archive (add search term)")
+  PrintN("       LOG PURGE YES - delete all current log entries")
   PrintDivider()
 EndProcedure
 
@@ -4901,6 +4902,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         *p\hull = *p\hullMax
         gUpgradeHull + 1
         LogLine("UPGRADE: hull +20 (-" + Str(cost) + ")")
+        AddCaptainLog("SHIPYARD: hull upgrade +20")
         PrintN("Upgrade installed.")
       Case "2"
         cost = 100
@@ -4910,6 +4912,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         *p\hull = *p\hullMax
         gUpgradeHull + 1
         LogLine("UPGRADE: armor +15 (-" + Str(cost) + ")")
+        AddCaptainLog("SHIPYARD: armor upgrade +15")
         PrintN("Upgrade installed.")
       Case "3"
         cost = 140
@@ -4919,7 +4922,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         *p\shields = *p\shieldsMax
         gUpgradeShields + 1
         LogLine("UPGRADE: shields +20 (-" + Str(cost) + ")")
-        PrintN("Upgrade installed.")
+        AddCaptainLog("SHIPYARD: shields upgrade +20")
       Case "4"
         cost = 110
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
@@ -4928,7 +4931,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         *p\shields = *p\shieldsMax
         gUpgradeShields + 1
         LogLine("UPGRADE: emitters +15 (-" + Str(cost) + ")")
-        PrintN("Upgrade installed.")
+        AddCaptainLog("SHIPYARD: emitters upgrade +15")
       Case "5"
         cost = 160
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
@@ -4936,7 +4939,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         *p\phaserBanks = ClampInt(*p\phaserBanks + 1, 0, 30)
         gUpgradeWeapons + 1
         LogLine("UPGRADE: phasers +1 (-" + Str(cost) + ")")
-        PrintN("Upgrade installed.")
+        AddCaptainLog("SHIPYARD: phaser banks +1")
       Case "6"
         cost = 110
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
@@ -4945,7 +4948,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         *p\torp = ClampInt(*p\torp + 4, 0, *p\torpMax)
         gUpgradeWeapons + 1
         LogLine("UPGRADE: torpMax +4 (-" + Str(cost) + ")")
-        PrintN("Upgrade installed.")
+        AddCaptainLog("SHIPYARD: torpedo capacity +4")
       Case "7"
         cost = 200
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
@@ -4954,7 +4957,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         If *p\torpTubes > *p\torpMax : *p\torpTubes = *p\torpMax : EndIf
         gUpgradeWeapons + 1
         LogLine("UPGRADE: tubes +1 (-" + Str(cost) + ")")
-        PrintN("Upgrade installed.")
+        AddCaptainLog("SHIPYARD: torpedo tubes +1")
       Case "8"
         cost = 130
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
@@ -4962,7 +4965,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         *p\sensorRange = ClampInt(*p\sensorRange + 5, 1, 60)
         gUpgradeWeapons + 1
         LogLine("UPGRADE: sensors +5 (-" + Str(cost) + ")")
-        PrintN("Upgrade installed.")
+        AddCaptainLog("SHIPYARD: sensor range +5")
       Case "9"
         cost = 250
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
@@ -4970,7 +4973,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         *p\warpMax = ClampF(*p\warpMax + 1.0, 0.0, 12.0)
         gUpgradePropulsion + 1
         LogLine("UPGRADE: warp +1.0 (-" + Str(cost) + ")")
-        PrintN("Upgrade installed.")
+        AddCaptainLog("SHIPYARD: warp drive +1")
       Case "a"
         cost = 150
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
@@ -4978,7 +4981,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         *p\impulseMax = ClampF(*p\impulseMax + 0.3, 0.0, 2.5)
         gUpgradePropulsion + 1
         LogLine("UPGRADE: impulse +0.3 (-" + Str(cost) + ")")
-        PrintN("Upgrade installed.")
+        AddCaptainLog("SHIPYARD: impulse engines +0.3")
       Case "b"
         cost = 100
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
@@ -4987,7 +4990,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         *p\fuel = *p\fuelMax
         gUpgradePropulsion + 1
         LogLine("UPGRADE: fuel +25 (-" + Str(cost) + ")")
-        PrintN("Upgrade installed.")
+        AddCaptainLog("SHIPYARD: fuel tanks +25")
       Case "c"
         cost = 180
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
@@ -4997,15 +5000,15 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         *p\weaponCap = ClampInt(*p\weaponCap, 0, *p\weaponCapMax)
         gUpgradePowerCargo + 1
         LogLine("UPGRADE: reactor +30 (-" + Str(cost) + ")")
-        PrintN("Upgrade installed.")
+        AddCaptainLog("SHIPYARD: reactor +30")
       Case "d"
         cost = 90
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
         gCredits - cost
         *p\dilithiumMax = ClampInt(*p\dilithiumMax + 10, 0, 50)
         gUpgradePowerCargo + 1
-        LogLine("UPGRADE: dilithium +10 (-" + Str(cost) + ")")
-        PrintN("Upgrade installed.")
+        LogLine("UPGRADE: di-lithium +10 (-" + Str(cost) + ")")
+        AddCaptainLog("SHIPYARD: dilithium storage +10")
       Case "e"
         cost = 80
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
@@ -5013,7 +5016,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         *p\oreMax = ClampInt(*p\oreMax + 20, 0, 250)
         gUpgradePowerCargo + 1
         LogLine("UPGRADE: cargo +20 (-" + Str(cost) + ")")
-        PrintN("Upgrade installed.")
+        AddCaptainLog("SHIPYARD: cargo hold +20")
       Case "f"
         cost = 60
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
@@ -5022,7 +5025,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         *p\probes = *p\probesMax
         gUpgradeProbes + 1
         LogLine("UPGRADE: probes +2 (-" + Str(cost) + ")")
-        PrintN("Upgrade installed. Probes: " + Str(*p\probes) + "/" + Str(*p\probesMax))
+        AddCaptainLog("SHIPYARD: probe bay +2")
       Case "g"
         cost = 100
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
@@ -5030,7 +5033,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         gProbeRange = ClampInt(gProbeRange + 1, 1, 10)
         gUpgradeProbes + 1
         LogLine("UPGRADE: probe range +1 (-" + Str(cost) + ")")
-        PrintN("Upgrade installed. Probe range: " + Str(gProbeRange))
+        AddCaptainLog("SHIPYARD: probe scanner +1")
       Case "h"
         cost = 120
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
@@ -5038,7 +5041,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         gProbeAccuracy = ClampInt(gProbeAccuracy + 5, 50, 100)
         gUpgradeProbes + 1
         LogLine("UPGRADE: probe accuracy +5% (-" + Str(cost) + ")")
-        PrintN("Upgrade installed. Probe accuracy: " + Str(gProbeAccuracy) + "%")
+        AddCaptainLog("SHIPYARD: probe targeting +5%")
       Case "i"
         cost = 120
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
@@ -5046,7 +5049,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         gShuttleMaxCargo = ClampInt(gShuttleMaxCargo + 10, 10, 50)
         gUpgradeShuttle + 1
         LogLine("UPGRADE: shuttle cargo +10 (-" + Str(cost) + ")")
-        PrintN("Upgrade installed. Shuttle cargo max: " + Str(gShuttleMaxCargo))
+        AddCaptainLog("SHIPYARD: shuttle cargo +10")
       Case "j"
         cost = 150
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
@@ -5054,13 +5057,15 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
         gShuttleMaxCrew = ClampInt(gShuttleMaxCrew + 2, 2, 10)
         gUpgradeShuttle + 1
         LogLine("UPGRADE: shuttle crew +2 (-" + Str(cost) + ")")
-        PrintN("Upgrade installed. Shuttle crew max: " + Str(gShuttleMaxCrew))
+        AddCaptainLog("SHIPYARD: shuttle crew +2")
       Case "k"
         cost = 200
         If gCredits < cost : PrintN("Insufficient credits.") : Continue : EndIf
         gCredits - cost
         gShuttleAttackRange = ClampInt(gShuttleAttackRange + 1, 10, 20)
+        gUpgradeShuttle + 1
         LogLine("UPGRADE: shuttle attack range +1 (-" + Str(cost) + ")")
+        AddCaptainLog("SHIPYARD: shuttle attack +1")
         PrintN("Upgrade installed. Shuttle attack range: " + Str(gShuttleAttackRange))
       Default
         PrintN("Unknown selection.")
@@ -5177,6 +5182,7 @@ Procedure DockAtRefinery(*p.Ship)
           PrintN("Refined 1 ore -> 1 Bronze")
       EndSelect
       LogLine("REFINE: ore -> metal type " + Str(metalType))
+      AddCaptainLog("REFINERY: refined 1 ore")
       Continue
     EndIf
     
@@ -5205,6 +5211,7 @@ Procedure DockAtRefinery(*p.Ship)
       Wend
       PrintN("Refined " + Str(refinedCount) + " ore into refined metals.")
       LogLine("REFINE ALL: " + Str(refinedCount) + " ore refined")
+      AddCaptainLog("REFINERY: refined all ore (" + Str(refinedCount) + ")")
       Continue
     EndIf
     
@@ -5221,6 +5228,7 @@ Procedure DockAtRefinery(*p.Ship)
       EndIf
       PrintN("Refined 1 dilithium crystal -> " + Str(oreGain) + " ore")
       LogLine("REFINE DILITHIUM: 1 crystal -> " + Str(oreGain) + " ore")
+      AddCaptainLog("REFINERY: refined 1 dilithium crystal")
       Continue
     EndIf
     
@@ -5242,6 +5250,8 @@ Procedure DockAtRefinery(*p.Ship)
         gCredits + (sellQty * sellPrice)
         PrintN("Sold " + Str(sellQty) + " ore for " + Str(sellQty * sellPrice) + " credits.")
         LogLine("SELL: " + Str(sellQty) + " ore for " + Str(sellQty * sellPrice))
+        AddCaptainLog("REFINERY: sold " + Str(sellQty) + " ore")
+        Continue
       ElseIf sellTarget = "iron"
         If gIron <= 0
           PrintN("No iron to sell.")
@@ -5253,6 +5263,8 @@ Procedure DockAtRefinery(*p.Ship)
         gCredits + (sellQty * sellPrice)
         PrintN("Sold " + Str(sellQty) + " iron for " + Str(sellQty * sellPrice) + " credits.")
         LogLine("SELL: " + Str(sellQty) + " iron for " + Str(sellQty * sellPrice))
+        AddCaptainLog("REFINERY: sold " + Str(sellQty) + " iron")
+        Continue
       ElseIf sellTarget = "aluminum"
         If gAluminum <= 0
           PrintN("No aluminum to sell.")
@@ -5264,6 +5276,8 @@ Procedure DockAtRefinery(*p.Ship)
         gCredits + (sellQty * sellPrice)
         PrintN("Sold " + Str(sellQty) + " aluminum for " + Str(sellQty * sellPrice) + " credits.")
         LogLine("SELL: " + Str(sellQty) + " aluminum for " + Str(sellQty * sellPrice))
+        AddCaptainLog("REFINERY: sold " + Str(sellQty) + " aluminum")
+        Continue
       ElseIf sellTarget = "copper"
         If gCopper <= 0
           PrintN("No copper to sell.")
@@ -5275,6 +5289,8 @@ Procedure DockAtRefinery(*p.Ship)
         gCredits + (sellQty * sellPrice)
         PrintN("Sold " + Str(sellQty) + " copper for " + Str(sellQty * sellPrice) + " credits.")
         LogLine("SELL: " + Str(sellQty) + " copper for " + Str(sellQty * sellPrice))
+        AddCaptainLog("REFINERY: sold " + Str(sellQty) + " copper")
+        Continue
       ElseIf sellTarget = "tin"
         If gTin <= 0
           PrintN("No tin to sell.")
@@ -5286,6 +5302,8 @@ Procedure DockAtRefinery(*p.Ship)
         gCredits + (sellQty * sellPrice)
         PrintN("Sold " + Str(sellQty) + " tin for " + Str(sellQty * sellPrice) + " credits.")
         LogLine("SELL: " + Str(sellQty) + " tin for " + Str(sellQty * sellPrice))
+        AddCaptainLog("REFINERY: sold " + Str(sellQty) + " tin")
+        Continue
       ElseIf sellTarget = "bronze"
         If gBronze <= 0
           PrintN("No bronze to sell.")
@@ -5297,6 +5315,8 @@ Procedure DockAtRefinery(*p.Ship)
         gCredits + (sellQty * sellPrice)
         PrintN("Sold " + Str(sellQty) + " bronze for " + Str(sellQty * sellPrice) + " credits.")
         LogLine("SELL: " + Str(sellQty) + " bronze for " + Str(sellQty * sellPrice))
+        AddCaptainLog("REFINERY: sold " + Str(sellQty) + " bronze")
+        Continue
       ElseIf sellTarget = "dilithium"
         If *p\dilithium <= 0
           PrintN("No dilithium to sell.")
@@ -5309,6 +5329,7 @@ Procedure DockAtRefinery(*p.Ship)
         PrintN("Sold " + Str(sellQty) + " dilithium for " + Str(sellQty * sellPrice) + " credits!")
         PrintN("WARNING: High-value cargo will attract pirates!")
         LogLine("SELL: " + Str(sellQty) + " dilithium for " + Str(sellQty * sellPrice))
+        AddCaptainLog("REFINERY: sold " + Str(sellQty) + " dilithium")
       ElseIf sellTarget = "all"
         Protected totalCredits.i = 0
         If *p\ore > 0
@@ -5342,6 +5363,7 @@ Procedure DockAtRefinery(*p.Ship)
         gCredits + totalCredits
         PrintN("Sold all cargo for " + Str(totalCredits) + " credits.")
         LogLine("SELL ALL: " + Str(totalCredits) + " credits")
+        AddCaptainLog("REFINERY: sold all cargo for " + Str(totalCredits) + " credits")
       Else
         PrintN("Unknown sell target. Use: ORE, IRON, ALUMINUM, COPPER, TIN, BRONZE, or ALL")
       EndIf
@@ -6243,6 +6265,7 @@ Procedure Main()
               PrintN("Invalid recruit number. Choose 1-" + Str(gRecruitCount) + ".")
             Else
               RecruitCrew(@player, idx)
+              AddCaptainLog("STARBASE: recruited " + gRecruitNames(idx))
             EndIf
           EndIf
         EndIf
@@ -6269,6 +6292,7 @@ Procedure Main()
             EndIf
             If dismissRoleId > 0
               DismissCrew(@player, dismissRoleId)
+              AddCaptainLog("STARBASE: dismissed crew member")
             EndIf
           EndIf
         EndIf
@@ -6913,12 +6937,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,4,8
-; VersionField1 = 1,0,4,8
+; VersionField0 = 1,0,5,0
+; VersionField1 = 1,0,5,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.4.8
-; VersionField5 = 1.0.4.8
+; VersionField4 = 1.0.5.0
+; VersionField5 = 1.0.5.0
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
