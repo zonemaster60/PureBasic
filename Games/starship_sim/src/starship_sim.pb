@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.4.1"
+Global version.s = "v1.0.4.2"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -214,28 +214,34 @@ Procedure PlayPlanetKillerAttackSound()
 EndProcedure
 
 Procedure PlayEngineSound()
-  If gSoundEnabled = 0 : ProcedureReturn : EndIf
-  PlaySoundFX(SoundEngine)
+  ; Engine loop now handles all engine sounds
+  Global gDocked
+  If gDocked = 0
+    StartEngineLoop()
+  EndIf
 EndProcedure
 
 Procedure StartEngineLoop()
+  Global gDocked
   If gSoundEnabled = 0 : ProcedureReturn : EndIf
   If gSoundVolume <= 0 : ProcedureReturn : EndIf
+  If gDocked = 1 : ProcedureReturn : EndIf
   If gEngineLoopChannel > 0
-    If IsSound(gEngineLoopChannel)
-      ProcedureReturn
-    EndIf
+    ProcedureReturn
   EndIf
   If SoundEngine And IsSound(SoundEngine)
     gEngineLoopChannel = PlaySound(SoundEngine, #PB_Sound_Loop)
+    If gEngineLoopChannel = 0
+      gEngineLoopChannel = -1
+    EndIf
   EndIf
 EndProcedure
 
 Procedure StopEngineLoop()
   If gEngineLoopChannel > 0
     StopSound(gEngineLoopChannel)
-    gEngineLoopChannel = -1
   EndIf
+  gEngineLoopChannel = -1
 EndProcedure
 
 Procedure PlayAmbientChatter()
@@ -1382,18 +1388,18 @@ EndProcedure
 Procedure PrintLegendLine(indent.s)
   ; Prints a colorized legend line (caller controls surrounding text)
   Print(indent)
-    ConsoleColor(#C_WHITE, #C_BLACK) : Print("@") : ResetColor() : Print("=Your Ship ")
-  ConsoleColor(#C_DARKGRAY, #C_BLACK) : Print(".") : ResetColor() : Print("=Empty ")
+    ConsoleColor(#C_WHITE, #C_BLACK) : Print("@") : ResetColor() : Print("=YourShip ")
+  ConsoleColor(#C_DARKGRAY, #C_BLACK) : Print(".") : ResetColor() : Print("=EmptySector ")
   ConsoleColor(#C_LIGHTBLUE, #C_BLACK) : Print("O") : ResetColor() : Print("=Planet ")
-  ConsoleColor(#C_YELLOW, #C_BLACK) : Print("*") : ResetColor() : Print("=Star(blocked) ")
+  ConsoleColor(#C_YELLOW, #C_BLACK) : Print("*") : ResetColor() : Print("=Star (blocked) ")
   ConsoleColor(#C_LIGHTCYAN, #C_BLACK) : Print("%") : ResetColor() : Print("=Starbase")
   PrintN("")
   Print(indent)
   ConsoleColor(#C_GREEN, #C_BLACK) : Print("+") : ResetColor() : Print("=Shipyard ")
-  ConsoleColor(#C_LIGHTRED, #C_BLACK) : Print("E") : ResetColor() : Print("=Enemy ")
+  ConsoleColor(#C_LIGHTRED, #C_BLACK) : Print("E") : ResetColor() : Print("=EnemyShip ")
   ConsoleColor(#C_LIGHTMAGENTA, #C_BLACK) : Print("#") : ResetColor() : Print("=Wormhole ")
   ConsoleColor(#C_WHITE, #C_BLACK) : Print("?") : ResetColor() : Print("=Blackhole ")
-  ConsoleColor(#C_BROWN, #C_BLACK) : Print("S") : ResetColor() : Print("=Sun(blocked)")
+  ConsoleColor(#C_BROWN, #C_BLACK) : Print("S") : ResetColor() : Print("=Sun (blocked)")
   PrintN("")
   Print(indent)
   ConsoleColor(#C_MAGENTA, #C_BLACK) : Print("D") : ResetColor() : Print("=Di-lithium ")
@@ -1464,6 +1470,11 @@ Procedure PrintHelpGalaxy()
   PrintN("")
   PrintCmd("STATUS")
   PrintN("    Show ship status, fuel, ore, and systems")
+  PrintN("")
+  PrintCmd("ALLOC <engines> <weapons> <shields>")
+  PrintN("    Set reactor power distribution (sum must be <= 100)")
+  PrintN("    Default: 33 34 33")
+  PrintN("    Example: ALLOC 40 40 20")
   PrintN("")
   PrintCmd("CREW")
   PrintN("    Show crew members and their experience")
@@ -1539,15 +1550,15 @@ Procedure PrintHelpGalaxy()
   PrintN("    Refineries: REFINE ore, SELL ore/metals")
   PrintN("    Example: DOCK")
   PrintN("")
-  PrintN("Refinery Commands (when docked at R):")
-  PrintN("  REFINE           - Convert 1 ore to random refined metal (free)")
-  PrintN("  SELL ORE         - Sell all ore (1 credit each)")
-  PrintN("  SELL IRON        - Sell all iron (5 credits each)")
-  PrintN("  SELL ALUMINUM    - Sell all aluminum (8 credits each)")
-  PrintN("  SELL COPPER      - Sell all copper (12 credits each)")
-  PrintN("  SELL TIN         - Sell all tin (15 credits each)")
-  PrintN("  SELL BRONZE      - Sell all bronze (25 credits each)")
-  PrintN("  SELL ALL         - Sell all cargo")
+  PrintN("  Refinery Commands (when docked at R):")
+  PrintN("    REFINE           - Convert 1 ore to random refined metal (free)")
+  PrintN("    SELL ORE         - Sell all ore (1 credit each)")
+  PrintN("    SELL IRON        - Sell all iron (5 credits each)")
+  PrintN("    SELL ALUMINUM    - Sell all aluminum (8 credits each)")
+  PrintN("    SELL COPPER      - Sell all copper (12 credits each)")
+  PrintN("    SELL TIN         - Sell all tin (15 credits each)")
+  PrintN("    SELL BRONZE      - Sell all bronze (25 credits each)")
+  PrintN("    SELL ALL         - Sell all cargo")
   PrintN("")
   PrintCmd("RECRUIT <number>")
   PrintN("    Hire a recruit (available at starbases)")
@@ -1806,11 +1817,6 @@ Procedure.i LoadGame(*p.Ship)
         gProbeAccuracy = Val(StringField(line, 3, "|"))
         If gProbeRange <= 0 : gProbeRange = 3 : EndIf
         If gProbeAccuracy <= 0 : gProbeAccuracy = 75 : EndIf
-      Case "sound"
-        gSoundEnabled = Val(StringField(line, 2, "|"))
-        gSoundVolume = Val(StringField(line, 3, "|"))
-        If gSoundVolume <= 0 : gSoundVolume = 50 : EndIf
-        If gSoundEnabled < 0 Or gSoundEnabled > 1 : gSoundEnabled = 1 : EndIf
       Case "shuttle"
         gShuttleLaunched = Val(StringField(line, 2, "|"))
         gShuttleCrew = Val(StringField(line, 3, "|"))
@@ -1975,9 +1981,10 @@ Procedure PrintHelpTactical()
   PrintCmd("SCAN")
   PrintN("    Show detailed sensor report if within SensorRange")
   PrintN("")
-  PrintCmd("ALLOC <shields%> <weapons%> <engines%>")
-  PrintN("    Set reactor allocation; sum must be <= 100")
-  PrintN("    Examples: ALLOC 50 30 20 | ALLOC 40 40 20")
+  PrintCmd("ALLOC <engines> <weapons> <shields>")
+  PrintN("    Set reactor power distribution (sum must be <= 100)")
+  PrintN("    Default: 33 34 33")
+  PrintN("    Examples: ALLOC 40 40 20 | ALLOC 33 34 33")
   PrintN("")
   PrintCmd("MOVE <APPROACH|RETREAT|HOLD> <amount>")
   PrintN("    Change range; amount is limited by Engines allocation")
@@ -1999,7 +2006,7 @@ Procedure PrintHelpTactical()
   PrintN("    HOLD - lock enemy in place, prevents movement this turn")
   PrintN("    PULL - pull enemy 2 sectors closer (1 di-lithium or fuel)")
   PrintN("    PUSH - push enemy into adjacent hazard (sun/blackhole/wormhole)")
-    PrintN("    Example: TRACTOR HOLD | TRACTOR PULL | TRACTOR PUSH")
+    PrintN("  Example: TRACTOR HOLD | TRACTOR PULL | TRACTOR PUSH")
   PrintN("")
   PrintCmd("TRANSPORTER <ATTACK>")
   PrintN("    Beam away team to enemy ship for boarding action")
@@ -4589,9 +4596,9 @@ Procedure PrintProbeScan(mapX.i, mapY.i)
     PrintN(line)
   Next
   
-  PrintN("Legend: @=You .=Empty O=Planet *=Star %=Starbase +=Shipyard")
-  PrintN("        E=Enemy #=Wormhole ?=Blackhole S=Sun D=Di-lithium")
-  PrintN("        A=Anomaly <=Planet Killer R=Refinery")
+  PrintN("Legend: @=YourShip .=Empty O=Planet *=Star %=Starbase")
+  PrintN("        +=Shipyard E=Enemy #=Wormhole ?=Blackhole S=Sun")
+  PrintN("        D=Di-lithium A=Anomaly <=Planet Killer R=Refinery")
   PrintN("")
 EndProcedure
 
@@ -4742,19 +4749,19 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
     PrintN("B) Fuel Tanks       (+25 FuelMax)     cost 100")
     PrintN("")
     PrintN("POWER & CARGO:")
-    PrintN("C) Reactor Upgrade (+30 ReactorMax)    cost 180")
+    PrintN("C) Reactor Upgrade (+30 ReactorMax)   cost 180")
     PrintN("D) Di-lithium Bay  (+10 Di-lithiumMax) cost 90")
     PrintN("E) Cargo Hold      (+20 OreMax)        cost 80")
     PrintN("")
     PrintN("PROBES:")
     PrintN("F) Probe Bay        (+2 ProbesMax)      cost 60")
-    PrintN("G) Probe Scanner   (+1 Probe Range)     cost 100")
-    PrintN("H) Probe Targeting (+5% Probe Accuracy) cost 120")
+    PrintN("G) Probe Scanner    (+1 Probe Range)    cost 100")
+    PrintN("H) Probe Targeting  (5% Probe Accuracy) cost 120")
     PrintN("")
     PrintN("SHUTTLE:")
     PrintN("I) Shuttle Bay      (+10 Cargo Max)     cost 120")
-    PrintN("J) Shuttle Crew    (+2 Crew Max)       cost 150")
-    PrintN("K) Shuttle Attack  (+1 Attack Range)   cost 200")
+    PrintN("J) Shuttle Crew     (+2 Crew Max)       cost 150")
+    PrintN("K) Shuttle Attack   (+1 Attack Range)   cost 200")
     PrintN("")
     PrintN("0) Leave")
     PrintN("")
@@ -5483,6 +5490,7 @@ EndProcedure
 
 Procedure LeaveCombat()
   gMode = #MODE_GALAXY
+  gEngineLoopChannel = -1
   If gDocked = 0
     StartEngineLoop()
   EndIf
@@ -5564,6 +5572,11 @@ Procedure Main()
     Protected cmd.s  = TrimLower(TokenAt(line, 1))
     If cmd = "" : cmd = "end" : EndIf
     
+    ; Log every command for the captain's log
+    If cmd <> "" And cmd <> "end"
+      AddCaptainLog("CMD: " + cmd)
+    EndIf
+    
     PlaySoundFX(SoundSelect)
 
       If gMode = #MODE_GALAXY
@@ -5581,6 +5594,29 @@ Procedure Main()
         Input()
         RedrawGalaxy(@player)
       ElseIf cmd = "status"
+        RedrawGalaxy(@player)
+      ElseIf cmd = "alloc"
+        Protected galPctShields.i = ParseIntSafe(TokenAt(line, 4), player\allocShields)
+        Protected galPctWeapons.i = ParseIntSafe(TokenAt(line, 3), player\allocWeapons)
+        Protected galPctEngines.i = ParseIntSafe(TokenAt(line, 2), player\allocEngines)
+        
+        galPctShields = ClampInt(galPctShields, 0, 100)
+        galPctWeapons = ClampInt(galPctWeapons, 0, 100)
+        galPctEngines = ClampInt(galPctEngines, 0, 100)
+        
+        If galPctShields + galPctWeapons + galPctEngines > 100
+          PrintN("Allocation sum must be <= 100.")
+        ElseIf TokenAt(line, 2) = ""
+          PrintN("Current allocation: Engines=" + Str(player\allocEngines) + " | Weapons=" + Str(player\allocWeapons) + " | Shields=" + Str(player\allocShields))
+          PrintN("Usage: ALLOC <engines> <weapons> <shields>")
+          PrintN("Example: ALLOC 33 34 33")
+        Else
+          player\allocShields = galPctShields
+          player\allocWeapons = galPctWeapons
+          player\allocEngines = galPctEngines
+          SaveAlloc("PlayerShip", @player)
+          PrintN("Allocation set: Engines=" + Str(player\allocEngines) + " | Weapons=" + Str(player\allocWeapons) + " | Shields=" + Str(player\allocShields))
+        EndIf
         RedrawGalaxy(@player)
       ElseIf cmd = "crew"
         ClearConsole()
@@ -6356,9 +6392,9 @@ Procedure Main()
         PrintStatusTactical(@player, @enemy, @cs)
         Continue
       ElseIf cmd = "alloc"
-        Protected pctShields.i = ParseIntSafe(TokenAt(line, 2), player\allocShields)
+        Protected pctShields.i = ParseIntSafe(TokenAt(line, 4), player\allocShields)
         Protected pctWeapons.i = ParseIntSafe(TokenAt(line, 3), player\allocWeapons)
-        Protected pctEngines.i = ParseIntSafe(TokenAt(line, 4), player\allocEngines)
+        Protected pctEngines.i = ParseIntSafe(TokenAt(line, 2), player\allocEngines)
 
         pctShields = ClampInt(pctShields, 0, 100)
         pctWeapons = ClampInt(pctWeapons, 0, 100)
@@ -6366,12 +6402,14 @@ Procedure Main()
 
         If pctShields + pctWeapons + pctEngines > 100
           PrintN("Allocation sum must be <= 100.")
+        ElseIf TokenAt(line, 2) = ""
+          PrintN("Current: Engines=" + Str(player\allocEngines) + " | Weapons=" + Str(player\allocWeapons) + " | Shields=" + Str(player\allocShields))
         Else
           player\allocShields = pctShields
           player\allocWeapons = pctWeapons
           player\allocEngines = pctEngines
           SaveAlloc("PlayerShip", @player)
-          PrintN("Allocation updated.")
+          PrintN("Allocation set: Engines=" + Str(player\allocEngines) + " | Weapons=" + Str(player\allocWeapons) + " | Shields=" + Str(player\allocShields))
         EndIf
         PrintStatusTactical(@player, @enemy, @cs)
         Continue
@@ -6656,12 +6694,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,4,1
-; VersionField1 = 1,0,4,1
+; VersionField0 = 1,0,4,2
+; VersionField1 = 1,0,4,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.4.1
-; VersionField5 = 1.0.4.1
+; VersionField4 = 1.0.4.2
+; VersionField5 = 1.0.4.2
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
