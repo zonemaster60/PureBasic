@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.8.5"
+Global version.s = "v1.0.9.0"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -369,6 +369,10 @@ Declare ScanGalaxy()
 Declare DockAtBase(*p.Ship)
 Declare DockAtRefinery(*p.Ship)
 Declare DockAtShipyard(*p.Ship, *base.Ship)
+Declare GenerateOneNPCShip(*ds.DockedShip, status.s, stationType.i)
+Declare GenerateDockedShips(stationType.i)
+Declare RefreshDockedShips()
+Declare PrintDockedShips(*p.Ship)
 Declare MinePlanet(*p.Ship)
 Declare Nav(*p.Ship, dir.s, steps.i)
 Declare EnterCombat(*p.Ship, *enemy.Ship, *cs.CombatState)
@@ -379,6 +383,8 @@ Declare.i AutopilotToMission(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Comb
 Declare.s FindPathMission(startMapX.i, startMapY.i, startX.i, startY.i, destMapX.i, destMapY.i, destX.i, destY.i, allowWormhole.i, allowBlackhole.i, allowEnemy.i)
 Declare.i StepCoord(mapX.i, mapY.i, x.i, y.i, dir.s, *outMapX.Integer, *outMapY.Integer, *outX.Integer, *outY.Integer)
 Declare.i IsDangerousCell(mapX.i, mapY.i, x.i, y.i)
+Declare GenerateCheatCode()
+Declare.i CheckCheatCode(code.s)
 
 ; Missions
 Declare GenerateMission(*p.Ship)
@@ -532,6 +538,16 @@ Structure Ship
   crew4.Crew
 EndStructure
 
+Structure DockedShip
+  name.s
+  class.s
+  hull.i
+  hullMax.i
+  shields.i
+  shieldsMax.i
+  status.s    ; "Docked", "Docking...", "Undocking..."
+EndStructure
+
 Structure CombatState
   range.i
   turn.i
@@ -608,6 +624,10 @@ Global gBronze.i = 0
 
 Global gPowerBuff.i = 0
 Global gPowerBuffTurns.i = 0
+Global gCheatCode.s = ""      ; Current 4-digit cheat code
+Global gCheatCodeTurn.i = 0   ; Turn when code was generated
+Global gCheatsUnlocked.i = 0  ; Whether player has entered correct code
+Global gGameTurn.i = 0        ; Global turn counter for cheat code generation
 Global gMission.Mission
 
 Global Dim gGalaxy.Cell(#GALAXY_W - 1, #GALAXY_H - 1, #MAP_W - 1, #MAP_H - 1)
@@ -630,6 +650,11 @@ Global gPlayerFleetCount.i = 0
 ; Enemy fleet - up to 5 computer-controlled ships
 Global Dim gEnemyFleet.Ship(5)
 Global gEnemyFleetCount.i = 0
+
+; NPC ships docked at the current station (regenerated each visit)
+Global Dim gDockedShips.DockedShip(7)
+Global gDockedShipCount.i = 0
+Global gStationType.i     = 0  ; 0=starbase, 1=refinery, 2=shipyard
 
 Global gDocked.i = 0
 
@@ -913,10 +938,10 @@ Procedure.i InitShipData()
   If FileSize(gDatPath) > 0
     If LoadShipDataFromDat(gDatPath)
       gShipDataDesc = gDatPath
-      LogLine("SHIPDATA: loaded " + gDatPath)
+      LogLine("SHIPDATA: loaded " + GetFilePart(gDatPath))
       ProcedureReturn 1
     Else
-      LogLine("SHIPDATA: invalid " + gDatPath + " (" + gShipDatErr + ") - trying " + gIniPath)
+      LogLine("SHIPDATA: invalid " + GetFilePart(gDatPath) + " (" + gShipDatErr + ") - trying " + GetFilePart(gIniPath))
     EndIf
   EndIf
 
@@ -924,7 +949,7 @@ Procedure.i InitShipData()
     gShipsText = ReadAllText(gIniPath)
     If gShipsText <> ""
       gShipDataDesc = gIniPath
-      LogLine("SHIPDATA: loaded " + gIniPath)
+      LogLine("SHIPDATA: loaded " + GetFilePart(gIniPath))
       ProcedureReturn 1
     EndIf
   EndIf
@@ -1017,7 +1042,7 @@ EndProcedure
 Procedure InitLogging()
   AppendFileLine(gSessionLogPath, "---")
   AppendFileLine(gSessionLogPath, Timestamp() + " session start")
-  AppendFileLine(gSessionLogPath, "data=" + gDatPath + " (fallback " + gIniPath + ")")
+  AppendFileLine(gSessionLogPath, "data=" + GetFilePart(gDatPath) + " (fallback " + GetFilePart(gIniPath) + ")")
 EndProcedure
 
 Procedure CrashHandler()
@@ -1568,7 +1593,9 @@ Procedure PrintHelpGalaxy()
   PrintN("    Mine ore when in a planet sector (O), costs 2 fuel")
   PrintN("    Can also mine dilithium crystals (D)")
   PrintN("    Example: MINE")
-  PrintN("    Cheat: MINE miner2049er fills cargo hold")
+  If gCheatsUnlocked = 1
+    PrintN("    Cheat: MINE miner2049er fills cargo hold")
+  EndIf
   PrintN("")
   PrintCmd("LAUNCHPROBE <x> <y>")
   PrintN("    Launch a probe to scan a distant galaxy sector")
@@ -1621,33 +1648,37 @@ Procedure PrintHelpGalaxy()
   PrintN("    Clear console and refresh the galaxy map display")
   PrintN("    Example: CLEAR")
   PrintN("")
-  PrintCmd("SHOWMETHEMONEY")
-  PrintN("    Cheat: +500 credits (works in galaxy mode)")
-  PrintN("")
-  PrintCmd("SPAWNYARD")
-  PrintN("    Cheat: spawn a shipyard in current sector")
-  PrintN("")
-  PrintCmd("SPAWNBASE")
-  PrintN("    Cheat: spawn a starbase in current sector")
-  PrintN("")
-  PrintCmd("SPAWNREFINERY")
-  PrintN("    Cheat: spawn a refinery in current sector")
-  PrintN("")
-  PrintCmd("SPAWNCLUSTER")
-  PrintN("    Cheat: spawn a dilithium cluster in current sector")
-  PrintN("")
-  PrintCmd("SPAWNWORMHOLE")
-  PrintN("    Cheat: spawn a wormhole in current sector")
-  PrintN("")
-  PrintCmd("SPAWNANOMALY")
-  PrintN("    Cheat: spawn a spatial anomaly in current sector")
-  PrintN("")
-  PrintCmd("SPAWNPLANETKILLER")
-  PrintN("    Cheat: spawn a Planet Killer in current sector")
-  PrintN("")
-  PrintCmd("REMOVESPAWN")
-  PrintN("    Remove spawned objects (base, yard, cluster, wormhole, anomaly, planetkiller)")
-  PrintN("")
+  
+  If gCheatsUnlocked = 1
+    PrintCmd("SHOWMETHEMONEY")
+    PrintN("    Cheat: +500 credits (works in galaxy mode)")
+    PrintN("")
+    PrintCmd("SPAWNYARD")
+    PrintN("    Cheat: spawn a shipyard in current sector")
+    PrintN("")
+    PrintCmd("SPAWNBASE")
+    PrintN("    Cheat: spawn a starbase in current sector")
+    PrintN("")
+    PrintCmd("SPAWNREFINERY")
+    PrintN("    Cheat: spawn a refinery in current sector")
+    PrintN("")
+    PrintCmd("SPAWNCLUSTER")
+    PrintN("    Cheat: spawn a dilithium cluster in current sector")
+    PrintN("")
+    PrintCmd("SPAWNWORMHOLE")
+    PrintN("    Cheat: spawn a wormhole in current sector")
+    PrintN("")
+    PrintCmd("SPAWNANOMALY")
+    PrintN("    Cheat: spawn a spatial anomaly in current sector")
+    PrintN("")
+    PrintCmd("SPAWNPLANETKILLER")
+    PrintN("    Cheat: spawn a Planet Killer in current sector")
+    PrintN("")
+    PrintCmd("REMOVESPAWN")
+    PrintN("    Remove spawned objects (base, yard, cluster, wormhole, anomaly, planetkiller)")
+    PrintN("")
+  EndIf
+  
   PrintCmd("SAVE")
   PrintN("    Save game to file")
   PrintN("")
@@ -1680,7 +1711,7 @@ Procedure PrintHelpGalaxy()
   PrintN("    Example: SAVE")
   PrintN("")
   PrintCmd("PACK")
-  PrintN("    Create/refresh " + gDatPath + " from " + gIniPath)
+  PrintN("    Create/refresh '" + GetFilePart(gDatPath) + "' from '" + GetFilePart(gIniPath) + "'")
   PrintN("    This is an obfuscated ship data file with a tamper checksum")
   PrintN("    Example: PACK")
   PrintN("")
@@ -2423,10 +2454,23 @@ Procedure RecruitCrew(*p.Ship, index.i)
     PrintN("Invalid recruit number.")
     ProcedureReturn
   EndIf
-  
+
+  Protected recruitCost.i = 75  ; base signing fee in credits
+  If gCredits < recruitCost
+    ConsoleColor(#C_LIGHTRED, #C_BLACK)
+    PrintN("Not enough credits to recruit! Signing fee: " + Str(recruitCost) + " credits (have " + Str(gCredits) + ").")
+    ResetColor()
+    ProcedureReturn
+  EndIf
+
   Protected roleName.s = gRecruitRoles(index)
   Protected newName.s = gRecruitNames(index)
-  
+
+  gCredits - recruitCost
+  ConsoleColor(#C_YELLOW, #C_BLACK)
+  PrintN("Signing fee paid: -" + Str(recruitCost) + " credits.")
+  ResetColor()
+
   Select roleName
     Case "Helm"
       *p\crew1\name = newName
@@ -2453,9 +2497,9 @@ Procedure RecruitCrew(*p.Ship, index.i)
       *p\crew4\level = 1
       PrintN(newName + " recruited as Engineering officer (Lv1).")
   EndSelect
-  
-  LogLine("CREW: recruited " + newName + " as " + roleName)
-  
+
+  LogLine("CREW: recruited " + newName + " as " + roleName + " (-" + Str(recruitCost) + " cr)")
+
   ; Generate new recruits
   GenerateRecruits()
 EndProcedure
@@ -2624,6 +2668,18 @@ Procedure PrintStatusGalaxy(*p.Ship)
   ConsoleColor(#C_MAGENTA, #C_BLACK)
   PrintN(Str(*p\dilithium) + "/" + Str(*p\dilithiumMax))
   ResetColor()
+  If *p\fuel <= 10
+    ConsoleColor(#C_LIGHTRED, #C_BLACK)
+    PrintN("  !! LOW FUEL: " + Str(*p\fuel) + " remaining - dock at a starbase or use REFUEL !!")
+    ResetColor()
+  EndIf
+  Protected totalCargo.i = *p\ore + *p\dilithium
+  Protected maxCargo.i   = *p\oreMax + *p\dilithiumMax
+  If maxCargo > 0 And (totalCargo * 100 / maxCargo) >= 90
+    ConsoleColor(#C_YELLOW, #C_BLACK)
+    PrintN("  !! CARGO NEARLY FULL: " + Str(totalCargo) + "/" + Str(maxCargo) + " - sell or refine at a station !!")
+    ResetColor()
+  EndIf
   Print("  Iron: " + Str(gIron))
   Print("  Aluminum: " + Str(gAluminum))
   Print("  Copper: " + Str(gCopper))
@@ -2637,7 +2693,15 @@ Procedure PrintStatusGalaxy(*p.Ship)
   EndIf
   If gWarpCooldown > 0
     ConsoleColor(#C_YELLOW, #C_BLACK)
-    PrintN("  Warp ready in " + Str(gWarpCooldown) + " turn(s)")
+    PrintN("  Warp recharging: " + Str(gWarpCooldown) + " turn(s) remaining (costs 5 dilithium)")
+    ResetColor()
+  ElseIf *p\dilithium >= 5
+    ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+    PrintN("  WARP READY  — costs 5 dilithium (you have " + Str(*p\dilithium) + ")")
+    ResetColor()
+  Else
+    ConsoleColor(#C_LIGHTRED, #C_BLACK)
+    PrintN("  WARP OFFLINE — need 5 dilithium (you have " + Str(*p\dilithium) + ")")
     ResetColor()
   EndIf
   If gIonStormTurns > 0
@@ -2707,10 +2771,28 @@ Procedure PrintStatusTactical(*p.Ship, *e.Ship, *cs.CombatState)
   PrintDivider()
   PrintN("Tactical Turn: " + Str(*cs\turn) + "  Range: " + Str(*cs\range))
   If gPlayerFleetCount > 0
-    PrintN("Your Fleet: " + Str(gPlayerFleetCount) + " ships")
+    Print("Your Fleet: ")
+    Protected pflIdx.i
+    For pflIdx = 1 To gPlayerFleetCount
+      Print("#" + Str(pflIdx) + ":")
+      SetColorForPercent(Int(100.0 * gPlayerFleet(pflIdx)\hull / ClampInt(gPlayerFleet(pflIdx)\hullMax, 1, 999999)))
+      Print(Str(gPlayerFleet(pflIdx)\hull) + "/" + Str(gPlayerFleet(pflIdx)\hullMax))
+      ResetColor()
+      Print(" ")
+    Next
+    PrintN("")
   EndIf
   If gEnemyFleetCount > 0
-    PrintN("Enemy Fleet: " + Str(gEnemyFleetCount) + " ships")
+    Print("Enemy Fleet: ")
+    Protected eflIdx.i
+    For eflIdx = 1 To gEnemyFleetCount
+      Print("#" + Str(eflIdx) + ":")
+      SetColorForPercent(Int(100.0 * gEnemyFleet(eflIdx)\hull / ClampInt(gEnemyFleet(eflIdx)\hullMax, 1, 999999)))
+      Print(Str(gEnemyFleet(eflIdx)\hull) + "/" + Str(gEnemyFleet(eflIdx)\hullMax))
+      ResetColor()
+      Print(" ")
+    Next
+    PrintN("")
   EndIf
   PrintN("You:   " + *p\name + " [" + *p\class + "]")
   Print("  Hull: ")
@@ -2741,6 +2823,38 @@ Procedure PrintStatusTactical(*p.Ship, *e.Ship, *cs.CombatState)
   ResetColor()
   PrintN("  Alloc: " + Str(*p\allocEngines) + " | " + Str(*p\allocWeapons) + " | " + Str(*p\allocShields))
   PrintN("  Systems: Engines " + SysText(*p\sysEngines) + ", Weapons " + SysText(*p\sysWeapons) + ", Shields " + SysText(*p\sysShields))
+  Print("  Crew: Helm:")
+  ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+  If *p\crew1\name <> ""
+    Print(*p\crew1\name + "(Lv" + Str(*p\crew1\level) + ")")
+  Else
+    Print("None")
+  EndIf
+  ResetColor()
+  Print(" | Wpn:")
+  ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+  If *p\crew2\name <> ""
+    Print(*p\crew2\name + "(Lv" + Str(*p\crew2\level) + ")")
+  Else
+    Print("None")
+  EndIf
+  ResetColor()
+  Print(" | Shld:")
+  ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+  If *p\crew3\name <> ""
+    Print(*p\crew3\name + "(Lv" + Str(*p\crew3\level) + ")")
+  Else
+    Print("None")
+  EndIf
+  ResetColor()
+  Print(" | Eng:")
+  ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+  If *p\crew4\name <> ""
+    PrintN(*p\crew4\name + "(Lv" + Str(*p\crew4\level) + ")")
+  Else
+    PrintN("None")
+  EndIf
+  ResetColor()
 
   PrintArenaTactical(*p, *e, *cs)
   PrintN("")
@@ -2840,13 +2954,13 @@ Procedure PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsE
           If pfX < posE - 2 And y = pfY And x = pfX
             If *cs And ((*cs\pFleetHit & (1 << (pfi - 1))) <> 0)
               ConsoleColor(#C_RED, #C_DARKGRAY)
-              Print(">")
+              Print(Str(pfi))
             ElseIf *cs And ((*cs\pFleetAttack & (1 << (pfi - 1))) <> 0)
               ConsoleColor(#C_YELLOW, #C_DARKGRAY)
-              Print(">")
+              Print(Str(pfi))
             Else
               ConsoleColor(#C_WHITE, #C_BLACK)
-              Print(">")
+              Print(Str(pfi))
             EndIf
             ResetColor()
             isFleetPos = 1
@@ -2885,13 +2999,13 @@ Procedure PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsE
           If efX > posP + 2 And y = efY And x = efX
             If *cs And ((*cs\eFleetHit & (1 << (efi - 1))) <> 0)
               ConsoleColor(#C_RED, #C_DARKGRAY)
-              Print("<")
+              Print(Str(efi))
             ElseIf *cs And ((*cs\eFleetAttack & (1 << (efi - 1))) <> 0)
               ConsoleColor(#C_YELLOW, #C_DARKGRAY)
-              Print("<")
+              Print(Str(efi))
             Else
               ConsoleColor(#C_WHITE, #C_BLACK)
-              Print("<")
+              Print(Str(efi))
             EndIf
             ResetColor()
             isFleetPos = 1
@@ -3804,14 +3918,18 @@ Procedure EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
                   enemy\hull + enemy\shields
                   enemy\shields = 0
                 EndIf
+                ConsoleColor(#C_RED, #C_BLACK)
                 PrintN("Fleet ship " + Str(pf) + " fires at enemy! " + Str(pfDmg) + " damage!")
+                ResetColor()
               Else
+                ConsoleColor(#C_YELLOW, #C_BLACK)
                 PrintN("Fleet ship " + Str(pf) + " fires but misses!")
+                ResetColor()
               EndIf
             EndIf
           Next
         EndIf
-        
+
         PrintStatusTactical(*p, @enemy, *cs)
             EndIf
           EndIf
@@ -3941,6 +4059,38 @@ Procedure.i RandomEmptyCell(mapX.i, mapY.i, *outX.Integer, *outY.Integer)
       ProcedureReturn 1
     EndIf
   Next
+  ProcedureReturn 0
+EndProcedure
+
+;==============================================================================
+; GenerateCheatCode()
+; Generates a new random 4-digit cheat code every 10 turns.
+; Called from game loop to refresh the code periodically.
+;==============================================================================
+Procedure GenerateCheatCode()
+  If gCheatCode = "" Or (gGameTurn > 0 And gGameTurn % 10 = 0)
+    gCheatCode = Str(Random(9) + 1) + Str(Random(10) - 1) + Str(Random(10) - 1) + Str(Random(10) - 1)
+    gCheatCodeTurn = gGameTurn
+    gCheatsUnlocked = 0
+    ConsoleColor(#C_YELLOW, #C_BLACK)
+    PrintN("")
+    PrintN("*** SECRET CODE AVAILABLE: " + gCheatCode + " ***")
+    PrintN("Type this code at any dock to access CHEATHELP!")
+    PrintN("(Code changes every 10 turns)")
+    ResetColor()
+  EndIf
+EndProcedure
+
+;==============================================================================
+; CheckCheatCode(code.s)
+; Checks if entered code matches current cheat code.
+; Returns 1 if valid, 0 if invalid.
+;==============================================================================
+Procedure.i CheckCheatCode(code.s)
+  If code = gCheatCode And gCheatCode <> ""
+    gCheatsUnlocked = 1
+    ProcedureReturn 1
+  EndIf
   ProcedureReturn 0
 EndProcedure
 
@@ -4387,6 +4537,11 @@ Procedure ScanGalaxy()
   If gMission\active And gMission\type = #MIS_SURVEY
     If gMapX = gMission\destMapX And gMapY = gMission\destMapY And gx = gMission\destX And gy = gMission\destY
       gCredits + gMission\rewardCredits
+      ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+      PrintDivider()
+      PrintN("*** MISSION COMPLETE: Survey finished! (+" + Str(gMission\rewardCredits) + " credits) ***")
+      PrintDivider()
+      ResetColor()
       LogLine("MISSION COMPLETE: survey (+" + Str(gMission\rewardCredits) + " credits)")
       ClearStructure(@gMission, Mission)
       gMission\type = #MIS_NONE
@@ -4404,7 +4559,19 @@ Procedure ScanGalaxy()
           SetColorForEnt(CurCell(nx, ny)\entType)
           Print(EntSymbol(CurCell(nx, ny)\entType))
           ResetColor()
-          PrintN(" " + CurCell(nx, ny)\name)
+          If CurCell(nx, ny)\entType = #ENT_ENEMY Or CurCell(nx, ny)\entType = #ENT_PIRATE
+            Protected scanLvl.i  = CurCell(nx, ny)\enemyLevel
+            Protected scanThreat.s
+            If scanLvl <= 2 : scanThreat = "Minor"
+            ElseIf scanLvl <= 4 : scanThreat = "Moderate"
+            ElseIf scanLvl <= 6 : scanThreat = "Serious"
+            ElseIf scanLvl <= 8 : scanThreat = "Severe"
+            Else : scanThreat = "Critical"
+            EndIf
+            PrintN(" " + CurCell(nx, ny)\name + " [Lvl " + Str(scanLvl) + " - " + scanThreat + "]")
+          Else
+            PrintN(" " + CurCell(nx, ny)\name)
+          EndIf
         EndIf
       EndIf
     Next
@@ -4438,7 +4605,19 @@ Procedure ScanGalaxyLong()
           SetColorForEnt(CurCell(nx, ny)\entType)
           Print(EntSymbol(CurCell(nx, ny)\entType))
           ResetColor()
-          PrintN(" " + CurCell(nx, ny)\name)
+          If CurCell(nx, ny)\entType = #ENT_ENEMY Or CurCell(nx, ny)\entType = #ENT_PIRATE
+            Protected lscanLvl.i  = CurCell(nx, ny)\enemyLevel
+            Protected lscanThreat.s
+            If lscanLvl <= 2 : lscanThreat = "Minor"
+            ElseIf lscanLvl <= 4 : lscanThreat = "Moderate"
+            ElseIf lscanLvl <= 6 : lscanThreat = "Serious"
+            ElseIf lscanLvl <= 8 : lscanThreat = "Severe"
+            Else : lscanThreat = "Critical"
+            EndIf
+            PrintN(" " + CurCell(nx, ny)\name + " [Lvl " + Str(lscanLvl) + " - " + lscanThreat + "]")
+          Else
+            PrintN(" " + CurCell(nx, ny)\name)
+          EndIf
         EndIf
       EndIf
     Next
@@ -4534,8 +4713,9 @@ Procedure GenerateMission(*p.Ship)
     gMission\title = "Bounty"
     gMission\killsRequired = 2 + Random(4)
     gMission\killsDone = 0
-    gMission\rewardCredits = 120 + gMission\killsRequired * 80
-    gMission\desc = "Destroy " + Str(gMission\killsRequired) + " enemy ships (E)."
+    gMission\threatLevel = ClampInt(1 + Random(2) + (gMapX + gMapY) / 4, 1, 10)
+    gMission\rewardCredits = 100 + (gMission\killsRequired * 60) + (gMission\threatLevel * 50)
+    gMission\desc = "Destroy " + Str(gMission\killsRequired) + " enemy ships (E). Threat level: " + Str(gMission\threatLevel) + "."
     ; No fixed location for bounty missions
     gMission\destMapX = -1 : gMission\destMapY = -1 : gMission\destX = -1 : gMission\destY = -1
     gMission\destEntType = #ENT_EMPTY
@@ -4572,38 +4752,84 @@ EndProcedure
 
 Procedure PrintMission(*p.Ship)
   PrintDivider()
-  PrintN("Missions")
   If gMission\type = #MIS_NONE
-    PrintN("  No mission offer available.")
+    ConsoleColor(#C_DARKGRAY, #C_BLACK)
+    PrintN("  MISSIONS — No offer available. Explore or visit a starbase.")
+    ResetColor()
+
   ElseIf gMission\active = 0
-    PrintN("  Offer: " + gMission\title)
+    ; === MISSION OFFER ===
+    ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+    PrintN("  !! MISSION OFFER !!")
+    ResetColor()
+    ConsoleColor(#C_WHITE, #C_BLACK)
+    PrintN("  " + gMission\title)
+    ResetColor()
     PrintN("  " + gMission\desc)
     If gMission\destEntType <> #ENT_EMPTY
-      PrintN("  Location: " + LocText(gMission\destMapX, gMission\destMapY, gMission\destX, gMission\destY))
-      PrintN("  From you: dGalaxy=(" + Str(gMission\destMapX - gMapX) + "," + Str(gMission\destMapY - gMapY) + ") dSector=(" + Str(gMission\destX - gx) + "," + Str(gMission\destY - gy) + ")")
-      PrintN("  Bookmark: MAP shows M/! markers")
+      ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+      Print("  Destination: ")
+      ResetColor()
+      PrintN(LocText(gMission\destMapX, gMission\destMapY, gMission\destX, gMission\destY))
+      PrintN("  Distance: Galaxy offset (" + Str(gMission\destMapX - gMapX) + "," + Str(gMission\destMapY - gMapY) + ")  Sector offset (" + Str(gMission\destX - gx) + "," + Str(gMission\destY - gy) + ")")
+      ConsoleColor(#C_DARKGRAY, #C_BLACK)
+      PrintN("  Tip: MAP shows M markers. Use AUTOPILOT to navigate there.")
+      ResetColor()
     EndIf
-    PrintN("  Reward: " + Str(gMission\rewardCredits) + " credits")
-    PrintN("  Type ACCEPT to take it")
+    ConsoleColor(#C_YELLOW, #C_BLACK)
+    PrintN("  Reward:  " + Str(gMission\rewardCredits) + " credits")
+    ResetColor()
+    ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+    PrintN("  >> Type ACCEPT to take this mission <<")
+    ResetColor()
+
   Else
-    PrintN("  Active: " + gMission\title)
+    ; === ACTIVE MISSION ===
+    ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+    PrintN("  MISSION IN PROGRESS")
+    ResetColor()
+    ConsoleColor(#C_WHITE, #C_BLACK)
+    PrintN("  " + gMission\title)
+    ResetColor()
     PrintN("  " + gMission\desc)
     If gMission\destEntType <> #ENT_EMPTY
-      PrintN("  Location: " + LocText(gMission\destMapX, gMission\destMapY, gMission\destX, gMission\destY))
-      PrintN("  From you: dGalaxy=(" + Str(gMission\destMapX - gMapX) + "," + Str(gMission\destMapY - gMapY) + ") dSector=(" + Str(gMission\destX - gx) + "," + Str(gMission\destY - gy) + ")")
-      PrintN("  Bookmark: MAP shows M/! markers")
+      ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+      Print("  Destination: ")
+      ResetColor()
+      PrintN(LocText(gMission\destMapX, gMission\destMapY, gMission\destX, gMission\destY))
+      PrintN("  Distance: Galaxy offset (" + Str(gMission\destMapX - gMapX) + "," + Str(gMission\destMapY - gMapY) + ")  Sector offset (" + Str(gMission\destX - gx) + "," + Str(gMission\destY - gy) + ")")
     EndIf
     If gMission\type = #MIS_BOUNTY
-      PrintN("  Progress: " + Str(gMission\killsDone) + "/" + Str(gMission\killsRequired))
+      ConsoleColor(#C_YELLOW, #C_BLACK)
+      PrintN("  Progress: " + Str(gMission\killsDone) + "/" + Str(gMission\killsRequired) + " kills")
+      ResetColor()
     ElseIf gMission\type = #MIS_DELIVER_ORE
-      PrintN("  Cargo: need " + Str(gMission\oreRequired) + " ore; you have " + Str(*p\ore))
+      Protected oreHave.i = *p\ore
+      If oreHave >= gMission\oreRequired
+        ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+        PrintN("  Cargo: " + Str(oreHave) + "/" + Str(gMission\oreRequired) + " ore — READY TO DELIVER!")
+      Else
+        ConsoleColor(#C_YELLOW, #C_BLACK)
+        PrintN("  Cargo: " + Str(oreHave) + "/" + Str(gMission\oreRequired) + " ore needed")
+      EndIf
+      ResetColor()
     ElseIf gMission\type = #MIS_DEFEND_YARD
-      PrintN("  Defend: " + gMission\destName + "  Turns left: " + Str(gMission\turnsLeft) + "  Yard HP: " + Str(gMission\yardHP))
+      ConsoleColor(#C_LIGHTRED, #C_BLACK)
+      PrintN("  Defend: " + gMission\destName + "   Turns left: " + Str(gMission\turnsLeft) + "   Yard HP: " + Str(gMission\yardHP))
+      ResetColor()
     ElseIf gMission\type = #MIS_PLANETKILLER
+      ConsoleColor(#C_LIGHTRED, #C_BLACK)
+      PrintN("  !! CRITICAL — Destroy the Planet Killer !!")
       ConsoleColor(#C_CYAN, #C_BLACK)
       PrintN("  TARGET: " + gMission\destName + " at " + LocText(gMission\destMapX, gMission\destMapY, gMission\destX, gMission\destY))
       ResetColor()
     EndIf
+    ConsoleColor(#C_YELLOW, #C_BLACK)
+    PrintN("  Reward: " + Str(gMission\rewardCredits) + " credits on completion")
+    ResetColor()
+    ConsoleColor(#C_DARKGRAY, #C_BLACK)
+    PrintN("  Type ABANDON to cancel this mission.")
+    ResetColor()
   EndIf
   PrintDivider()
 EndProcedure
@@ -4881,9 +5107,11 @@ Procedure DefendMissionTick(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Comba
 
   If gMission\turnsLeft <= 0
     gCredits + gMission\rewardCredits
+    ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
     PrintDivider()
-    PrintN("Mission complete: shipyard secured ( +" + Str(gMission\rewardCredits) + " credits )")
+    PrintN("*** MISSION COMPLETE: Shipyard secured! (+" + Str(gMission\rewardCredits) + " credits) ***")
     PrintDivider()
+    ResetColor()
     LogLine("MISSION COMPLETE: defend shipyard (+" + Str(gMission\rewardCredits) + " credits)")
     ClearStructure(@gMission, Mission)
     gMission\type = #MIS_NONE
@@ -4910,6 +5138,11 @@ Procedure DeliverMission(*p.Ship)
 
   *p\ore - gMission\oreRequired
   gCredits + gMission\rewardCredits
+  ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+  PrintDivider()
+  PrintN("*** MISSION COMPLETE: Ore delivered! (+" + Str(gMission\rewardCredits) + " credits) ***")
+  PrintDivider()
+  ResetColor()
   LogLine("MISSION COMPLETE: delivered ore (+" + Str(gMission\rewardCredits) + " credits)")
   ClearStructure(@gMission, Mission)
   gMission\type = #MIS_NONE
@@ -4927,6 +5160,301 @@ EndProcedure
 ;   - Can add/remove fleet ships
 ;   - Ship automatically stops moving (engine loop stops)
 ;==============================================================================
+;==============================================================================
+; GenerateOneNPCShip(*ds.DockedShip, status.s, stationType.i)
+; Fills a DockedShip structure with a random NPC ship name, class and stats.
+; stationType: 0=starbase (mixed), 1=refinery (cargo/industrial), 2=shipyard (military)
+;==============================================================================
+Procedure GenerateOneNPCShip(*ds.DockedShip, status.s, stationType.i)
+  Protected classRoll.i
+  Protected prefixRoll.i
+  Protected prefix.s
+  Protected nameRoll.i
+  Protected shipName.s
+  Protected baseHull.i, baseShield.i
+
+  If stationType = 1  ; Refinery - cargo and industrial traffic
+    classRoll = Random(4)
+    Select classRoll
+      Case 0 : *ds\class = "Freighter"
+      Case 1 : *ds\class = "Transport"
+      Case 2 : *ds\class = "Mining Vessel"
+      Case 3 : *ds\class = "Tanker"
+      Default : *ds\class = "Bulk Carrier"
+    EndSelect
+    prefixRoll = Random(4)
+    Select prefixRoll
+      Case 0 : prefix = "MV "
+      Case 1 : prefix = "SS "
+      Case 2 : prefix = "GFT "
+      Case 3 : prefix = "CF "
+      Default : prefix = "TK "
+    EndSelect
+    nameRoll = Random(19)
+    Select nameRoll
+      Case 0  : shipName = "Abundance"
+      Case 1  : shipName = "Providence"
+      Case 2  : shipName = "Industry"
+      Case 3  : shipName = "Bounty"
+      Case 4  : shipName = "Harvest"
+      Case 5  : shipName = "Merchant"
+      Case 6  : shipName = "Commerce"
+      Case 7  : shipName = "Tradewind"
+      Case 8  : shipName = "Prospector"
+      Case 9  : shipName = "Payload"
+      Case 10 : shipName = "Mule"
+      Case 11 : shipName = "Consignment"
+      Case 12 : shipName = "Stockpile"
+      Case 13 : shipName = "Laden"
+      Case 14 : shipName = "Fullerton"
+      Case 15 : shipName = "Granger"
+      Case 16 : shipName = "Yorke"
+      Case 17 : shipName = "Sagan"
+      Case 18 : shipName = "Halcyon"
+      Default : shipName = "Meridian"
+    EndSelect
+
+  ElseIf stationType = 2  ; Shipyard - military and patrol traffic
+    classRoll = Random(5)
+    Select classRoll
+      Case 0 : *ds\class = "Patrol Vessel"
+      Case 1 : *ds\class = "Corvette"
+      Case 2 : *ds\class = "Frigate"
+      Case 3 : *ds\class = "Destroyer"
+      Case 4 : *ds\class = "Cruiser"
+      Default : *ds\class = "Warship"
+    EndSelect
+    prefixRoll = Random(4)
+    Select prefixRoll
+      Case 0 : prefix = "UES "
+      Case 1 : prefix = "FSS "
+      Case 2 : prefix = "HMS "
+      Case 3 : prefix = "WCS "
+      Default : prefix = "ISS "
+    EndSelect
+    nameRoll = Random(19)
+    Select nameRoll
+      Case 0  : shipName = "Indomitable"
+      Case 1  : shipName = "Dauntless"
+      Case 2  : shipName = "Relentless"
+      Case 3  : shipName = "Formidable"
+      Case 4  : shipName = "Thunderbolt"
+      Case 5  : shipName = "Sovereign"
+      Case 6  : shipName = "Invincible"
+      Case 7  : shipName = "Vigilant"
+      Case 8  : shipName = "Stalwart"
+      Case 9  : shipName = "Valiant"
+      Case 10 : shipName = "Resolute"
+      Case 11 : shipName = "Intrepid"
+      Case 12 : shipName = "Defiant"
+      Case 13 : shipName = "Tempest"
+      Case 14 : shipName = "Vanguard"
+      Case 15 : shipName = "Sentinel"
+      Case 16 : shipName = "Ranger"
+      Case 17 : shipName = "Guardian"
+      Case 18 : shipName = "Protector"
+      Default : shipName = "Reliant"
+    EndSelect
+
+  Else  ; Starbase - mixed civilian and military traffic
+    classRoll = Random(6)
+    Select classRoll
+      Case 0 : *ds\class = "Freighter"
+      Case 1 : *ds\class = "Scout"
+      Case 2 : *ds\class = "Transport"
+      Case 3 : *ds\class = "Patrol Vessel"
+      Case 4 : *ds\class = "Corvette"
+      Case 5 : *ds\class = "Frigate"
+      Default : *ds\class = "Cruiser"
+    EndSelect
+    prefixRoll = Random(4)
+    Select prefixRoll
+      Case 0 : prefix = "ISS "
+      Case 1 : prefix = "CSS "
+      Case 2 : prefix = "RSS "
+      Case 3 : prefix = "MV "
+      Default : prefix = "SS "
+    EndSelect
+    nameRoll = Random(21)
+    Select nameRoll
+      Case 0  : shipName = "Aurora"
+      Case 1  : shipName = "Endeavour"
+      Case 2  : shipName = "Pioneer"
+      Case 3  : shipName = "Ranger"
+      Case 4  : shipName = "Sentinel"
+      Case 5  : shipName = "Vanguard"
+      Case 6  : shipName = "Resolute"
+      Case 7  : shipName = "Horizon"
+      Case 8  : shipName = "Tempest"
+      Case 9  : shipName = "Valiant"
+      Case 10 : shipName = "Stalwart"
+      Case 11 : shipName = "Orion"
+      Case 12 : shipName = "Cygnus"
+      Case 13 : shipName = "Pegasus"
+      Case 14 : shipName = "Atlas"
+      Case 15 : shipName = "Falcon"
+      Case 16 : shipName = "Raptor"
+      Case 17 : shipName = "Hawk"
+      Case 18 : shipName = "Eagle"
+      Case 19 : shipName = "Intrepid"
+      Case 20 : shipName = "Defiant"
+      Default : shipName = "Reliant"
+    EndSelect
+  EndIf
+  *ds\name = prefix + shipName
+
+  Select *ds\class
+    Case "Freighter"     : baseHull = 180 + Random(60) : baseShield = 60  + Random(40)
+    Case "Scout"         : baseHull = 80  + Random(40) : baseShield = 80  + Random(40)
+    Case "Transport"     : baseHull = 160 + Random(60) : baseShield = 50  + Random(30)
+    Case "Mining Vessel" : baseHull = 140 + Random(50) : baseShield = 40  + Random(30)
+    Case "Tanker"        : baseHull = 200 + Random(80) : baseShield = 50  + Random(30)
+    Case "Bulk Carrier"  : baseHull = 220 + Random(80) : baseShield = 40  + Random(20)
+    Case "Patrol Vessel" : baseHull = 100 + Random(40) : baseShield = 100 + Random(40)
+    Case "Corvette"      : baseHull = 120 + Random(50) : baseShield = 90  + Random(40)
+    Case "Frigate"       : baseHull = 140 + Random(50) : baseShield = 110 + Random(50)
+    Case "Destroyer"     : baseHull = 160 + Random(60) : baseShield = 130 + Random(60)
+    Case "Cruiser"       : baseHull = 180 + Random(70) : baseShield = 140 + Random(60)
+    Case "Warship"       : baseHull = 200 + Random(80) : baseShield = 160 + Random(70)
+    Default              : baseHull = 150 + Random(80) : baseShield = 100 + Random(60)
+  EndSelect
+  *ds\hullMax    = baseHull
+  *ds\hull       = ClampInt(baseHull   * (70 + Random(30)) / 100, 1, baseHull)
+  *ds\shieldsMax = baseShield
+  *ds\shields    = ClampInt(baseShield * (60 + Random(40)) / 100, 1, baseShield)
+  *ds\status     = status
+EndProcedure
+
+;==============================================================================
+; GenerateDockedShips(stationType.i)
+; Populates the docked ship list with 1-4 random NPC ships on arrival.
+; stationType is stored in gStationType for use by RefreshDockedShips.
+;==============================================================================
+Procedure GenerateDockedShips(stationType.i)
+  gStationType = stationType
+  Protected cdi.i
+  For cdi = 0 To 7
+    ClearStructure(@gDockedShips(cdi), DockedShip)
+  Next
+  gDockedShipCount = 0
+  Protected numShips.i = 1 + Random(3)
+  Protected gdi.i
+  For gdi = 1 To numShips
+    If gDockedShipCount >= 8 : Break : EndIf
+    GenerateOneNPCShip(@gDockedShips(gDockedShipCount), "Docked", stationType)
+    gDockedShipCount + 1
+  Next
+EndProcedure
+
+;==============================================================================
+; RefreshDockedShips()
+; Simulates station activity each command turn: ships depart and new ones arrive.
+;==============================================================================
+Procedure RefreshDockedShips()
+  Protected rdi.i
+
+  ; Advance status: Docking -> Docked, Undocking -> remove
+  rdi = 0
+  While rdi < gDockedShipCount
+    If gDockedShips(rdi)\status = "Docking..."
+      gDockedShips(rdi)\status = "Docked"
+    ElseIf gDockedShips(rdi)\status = "Undocking..."
+      Protected rdi2.i
+      For rdi2 = rdi To gDockedShipCount - 2
+        CopyStructure(@gDockedShips(rdi2 + 1), @gDockedShips(rdi2), DockedShip)
+      Next
+      ClearStructure(@gDockedShips(gDockedShipCount - 1), DockedShip)
+      gDockedShipCount - 1
+      Continue  ; don't increment rdi
+    EndIf
+    rdi + 1
+  Wend
+
+  ; Chance a docked ship departs
+  If gDockedShipCount > 0 And Random(99) < 35
+    Protected leaveIdx.i = Random(gDockedShipCount - 1)
+    If gDockedShips(leaveIdx)\status = "Docked"
+      gDockedShips(leaveIdx)\status = "Undocking..."
+      ConsoleColor(#C_DARKGRAY, #C_BLACK)
+      PrintN("  [COMMS] " + gDockedShips(leaveIdx)\name + " is departing the station.")
+      ResetColor()
+    EndIf
+  EndIf
+
+  ; Chance a new ship arrives
+  If gDockedShipCount < 8 And Random(99) < 30
+    GenerateOneNPCShip(@gDockedShips(gDockedShipCount), "Docking...", gStationType)
+    ConsoleColor(#C_DARKGRAY, #C_BLACK)
+    PrintN("  [COMMS] " + gDockedShips(gDockedShipCount)\name + " is requesting docking clearance.")
+    ResetColor()
+    gDockedShipCount + 1
+  EndIf
+EndProcedure
+
+;==============================================================================
+; PrintDockedShips(*p.Ship)
+; Displays all ships currently at the station: player, fleet, and NPC ships.
+;==============================================================================
+Procedure PrintDockedShips(*p.Ship)
+  PrintDivider()
+  PrintN("Ships at this station:")
+
+  ; Player's own ship
+  ConsoleColor(#C_WHITE, #C_BLACK)
+  Print("  [YOU]      " + LSet(*p\name + " [" + *p\class + "]", 28))
+  ResetColor()
+  Print(" Hull: ")
+  SetColorForPercent(Int(100.0 * *p\hull / ClampInt(*p\hullMax, 1, 999999)))
+  Print(RSet(Str(*p\hull), 3) + "/" + LSet(Str(*p\hullMax), 3))
+  ResetColor()
+  Print("  Shields: ")
+  ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+  PrintN(RSet(Str(*p\shields), 3) + "/" + LSet(Str(*p\shieldsMax), 3))
+  ResetColor()
+
+  ; Player fleet ships
+  If gPlayerFleetCount > 0
+    Protected pfdi.i
+    For pfdi = 1 To gPlayerFleetCount
+      ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+      Print("  [FLEET " + Str(pfdi) + "]   " + LSet(gPlayerFleet(pfdi)\name + " [" + gPlayerFleet(pfdi)\class + "]", 28))
+      ResetColor()
+      Print(" Hull: ")
+      SetColorForPercent(Int(100.0 * gPlayerFleet(pfdi)\hull / ClampInt(gPlayerFleet(pfdi)\hullMax, 1, 999999)))
+      Print(RSet(Str(gPlayerFleet(pfdi)\hull), 3) + "/" + LSet(Str(gPlayerFleet(pfdi)\hullMax), 3))
+      ResetColor()
+      Print("  Shields: ")
+      ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+      PrintN(RSet(Str(gPlayerFleet(pfdi)\shields), 3) + "/" + LSet(Str(gPlayerFleet(pfdi)\shieldsMax), 3))
+      ResetColor()
+    Next
+  EndIf
+
+  ; NPC ships
+  Protected ndsi.i
+  For ndsi = 0 To gDockedShipCount - 1
+    ConsoleColor(#C_DARKGRAY, #C_BLACK)
+    Print("  " + LSet(gDockedShips(ndsi)\name + " [" + gDockedShips(ndsi)\class + "]", 34))
+    ResetColor()
+    Print(" Hull: ")
+    SetColorForPercent(Int(100.0 * gDockedShips(ndsi)\hull / ClampInt(gDockedShips(ndsi)\hullMax, 1, 999999)))
+    Print(RSet(Str(gDockedShips(ndsi)\hull), 3) + "/" + LSet(Str(gDockedShips(ndsi)\hullMax), 3))
+    ResetColor()
+    Print("  Shields: ")
+    ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+    Print(RSet(Str(gDockedShips(ndsi)\shields), 3) + "/" + LSet(Str(gDockedShips(ndsi)\shieldsMax), 3))
+    ResetColor()
+    Select gDockedShips(ndsi)\status
+      Case "Docked"       : ConsoleColor(#C_WHITE, #C_BLACK)
+      Case "Docking..."   : ConsoleColor(#C_YELLOW, #C_BLACK)
+      Case "Undocking..." : ConsoleColor(#C_LIGHTRED, #C_BLACK)
+    EndSelect
+    PrintN("  [" + gDockedShips(ndsi)\status + "]")
+    ResetColor()
+  Next
+  PrintDivider()
+EndProcedure
+
 Procedure DockAtBase(*p.Ship)
   If CurCell(gx, gy)\entType <> #ENT_BASE
     PrintN("No starbase in this sector.")
@@ -4973,9 +5501,6 @@ Procedure DockAtBase(*p.Ship)
   PrintN("weapons rearmed, fuel & probes refilled.")
   PlayDockingSound()
   PrintN("")
-  PrintN("CHEATS:")
-  PrintN("  poweroverwhelming = all stats x2 for 30 turns")
-  PrintN("")
   
   ; Show available recruits
   PrintN("Recruits available:")
@@ -4999,23 +5524,344 @@ Procedure DockAtBase(*p.Ship)
   *p\sysEngines = #SYS_OK
   *p\sysWeapons = #SYS_OK
   *p\sysShields = #SYS_OK
+  *p\sysTractor = *p\sysTractor & ~#SYS_TRACTOR  ; release any active tractor lock
+  If gPlayerFleetCount > 0
+    Protected repairIdx.i
+    For repairIdx = 1 To gPlayerFleetCount
+      gPlayerFleet(repairIdx)\hull    = gPlayerFleet(repairIdx)\hullMax
+      gPlayerFleet(repairIdx)\shields = gPlayerFleet(repairIdx)\shieldsMax
+    Next
+    PrintN("Fleet ships repaired and shields restored.")
+  EndIf
   LogLine("DOCK: refueled, rearmed, repaired, probes restocked")
 
   ; Mission delivery happens at starbases
   DeliverMission(*p)
+
+  ; Generate NPC ships docked at this starbase (mixed traffic)
+  GenerateDockedShips(0)
+
+  ; Interactive command loop for starbase
+  While gDocked
+    RefreshDockedShips()
+    PrintDockedShips(*p)
+    PrintDivider()
+    PrintN("STARBASE: " + CurCell(gx, gy)\name)
+    PrintN("Credits: " + Str(gCredits))
+    PrintN("")
+    PrintN("Commands: RECRUIT <1-3> (75 cr signing fee) | DISMISS <role> | CODE <number> | UNDOCK")
+    If gCheatsUnlocked = 1
+      PrintN("Cheats: poweroverwhelming | showmethemoney | miner2049er")
+      PrintN("        spawnyard | spawnbase | spawnrefinery | spawncluster")
+      PrintN("        spawnwormhole | spawnanomaly | spawnplanetkiller | removespawn")
+    EndIf
+    PrintN("")
+    Print("BASE> ")
+    ConsoleColor(#C_WHITE, #C_BLACK)
+    Protected cmd.s = TrimLower(Input())
+    ResetColor()
+    
+    If cmd = "0" Or cmd = "undock" Or cmd = "leave" Or cmd = "exit"
+      gDocked = 0
+      ; Find an empty adjacent spot to undock to
+      Protected foundEmpty.i = 0
+      Protected dx.i, dy.i
+      For dy = -1 To 1
+        For dx = -1 To 1
+          If dx = 0 And dy = 0 : Continue : EndIf
+          Protected nx.i = gx + dx
+          Protected ny.i = gy + dy
+          If nx >= 0 And nx < #MAP_W And ny >= 0 And ny < #MAP_H
+            If gGalaxy(gMapX, gMapY, nx, ny)\entType = #ENT_EMPTY
+              gx = nx
+              gy = ny
+              foundEmpty = 1
+              Break 2
+            EndIf
+          EndIf
+        Next
+      Next
+      PrintN("Undocking...")
+      StartEngineLoop()
+      Continue
+    EndIf
+    
+    ; Code command to unlock cheats
+    Protected codeCmd.s = StringField(cmd, 1, " ")
+    Protected codeArg.s = Trim(StringField(cmd, 2, " "))
+    If codeCmd = "code"
+      If gCheatsUnlocked = 1
+        PrintN("Cheats are already unlocked!")
+      ElseIf codeArg = ""
+        PrintN("Usage: CODE <4-digit-number>")
+        PrintN("A secret code appears every 10 turns. Watch for it!")
+      ElseIf CheckCheatCode(codeArg)
+        ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+        PrintN("*** CHEATS UNLOCKED! ***")
+        PrintN("You now have access to all cheat commands!")
+        ResetColor()
+      Else
+        ConsoleColor(#C_LIGHTRED, #C_BLACK)
+        PrintN("Invalid code. The code changes every 10 turns.")
+        ResetColor()
+      EndIf
+      Continue
+    EndIf
+    
+    ; Only allow cheats if unlocked
+    If gCheatsUnlocked = 0
+      PrintN("Unknown command. Type UNDOCK to leave, or CODE <number> to unlock cheats.")
+      Continue
+    EndIf
+    
+    If cmd = "showmethemoney"
+      gCredits + 500
+      LogLine("CHEAT: showmethemoney (+500 credits)")
+      PrintN("Cheat activated: +500 credits!")
+      Continue
+    EndIf
+    
+    If cmd = "poweroverwhelming"
+      gPowerBuff = 1
+      gPowerBuffTurns = 30
+      *p\hullMax = *p\hullMax * 2.0
+      *p\shieldsMax = *p\shieldsMax * 2.0
+      *p\reactorMax = *p\reactorMax * 2.0
+      *p\weaponCapMax = *p\weaponCapMax * 2.0
+      *p\warpMax = *p\warpMax * 2.0
+      *p\impulseMax = *p\impulseMax * 2.0
+      *p\phaserBanks = *p\phaserBanks + 1
+      *p\torpTubes = *p\torpTubes + 1
+      *p\torpMax = *p\torpMax * 2.0
+      *p\sensorRange = *p\sensorRange + 5
+      *p\fuelMax = *p\fuelMax * 2.0
+      *p\oreMax = *p\oreMax * 2.0
+      *p\dilithiumMax = *p\dilithiumMax * 2.0
+      *p\hull = *p\hullMax
+      *p\shields = *p\shieldsMax
+      *p\weaponCap = *p\weaponCapMax
+      *p\torp = *p\torpMax
+      *p\fuel = *p\fuelMax
+      LogLine("CHEAT: poweroverwhelming (buff active)")
+      PrintN("Cheat activated: POWER OVERWHELMING! All systems doubled!")
+      PrintN("Buff will last for 30 turns or until death.")
+      Continue
+    EndIf
+    
+    If cmd = "miner2049er"
+      *p\ore = *p\oreMax
+      *p\dilithium = *p\dilithiumMax
+      *p\fuel = *p\fuelMax
+      *p\probes = *p\probesMax
+      LogLine("CHEAT: miner2049er (filled cargo)")
+      PrintN("Cheat activated: Cargo hold, fuel, and probes filled!")
+      Continue
+    EndIf
+    
+    ; Spawn cheats
+    Protected spawnX.i = -1, spawnY.i = 0
+    Protected attempts.i = 0
+    
+    If cmd = "spawnyard"
+      While attempts < 50 And spawnX = -1
+        spawnX = Random(#MAP_W - 1)
+        spawnY = Random(#MAP_H - 1)
+        If gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_EMPTY
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_SHIPYARD
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Shipyard-" + Str(gMapX) + "-" + Str(gMapY)
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\spawned = 1
+          LogLine("CHEAT: spawnyard at " + Str(spawnX) + "," + Str(spawnY))
+          PrintN("Cheat activated: Shipyard spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
+        Else
+          spawnX = -1
+        EndIf
+        attempts + 1
+      Wend
+      If spawnX = -1
+        PrintN("No empty space in sector!")
+      EndIf
+      Continue
+    EndIf
+    
+    If cmd = "spawnbase"
+      spawnX = -1
+      attempts = 0
+      While attempts < 50 And spawnX = -1
+        spawnX = Random(#MAP_W - 1)
+        spawnY = Random(#MAP_H - 1)
+        If gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_EMPTY
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_BASE
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Starbase-" + Str(gMapX) + "-" + Str(gMapY)
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\spawned = 1
+          LogLine("CHEAT: spawnbase at " + Str(spawnX) + "," + Str(spawnY))
+          PrintN("Cheat activated: Starbase spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
+        Else
+          spawnX = -1
+        EndIf
+        attempts + 1
+      Wend
+      If spawnX = -1
+        PrintN("No empty space in sector!")
+      EndIf
+      Continue
+    EndIf
+    
+    If cmd = "spawnrefinery"
+      spawnX = -1
+      attempts = 0
+      While attempts < 50 And spawnX = -1
+        spawnX = Random(#MAP_W - 1)
+        spawnY = Random(#MAP_H - 1)
+        If gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_EMPTY
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_REFINERY
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Refinery-" + Str(gMapX) + "-" + Str(gMapY)
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\spawned = 1
+          LogLine("CHEAT: spawnrefinery at " + Str(spawnX) + "," + Str(spawnY))
+          PrintN("Cheat activated: Refinery spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
+        Else
+          spawnX = -1
+        EndIf
+        attempts + 1
+      Wend
+      If spawnX = -1
+        PrintN("No empty space in sector!")
+      EndIf
+      Continue
+    EndIf
+    
+    If cmd = "spawncluster"
+      spawnX = -1
+      attempts = 0
+      While attempts < 50 And spawnX = -1
+        spawnX = Random(#MAP_W - 1)
+        spawnY = Random(#MAP_H - 1)
+        If gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_EMPTY
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_DILITHIUM
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Dilithium Cluster"
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\richness = 5 + Random(10)
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\spawned = 1
+          LogLine("CHEAT: spawncluster at " + Str(spawnX) + "," + Str(spawnY))
+          PrintN("Cheat activated: Dilithium cluster spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
+        Else
+          spawnX = -1
+        EndIf
+        attempts + 1
+      Wend
+      If spawnX = -1
+        PrintN("No empty space in sector!")
+      EndIf
+      Continue
+    EndIf
+    
+    If cmd = "spawnwormhole"
+      spawnX = -1
+      attempts = 0
+      While attempts < 50 And spawnX = -1
+        spawnX = Random(#MAP_W - 1)
+        spawnY = Random(#MAP_H - 1)
+        If gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_EMPTY
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_WORMHOLE
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Wormhole"
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\spawned = 1
+          LogLine("CHEAT: spawnwormhole at " + Str(spawnX) + "," + Str(spawnY))
+          PrintN("Cheat activated: Wormhole spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
+        Else
+          spawnX = -1
+        EndIf
+        attempts + 1
+      Wend
+      If spawnX = -1
+        PrintN("No empty space in sector!")
+      EndIf
+      Continue
+    EndIf
+    
+    If cmd = "spawnanomaly"
+      spawnX = -1
+      attempts = 0
+      While attempts < 50 And spawnX = -1
+        spawnX = Random(#MAP_W - 1)
+        spawnY = Random(#MAP_H - 1)
+        If gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_EMPTY
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_ANOMALY
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Spatial Anomaly"
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\spawned = 1
+          LogLine("CHEAT: spawnanomaly at " + Str(spawnX) + "," + Str(spawnY))
+          PrintN("Cheat activated: Spatial Anomaly spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
+        Else
+          spawnX = -1
+        EndIf
+        attempts + 1
+      Wend
+      If spawnX = -1
+        PrintN("No empty space in sector!")
+      EndIf
+      Continue
+    EndIf
+    
+    If cmd = "spawnplanetkiller"
+      spawnX = -1
+      attempts = 0
+      While attempts < 50 And spawnX = -1
+        spawnX = Random(#MAP_W - 1)
+        spawnY = Random(#MAP_H - 1)
+        If gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_EMPTY
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\entType = #ENT_PLANETKILLER
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\name = "Planet Killer"
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\enemyLevel = 10
+          gGalaxy(gMapX, gMapY, spawnX, spawnY)\spawned = 1
+          LogLine("CHEAT: spawnplanetkiller at " + Str(spawnX) + "," + Str(spawnY))
+          PrintN("Cheat activated: Planet Killer spawned at sector (" + Str(spawnX) + "," + Str(spawnY) + ")!")
+        Else
+          spawnX = -1
+        EndIf
+        attempts + 1
+      Wend
+      If spawnX = -1
+        PrintN("No empty space in sector!")
+      EndIf
+      Continue
+    EndIf
+    
+    If cmd = "removespawn"
+      If CurCell(gx, gy)\spawned = 1
+        CurCell(gx, gy)\entType = #ENT_EMPTY
+        CurCell(gx, gy)\name = ""
+        CurCell(gx, gy)\spawned = 0
+        LogLine("CHEAT: removespawn at " + Str(gx) + "," + Str(gy))
+        PrintN("Cheat activated: Spawned entity removed from current sector!")
+      Else
+        PrintN("No spawned entity in this sector to remove.")
+      EndIf
+      Continue
+    EndIf
+    
+    PrintN("Unknown command. Type UNDOCK to leave.")
+  Wend
 EndProcedure
 
 Procedure MinePlanet(*p.Ship)
   If CurCell(gx, gy)\entType = #ENT_PLANET Or CurCell(gx, gy)\entType = #ENT_DILITHIUM
     Protected mineCmd.s = TrimLower(TokenAt(gLastCmdLine, 2))
     If mineCmd = "miner2049er"
-      Protected fillOre.i = *p\oreMax - *p\ore
-      Protected fillDil.i = *p\dilithiumMax - *p\dilithium
-      *p\ore = *p\oreMax
-      *p\dilithium = *p\dilithiumMax
-      LogLine("CHEAT: miner2049er (filled cargo)")
-      PrintN("Cheat activated: Cargo hold filled!")
-      ProcedureReturn
+      If gCheatsUnlocked = 1
+        Protected fillOre.i = *p\oreMax - *p\ore
+        Protected fillDil.i = *p\dilithiumMax - *p\dilithium
+        *p\ore = *p\oreMax
+        *p\dilithium = *p\dilithiumMax
+        LogLine("CHEAT: miner2049er (filled cargo)")
+        PrintN("Cheat activated: Cargo hold filled!")
+        ProcedureReturn
+      Else
+        If gCheatCode <> ""
+          ConsoleColor(#C_YELLOW, #C_BLACK)
+          PrintN("*** SECRET CODE: " + gCheatCode + " | Type CODE <number> to unlock cheats ***")
+          ResetColor()
+        Else
+          PrintN("No cheat code available yet. Keep exploring!")
+        EndIf
+        ProcedureReturn
+      EndIf
     EndIf
   EndIf
   
@@ -5252,10 +6098,24 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
   *p\sysEngines = #SYS_OK
   *p\sysWeapons = #SYS_OK
   *p\sysShields = #SYS_OK
+  *p\sysTractor = *p\sysTractor & ~#SYS_TRACTOR  ; release any active tractor lock
+  If gPlayerFleetCount > 0
+    Protected repairFleetIdx.i
+    For repairFleetIdx = 1 To gPlayerFleetCount
+      gPlayerFleet(repairFleetIdx)\hull    = gPlayerFleet(repairFleetIdx)\hullMax
+      gPlayerFleet(repairFleetIdx)\shields = gPlayerFleet(repairFleetIdx)\shieldsMax
+    Next
+    PrintN("Fleet ships repaired and shields restored.")
+  EndIf
   LogLine("DOCK: shipyard services")
+
+  ; Generate NPC ships docked at this shipyard (military/patrol traffic)
+  GenerateDockedShips(2)
 
   ; Upgrade menu
   While #True
+    RefreshDockedShips()
+    PrintDockedShips(*p)
     PrintDivider()
     PrintN("Shipyard: " + CurCell(gx, gy)\name)
     PrintN("Credits: " + Str(gCredits))
@@ -5296,14 +6156,73 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
     PrintN("L) Shuttle Attack   (+1 Attack Range)   cost 200")
     PrintN("")
     PrintN("0) Leave")
+    If gCheatsUnlocked = 0
+      PrintN("     (Type CODE <number> to unlock cheats)")
+    EndIf
     PrintN("")
-    PrintN("CHEATS (type number/letter or word):")
-    PrintN("  showmethemoney = +500 credits")
-    PrintN("  poweroverwhelming = all stats x2 for 30 turns")
+    If gCheatsUnlocked = 1
+      PrintN("CHEATS (type number/letter or word):")
+      PrintN("  showmethemoney = +500 credits")
+      PrintN("  poweroverwhelming = all stats x2 for 30 turns")
+      PrintN("  miner2049er = fill cargo, fuel, probes")
+      PrintN("  spawnyard | spawnbase | spawnrefinery | spawncluster")
+      PrintN("  spawnwormhole | spawnanomaly | spawnplanetkiller | removespawn")
+    EndIf
     Print("")
     Print("YARD> ")
     ConsoleColor(#C_WHITE, #C_BLACK)
     Protected choice.s = TrimLower(Input())
+    ResetColor()
+    
+    ; Check for code unlock
+    Protected yardCodeCmd.s = StringField(choice, 1, " ")
+    Protected yardCodeArg.s = Trim(StringField(choice, 2, " "))
+    If yardCodeCmd = "code"
+      If gCheatsUnlocked = 1
+        PrintN("Cheats are already unlocked!")
+      ElseIf yardCodeArg = ""
+        PrintN("Usage: CODE <4-digit-number>")
+        PrintN("A secret code appears every 10 turns. Watch for it!")
+      ElseIf CheckCheatCode(yardCodeArg)
+        ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+        PrintN("*** CHEATS UNLOCKED! ***")
+        PrintN("You now have access to all cheat commands!")
+        ResetColor()
+      Else
+        ConsoleColor(#C_LIGHTRED, #C_BLACK)
+        PrintN("Invalid code. The code changes every 10 turns.")
+        ResetColor()
+      EndIf
+      Continue
+    EndIf
+    
+    ; Hide cheats unless unlocked
+    If gCheatsUnlocked = 0
+      Protected isCheatCmd.i = 0
+      If choice = "showmethemoney" Or choice = "poweroverwhelming" Or choice = "miner2049er"
+        isCheatCmd = 1
+      EndIf
+      If choice = "spawnyard" Or choice = "spawnbase" Or choice = "spawnrefinery"
+        isCheatCmd = 1
+      EndIf
+      If choice = "spawncluster" Or choice = "spawnwormhole" Or choice = "spawnanomaly"
+        isCheatCmd = 1
+      EndIf
+      If choice = "spawnplanetkiller" Or choice = "removespawn"
+        isCheatCmd = 1
+      EndIf
+      If isCheatCmd = 1
+        If gCheatCode <> ""
+          ConsoleColor(#C_YELLOW, #C_BLACK)
+          PrintN("*** SECRET CODE: " + gCheatCode + " | Type CODE <number> to unlock cheats ***")
+          ResetColor()
+        Else
+          PrintN("No cheat code available yet. Keep exploring!")
+        EndIf
+        Continue
+      EndIf
+    EndIf
+    
     If choice = "0" Or choice = "leave" Or choice = "exit" Or choice = "undock"
       gDocked = 0
       ; Find an empty adjacent spot to undock to
@@ -5576,8 +6495,13 @@ Procedure DockAtRefinery(*p.Ship)
   EndIf
   
   gDocked = 1
-  
+
+  ; Generate NPC ships docked at this refinery (cargo/freighter traffic)
+  GenerateDockedShips(1)
+
   While #True
+    RefreshDockedShips()
+    PrintDockedShips(*p)
     ; Randomize prices for fluctuating economy
     Protected basePrice.i = 1 + Random(3)
     Protected ironPrice.i = 5 + Random(4)
@@ -5586,7 +6510,7 @@ Procedure DockAtRefinery(*p.Ship)
     Protected tinPrice.i = 15 + Random(8)
     Protected bronzePrice.i = 25 + Random(10)
     Protected dilithiumPrice.i = 50 + Random(30)  ; Very valuable!
-    
+
     PrintDivider()
     PrintN("Refinery: " + CurCell(gx, gy)\name)
     PrintN("Credits: " + Str(gCredits))
@@ -5602,28 +6526,99 @@ Procedure DockAtRefinery(*p.Ship)
     PrintN("  Tin: " + Str(gTin))
     PrintN("  Bronze: " + Str(gBronze))
     PrintN("")
-    PrintN("CURRENT PRICES:")
-    PrintN("  Ore: " + Str(basePrice) + " | Iron: " + Str(ironPrice) + " | Aluminum: " + Str(alumPrice))
-    PrintN("  Copper: " + Str(copperPrice) + " | Tin: " + Str(tinPrice) + " | Bronze: " + Str(bronzePrice))
-    PrintN("  Dilithium: " + Str(dilithiumPrice) + " (very valuable!)")
+    ; Buy prices are 2x the sell price (market markup)
+    Protected buyIronPrice.i      = ironPrice      * 2
+    Protected buyAlumPrice.i      = alumPrice      * 2
+    Protected buyCopperPrice.i    = copperPrice    * 2
+    Protected buyTinPrice.i       = tinPrice       * 2
+    Protected buyBronzePrice.i    = bronzePrice    * 2
+    Protected buyDilithiumPrice.i = dilithiumPrice * 2
+
+    PrintN("MARKET PRICES (sell / buy):")
+    PrintN("  Ore:       " + LSet(Str(basePrice), 4) + " /  n/a")
+    PrintN("  Iron:      " + LSet(Str(ironPrice), 4) + " / " + Str(buyIronPrice))
+    PrintN("  Aluminum:  " + LSet(Str(alumPrice), 4) + " / " + Str(buyAlumPrice))
+    PrintN("  Copper:    " + LSet(Str(copperPrice), 4) + " / " + Str(buyCopperPrice))
+    PrintN("  Tin:       " + LSet(Str(tinPrice), 4) + " / " + Str(buyTinPrice))
+    PrintN("  Bronze:    " + LSet(Str(bronzePrice), 4) + " / " + Str(buyBronzePrice))
+    PrintN("  Dilithium: " + LSet(Str(dilithiumPrice), 4) + " / " + Str(buyDilithiumPrice) + " (volatile!)")
     PrintN("")
     PrintN("COMMANDS:")
     PrintN("  REFINE             - Convert 1 ore to random refined metal (free)")
     PrintN("  REFINE ALL         - Convert all ore to refined metals")
     PrintN("  REFINE DILITHIUM   - Convert 1 dilithium crystal to 5 ore")
-    PrintN("  SELL ORE           - Sell all ore (" + Str(basePrice) + " credits each)")
-    PrintN("  SELL IRON          - Sell all iron (" + Str(ironPrice) + " credits each)")
-    PrintN("  SELL ALUMINUM      - Sell all aluminum (" + Str(alumPrice) + " credits each)")
-    PrintN("  SELL COPPER        - Sell all copper (" + Str(copperPrice) + " credits each)")
-    PrintN("  SELL TIN           - Sell all tin (" + Str(tinPrice) + " credits each)")
-    PrintN("  SELL BRONZE        - Sell all bronze (" + Str(bronzePrice) + " credits each)")
-    PrintN("  SELL DILITHIUM     - Sell all dilithium (" + Str(dilithiumPrice) + " credits each)")
-    PrintN("  SELL ALL           - Sell all cargo")
+    PrintN("  SELL ORE           - Sell all ore (" + Str(basePrice) + " cr ea)")
+    PrintN("  SELL IRON/ALUMINUM/COPPER/TIN/BRONZE/DILITHIUM/ALL - Sell cargo")
+    PrintN("  BUY IRON <qty>     - Buy refined iron (" + Str(buyIronPrice) + " cr ea)")
+    PrintN("  BUY ALUMINUM <qty> - Buy aluminum (" + Str(buyAlumPrice) + " cr ea)")
+    PrintN("  BUY COPPER <qty>   - Buy copper (" + Str(buyCopperPrice) + " cr ea)")
+    PrintN("  BUY TIN <qty>      - Buy tin (" + Str(buyTinPrice) + " cr ea)")
+    PrintN("  BUY BRONZE <qty>   - Buy bronze (" + Str(buyBronzePrice) + " cr ea)")
+    PrintN("  BUY DILITHIUM <qty>- Buy dilithium (" + Str(buyDilithiumPrice) + " cr ea)")
     PrintN("  UNDOCK             - Leave the refinery")
+    If gCheatsUnlocked = 0
+      PrintN("  CODE <number>     - Enter secret code to unlock cheats")
+    EndIf
+    If gCheatsUnlocked = 1
+      PrintN("CHEATS:")
+      PrintN("  showmethemoney | poweroverwhelming | miner2049er")
+      PrintN("  spawnyard | spawnbase | spawnrefinery | spawncluster")
+      PrintN("  spawnwormhole | spawnanomaly | spawnplanetkiller | removespawn")
+    EndIf
     Print("")
     ConsoleColor(#C_WHITE, #C_BLACK)
     Print("REFINERY> ")
     Protected cmd.s = TrimLower(Input())
+    ResetColor()
+    
+    ; Check for code unlock
+    Protected refCodeCmd.s = StringField(cmd, 1, " ")
+    Protected refCodeArg.s = Trim(StringField(cmd, 2, " "))
+    If refCodeCmd = "code"
+      If gCheatsUnlocked = 1
+        PrintN("Cheats are already unlocked!")
+      ElseIf refCodeArg = ""
+        PrintN("Usage: CODE <4-digit-number>")
+        PrintN("A secret code appears every 10 turns. Watch for it!")
+      ElseIf CheckCheatCode(refCodeArg)
+        ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+        PrintN("*** CHEATS UNLOCKED! ***")
+        PrintN("You now have access to all cheat commands!")
+        ResetColor()
+      Else
+        ConsoleColor(#C_LIGHTRED, #C_BLACK)
+        PrintN("Invalid code. The code changes every 10 turns.")
+        ResetColor()
+      EndIf
+      Continue
+    EndIf
+    
+    ; Hide cheats unless unlocked
+    If gCheatsUnlocked = 0
+      Protected isCheat.i = 0
+      If cmd = "showmethemoney" Or cmd = "poweroverwhelming" Or cmd = "miner2049er"
+        isCheat = 1
+      EndIf
+      If cmd = "spawnyard" Or cmd = "spawnbase" Or cmd = "spawnrefinery"
+        isCheat = 1
+      EndIf
+      If cmd = "spawncluster" Or cmd = "spawnwormhole" Or cmd = "spawnanomaly"
+        isCheat = 1
+      EndIf
+      If cmd = "spawnplanetkiller" Or cmd = "removespawn"
+        isCheat = 1
+      EndIf
+      If isCheat = 1
+        If gCheatCode <> ""
+          ConsoleColor(#C_YELLOW, #C_BLACK)
+          PrintN("*** SECRET CODE: " + gCheatCode + " | Type CODE <number> to unlock cheats ***")
+          ResetColor()
+        Else
+          PrintN("No cheat code available yet. Keep exploring!")
+        EndIf
+        Continue
+      EndIf
+    EndIf
     
     If cmd = "undock" Or cmd = "leave" Or cmd = "exit" Or cmd = "0"
       gDocked = 0
@@ -5861,7 +6856,62 @@ Procedure DockAtRefinery(*p.Ship)
       EndIf
       Continue
     EndIf
-    
+
+    ; ---- BUY command --------------------------------------------------------
+    If sellCmd = "buy"
+      Protected buyTarget.s = TrimLower(StringField(cmd, 2, " "))
+      Protected buyQty.i    = ParseIntSafe(StringField(cmd, 3, " "), 0)
+      If buyQty <= 0
+        PrintN("Usage: BUY <item> <quantity>  (e.g. BUY IRON 10)")
+        Continue
+      EndIf
+      Protected buyUnitPrice.i = 0
+      Protected buyItemName.s  = ""
+      Select buyTarget
+        Case "iron"
+          buyUnitPrice = buyIronPrice : buyItemName = "iron"
+        Case "aluminum"
+          buyUnitPrice = buyAlumPrice : buyItemName = "aluminum"
+        Case "copper"
+          buyUnitPrice = buyCopperPrice : buyItemName = "copper"
+        Case "tin"
+          buyUnitPrice = buyTinPrice : buyItemName = "tin"
+        Case "bronze"
+          buyUnitPrice = buyBronzePrice : buyItemName = "bronze"
+        Case "dilithium"
+          buyUnitPrice = buyDilithiumPrice : buyItemName = "dilithium"
+        Default
+          PrintN("Unknown item. Buy: IRON, ALUMINUM, COPPER, TIN, BRONZE, DILITHIUM")
+          Continue
+      EndSelect
+      Protected buyTotal.i = buyQty * buyUnitPrice
+      If gCredits < buyTotal
+        Protected canAfford.i = gCredits / buyUnitPrice
+        ConsoleColor(#C_LIGHTRED, #C_BLACK)
+        PrintN("Not enough credits! Need " + Str(buyTotal) + ", have " + Str(gCredits) + ".")
+        If canAfford > 0
+          PrintN("You can afford " + Str(canAfford) + " unit(s) at this price.")
+        EndIf
+        ResetColor()
+        Continue
+      EndIf
+      gCredits - buyTotal
+      Select buyTarget
+        Case "iron"      : gIron      + buyQty
+        Case "aluminum"  : gAluminum  + buyQty
+        Case "copper"    : gCopper    + buyQty
+        Case "tin"       : gTin       + buyQty
+        Case "bronze"    : gBronze    + buyQty
+        Case "dilithium" : *p\dilithium + buyQty
+      EndSelect
+      ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+      PrintN("Purchased " + Str(buyQty) + " " + buyItemName + " for " + Str(buyTotal) + " credits.")
+      ResetColor()
+      LogLine("BUY: " + Str(buyQty) + " " + buyItemName + " for " + Str(buyTotal))
+      AddCaptainLog("REFINERY: bought " + Str(buyQty) + " " + buyItemName)
+      Continue
+    EndIf
+
     PrintN("Unknown command. Type UNDOCK to leave.")
   Wend
 EndProcedure
@@ -6051,6 +7101,8 @@ Procedure Nav(*p.Ship, dir.s, steps.i)
     ElseIf startX <> gx Or startY <> gy
       LogLine("NAV " + UCase(dir) + " " + Str(steps) + ": moved " + Str(moved) + " step(s) to Sector (" + Str(gx) + "," + Str(gy) + ")")
     EndIf
+    gGameTurn + 1
+    GenerateCheatCode()
   EndIf
 EndProcedure
 
@@ -6081,6 +7133,12 @@ Procedure.i AutopilotToMission(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Co
     PrintN("Autopilot: no safe route found (blocked by hazards/obstacles).")
     PrintN("Tip: you can try manual NAV around stars/suns, or risk a wormhole (#).")
     ProcedureReturn 1
+  EndIf
+
+  Protected apSteps.i = Len(path)
+  PrintN("Autopilot: route found - " + Str(apSteps) + " step(s) to " + gMission\destName + ".")
+  If gMapX <> gMission\destMapX Or gMapY <> gMission\destMapY
+    PrintN("  Galaxy (" + Str(gMapX) + "," + Str(gMapY) + ") -> (" + Str(gMission\destMapX) + "," + Str(gMission\destMapY) + ")")
   EndIf
 
   Protected movedAny.i = 0
@@ -6293,7 +7351,7 @@ Procedure Main()
   ConsoleColor(#C_WHITE, #C_BLACK)
   PrintN("Starship Console (Galaxy + Tactical)")
   ConsoleColor(#C_WHITE, #C_BLACK)
-  PrintN("Data: " + gDatPath + " (fallback " + gIniPath + ")")
+  PrintN("Data: " + GetFilePart(gDatPath) + " (fallback " + GetFilePart(gIniPath) + ")")
   ResetColor()
   PrintN("")
 
@@ -6589,8 +7647,16 @@ Procedure Main()
           PrintN("You are docked. Use UNDOCK first.")
           RedrawGalaxy(@player)
         Else
-          SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode, gIron, gAluminum, gCopper, gTin, gBronze)
           Protected navDir.s = TokenAt(line, 2)
+          If navDir = ""
+            PrintN("Usage: NAV <heading> [steps]")
+            PrintN("  Headings : 0=N  45=NE  90=E  135=SE  180=S  225=SW  270=W  315=NW")
+            PrintN("  Examples : NAV 0       (north 1 sector, costs 1 fuel)")
+            PrintN("             NAV 90 3    (east 3 sectors, costs 3 fuel)")
+            PrintN("             NAV 225 2   (southwest 2 sectors, costs 2 fuel)")
+            RedrawGalaxy(@player)
+          Else
+          SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode, gIron, gAluminum, gCopper, gTin, gBronze)
           Protected navSteps.i = ParseIntSafe(TokenAt(line, 3), 1)
           Protected oldX.i = gx
           Protected oldY.i = gy
@@ -6635,9 +7701,25 @@ Procedure Main()
           PlayEngineSound()
           PlayAmbientChatter()
           RedrawGalaxy(@player)
+          EndIf  ; end navDir <> "" check
 
         If CurCell(gx, gy)\entType = #ENT_ENEMY Or CurCell(gx, gy)\entType = #ENT_PIRATE
-          PrintN("Enemy contact! " + CurCell(gx, gy)\name + " is in the sector!")
+          Protected contactLvl.i = CurCell(gx, gy)\enemyLevel
+          Protected threatStr.s
+          If contactLvl <= 2
+            threatStr = "Minor"
+          ElseIf contactLvl <= 4
+            threatStr = "Moderate"
+          ElseIf contactLvl <= 6
+            threatStr = "Serious"
+          ElseIf contactLvl <= 8
+            threatStr = "Severe"
+          Else
+            threatStr = "Critical"
+          EndIf
+          ConsoleColor(#C_LIGHTRED, #C_BLACK)
+          PrintN("!! ENEMY CONTACT !! " + CurCell(gx, gy)\name + " (Level " + Str(contactLvl) + " - " + threatStr + ")")
+          ResetColor()
           ConsoleColor(#C_WHITE, #C_BLACK)
           Print("Engage? (F)ight / (A)bort > ")
           Protected engageResp.s = Input()
@@ -6718,9 +7800,13 @@ Procedure Main()
         If gDocked
           PrintN("You are docked. Use UNDOCK first.")
         ElseIf gWarpCooldown > 0
-          PrintN("Warp engines recharging. " + Str(gWarpCooldown) + " turn(s) remaining.")
+          ConsoleColor(#C_YELLOW, #C_BLACK)
+          PrintN("Warp engines recharging: " + Str(gWarpCooldown) + " turn(s) remaining. (costs 5 dilithium per jump)")
+          ResetColor()
         ElseIf player\dilithium < 5
-          PrintN("Insufficient dilithium. Need 5 to warp.")
+          ConsoleColor(#C_LIGHTRED, #C_BLACK)
+          PrintN("Insufficient dilithium. Need 5 to warp (have " + Str(player\dilithium) + ").")
+          ResetColor()
         Else
           Protected warpX.i = ParseIntSafe(TokenAt(line, 2), -1)
           Protected warpY.i = ParseIntSafe(TokenAt(line, 3), -1)
@@ -6955,7 +8041,7 @@ Procedure Main()
           EndIf
         EndIf
         RedrawGalaxy(@player)
-      ElseIf cmd = "refuel"
+      ElseIf cmd = "mission"
         SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode, gIron, gAluminum, gCopper, gTin, gBronze)
         ClearConsole()
         GenerateMission(@player)
@@ -6978,9 +8064,23 @@ Procedure Main()
         DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         RedrawGalaxy(@player)
       ElseIf cmd = "abandon"
-        AbandonMission()
-        GenerateMission(@player)
-
+        If gMission\active = 0
+          PrintN("No active mission to abandon.")
+        Else
+          PrintN("Abandon mission: " + gMission\title + "?")
+          ConsoleColor(#C_YELLOW, #C_BLACK)
+          Print("Are you sure? (YES to confirm) > ")
+          ResetColor()
+          Protected abandonResp.s = Input()
+          abandonResp = TrimLower(Trim(ReplaceString(ReplaceString(abandonResp, Chr(13), ""), Chr(10), "")))
+          If abandonResp = "yes"
+            AbandonMission()
+            GenerateMission(@player)
+            PrintN("Mission abandoned.")
+          Else
+            PrintN("Abandon cancelled.")
+          EndIf
+        EndIf
         DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         RedrawGalaxy(@player)
       ElseIf cmd = "save"
@@ -7012,9 +8112,9 @@ Procedure Main()
         RedrawGalaxy(@player)
       ElseIf cmd = "pack"
         If PackShipsDatFromIni()
-          LogLine("SHIPDATA: packed " + gIniPath + " -> " + gDatPath)
+          LogLine("SHIPDATA: packed " + GetFilePart(gIniPath) + " -> " + GetFilePart(gDatPath))
         Else
-          LogLine("SHIPDATA: pack failed (need readable " + gIniPath + ")")
+          LogLine("SHIPDATA: pack failed (need readable " + GetFilePart(gIniPath) + ")")
         EndIf
         RedrawGalaxy(@player)
       ElseIf cmd = "load"
@@ -7023,7 +8123,8 @@ Procedure Main()
         Else
           RedrawGalaxy(@player)
         EndIf
-      ElseIf cmd = "showmethemoney"
+      ElseIf gCheatsUnlocked = 1 And (cmd = "showmethemoney" Or cmd = "spawnyard" Or cmd = "spawnbase" Or cmd = "spawnrefinery" Or cmd = "spawncluster" Or cmd = "spawnwormhole" Or cmd = "spawnanomaly" Or cmd = "spawnplanetkiller" Or cmd = "removespawn")
+        If cmd = "showmethemoney"
         gCredits + 500
         LogLine("CHEAT: showmethemoney (+500 credits)")
         PrintN("Cheat activated: +500 credits!")
@@ -7201,6 +8302,15 @@ Procedure Main()
           PrintN("No spawned object here to remove.")
         EndIf
         RedrawGalaxy(@player)
+      EndIf
+      ElseIf gCheatsUnlocked = 0 And (cmd = "showmethemoney" Or cmd = "spawnyard" Or cmd = "spawnbase" Or cmd = "spawnrefinery" Or cmd = "spawncluster" Or cmd = "spawnwormhole" Or cmd = "spawnanomaly" Or cmd = "spawnplanetkiller" Or cmd = "removespawn")
+        If gCheatCode <> ""
+          ConsoleColor(#C_YELLOW, #C_BLACK)
+          PrintN("*** SECRET CODE: " + gCheatCode + " | Type CODE <number> to unlock cheats ***")
+          ResetColor()
+        Else
+          PrintN("No cheat code available yet. Keep exploring!")
+        EndIf
       ElseIf cmd = "quit" Or cmd = "exit"
         Protected quitConfirm.i = MessageRequester("Starship Sim", "Are you sure you want to exit?", #PB_MessageRequester_YesNo)
         If quitConfirm = #PB_MessageRequester_Yes
@@ -7262,29 +8372,28 @@ Procedure Main()
         If gRadiationTurns > 0
           gRadiationTurns - 1
         EndIf
-      EndIf
 
-    Else
-      ; Tactical mode
-      If cmd = "help"
-        ClearConsole()
-        PrintHelpTactical()
-        PrintN("")
-        PrintN("< Press ENTER >")
-        Input()
-        PrintStatusTactical(@player, @enemy, @cs)
-        Continue
-      ElseIf cmd = "about"
+      ElseIf gMode = #MODE_TACTICAL
+        Select cmd
+          Case "help"
+            ClearConsole()
+            PrintHelpTactical()
+            PrintN("")
+            PrintN("< Press ENTER >")
+            Input()
+            PrintStatusTactical(@player, @enemy, @cs)
+            Continue
+          Case "about"
         ClearConsole()
         PrintAbout()
         PrintN("< Press ENTER >")
         Input()
         PrintStatusTactical(@player, @enemy, @cs)
         Continue
-      ElseIf cmd = "status"
+          Case "status"
         PrintStatusTactical(@player, @enemy, @cs)
         Continue
-      ElseIf cmd = "scan"
+          Case "scan"
         ClearConsole()
         PrintScanTactical(@player, @enemy, @cs)
         PrintN("")
@@ -7292,7 +8401,7 @@ Procedure Main()
         Input()
         PrintStatusTactical(@player, @enemy, @cs)
         Continue
-      ElseIf cmd = "alloc"
+          Case "alloc"
         Protected pctShields.i = ParseIntSafe(TokenAt(line, 4), player\allocShields)
         Protected pctWeapons.i = ParseIntSafe(TokenAt(line, 3), player\allocWeapons)
         Protected pctEngines.i = ParseIntSafe(TokenAt(line, 2), player\allocEngines)
@@ -7314,12 +8423,12 @@ Procedure Main()
         EndIf
         PrintStatusTactical(@player, @enemy, @cs)
         Continue
-      ElseIf cmd = "move"
+          Case "move"
         Protected moveDir.s = TokenAt(line, 2)
         Protected moveAmt.i = ParseIntSafe(TokenAt(line, 3), 2)
         PlayerMove(@player, @cs, moveDir, moveAmt)
         PrintStatusTactical(@player, @enemy, @cs)
-      ElseIf cmd = "phaser"
+          Case "phaser"
         Protected pwr.i = ParseIntSafe(TokenAt(line, 2), 30)
         PlayerPhaser(@player, @enemy, @cs, pwr)
         
@@ -7331,9 +8440,13 @@ Procedure Main()
             Protected pfDmg.i = Random(pwr / 2) + 5
             gEnemyFleet(pfHit)\hull - pfDmg
             cs\eFleetHit = cs\eFleetHit | (1 << (pfHit - 1))  ; Mark enemy fleet ship as hit
+            ConsoleColor(#C_RED, #C_BLACK)
             PrintN("Phasers hit enemy fleet ship " + Str(pfHit) + " for " + Str(pfDmg) + " damage!")
+            ResetColor()
             If gEnemyFleet(pfHit)\hull <= 0
+              ConsoleColor(#C_RED, #C_BLACK)
               PrintN("Enemy fleet ship " + Str(pfHit) + " destroyed!")
+              ResetColor()
               Protected efCompact1.i
               For efCompact1 = pfHit To gEnemyFleetCount - 1
                 CopyStructure(@gEnemyFleet(efCompact1 + 1), @gEnemyFleet(efCompact1), Ship)
@@ -7349,7 +8462,7 @@ Procedure Main()
           PrintN("Enemy destroyed!")
           Goto HandleEnemyDestroyed
         EndIf
-      ElseIf cmd = "torpedo"
+          Case "torpedo"
         Protected cnt.i = ParseIntSafe(TokenAt(line, 2), 1)
         PlayerTorpedo(@player, @enemy, @cs, cnt)
         
@@ -7361,9 +8474,13 @@ Procedure Main()
             Protected tfDmg.i = Random(50) + 30
             gEnemyFleet(tfHit)\hull - tfDmg
             cs\eFleetHit = cs\eFleetHit | (1 << (tfHit - 1))  ; Mark enemy fleet ship as hit
+            ConsoleColor(#C_RED, #C_BLACK)
             PrintN("Torpedo hits enemy fleet ship " + Str(tfHit) + " for " + Str(tfDmg) + " damage!")
+            ResetColor()
             If gEnemyFleet(tfHit)\hull <= 0
+              ConsoleColor(#C_RED, #C_BLACK)
               PrintN("Enemy fleet ship " + Str(tfHit) + " destroyed!")
+              ResetColor()
               Protected efCompact2.i
               For efCompact2 = tfHit To gEnemyFleetCount - 1
                 CopyStructure(@gEnemyFleet(efCompact2 + 1), @gEnemyFleet(efCompact2), Ship)
@@ -7387,22 +8504,26 @@ Procedure Main()
                   enemy\hull + enemy\shields
                   enemy\shields = 0
                 EndIf
+                ConsoleColor(#C_RED, #C_BLACK)
                 PrintN("Fleet ship " + Str(pf) + " fires at enemy! " + Str(pfDmg) + " damage!")
+                ResetColor()
               Else
+                ConsoleColor(#C_YELLOW, #C_BLACK)
                 PrintN("Fleet ship " + Str(pf) + " fires but misses!")
+                ResetColor()
               EndIf
             EndIf
           Next
         EndIf
-        
+
         PrintStatusTactical(@player, @enemy, @cs)
-        
+
         If enemy\hull <= 0
           PrintN("Enemy destroyed!")
           Goto HandleEnemyDestroyed
         EndIf
-      ElseIf cmd = "tractor"
-        Protected tractorMode.s = TokenAt(line, 2)
+          Case "tractor"
+          Protected tractorMode.s = TokenAt(line, 2)
         If tractorMode = ""
           PrintN("Usage: TRACTOR <HOLD|PULL|PUSH>")
           PrintN("  HOLD - lock enemy in place (1 fuel/turn)")
@@ -7410,7 +8531,7 @@ Procedure Main()
           Continue
         EndIf
         PlayerTractor(@player, @enemy, @cs, tractorMode)
-      ElseIf cmd = "transporter"
+          Case "transporter"
         Protected trMode.s = TokenAt(line, 2)
         
         ; Check if range is close enough
@@ -7483,7 +8604,7 @@ Procedure Main()
         Else
           PrintN("Unknown transporter command. Use: TRANSPORTER ATTACK")
         EndIf
-      ElseIf cmd = "shuttle" Or cmd = "launchshuttle"
+          Case "shuttle", "launchshuttle"
         Protected shutMode.s = TrimLower(TokenAt(line, 2))
         If gShuttleLaunched = 0
           PrintN("Shuttle is not launched. Use LAUNCHSHUTTLE LAUNCH from galaxy mode first.")
@@ -7529,7 +8650,7 @@ Procedure Main()
         Else
           PrintN("Unknown shuttle command. Use SHUTTLE for help.")
         EndIf
-      ElseIf cmd = "flee"
+          Case "flee"
         If player\fuel <= 0
           PrintN("Fuel depleted. Cannot flee.")
         ElseIf Random(99) < ClampInt(18 + (cs\range * 2), 15, 65)
@@ -7542,7 +8663,7 @@ Procedure Main()
           PrintN("Flee attempt fails.")
         EndIf
         PrintStatusTactical(@player, @enemy, @cs)
-      ElseIf cmd = "end"
+          Case "end"
         ; Player's fleet attacks enemy
         If gPlayerFleetCount > 0 And enemy\hull > 0
           For pf = 1 To gPlayerFleetCount
@@ -7556,23 +8677,28 @@ Procedure Main()
                   enemy\hull + enemy\shields
                   enemy\shields = 0
                 EndIf
+                ConsoleColor(#C_RED, #C_BLACK)
                 PrintN("Fleet ship " + Str(pf) + " fires at enemy! " + Str(pfDmg) + " damage!")
+                ResetColor()
               Else
+                ConsoleColor(#C_YELLOW, #C_BLACK)
                 PrintN("Fleet ship " + Str(pf) + " fires but misses!")
+                ResetColor()
               EndIf
             EndIf
           Next
         EndIf
-        
+
         PrintStatusTactical(@player, @enemy, @cs)
-        
+
         ; no-op
-      ElseIf cmd = "quit" Or cmd = "exit"
-        CloseConsole()
-        End
-      Else
-        PrintN("Unknown command. Type HELP.")
-        Continue
+          Case "quit", "exit"
+            CloseConsole()
+            End
+          Default
+            PrintN("Unknown command. Type HELP.")
+            Continue
+        EndSelect
       EndIf
 
       If gMode = #MODE_TACTICAL And IsAlive(@player) And IsAlive(@enemy)
@@ -7608,9 +8734,13 @@ Procedure Main()
                     gPlayerFleet(pfTarget)\hull - efDmg
                     cs\pFleetHit = cs\pFleetHit | (1 << (pfTarget - 1))  ; Mark player fleet ship as hit
                     PlaySoundFX(SoundExplode)  ; Fleet ship hit!
+                    ConsoleColor(#C_RED, #C_BLACK)
                     PrintN("Enemy fleet ship " + Str(ef) + " fires at your fleet! " + Str(efDmg) + " damage to fleet " + Str(pfTarget) + "!")
+                    ResetColor()
                     If gPlayerFleet(pfTarget)\hull <= 0
+                      ConsoleColor(#C_RED, #C_BLACK)
                       PrintN("Your fleet ship " + Str(pfTarget) + " was destroyed!")
+                      ResetColor()
                       ; Compact array - shift remaining ships down
                       Protected compact.i
                       For compact = pfTarget To gPlayerFleetCount - 1
@@ -7625,10 +8755,14 @@ Procedure Main()
                     player\hull + player\shields
                     player\shields = 0
                   EndIf
+                  ConsoleColor(#C_RED, #C_BLACK)
                   PrintN("Enemy fleet ship " + Str(ef) + " fires! " + Str(efDmg) + " damage to shields!")
+                  ResetColor()
                 EndIf
               Else
+                ConsoleColor(#C_YELLOW, #C_BLACK)
                 PrintN("Enemy fleet ship " + Str(ef) + " fires but misses!")
+                ResetColor()
               EndIf
             EndIf
           Next
@@ -7653,6 +8787,11 @@ Procedure Main()
             gMission\killsDone + 1
             If gMission\killsDone >= gMission\killsRequired
               gCredits + gMission\rewardCredits
+              ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+              PrintDivider()
+              PrintN("*** MISSION COMPLETE: Bounty claimed! (+" + Str(gMission\rewardCredits) + " credits) ***")
+              PrintDivider()
+              ResetColor()
               LogLine("MISSION COMPLETE: bounty (+" + Str(gMission\rewardCredits) + " credits)")
               ClearStructure(@gMission, Mission)
               gMission\type = #MIS_NONE
@@ -7664,6 +8803,11 @@ Procedure Main()
           ; Mission: Planet Killer hunt
           If gMission\active And gMission\type = #MIS_PLANETKILLER
             gCredits + gMission\rewardCredits
+            ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+            PrintDivider()
+            PrintN("*** MISSION COMPLETE: Planet Killer destroyed! (+" + Str(gMission\rewardCredits) + " credits) ***")
+            PrintDivider()
+            ResetColor()
             LogLine("MISSION COMPLETE: Planet Killer hunt (+" + Str(gMission\rewardCredits) + " credits)")
             ClearStructure(@gMission, Mission)
             gMission\type = #MIS_NONE
@@ -7689,15 +8833,27 @@ Procedure Main()
           PrintN("You salvage " + Str(rewardCredits) + " credits from the wreckage.")
           
           ; Crew XP for all roles
-          GainCrewXP(@player, #CREW_WEAPONS, 15 + cs\turn)
-          GainCrewXP(@player, #CREW_HELM, 10 + cs\turn)
-          GainCrewXP(@player, #CREW_ENGINEERING, 8 + cs\turn)
-          GainCrewXP(@player, #CREW_SHIELDS, 5 + cs\turn)
-          PrintN("Crew gains experience from the battle.")
+          Protected xpWeap.i = 15 + cs\turn
+          Protected xpHelm.i = 10 + cs\turn
+          Protected xpEng.i  = 8  + cs\turn
+          Protected xpShld.i = 5  + cs\turn
+          GainCrewXP(@player, #CREW_WEAPONS,     xpWeap)
+          GainCrewXP(@player, #CREW_HELM,        xpHelm)
+          GainCrewXP(@player, #CREW_ENGINEERING, xpEng)
+          GainCrewXP(@player, #CREW_SHIELDS,     xpShld)
+          PrintN("Battle XP earned:")
+          ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+          PrintN("  " + player\crew1\name + " (Helm):        +" + Str(xpHelm) + " XP  [" + Str(player\crew1\xp) + "/" + Str(player\crew1\level * 100) + "]")
+          PrintN("  " + player\crew2\name + " (Weapons):     +" + Str(xpWeap) + " XP  [" + Str(player\crew2\xp) + "/" + Str(player\crew2\level * 100) + "]")
+          PrintN("  " + player\crew3\name + " (Shields):     +" + Str(xpShld) + " XP  [" + Str(player\crew3\xp) + "/" + Str(player\crew3\level * 100) + "]")
+          PrintN("  " + player\crew4\name + " (Engineering): +" + Str(xpEng)  + " XP  [" + Str(player\crew4\xp) + "/" + Str(player\crew4\level * 100) + "]")
+          ResetColor()
           
           LeaveCombat()
           RedrawGalaxy(@player)
-        ElseIf player\hull <= 0
+        EndIf
+        
+        If player\hull <= 0
           ; loop ends
         Else
           PrintStatusTactical(@player, @enemy, @cs)
@@ -7729,8 +8885,9 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 12
-; Folding = ------------------------
+; CursorPosition = 587
+; FirstLine = 584
+; Folding = -------------------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -7739,12 +8896,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,8,5
-; VersionField1 = 1,0,8,5
+; VersionField0 = 1,0,9,0
+; VersionField1 = 1,0,9,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.8.5
-; VersionField5 = 1.0.8.5
+; VersionField4 = 1.0.9.0
+; VersionField5 = 1.0.9.0
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
