@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.8.0"
+Global version.s = "v1.0.8.5"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -621,6 +621,7 @@ Global gEnemyMapX.i = -1
 Global gEnemyMapY.i = -1
 Global gEnemyX.i = -1
 Global gEnemyY.i = -1
+Global gEnemyIsPirate.i = 0  ; Track if current enemy is a pirate
 
 ; Player fleet - up to 5 computer-controlled ships
 Global Dim gPlayerFleet.Ship(5)
@@ -2650,6 +2651,7 @@ Procedure PrintStatusGalaxy(*p.Ship)
     ResetColor()
   EndIf
   Print("  Hull: ")
+  ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
   SetColorForPercent(Int(100.0 * *p\hull / ClampInt(*p\hullMax, 1, 999999)))
   Print(Str(*p\hull) + "/" + Str(*p\hullMax))
   ResetColor()
@@ -2712,6 +2714,7 @@ Procedure PrintStatusTactical(*p.Ship, *e.Ship, *cs.CombatState)
   EndIf
   PrintN("You:   " + *p\name + " [" + *p\class + "]")
   Print("  Hull: ")
+  ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
   SetColorForPercent(Int(100.0 * *p\hull / ClampInt(*p\hullMax, 1, 999999)))
   Print(Str(*p\hull) + "/" + Str(*p\hullMax))
   ResetColor()
@@ -2745,6 +2748,7 @@ Procedure PrintStatusTactical(*p.Ship, *e.Ship, *cs.CombatState)
   PrintN("Enemy: " + *e\name + " [" + *e\class + "]")
   ResetColor()
   Print("  Hull: ")
+  ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
   SetColorForPercent(Int(100.0 * *e\hull / ClampInt(*e\hullMax, 1, 999999)))
   Print(Str(*e\hull) + "/" + Str(*e\hullMax))
   ResetColor()
@@ -2931,8 +2935,8 @@ Procedure PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsE
         ResetColor()
       ElseIf y = rowMid And x = posE
         ConsoleColor(#C_LIGHTRED, #C_BLACK)
-        ; Check if enemy is a pirate by entity type in galaxy
-        If CurCell(gx, gy)\entType = #ENT_PIRATE
+        ; Check if enemy is a pirate using stored flag
+        If gEnemyIsPirate = 1
           Print("P")
         Else
           Print("E")
@@ -3715,6 +3719,11 @@ Procedure EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
                 enemy\weaponCap = enemy\weaponCapMax / 2
                 enemy\torp = enemy\torpMax
                 gEnemyMapX = mx : gEnemyMapY = my : gEnemyX = x : gEnemyY = y
+                If ent = #ENT_PIRATE
+                  gEnemyIsPirate = 1
+                Else
+                  gEnemyIsPirate = 0
+                EndIf
                 EnterCombat(*p, @enemy, *cs)
                 ProcedureReturn
               EndIf
@@ -3774,6 +3783,7 @@ Procedure EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
                     enemy\weaponCap = enemy\weaponCapMax / 2
                     enemy\torp = enemy\torpMax
                     gEnemyMapX = mx : gEnemyMapY = my : gEnemyX = moveX : gEnemyY = moveY
+                    gEnemyIsPirate = 0
                     EnterCombat(*p, @enemy, *cs)
                     ProcedureReturn
             EndIf
@@ -4283,7 +4293,7 @@ Procedure PrintMap()
           EndIf
 
           ; Check for pirate ships (show as 'P')
-          If CurCell(x, row)\entType = #ENT_PIRATE
+          If CurCell(x, row)\entType = #ENT_PIRATE Or FindString(LCase(CurCell(x, row)\name), "pirate") > 0
             ConsoleColor(#C_LIGHTRED, #C_BLACK)
             Print("P ")
           Else
@@ -4857,7 +4867,7 @@ Procedure DefendMissionTick(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Comba
     *enemy\weaponCapMax = *enemy\weaponCapMax + (lvl * 20)
     *enemy\weaponCap = *enemy\weaponCapMax / 2
     *enemy\torp = *enemy\torpMax
-
+    gEnemyIsPirate = 0
     EnterCombat(*p, *enemy, *cs)
     ProcedureReturn
   EndIf
@@ -6128,6 +6138,11 @@ Procedure.i AutopilotToMission(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Co
         *enemy\weaponCapMax = *enemy\weaponCapMax + (lvl * 20)
         *enemy\weaponCap = *enemy\weaponCapMax / 2
         *enemy\torp = *enemy\torpMax
+        If CurCell(gx, gy)\entType = #ENT_PIRATE
+          gEnemyIsPirate = 1
+        Else
+          gEnemyIsPirate = 0
+        EndIf
         EnterCombat(*p, *enemy, *cs)
         PrintN("Autopilot: engaging.")
       Else
@@ -6241,6 +6256,7 @@ Procedure LeaveCombat()
   gMode = #MODE_GALAXY
   gEngineLoopChannel = -1
   gEnemyFleetCount = 0
+  gEnemyIsPirate = 0
   If gDocked = 0
     StartEngineLoop()
   EndIf
@@ -6621,49 +6637,68 @@ Procedure Main()
           RedrawGalaxy(@player)
 
         If CurCell(gx, gy)\entType = #ENT_ENEMY Or CurCell(gx, gy)\entType = #ENT_PIRATE
-          CopyStructure(@enemyTemplate, @enemy, Ship)
-          ; Override name from galaxy cell (e.g., "Pirate Hunter")
-          If CurCell(gx, gy)\name <> ""
-            enemy\name = CurCell(gx, gy)\name
-          EndIf
-          Protected lvl.i = CurCell(gx, gy)\enemyLevel
-          If lvl < 1 : lvl = 1 : EndIf
-          ; Check for Planet Killer (very powerful)
-          If CurCell(gx, gy)\entType = #ENT_PLANETKILLER
-            enemy\name = "Planet Killer"
-            enemy\class = "Planet Killer"
-            enemy\hullMax = 500 + (lvl * 50)
+          PrintN("Enemy contact! " + CurCell(gx, gy)\name + " is in the sector!")
+          ConsoleColor(#C_WHITE, #C_BLACK)
+          Print("Engage? (F)ight / (A)bort > ")
+          Protected engageResp.s = Input()
+          engageResp = ReplaceString(engageResp, Chr(13), "")
+          engageResp = ReplaceString(engageResp, Chr(10), "")
+          engageResp = TrimLower(Trim(engageResp))
+          
+          If engageResp <> "a" And engageResp <> "abort"
+            ; Fight!
+            CopyStructure(@enemyTemplate, @enemy, Ship)
+            ; Override name from galaxy cell (e.g., "Pirate Hunter")
+            If CurCell(gx, gy)\name <> ""
+              enemy\name = CurCell(gx, gy)\name
+            EndIf
+            Protected lvl.i = CurCell(gx, gy)\enemyLevel
+            If lvl < 1 : lvl = 1 : EndIf
+            ; Check for Planet Killer (very powerful)
+            If CurCell(gx, gy)\entType = #ENT_PLANETKILLER
+              enemy\name = "Planet Killer"
+              enemy\class = "Planet Killer"
+              enemy\hullMax = 500 + (lvl * 50)
+              enemy\hull = enemy\hullMax
+              enemy\shieldsMax = 400 + (lvl * 40)
+              enemy\shields = enemy\shieldsMax
+              enemy\weaponCapMax = 600 + (lvl * 50)
+              enemy\weaponCap = enemy\weaponCapMax
+              enemy\phaserBanks = 12
+              enemy\torpTubes = 4
+              enemy\torpMax = 20
+              enemy\torp = enemy\torpMax
+            ElseIf enemy\name = "" Or enemy\hullMax <= 0
+              enemy\name = "Raider"
+              enemy\class = "Raider"
+              enemy\hullMax = 100
+              enemy\hull = 100
+              enemy\shieldsMax = 90
+              enemy\shields = 90
+              enemy\weaponCapMax = 210
+              enemy\weaponCap = 105
+              enemy\phaserBanks = 6
+              enemy\torpTubes = 2
+              enemy\torpMax = 8
+              enemy\torp = 8
+            EndIf
+            enemy\hullMax = enemy\hullMax + (lvl * 10)
             enemy\hull = enemy\hullMax
-            enemy\shieldsMax = 400 + (lvl * 40)
+            enemy\shieldsMax = enemy\shieldsMax + (lvl * 12)
             enemy\shields = enemy\shieldsMax
-            enemy\weaponCapMax = 600 + (lvl * 50)
-            enemy\weaponCap = enemy\weaponCapMax
-            enemy\phaserBanks = 12
-            enemy\torpTubes = 4
-            enemy\torpMax = 20
+            enemy\weaponCapMax = enemy\weaponCapMax + (lvl * 20)
+            enemy\weaponCap = enemy\weaponCapMax / 2
             enemy\torp = enemy\torpMax
-          ElseIf enemy\name = "" Or enemy\hullMax <= 0
-            enemy\name = "Raider"
-            enemy\class = "Raider"
-            enemy\hullMax = 100
-            enemy\hull = 100
-            enemy\shieldsMax = 90
-            enemy\shields = 90
-            enemy\weaponCapMax = 210
-            enemy\weaponCap = 105
-            enemy\phaserBanks = 6
-            enemy\torpTubes = 2
-            enemy\torpMax = 8
-            enemy\torp = 8
+            ; Track if enemy is a pirate for tactical display
+            If CurCell(gx, gy)\entType = #ENT_PIRATE
+              gEnemyIsPirate = 1
+            Else
+              gEnemyIsPirate = 0
+            EndIf
+            EnterCombat(@player, @enemy, @cs)
+          Else
+            PrintN("You evade the enemy and continue exploring.")
           EndIf
-          enemy\hullMax = enemy\hullMax + (lvl * 10)
-          enemy\hull = enemy\hullMax
-          enemy\shieldsMax = enemy\shieldsMax + (lvl * 12)
-          enemy\shields = enemy\shieldsMax
-          enemy\weaponCapMax = enemy\weaponCapMax + (lvl * 20)
-          enemy\weaponCap = enemy\weaponCapMax / 2
-          enemy\torp = enemy\torpMax
-          EnterCombat(@player, @enemy, @cs)
         EndIf
 
         ; If we're defending a yard and left, give the yard a chance to take damage.
@@ -7694,8 +7729,7 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 444
-; FirstLine = 420
+; CursorPosition = 12
 ; Folding = ------------------------
 ; Optimizer
 ; EnableThread
@@ -7705,12 +7739,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,8,0
-; VersionField1 = 1,0,8,0
+; VersionField0 = 1,0,8,5
+; VersionField1 = 1,0,8,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.8.0
-; VersionField5 = 1.0.8.0
+; VersionField4 = 1.0.8.5
+; VersionField5 = 1.0.8.5
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
