@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.7.4"
+Global version.s = "v1.0.7.5"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -4060,8 +4060,14 @@ Procedure PrintMap()
             EndIf
           EndIf
 
-          SetColorForEnt(CurCell(x, row)\entType)
-          Print(EntSymbol(CurCell(x, row)\entType) + " ")
+          ; Check for pirate ships (show as 'P' instead of 'E')
+          If CurCell(x, row)\entType = #ENT_ENEMY And FindString(LCase(CurCell(x, row)\name), "pirate") > 0
+            ConsoleColor(#C_LIGHTRED, #C_BLACK)
+            Print("P ")
+          Else
+            SetColorForEnt(CurCell(x, row)\entType)
+            Print(EntSymbol(CurCell(x, row)\entType) + " ")
+          EndIf
           ResetColor()
         EndIf
       Next
@@ -7325,8 +7331,7 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 4845
-; FirstLine = 4825
+; CursorPosition = 12
 ; Folding = ------------------------
 ; Optimizer
 ; EnableThread
@@ -7336,12 +7341,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,7,4
-; VersionField1 = 1,0,7,4
+; VersionField0 = 1,0,7,5
+; VersionField1 = 1,0,7,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.7.4
-; VersionField5 = 1.0.7.4
+; VersionField4 = 1.0.7.5
+; VersionField5 = 1.0.7.5
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
