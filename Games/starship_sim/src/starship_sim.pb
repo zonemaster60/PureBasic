@@ -441,8 +441,8 @@ Enumeration
   #C_RED
   #C_MAGENTA
   #C_BROWN
-  #C_DARKGRAY
-  #C_LIGHTGRAY
+  #C_LIGHTGRAY = 7
+  #C_DARKGRAY = 8
   #C_LIGHTBLUE
   #C_LIGHTGREEN
   #C_LIGHTCYAN
@@ -7694,7 +7694,8 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 12
+; CursorPosition = 444
+; FirstLine = 420
 ; Folding = ------------------------
 ; Optimizer
 ; EnableThread
