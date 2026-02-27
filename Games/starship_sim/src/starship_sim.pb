@@ -7,10 +7,11 @@ EnableExplicit
 
 #APP_NAME = "Starship_Sim"
 #EMAIL_NAME = "zonemaster60@gmail.com"
+#MACRO_QUEUE_MAX = 500  ; max commands queued (large to accommodate REPEAT expansion)
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.9.0"
+Global version.s = "v1.1.0.0"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -405,6 +406,16 @@ Declare GenerateRecruits()
 Declare DismissCrew(*p.Ship, role.i)
 Declare RecruitCrew(*p.Ship, index.i)
 Declare.i CrewPositionFilled(*p.Ship, role.i)
+Declare ShipComputerTerminal(*p.Ship)
+Declare.s GetNextInput()
+Declare InitMacroFolder()
+Declare MacroList()
+Declare MacroCreate(name.s)
+Declare MacroRun(name.s)
+Declare MacroChainInsert(name.s)
+Declare MacroEdit(name.s)
+Declare MacroDelete(name.s)
+Declare MacroShow(name.s)
 Declare Main()
 
 Enumeration
@@ -595,9 +606,10 @@ Structure Mission
   rewardCredits.i
 EndStructure
 
-Global LogPath.s = AppPath + "logs" + #PS$
-Global DataPath.s = AppPath + "data" + #PS$
-Global SavePath.s = AppPath + "save" + #PS$
+Global LogPath.s   = AppPath + "logs"   + #PS$
+Global DataPath.s  = AppPath + "data"   + #PS$
+Global SavePath.s  = AppPath + "save"   + #PS$
+Global MacroPath.s = AppPath + "macros" + #PS$
 
 Global gIniPath.s = DataPath + #APP_NAME + "_ships.ini"
 Global gDatPath.s = DataPath + #APP_NAME + "_ships.dat"
@@ -657,6 +669,23 @@ Global gDockedShipCount.i = 0
 Global gStationType.i     = 0  ; 0=starbase, 1=refinery, 2=shipyard
 
 Global gDocked.i = 0
+
+; Macro playback queue - injected commands run via GetNextInput()
+Global gMacroPlaybackActive.i = 0
+Global gMacroPlaybackName.s   = ""
+Global gMacroQueueSize.i      = 0
+Global gMacroQueuePos.i       = 0
+Global Dim gMacroQueue.s(#MACRO_QUEUE_MAX - 1)
+
+; Macro conditional mirrors - updated each main-loop tick so GetNextInput() can
+; check ship state without needing a pointer to the player structure.
+Global gMacroFuelPct.i    = 100
+Global gMacroHullPct.i    = 100
+Global gMacroShieldsPct.i = 100
+Global gMacroTorpCount.i  = 0
+Global gMacroOre.i        = 0
+Global gMacroDilithium.i  = 0
+Global gMacroOreMax.i     = 0
 
 ; Undo system - save state before each command
 Global gUndoAvailable.i = 0
@@ -1731,6 +1760,59 @@ Procedure PrintHelpGalaxy()
   PrintN("    # = Wormhole (teleports you to a random map/sector, costs 1 fuel)")
   PrintN("    ? = Black hole (gravity well; on entry: random teleport, severe damage + scramble, or destruction)")
   PrintN("    S = Sun (fatal; gravity well may pull you in if adjacent)")
+  PrintN("")
+  PrintCmd("MACRO <sub> [name]")
+  PrintN("    Mini-program system - record and replay any sequence of game commands.")
+  PrintN("    Macros are saved as plain '.txt' files in the 'macros' folder.")
+  PrintN("    MACRO LIST            - List all saved macros")
+  PrintN("    MACRO CREATE <name>   - Create a new macro (enter commands line by line)")
+  PrintN("    MACRO RUN    <name>   - Run a macro (commands execute automatically)")
+  PrintN("    MACRO EDIT   <name>   - Edit / replace an existing macro")
+  PrintN("    MACRO SHOW   <name>   - Display the commands inside a macro")
+  PrintN("    MACRO DELETE <name>   - Delete a macro file")
+  PrintN("    MACRO STOP            - Abort the currently running macro")
+  PrintN("")
+  PrintN("    Special macro lines (not sent to the game as commands):")
+  PrintN("    ; <text>              - Comment line (skipped during playback)")
+  PrintN("    PAUSE                 - Pause playback; press Enter to continue,")
+  PrintN("                            type 'stop' to abort")
+  PrintN("    DELAY <ms>            - Wait N milliseconds (0-5000) before next command")
+  PrintN("    CHAIN <name>          - Splice another macro in at the current position")
+  PrintN("    REPEAT <n>            - Repeat the following block n times (max 20)")
+  PrintN("    END_REPEAT            - End of a REPEAT block")
+  PrintN("")
+  PrintN("    Conditional lines (run <command> only when condition is true):")
+  PrintN("    IF_FUEL_LOW    <cmd>   - fuel below 25%")
+  PrintN("    IF_HULL_LOW    <cmd>   - hull below 40%")
+  PrintN("    IF_SHIELDS_LOW <cmd>   - shields below 30%")
+  PrintN("    IF_TORP_EMPTY  <cmd>   - torpedoes = 0")
+  PrintN("    IF_CARGO_FULL  <cmd>   - ore cargo at maximum capacity")
+  PrintN("    IF_DILITHIUM_LOW <cmd> - dilithium below 5 crystals")
+  PrintN("    IF_DOCKED      <cmd>   - ship is currently docked")
+  PrintN("    IF_NOT_DOCKED  <cmd>   - ship is not docked")
+  PrintN("")
+  PrintN("    Example 'patrol' macro:")
+  PrintN("      REPEAT 3")
+  PrintN("      NAV 0 2")
+  PrintN("      NAV 90 2")
+  PrintN("      SCAN")
+  PrintN("      IF_FUEL_LOW REFUEL")
+  PrintN("      NAV 180 2")
+  PrintN("      NAV 270 2")
+  PrintN("      END_REPEAT")
+  PrintN("")
+  PrintCmd("TERMINAL")
+  PrintN("    Open the Ship Computer Terminal (onboard interactive system)")
+  PrintN("    Sub-commands inside the terminal:")
+  PrintN("      STATUS   - System status (hull, shields, fuel, system states)")
+  PrintN("      DIAG     - Full diagnostics with repair/resupply recommendations")
+  PrintN("      DB ALL   - Entity database summary (enemies, planets, bases, hazards)")
+  PrintN("      DB ENEMY | DB PLANET | DB BASE | DB HAZARD   - detailed entries")
+  PrintN("      THREAT   - Scan current sector for hostile contacts")
+  PrintN("      CARGO    - Detailed cargo manifest")
+  PrintN("      HISTORY  - Last 10 captain's log entries")
+  PrintN("      ALERTS   - Colour-coded alert status for all ship systems")
+  PrintN("      EXIT     - Close terminal and return to galaxy mode")
   PrintN("")
   PrintCmd("QUIT")
   PrintCmd("EXIT")
@@ -7321,6 +7403,1068 @@ Procedure LeaveCombat()
 EndProcedure
 
 ;==============================================================================
+; InitMacroFolder()
+; Creates the 'macros' folder if it doesn't already exist.
+;==============================================================================
+Procedure InitMacroFolder()
+  If FileSize(MacroPath) = -1
+    CreateDirectory(MacroPath)
+  EndIf
+EndProcedure
+
+;==============================================================================
+; GetNextInput()
+; Replaces Input() in the main CMD> loop. When a macro is playing back, returns
+; the next queued command without blocking. PAUSE lines prompt the user to press
+; Enter (and optionally type 'stop'). Falls through to real Input() when idle.
+;==============================================================================
+Procedure.s GetNextInput()
+  ; All locals declared up-front (EnableExplicit + loop-safe)
+  Protected nextCmd.s    = ""
+  Protected pauseResp.s  = ""
+  Protected metaVerb.s   = ""
+  Protected deferCmd.s   = ""
+  Protected condOK.i     = 0
+  Protected delayMs.i    = 0
+  Protected mtok.i       = 0
+  Protected mtokStr.s    = ""
+
+  While gMacroPlaybackActive = 1 And gMacroQueuePos < gMacroQueueSize
+    nextCmd  = gMacroQueue(gMacroQueuePos)
+    gMacroQueuePos + 1
+
+    If gMacroQueuePos >= gMacroQueueSize
+      gMacroPlaybackActive = 0
+    EndIf
+
+    metaVerb = TrimLower(TokenAt(nextCmd, 1))
+
+    ; ---- PAUSE ----
+    If metaVerb = "pause"
+      ConsoleColor(#C_YELLOW, #C_BLACK)
+      Print("[MACRO] Paused — press Enter to continue (type 'stop' to abort) > ")
+      ResetColor()
+      pauseResp = TrimLower(Trim(Input()))
+      pauseResp = ReplaceString(ReplaceString(pauseResp, Chr(13), ""), Chr(10), "")
+      If pauseResp = "stop"
+        gMacroPlaybackActive = 0
+        gMacroQueueSize      = 0
+        gMacroQueuePos       = 0
+        ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+        PrintN("[MACRO] Playback stopped by user.")
+        ResetColor()
+        gMacroPlaybackName = ""
+        ProcedureReturn "end"
+      EndIf
+      Continue
+    EndIf
+
+    ; ---- DELAY <ms> ----
+    If metaVerb = "delay"
+      delayMs = ClampInt(ParseIntSafe(TokenAt(nextCmd, 2), 500), 0, 5000)
+      ConsoleColor(#C_DARKGRAY, #C_BLACK)
+      PrintN("[MACRO] Delay " + Str(delayMs) + "ms")
+      ResetColor()
+      Delay(delayMs)
+      Continue
+    EndIf
+
+    ; ---- CHAIN <macroname> ----
+    If metaVerb = "chain"
+      MacroChainInsert(TrimLower(TokenAt(nextCmd, 2)))
+      Continue
+    EndIf
+
+    ; ---- IF_* conditional commands ----
+    ; Syntax:  IF_<condition> <game command to run if true>
+    ; e.g.     IF_FUEL_LOW    DOCK
+    ;          IF_HULL_LOW    NAV 270 1
+    ;          IF_TORP_EMPTY  NAV 0 5
+    If Left(metaVerb, 3) = "if_"
+      ; Collect everything from token 2 onward as the deferred action
+      deferCmd = ""
+      mtok     = 2
+      mtokStr  = TokenAt(nextCmd, mtok)
+      While mtokStr <> ""
+        If deferCmd <> "" : deferCmd + " " : EndIf
+        deferCmd + mtokStr
+        mtok + 1
+        mtokStr = TokenAt(nextCmd, mtok)
+      Wend
+      condOK = 0
+      Select metaVerb
+        Case "if_fuel_low"      : If gMacroFuelPct    < 25                               : condOK = 1 : EndIf
+        Case "if_hull_low"      : If gMacroHullPct    < 40                               : condOK = 1 : EndIf
+        Case "if_shields_low"   : If gMacroShieldsPct < 30                               : condOK = 1 : EndIf
+        Case "if_torp_empty"    : If gMacroTorpCount  = 0                                : condOK = 1 : EndIf
+        Case "if_cargo_full"    : If gMacroOreMax > 0 And gMacroOre >= gMacroOreMax      : condOK = 1 : EndIf
+        Case "if_dilithium_low" : If gMacroDilithium  < 5                                : condOK = 1 : EndIf
+        Case "if_docked"        : If gDocked = 1                                         : condOK = 1 : EndIf
+        Case "if_not_docked"    : If gDocked = 0                                         : condOK = 1 : EndIf
+      EndSelect
+      If condOK And deferCmd <> ""
+        ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+        PrintN("[MACRO] COND TRUE:  " + nextCmd + "  →  " + deferCmd)
+        ResetColor()
+        Delay(350)
+        ProcedureReturn deferCmd
+      Else
+        ConsoleColor(#C_DARKGRAY, #C_BLACK)
+        PrintN("[MACRO] COND FALSE: " + nextCmd)
+        ResetColor()
+      EndIf
+      Continue
+    EndIf
+
+    ; ---- Regular command — echo and return to main loop ----
+    ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+    Print("[MACRO] ")
+    ResetColor()
+    PrintN(nextCmd)
+    Delay(350)
+    ProcedureReturn nextCmd
+  Wend
+
+  ; Macro finished naturally
+  If gMacroPlaybackActive = 0 And gMacroPlaybackName <> ""
+    ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+    PrintN("[MACRO] '" + gMacroPlaybackName + "' completed.")
+    ResetColor()
+    gMacroPlaybackName = ""
+  EndIf
+
+  ProcedureReturn Input()
+EndProcedure
+
+;==============================================================================
+; MacroList()
+; Lists all saved macro files in the macros folder.
+;==============================================================================
+Procedure MacroList()
+  Protected count.i   = 0
+  Protected fname.s   = ""
+  Protected mname.s   = ""
+  Protected fpath.s   = ""
+  Protected fid.i     = 0
+  Protected lineCnt.i = 0
+  Protected fline.s   = ""
+
+  ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+  PrintDivider()
+  PrintN("  SAVED MACROS — " + MacroPath)
+  PrintDivider()
+  ResetColor()
+
+  If ExamineDirectory(0, MacroPath, "*.txt")
+    While NextDirectoryEntry(0)
+      If DirectoryEntryType(0) = #PB_DirectoryEntry_File
+        fname   = DirectoryEntryName(0)
+        mname   = Left(fname, Len(fname) - 4)
+        fpath   = MacroPath + fname
+        lineCnt = 0
+        fid = ReadFile(#PB_Any, fpath)
+        If fid
+          While Not Eof(fid)
+            fline = Trim(ReadString(fid))
+            If fline <> "" And Left(fline, 1) <> ";"
+              lineCnt + 1
+            EndIf
+          Wend
+          CloseFile(fid)
+        EndIf
+        Print("  ")
+        ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+        Print(mname)
+        ResetColor()
+        PrintN("  (" + Str(lineCnt) + " command(s))")
+        count + 1
+      EndIf
+    Wend
+    FinishDirectory(0)
+  EndIf
+
+  If count = 0
+    PrintN("  No macros found. Use  MACRO CREATE <name>  to make one.")
+  EndIf
+  PrintN("")
+EndProcedure
+
+;==============================================================================
+; MacroCreate(name.s)
+; Interactive line-by-line macro creation. Saves to macros/<name>.txt
+;==============================================================================
+Procedure MacroCreate(name.s)
+  Protected safeName.s  = ""
+  Protected ci.i        = 0
+  Protected ch.s        = ""
+  Protected fpath.s     = ""
+  Protected resp.s      = ""
+  Protected fid.i       = 0
+  Protected lineCount.i = 0
+  Protected entry.s     = ""
+
+  If name = ""
+    PrintN("Usage: MACRO CREATE <name>")
+    ProcedureReturn
+  EndIf
+
+  ; Sanitize: letters, digits, underscore, hyphen only
+  For ci = 1 To Len(name)
+    ch = Mid(name, ci, 1)
+    If (ch >= "a" And ch <= "z") Or (ch >= "A" And ch <= "Z") Or
+       (ch >= "0" And ch <= "9") Or ch = "_" Or ch = "-"
+      safeName + ch
+    EndIf
+  Next ci
+  If safeName = ""
+    PrintN("Invalid macro name. Use letters, numbers, _ or -")
+    ProcedureReturn
+  EndIf
+
+  InitMacroFolder()
+  fpath = MacroPath + safeName + ".txt"
+
+  If FileSize(fpath) >= 0
+    ConsoleColor(#C_YELLOW, #C_BLACK)
+    Print("Macro '" + safeName + "' already exists. Overwrite? (YES) > ")
+    ResetColor()
+    resp = TrimLower(Trim(Input()))
+    resp = ReplaceString(ReplaceString(resp, Chr(13), ""), Chr(10), "")
+    If resp <> "yes"
+      PrintN("Cancelled.")
+      ProcedureReturn
+    EndIf
+  EndIf
+
+  fid = CreateFile(#PB_Any, fpath)
+  If fid = 0
+    ConsoleColor(#C_LIGHTRED, #C_BLACK)
+    PrintN("ERROR: Could not create macro file: " + fpath)
+    ResetColor()
+    ProcedureReturn
+  EndIf
+
+  ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+  PrintDivider()
+  PrintN("  Creating macro: " + safeName)
+  PrintN("  Enter one game command per line (NAV, SCAN, WARP, MINE, STATUS, etc.)")
+  PrintN("  Lines starting with ; are comments.  PAUSE = pause playback for input.")
+  PrintN("  Press Enter on an empty line or type END to finish.")
+  PrintDivider()
+  ResetColor()
+
+  Repeat
+    ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+    Print("  " + Str(lineCount + 1) + "> ")
+    ResetColor()
+    entry = Trim(Input())
+    entry = ReplaceString(ReplaceString(entry, Chr(13), ""), Chr(10), "")
+    If TrimLower(entry) = "end" Or entry = ""
+      Break
+    EndIf
+    WriteStringN(fid, entry)
+    lineCount + 1
+    If lineCount >= 50
+      PrintN("  Maximum 50 lines reached.")
+      Break
+    EndIf
+  ForEver
+
+  CloseFile(fid)
+
+  If lineCount = 0
+    DeleteFile(fpath)
+    PrintN("  No commands entered. Macro not saved.")
+  Else
+    ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+    PrintN("  Macro '" + safeName + "' saved — " + Str(lineCount) + " command(s)")
+    PrintN("  File: " + fpath)
+    ResetColor()
+    LogLine("MACRO CREATE: " + safeName + " (" + Str(lineCount) + " lines)")
+  EndIf
+EndProcedure
+
+;==============================================================================
+; MacroRun(name.s)
+; Loads a macro file into the playback queue. The main loop's GetNextInput()
+; will feed each command automatically on subsequent turns.
+;==============================================================================
+Procedure MacroRun(name.s)
+  ; Variables for file I/O
+  Protected fpath.s       = ""
+  Protected fid.i         = 0
+  Protected fline.s       = ""
+  ; Variables for REPEAT expansion
+  Protected rawCount.i    = 0
+  Protected ri.i          = 0
+  Protected rj.i          = 0
+  Protected rk.i          = 0
+  Protected rl.i          = 0
+  Protected repeatN.i     = 0
+  Protected repeatStart.i = 0
+  Protected repeatEnd.i   = 0
+  Protected Dim rawLines.s(99)   ; temp storage for raw file lines (max 100)
+
+  If name = ""
+    PrintN("Usage: MACRO RUN <name>")
+    ProcedureReturn
+  EndIf
+
+  fpath = MacroPath + name + ".txt"
+  If FileSize(fpath) < 0
+    ConsoleColor(#C_LIGHTRED, #C_BLACK)
+    PrintN("Macro '" + name + "' not found. Use MACRO LIST to see saved macros.")
+    ResetColor()
+    ProcedureReturn
+  EndIf
+
+  fid = ReadFile(#PB_Any, fpath)
+  If fid = 0
+    ConsoleColor(#C_LIGHTRED, #C_BLACK)
+    PrintN("ERROR: Could not open macro file: " + fpath)
+    ResetColor()
+    ProcedureReturn
+  EndIf
+
+  ; Phase 1 — read raw lines (comments stripped, blank lines skipped)
+  rawCount = 0
+  While Not Eof(fid) And rawCount < 100
+    fline = Trim(ReadString(fid))
+    If fline <> "" And Left(fline, 1) <> ";"
+      rawLines(rawCount) = fline
+      rawCount + 1
+    EndIf
+  Wend
+  CloseFile(fid)
+
+  ; Phase 2 — expand REPEAT <n> / END_REPEAT blocks into the queue
+  gMacroQueueSize = 0
+  gMacroQueuePos  = 0
+  ri = 0
+
+  While ri < rawCount
+    If TrimLower(TokenAt(rawLines(ri), 1)) = "repeat"
+      repeatN     = ClampInt(ParseIntSafe(TokenAt(rawLines(ri), 2), 1), 1, 20)
+      repeatStart = ri + 1
+      repeatEnd   = -1
+      ; Scan forward for matching END_REPEAT
+      rj = ri + 1
+      While rj < rawCount
+        If TrimLower(rawLines(rj)) = "end_repeat"
+          repeatEnd = rj
+          Break
+        EndIf
+        rj + 1
+      Wend
+      If repeatEnd >= 0
+        ; Expand: copy inner block repeatN times
+        For rk = 1 To repeatN
+          For rl = repeatStart To repeatEnd - 1
+            If gMacroQueueSize < #MACRO_QUEUE_MAX
+              gMacroQueue(gMacroQueueSize) = rawLines(rl)
+              gMacroQueueSize + 1
+            EndIf
+          Next rl
+        Next rk
+        ri = repeatEnd + 1
+      Else
+        ; No matching END_REPEAT — treat REPEAT line as a normal (skipped) line
+        ri + 1
+      EndIf
+    ElseIf TrimLower(rawLines(ri)) = "end_repeat"
+      ri + 1   ; orphan END_REPEAT — skip
+    Else
+      If gMacroQueueSize < #MACRO_QUEUE_MAX
+        gMacroQueue(gMacroQueueSize) = rawLines(ri)
+        gMacroQueueSize + 1
+      EndIf
+      ri + 1
+    EndIf
+  Wend
+
+  If gMacroQueueSize = 0
+    PrintN("Macro '" + name + "' has no runnable commands.")
+    ProcedureReturn
+  EndIf
+
+  gMacroPlaybackActive = 1
+  gMacroPlaybackName   = name
+
+  ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+  PrintN("[MACRO] Running '" + name + "' — " + Str(gMacroQueueSize) + " command(s) queued.")
+  PrintN("[MACRO] Commands execute automatically. PAUSE to pause, MACRO STOP to abort.")
+  ResetColor()
+  LogLine("MACRO RUN: " + name + " (" + Str(gMacroQueueSize) + " commands)")
+EndProcedure
+
+;==============================================================================
+; MacroChainInsert(name.s)
+; Called by GetNextInput() when a CHAIN <name> line is encountered.
+; Loads the sub-macro and splices its commands into the active queue at the
+; current playback position, so they run next before the remaining commands.
+;==============================================================================
+Procedure MacroChainInsert(name.s)
+  Protected fpath.s      = ""
+  Protected fid.i        = 0
+  Protected fline.s      = ""
+  Protected subCount.i   = 0
+  Protected spaceAvail.i = 0
+  Protected si.i         = 0
+  Protected Dim subLines.s(49)   ; temp: up to 50 lines from sub-macro
+
+  If name = ""
+    ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+    PrintN("[MACRO] CHAIN: no macro name given, skipping.")
+    ResetColor()
+    ProcedureReturn
+  EndIf
+
+  fpath = MacroPath + name + ".txt"
+  If FileSize(fpath) < 0
+    ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+    PrintN("[MACRO] CHAIN: '" + name + "' not found, skipping.")
+    ResetColor()
+    ProcedureReturn
+  EndIf
+
+  fid = ReadFile(#PB_Any, fpath)
+  If fid = 0 : ProcedureReturn : EndIf
+
+  subCount = 0
+  While Not Eof(fid) And subCount < 50
+    fline = Trim(ReadString(fid))
+    If fline <> "" And Left(fline, 1) <> ";"
+      subLines(subCount) = fline
+      subCount + 1
+    EndIf
+  Wend
+  CloseFile(fid)
+
+  If subCount = 0 : ProcedureReturn : EndIf
+
+  ; Clamp to available space
+  spaceAvail = #MACRO_QUEUE_MAX - gMacroQueueSize
+  If subCount > spaceAvail
+    subCount = spaceAvail
+    ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+    PrintN("[MACRO] CHAIN: queue nearly full, '" + name + "' truncated to " + Str(subCount) + " command(s).")
+    ResetColor()
+  EndIf
+
+  If subCount <= 0 : ProcedureReturn : EndIf
+
+  ; Shift remaining queued commands forward to open a gap at gMacroQueuePos
+  For si = gMacroQueueSize - 1 To gMacroQueuePos Step -1
+    gMacroQueue(si + subCount) = gMacroQueue(si)
+  Next si
+
+  ; Splice sub-macro lines into the gap
+  For si = 0 To subCount - 1
+    gMacroQueue(gMacroQueuePos + si) = subLines(si)
+  Next si
+
+  gMacroQueueSize + subCount
+
+  ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+  PrintN("[MACRO] CHAIN: spliced '" + name + "' (" + Str(subCount) + " commands) at position " + Str(gMacroQueuePos))
+  ResetColor()
+EndProcedure
+
+;==============================================================================
+; MacroShow(name.s)
+; Displays the contents of a macro file with line numbers.
+;==============================================================================
+Procedure MacroShow(name.s)
+  Protected fpath.s   = ""
+  Protected fid.i     = 0
+  Protected lineNum.i = 0
+  Protected fline.s   = ""
+
+  If name = ""
+    PrintN("Usage: MACRO SHOW <name>")
+    ProcedureReturn
+  EndIf
+
+  fpath = MacroPath + name + ".txt"
+  If FileSize(fpath) < 0
+    ConsoleColor(#C_LIGHTRED, #C_BLACK)
+    PrintN("Macro '" + name + "' not found.")
+    ResetColor()
+    ProcedureReturn
+  EndIf
+
+  fid = ReadFile(#PB_Any, fpath)
+  If fid = 0
+    ConsoleColor(#C_LIGHTRED, #C_BLACK)
+    PrintN("ERROR: Could not read macro file.")
+    ResetColor()
+    ProcedureReturn
+  EndIf
+
+  ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+  PrintDivider()
+  PrintN("  MACRO: " + name)
+  PrintDivider()
+  ResetColor()
+
+  lineNum = 1
+  While Not Eof(fid)
+    fline = ReadString(fid)
+    If Trim(fline) <> ""
+      If Left(Trim(fline), 1) = ";"
+        ConsoleColor(#C_DARKGRAY, #C_BLACK)
+        PrintN("      " + fline)
+        ResetColor()
+      Else
+        Print("  " + Str(lineNum) + ": ")
+        ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+        PrintN(fline)
+        ResetColor()
+        lineNum + 1
+      EndIf
+    EndIf
+  Wend
+  CloseFile(fid)
+  PrintN("")
+EndProcedure
+
+;==============================================================================
+; MacroEdit(name.s)
+; Shows existing macro, confirms replacement, then re-enters interactively.
+;==============================================================================
+Procedure MacroEdit(name.s)
+  Protected fpath.s     = ""
+  Protected rfid.i      = 0
+  Protected wfid.i      = 0
+  Protected fline.s     = ""
+  Protected lineNum.i   = 0
+  Protected resp.s      = ""
+  Protected entry.s     = ""
+  Protected lineCount.i = 0
+
+  If name = ""
+    PrintN("Usage: MACRO EDIT <name>")
+    ProcedureReturn
+  EndIf
+
+  InitMacroFolder()
+  fpath = MacroPath + name + ".txt"
+
+  ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+  PrintDivider()
+  PrintN("  Editing macro: " + name)
+  ResetColor()
+
+  If FileSize(fpath) >= 0
+    rfid = ReadFile(#PB_Any, fpath)
+    If rfid
+      lineNum = 1
+      While Not Eof(rfid)
+        fline = ReadString(rfid)
+        If Trim(fline) <> ""
+          If Left(Trim(fline), 1) = ";"
+            ConsoleColor(#C_DARKGRAY, #C_BLACK)
+            PrintN("      " + fline)
+            ResetColor()
+          Else
+            Print("  " + Str(lineNum) + ": ")
+            ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+            PrintN(fline)
+            ResetColor()
+            lineNum + 1
+          EndIf
+        EndIf
+      Wend
+      CloseFile(rfid)
+    EndIf
+    PrintN("")
+    ConsoleColor(#C_YELLOW, #C_BLACK)
+    Print("  Replace all commands with new input? (YES) > ")
+    ResetColor()
+    resp = TrimLower(Trim(Input()))
+    resp = ReplaceString(ReplaceString(resp, Chr(13), ""), Chr(10), "")
+    If resp <> "yes"
+      PrintN("Edit cancelled.")
+      ProcedureReturn
+    EndIf
+  Else
+    PrintN("  Macro not found — will create as new.")
+  EndIf
+
+  wfid = CreateFile(#PB_Any, fpath)
+  If wfid = 0
+    ConsoleColor(#C_LIGHTRED, #C_BLACK)
+    PrintN("ERROR: Could not write macro file: " + fpath)
+    ResetColor()
+    ProcedureReturn
+  EndIf
+
+  ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+  PrintN("  Enter new commands. Empty line or END to finish.")
+  PrintDivider()
+  ResetColor()
+
+  Repeat
+    ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+    Print("  " + Str(lineCount + 1) + "> ")
+    ResetColor()
+    entry = Trim(Input())
+    entry = ReplaceString(ReplaceString(entry, Chr(13), ""), Chr(10), "")
+    If TrimLower(entry) = "end" Or entry = ""
+      Break
+    EndIf
+    WriteStringN(wfid, entry)
+    lineCount + 1
+    If lineCount >= 50
+      PrintN("  Maximum 50 lines reached.")
+      Break
+    EndIf
+  ForEver
+
+  CloseFile(wfid)
+
+  If lineCount = 0
+    DeleteFile(fpath)
+    PrintN("  No commands entered. Macro '" + name + "' removed.")
+  Else
+    ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+    PrintN("  Macro '" + name + "' updated — " + Str(lineCount) + " command(s).")
+    ResetColor()
+    LogLine("MACRO EDIT: " + name + " (" + Str(lineCount) + " lines)")
+  EndIf
+EndProcedure
+
+;==============================================================================
+; MacroDelete(name.s)
+; Confirms and deletes a macro file.
+;==============================================================================
+Procedure MacroDelete(name.s)
+  Protected fpath.s = ""
+  Protected resp.s  = ""
+
+  If name = ""
+    PrintN("Usage: MACRO DELETE <name>")
+    ProcedureReturn
+  EndIf
+
+  fpath = MacroPath + name + ".txt"
+  If FileSize(fpath) < 0
+    ConsoleColor(#C_LIGHTRED, #C_BLACK)
+    PrintN("Macro '" + name + "' not found. Use MACRO LIST to see saved macros.")
+    ResetColor()
+    ProcedureReturn
+  EndIf
+
+  ConsoleColor(#C_YELLOW, #C_BLACK)
+  Print("Delete macro '" + name + "'? (YES) > ")
+  ResetColor()
+  resp = TrimLower(Trim(Input()))
+  resp = ReplaceString(ReplaceString(resp, Chr(13), ""), Chr(10), "")
+
+  If resp = "yes"
+    If DeleteFile(fpath)
+      ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+      PrintN("Macro '" + name + "' deleted.")
+      ResetColor()
+      LogLine("MACRO DELETE: " + name)
+    Else
+      ConsoleColor(#C_LIGHTRED, #C_BLACK)
+      PrintN("ERROR: Could not delete macro file.")
+      ResetColor()
+    EndIf
+  Else
+    PrintN("Delete cancelled.")
+  EndIf
+EndProcedure
+
+;==============================================================================
+; ShipComputerTerminal(*p.Ship)
+; Interactive onboard ship computer terminal accessible via the TERMINAL command.
+; Provides system diagnostics, entity database, threat scanning, cargo manifest,
+; command history, and colour-coded ship alerts.
+; Sub-commands: HELP, STATUS, DIAG, DB <topic>, THREAT, CARGO, HISTORY, ALERTS, EXIT
+;==============================================================================
+Procedure ShipComputerTerminal(*p.Ship)
+  ; All variables declared at the top (EnableExplicit + Select/Case safe)
+  Protected termCmd.s
+  Protected termLine.s
+  Protected termRunning.i = 1
+  Protected dbTopic.s
+  Protected hullPct.i
+  Protected shieldPct.i
+  Protected fuelPct.i
+  Protected hullAlert.i
+  Protected shieldAlert.i
+  Protected fuelAlert.i
+  Protected totalCargo.i
+  Protected threatFound.i
+  Protected tx.i, ty.i
+  Protected cellName.s
+  Protected threatType.s
+  Protected histStart.i
+  Protected hi.i
+
+  ClearConsole()
+  ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+  PrintDivider()
+  PrintN("  SHIP COMPUTER TERMINAL  |  Stardate: " + FormatStardate() + "  |  Position: (" + Str(gMapX) + "," + Str(gMapY) + ")-(" + Str(gx) + "," + Str(gy) + ")")
+  PrintDivider()
+  ResetColor()
+  PrintN("  Type HELP for commands. Type EXIT to close the terminal.")
+  PrintN("")
+
+  While termRunning = 1
+    ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+    Print("[COMPUTER] > ")
+    ResetColor()
+    termLine = Trim(Input())
+    termLine = ReplaceString(ReplaceString(termLine, Chr(13), ""), Chr(10), "")
+    termCmd  = TrimLower(TokenAt(termLine, 1))
+
+    Select termCmd
+
+      Case "help", ""
+        ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+        PrintN("  Ship Computer Terminal Commands:")
+        ResetColor()
+        PrintN("  STATUS   - System status (hull, shields, fuel, systems)")
+        PrintN("  DIAG     - Full diagnostics with repair recommendations")
+        PrintN("  DB       - Entity database")
+        PrintN("             DB ENEMY | DB PLANET | DB BASE | DB HAZARD | DB ALL")
+        PrintN("  THREAT   - Scan current sector for hostile contacts")
+        PrintN("  CARGO    - Detailed cargo manifest")
+        PrintN("  HISTORY  - Recent command history (last 10 entries)")
+        PrintN("  ALERTS   - Colour-coded ship alert status")
+        PrintN("  EXIT     - Close the computer terminal")
+        PrintN("")
+
+      Case "status"
+        ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+        PrintN("  -- SYSTEM STATUS REPORT --")
+        ResetColor()
+        hullPct   = (*p\hull    * 100) / *p\hullMax
+        shieldPct = (*p\shields * 100) / *p\shieldsMax
+        fuelPct   = (*p\fuel    * 100) / *p\fuelMax
+        Print("  Hull:      ") : SetColorForPercent(hullPct)   : PrintN(Str(*p\hull)    + "/" + Str(*p\hullMax)    + "  (" + Str(hullPct)   + "%)") : ResetColor()
+        Print("  Shields:   ") : SetColorForPercent(shieldPct) : PrintN(Str(*p\shields) + "/" + Str(*p\shieldsMax) + "  (" + Str(shieldPct) + "%)") : ResetColor()
+        Print("  Fuel:      ") : SetColorForPercent(fuelPct)   : PrintN(Str(*p\fuel)    + "/" + Str(*p\fuelMax)    + "  (" + Str(fuelPct)   + "%)") : ResetColor()
+        PrintN("  Torpedoes: " + Str(*p\torp)   + "/" + Str(*p\torpMax))
+        PrintN("  Probes:    " + Str(*p\probes) + "/" + Str(*p\probesMax))
+        PrintN("  Credits:   " + Str(gCredits))
+        PrintN("")
+        Print("  Engines:  ")
+        If *p\sysEngines & #SYS_DISABLED    : ConsoleColor(#C_LIGHTRED,   #C_BLACK) : PrintN("OFFLINE") : ResetColor()
+        ElseIf *p\sysEngines & #SYS_DAMAGED : ConsoleColor(#C_YELLOW,     #C_BLACK) : PrintN("DAMAGED") : ResetColor()
+        Else                                : ConsoleColor(#C_LIGHTGREEN, #C_BLACK) : PrintN("ONLINE")  : ResetColor()
+        EndIf
+        Print("  Weapons:  ")
+        If *p\sysWeapons & #SYS_DISABLED    : ConsoleColor(#C_LIGHTRED,   #C_BLACK) : PrintN("OFFLINE") : ResetColor()
+        ElseIf *p\sysWeapons & #SYS_DAMAGED : ConsoleColor(#C_YELLOW,     #C_BLACK) : PrintN("DAMAGED") : ResetColor()
+        Else                                : ConsoleColor(#C_LIGHTGREEN, #C_BLACK) : PrintN("ONLINE")  : ResetColor()
+        EndIf
+        Print("  Shields:  ")
+        If *p\sysShields & #SYS_DISABLED    : ConsoleColor(#C_LIGHTRED,   #C_BLACK) : PrintN("OFFLINE") : ResetColor()
+        ElseIf *p\sysShields & #SYS_DAMAGED : ConsoleColor(#C_YELLOW,     #C_BLACK) : PrintN("DAMAGED") : ResetColor()
+        Else                                : ConsoleColor(#C_LIGHTGREEN, #C_BLACK) : PrintN("ONLINE")  : ResetColor()
+        EndIf
+        PrintN("")
+
+      Case "diag"
+        ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+        PrintN("  -- FULL DIAGNOSTIC REPORT --")
+        ResetColor()
+        hullPct   = (*p\hull    * 100) / *p\hullMax
+        shieldPct = (*p\shields * 100) / *p\shieldsMax
+        fuelPct   = (*p\fuel    * 100) / *p\fuelMax
+        Print("  Hull:     ") : SetColorForPercent(hullPct)   : PrintN(Str(*p\hull)    + "/" + Str(*p\hullMax)    + "  (" + Str(hullPct)   + "%)") : ResetColor()
+        Print("  Shields:  ") : SetColorForPercent(shieldPct) : PrintN(Str(*p\shields) + "/" + Str(*p\shieldsMax) + "  (" + Str(shieldPct) + "%)") : ResetColor()
+        Print("  Fuel:     ") : SetColorForPercent(fuelPct)   : PrintN(Str(*p\fuel)    + "/" + Str(*p\fuelMax)    + "  (" + Str(fuelPct)   + "%)") : ResetColor()
+        PrintN("")
+        ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+        PrintN("  -- RECOMMENDATIONS --")
+        ResetColor()
+        If hullPct < 30
+          ConsoleColor(#C_LIGHTRED, #C_BLACK)
+          PrintN("  [!] CRITICAL: Hull integrity below 30%. Seek repairs immediately.")
+          ResetColor()
+        ElseIf hullPct < 60
+          ConsoleColor(#C_YELLOW, #C_BLACK)
+          PrintN("  [!] WARNING: Hull integrity below 60%. Consider docking for repairs.")
+          ResetColor()
+        Else
+          ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+          PrintN("  [*] Hull integrity nominal.")
+          ResetColor()
+        EndIf
+        If fuelPct < 20
+          ConsoleColor(#C_LIGHTRED, #C_BLACK)
+          PrintN("  [!] CRITICAL: Fuel below 20%. Locate a starbase or refuel now.")
+          ResetColor()
+        ElseIf fuelPct < 40
+          ConsoleColor(#C_YELLOW, #C_BLACK)
+          PrintN("  [!] WARNING: Fuel below 40%. Plan refuelling soon.")
+          ResetColor()
+        Else
+          ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+          PrintN("  [*] Fuel levels nominal.")
+          ResetColor()
+        EndIf
+        If *p\torp = 0
+          ConsoleColor(#C_YELLOW, #C_BLACK)
+          PrintN("  [!] WARNING: Torpedo reserves depleted. Rearm at a starbase.")
+          ResetColor()
+        Else
+          ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+          PrintN("  [*] Torpedoes: " + Str(*p\torp) + "/" + Str(*p\torpMax))
+          ResetColor()
+        EndIf
+        If *p\probes = 0
+          ConsoleColor(#C_LIGHTGRAY, #C_BLACK)
+          PrintN("  [*] NOTE: Probe reserves depleted.")
+          ResetColor()
+        EndIf
+        If gIonStormTurns > 0
+          ConsoleColor(#C_YELLOW, #C_BLACK)
+          PrintN("  [!] Ion storm active: " + Str(gIonStormTurns) + " turn(s) remaining.")
+          ResetColor()
+        EndIf
+        If gRadiationTurns > 0
+          ConsoleColor(#C_YELLOW, #C_BLACK)
+          PrintN("  [!] Radiation field active: " + Str(gRadiationTurns) + " turn(s) remaining.")
+          ResetColor()
+        EndIf
+        PrintN("")
+
+      Case "db"
+        dbTopic = TrimLower(TokenAt(termLine, 2))
+        Select dbTopic
+
+          Case "enemy", "enemies"
+            ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+            PrintN("  -- ENEMY DATABASE --")
+            ResetColor()
+            ConsoleColor(#C_LIGHTRED, #C_BLACK) : Print("  [E] ") : ResetColor()
+            PrintN("Enemy Warship   - Hostile military vessel. Phasers and torpedoes.")
+            PrintN("                  Tactics: aggressive flanking. Weak to sustained phaser fire.")
+            PrintN("")
+            ConsoleColor(#C_LIGHTMAGENTA, #C_BLACK) : Print("  [P] ") : ResetColor()
+            PrintN("Pirate Raider   - Opportunistic raider targeting dilithium cargo.")
+            PrintN("                  Tactics: hit-and-run. Limit dilithium carried to deter.")
+            PrintN("")
+            ConsoleColor(#C_LIGHTRED, #C_BLACK) : Print("  [K] ") : ResetColor()
+            PrintN("Planet Killer   - Massive doomsday machine. Extreme hull and shield values.")
+            PrintN("                  Requires torpedoes + max phaser power. Very dangerous.")
+            PrintN("")
+
+          Case "planet", "planets"
+            ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+            PrintN("  -- PLANET DATABASE --")
+            ResetColor()
+            ConsoleColor(#C_LIGHTGREEN, #C_BLACK) : Print("  [O] ") : ResetColor()
+            PrintN("Ore Planet       - Surface ore deposits. Use MINE then TRANSPORTER.")
+            PrintN("")
+            ConsoleColor(#C_CYAN, #C_BLACK) : Print("  [D] ") : ResetColor()
+            PrintN("Dilithium Cluster - High-value crystals. Attracts pirates when carried in bulk.")
+            PrintN("")
+            ConsoleColor(#C_YELLOW, #C_BLACK) : Print("  [*] ") : ResetColor()
+            PrintN("Sun              - Stellar body. Gravity well — do not enter.")
+            PrintN("                  Causes hull and fuel damage if pulled in.")
+            PrintN("")
+
+          Case "base", "bases", "station", "stations"
+            ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+            PrintN("  -- STATION DATABASE --")
+            ResetColor()
+            ConsoleColor(#C_LIGHTBLUE, #C_BLACK) : Print("  [%] ") : ResetColor()
+            PrintN("Starbase  - DOCK: repair hull, refuel, rearm, recruit crew, get missions.")
+            PrintN("")
+            ConsoleColor(#C_LIGHTMAGENTA, #C_BLACK) : Print("  [+] ") : ResetColor()
+            PrintN("Shipyard  - DOCK: purchase ship upgrades (hull, shields, weapons, etc.).")
+            PrintN("")
+            ConsoleColor(#C_LIGHTGREEN, #C_BLACK) : Print("  [R] ") : ResetColor()
+            PrintN("Refinery  - DOCK: REFINE ore into metals, SELL cargo, BUY materials.")
+            PrintN("")
+
+          Case "hazard", "hazards", "anomaly", "anomalies"
+            ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+            PrintN("  -- HAZARD DATABASE --")
+            ResetColor()
+            ConsoleColor(#C_LIGHTRED, #C_BLACK) : Print("  [@] ") : ResetColor()
+            PrintN("Black Hole  - Strong gravity pull. Severe damage or destruction on entry.")
+            PrintN("              Use UNDO to recover if you are pulled in.")
+            PrintN("")
+            ConsoleColor(#C_LIGHTBLUE, #C_BLACK) : Print("  [W] ") : ResetColor()
+            PrintN("Wormhole    - Teleports ship to random galaxy location. Costs 1 fuel.")
+            PrintN("")
+            ConsoleColor(#C_YELLOW, #C_BLACK) : Print("  [?] ") : ResetColor()
+            PrintN("Anomaly     - Energy phenomena. May trigger ion storms or radiation fields.")
+            PrintN("              Ion storms reduce shields. Radiation fields reduce crew XP.")
+            PrintN("")
+
+          Case "all"
+            ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+            PrintN("  === ENTITY DATABASE SUMMARY ===")
+            ResetColor()
+            PrintN("  ENEMIES: [E] Warship  [P] Pirate  [K] Planet Killer")
+            PrintN("  PLANETS: [O] Ore Planet  [D] Dilithium Cluster  [*] Sun")
+            PrintN("  BASES:   [%] Starbase  [+] Shipyard  [R] Refinery")
+            PrintN("  HAZARDS: [@] Black Hole  [W] Wormhole  [?] Anomaly")
+            PrintN("  Use  DB ENEMY | DB PLANET | DB BASE | DB HAZARD  for full details.")
+            PrintN("")
+
+          Default
+            PrintN("  Usage: DB <topic>")
+            PrintN("  Topics: ENEMY  PLANET  BASE  HAZARD  ALL")
+            PrintN("")
+
+        EndSelect
+
+      Case "threat"
+        ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+        PrintN("  -- THREAT ANALYSIS: Sector (" + Str(gMapX) + "," + Str(gMapY) + ") --")
+        ResetColor()
+        threatFound = 0
+        For tx = 0 To #MAP_W - 1
+          For ty = 0 To #MAP_H - 1
+            If CurCell(tx, ty)\entType = #ENT_ENEMY Or CurCell(tx, ty)\entType = #ENT_PIRATE Or CurCell(tx, ty)\entType = #ENT_PLANETKILLER
+              cellName    = CurCell(tx, ty)\name
+              threatType  = ""
+              Select CurCell(tx, ty)\entType
+                Case #ENT_ENEMY        : threatType = "Enemy Warship"
+                Case #ENT_PIRATE       : threatType = "Pirate Raider"
+                Case #ENT_PLANETKILLER : threatType = "PLANET KILLER"
+                Default                : threatType = "Unknown Contact"
+              EndSelect
+              ConsoleColor(#C_LIGHTRED, #C_BLACK)
+              Print("  [THREAT] ")
+              ResetColor()
+              If cellName <> ""
+                PrintN(threatType + " at (" + Str(tx) + "," + Str(ty) + ") - " + cellName)
+              Else
+                PrintN(threatType + " at (" + Str(tx) + "," + Str(ty) + ")")
+              EndIf
+              threatFound = 1
+            EndIf
+          Next ty
+        Next tx
+        If threatFound = 0
+          ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+          PrintN("  No hostile contacts detected in current sector.")
+          ResetColor()
+        EndIf
+        If gIonStormTurns > 0
+          ConsoleColor(#C_YELLOW, #C_BLACK)
+          PrintN("  [ALERT] Ion storm active: " + Str(gIonStormTurns) + " turn(s) remaining.")
+          ResetColor()
+        EndIf
+        If gRadiationTurns > 0
+          ConsoleColor(#C_YELLOW, #C_BLACK)
+          PrintN("  [ALERT] Radiation field: " + Str(gRadiationTurns) + " turn(s) remaining.")
+          ResetColor()
+        EndIf
+        PrintN("")
+
+      Case "cargo"
+        ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+        PrintN("  -- CARGO MANIFEST --")
+        ResetColor()
+        PrintN("  Raw Materials:")
+        PrintN("    Ore:       " + Str(*p\ore)       + " / " + Str(*p\oreMax)       + " units")
+        PrintN("    Dilithium: " + Str(*p\dilithium)  + " / " + Str(*p\dilithiumMax) + " crystals")
+        PrintN("")
+        PrintN("  Refined Metals:")
+        PrintN("    Iron:      " + Str(gIron))
+        PrintN("    Aluminum:  " + Str(gAluminum))
+        PrintN("    Copper:    " + Str(gCopper))
+        PrintN("    Tin:       " + Str(gTin))
+        PrintN("    Bronze:    " + Str(gBronze))
+        PrintN("")
+        totalCargo = *p\ore + *p\dilithium + gIron + gAluminum + gCopper + gTin + gBronze
+        PrintN("  Total cargo units: " + Str(totalCargo))
+        PrintN("  Credits:           " + Str(gCredits))
+        If *p\dilithium >= 10
+          ConsoleColor(#C_YELLOW, #C_BLACK)
+          PrintN("  [ALERT] Large dilithium load may attract pirate attention!")
+          ResetColor()
+        EndIf
+        PrintN("")
+
+      Case "history"
+        ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+        PrintN("  -- RECENT COMMAND HISTORY (last 10) --")
+        ResetColor()
+        histStart = gCaptainLogCount - 10
+        If histStart < 0 : histStart = 0 : EndIf
+        For hi = histStart To gCaptainLogCount - 1
+          PrintN("  " + gCaptainLog(hi))
+        Next hi
+        PrintN("")
+
+      Case "alerts"
+        ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+        PrintN("  -- SHIP ALERT STATUS --")
+        ResetColor()
+        hullAlert   = (*p\hull    * 100) / *p\hullMax
+        shieldAlert = (*p\shields * 100) / *p\shieldsMax
+        fuelAlert   = (*p\fuel    * 100) / *p\fuelMax
+        If hullAlert < 25
+          ConsoleColor(#C_LIGHTRED, #C_BLACK) : PrintN("  [RED   ] Hull at "    + Str(hullAlert)   + "% - CRITICAL DAMAGE")  : ResetColor()
+        ElseIf hullAlert < 50
+          ConsoleColor(#C_YELLOW,   #C_BLACK) : PrintN("  [YELLOW] Hull at "    + Str(hullAlert)   + "% - Moderate damage") : ResetColor()
+        Else
+          ConsoleColor(#C_LIGHTGREEN, #C_BLACK) : PrintN("  [GREEN ] Hull at "  + Str(hullAlert)   + "% - Nominal")          : ResetColor()
+        EndIf
+        If shieldAlert < 25
+          ConsoleColor(#C_LIGHTRED, #C_BLACK) : PrintN("  [RED   ] Shields at " + Str(shieldAlert) + "% - CRITICAL")         : ResetColor()
+        ElseIf shieldAlert < 50
+          ConsoleColor(#C_YELLOW,   #C_BLACK) : PrintN("  [YELLOW] Shields at " + Str(shieldAlert) + "% - Low")              : ResetColor()
+        Else
+          ConsoleColor(#C_LIGHTGREEN, #C_BLACK) : PrintN("  [GREEN ] Shields at "+ Str(shieldAlert) + "% - Nominal")          : ResetColor()
+        EndIf
+        If fuelAlert < 20
+          ConsoleColor(#C_LIGHTRED, #C_BLACK) : PrintN("  [RED   ] Fuel at "    + Str(fuelAlert)   + "% - CRITICAL LOW FUEL"): ResetColor()
+        ElseIf fuelAlert < 40
+          ConsoleColor(#C_YELLOW,   #C_BLACK) : PrintN("  [YELLOW] Fuel at "    + Str(fuelAlert)   + "% - Running low")      : ResetColor()
+        Else
+          ConsoleColor(#C_LIGHTGREEN, #C_BLACK) : PrintN("  [GREEN ] Fuel at "  + Str(fuelAlert)   + "% - Nominal")          : ResetColor()
+        EndIf
+        If *p\torp = 0
+          ConsoleColor(#C_YELLOW, #C_BLACK) : PrintN("  [YELLOW] Torpedoes depleted - rearm at a starbase") : ResetColor()
+        Else
+          ConsoleColor(#C_LIGHTGREEN, #C_BLACK) : PrintN("  [GREEN ] Torpedoes: " + Str(*p\torp) + "/" + Str(*p\torpMax))     : ResetColor()
+        EndIf
+        If gWarpCooldown > 0
+          ConsoleColor(#C_YELLOW, #C_BLACK) : PrintN("  [YELLOW] Warp engines recharging: " + Str(gWarpCooldown) + " turn(s)") : ResetColor()
+        Else
+          ConsoleColor(#C_LIGHTGREEN, #C_BLACK) : PrintN("  [GREEN ] Warp engines ready")                                     : ResetColor()
+        EndIf
+        If gIonStormTurns > 0
+          ConsoleColor(#C_LIGHTRED, #C_BLACK) : PrintN("  [RED   ] Ion storm: "    + Str(gIonStormTurns)  + " turn(s) remaining") : ResetColor()
+        EndIf
+        If gRadiationTurns > 0
+          ConsoleColor(#C_LIGHTRED, #C_BLACK) : PrintN("  [RED   ] Radiation field: "+ Str(gRadiationTurns) + " turn(s) remaining") : ResetColor()
+        EndIf
+        PrintN("")
+
+      Case "exit", "quit", "q"
+        termRunning = 0
+
+      Default
+        PrintN("  Unknown command: '" + termCmd + "'. Type HELP for available commands.")
+        PrintN("")
+
+    EndSelect
+
+    PlayComputerBeep()
+  Wend
+
+  ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+  PrintN("  [COMPUTER TERMINAL CLOSED]")
+  PrintDivider()
+  ResetColor()
+EndProcedure
+
+;==============================================================================
 ; Main()
 ; Entry point for the entire game. Initializes all game systems, loads data,
 ; generates the galaxy, and starts the main game loop. Handles both galaxy mode
@@ -7346,6 +8490,7 @@ Procedure Main()
   EndIf
 
   InitLogging()
+  InitMacroFolder()
   OnErrorCall(@CrashHandler())
 
   ConsoleColor(#C_WHITE, #C_BLACK)
@@ -7388,9 +8533,19 @@ Procedure Main()
   RedrawGalaxy(@player)
 
   While IsAlive(@player)
+    ; Refresh macro conditional mirrors so GetNextInput() can check ship state
+    If player\fuelMax    > 0 : gMacroFuelPct    = (player\fuel    * 100) / player\fuelMax    : EndIf
+    If player\hullMax    > 0 : gMacroHullPct    = (player\hull    * 100) / player\hullMax    : EndIf
+    If player\shieldsMax > 0 : gMacroShieldsPct = (player\shields * 100) / player\shieldsMax : EndIf
+    gMacroTorpCount = player\torp
+    gMacroOre       = player\ore
+    gMacroDilithium = player\dilithium
+    gMacroOreMax    = player\oreMax
     ConsoleColor(#C_WHITE, #C_BLACK)
-    Print("CMD> ")
-    Protected lineRaw.s = Input()
+    If gMacroPlaybackActive = 0
+      Print("CMD> ")
+    EndIf
+    Protected lineRaw.s = GetNextInput()
     ; When stdin is closed (eg. redirected), some consoles feed EOF as control chars.
     If lineRaw = Chr(4) Or lineRaw = Chr(26)
       Break
@@ -8311,6 +9466,44 @@ Procedure Main()
         Else
           PrintN("No cheat code available yet. Keep exploring!")
         EndIf
+      ElseIf cmd = "macro"
+        Protected macroSub.s  = TrimLower(TokenAt(line, 2))
+        Protected macroName.s = TrimLower(TokenAt(line, 3))
+        If macroSub = "create"
+          MacroCreate(macroName)
+        ElseIf macroSub = "run"
+          If macroName = ""
+            PrintN("Usage: MACRO RUN <name>")
+          Else
+            MacroRun(macroName)
+          EndIf
+        ElseIf macroSub = "edit"
+          MacroEdit(macroName)
+        ElseIf macroSub = "delete" Or macroSub = "del"
+          MacroDelete(macroName)
+        ElseIf macroSub = "show" Or macroSub = "view"
+          MacroShow(macroName)
+        ElseIf macroSub = "list" Or macroSub = ""
+          MacroList()
+        ElseIf macroSub = "stop"
+          If gMacroPlaybackActive
+            gMacroPlaybackActive = 0
+            gMacroQueueSize      = 0
+            gMacroQueuePos       = 0
+            ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+            PrintN("[MACRO] Playback stopped.")
+            ResetColor()
+            gMacroPlaybackName = ""
+          Else
+            PrintN("No macro is currently running.")
+          EndIf
+        Else
+          PrintN("Usage: MACRO <list|create|run|edit|delete|show|stop> [name]")
+        EndIf
+        RedrawGalaxy(@player)
+      ElseIf cmd = "terminal"
+        ShipComputerTerminal(@player)
+        RedrawGalaxy(@player)
       ElseIf cmd = "quit" Or cmd = "exit"
         Protected quitConfirm.i = MessageRequester("Starship Sim", "Are you sure you want to exit?", #PB_MessageRequester_YesNo)
         If quitConfirm = #PB_MessageRequester_Yes
@@ -8885,9 +10078,9 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 587
-; FirstLine = 584
-; Folding = -------------------------
+; CursorPosition = 1784
+; FirstLine = 7590
+; Folding = ---------------------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -8896,12 +10089,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,9,0
-; VersionField1 = 1,0,9,0
+; VersionField0 = 1,1,0,0
+; VersionField1 = 1,1,0,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.9.0
-; VersionField5 = 1.0.9.0
+; VersionField4 = 1.1.0.0
+; VersionField5 = 1.1.0.0
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
