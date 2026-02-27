@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.7.5"
+Global version.s = "v1.0.8.0"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -412,6 +412,7 @@ Enumeration
   #ENT_PLANET
   #ENT_BASE
   #ENT_ENEMY
+  #ENT_PIRATE
   #ENT_WORMHOLE
   #ENT_BLACKHOLE
   #ENT_SUN
@@ -440,8 +441,8 @@ Enumeration
   #C_RED
   #C_MAGENTA
   #C_BROWN
-  #C_LIGHTGRAY
   #C_DARKGRAY
+  #C_LIGHTGRAY
   #C_LIGHTBLUE
   #C_LIGHTGREEN
   #C_LIGHTCYAN
@@ -1314,6 +1315,14 @@ Procedure ClearLog()
   gLogPos = 0
 EndProcedure
 
+;==============================================================================
+; RedrawGalaxy(*p.Ship)
+; Refreshes the galaxy display by showing:
+;   - Status panel (ship info, fuel, cargo, location)
+;   - Sector/galaxy map (dual-panel display)
+;   - Legend for map symbols
+; Called after every player command to keep display current.
+;==============================================================================
 Procedure RedrawGalaxy(*p.Ship)
   ClearConsole()
   ResetColor()
@@ -1395,11 +1404,11 @@ EndProcedure
 Procedure PrintDivider()
   ConsoleColor(#C_DARKGRAY, #C_BLACK)
   PrintN("------------------------------------------------------------")
-  ConsoleColor(#C_LIGHTGRAY, #C_BLACK)
+  ConsoleColor(#C_DARKGRAY, #C_BLACK)
 EndProcedure
 
 Procedure ResetColor()
-  ConsoleColor(#C_LIGHTGRAY, #C_BLACK)
+  ConsoleColor(#C_WHITE, #C_BLACK)
 EndProcedure
 
 Procedure PrintCmd(cmd.s)
@@ -1448,6 +1457,8 @@ Procedure SetColorForEnt(t.i)
     Case #ENT_SHIPYARD
       ConsoleColor(#C_GREEN, #C_BLACK)
     Case #ENT_ENEMY
+      ConsoleColor(#C_LIGHTRED, #C_BLACK)
+    Case #ENT_PIRATE
       ConsoleColor(#C_LIGHTRED, #C_BLACK)
     Case #ENT_WORMHOLE
       ConsoleColor(#C_LIGHTMAGENTA, #C_BLACK)
@@ -2110,6 +2121,27 @@ Procedure PrintHelpTactical()
   PrintDivider()
 EndProcedure
 
+;==============================================================================
+; InitCrew(*s.Ship)
+; Initializes a ship's crew with starting members.
+; 
+; Crew roles (4 total):
+;   - Commander: Ship command, affects all systems
+;   - Engineer: Repairs, affects engine efficiency
+;   - Gunner: Weapons accuracy and damage
+;   - Pilot: Movement range, evasion
+;
+; Each crew member has:
+;   - Name (randomly generated)
+;   - Role/position
+;   - Experience points (XP)
+;   - Skill level (based on XP)
+;
+; Crew gain XP through actions:
+;   - Fighting: Gunner gains weapons XP
+;   - Traveling: Pilot gains navigation XP
+;   - Repairs: Engineer gains repair XP
+;==============================================================================
 Procedure InitCrew(*s.Ship)
   *s\crew1\name = "Cmdr. Johnson"
   *s\crew1\role = #CREW_HELM
@@ -2539,6 +2571,18 @@ Procedure.i IsAlive(*s.Ship)
   ProcedureReturn Bool(*s\hull > 0)
 EndProcedure
 
+;==============================================================================
+; PrintStatusGalaxy(*p.Ship)
+; Displays the galaxy mode status HUD showing:
+;   - Ship name and class
+;   - Hull and shields (with percentages)
+;   - Fuel, Ore, Dilithium cargo
+;   - Credits
+;   - Current location (galaxy X,Y and sector X,Y)
+;   - Current stardate
+;   - Active mission info (if any)
+;   - System status (OK/DAMAGED/DISABLED)
+;==============================================================================
 Procedure PrintStatusGalaxy(*p.Ship)
   PrintDivider()
   ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
@@ -2632,6 +2676,15 @@ Procedure PrintStatusGalaxy(*p.Ship)
   PrintDivider()
 EndProcedure
 
+;==============================================================================
+; PrintStatusTactical(*p.Ship, *e.Ship, *cs.CombatState)
+; Displays the tactical combat HUD showing:
+; - Player ship name, class, hull, shields, weapon power, torpedoes
+; - Enemy ship name, class, hull, shields
+; - Turn number and combat range
+; - Fleet status (player and enemy fleet ships with their hull status)
+; - Visual arena showing positions of ships and fleet
+;==============================================================================
 Procedure PrintStatusTactical(*p.Ship, *e.Ship, *cs.CombatState)
   ; Ensure enemy has valid stats (defensive)
   If *e\name = "" Or *e\hullMax <= 0
@@ -2782,10 +2835,10 @@ Procedure PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsE
           EndSelect
           If pfX < posE - 2 And y = pfY And x = pfX
             If *cs And ((*cs\pFleetHit & (1 << (pfi - 1))) <> 0)
-              ConsoleColor(#C_RED, #C_LIGHTGRAY)
+              ConsoleColor(#C_RED, #C_DARKGRAY)
               Print(">")
             ElseIf *cs And ((*cs\pFleetAttack & (1 << (pfi - 1))) <> 0)
-              ConsoleColor(#C_YELLOW, #C_LIGHTGRAY)
+              ConsoleColor(#C_YELLOW, #C_DARKGRAY)
               Print(">")
             Else
               ConsoleColor(#C_WHITE, #C_BLACK)
@@ -2827,10 +2880,10 @@ Procedure PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsE
           EndSelect
           If efX > posP + 2 And y = efY And x = efX
             If *cs And ((*cs\eFleetHit & (1 << (efi - 1))) <> 0)
-              ConsoleColor(#C_RED, #C_LIGHTGRAY)
+              ConsoleColor(#C_RED, #C_DARKGRAY)
               Print("<")
             ElseIf *cs And ((*cs\eFleetAttack & (1 << (efi - 1))) <> 0)
-              ConsoleColor(#C_YELLOW, #C_LIGHTGRAY)
+              ConsoleColor(#C_YELLOW, #C_DARKGRAY)
               Print("<")
             Else
               ConsoleColor(#C_WHITE, #C_BLACK)
@@ -2878,7 +2931,8 @@ Procedure PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsE
         ResetColor()
       ElseIf y = rowMid And x = posE
         ConsoleColor(#C_LIGHTRED, #C_BLACK)
-        If *e And FindString(LCase(*e\name), "pirate") > 0
+        ; Check if enemy is a pirate by entity type in galaxy
+        If CurCell(gx, gy)\entType = #ENT_PIRATE
           Print("P")
         Else
           Print("E")
@@ -2943,6 +2997,24 @@ Procedure.i HitChance(range.i, *attacker.Ship, *target.Ship)
   ProcedureReturn ClampInt(c, 12, 92)
 EndProcedure
 
+;==============================================================================
+; ApplyDamage(*target.Ship, dmg.i)
+; Applies damage to a ship, checking for system damage.
+; Parameters:
+;   *target - Ship to damage
+;   dmg - Amount of damage to apply
+; 
+; What happens:
+;   - Damage first reduces shields to 0, then hull
+;   - If hull reaches 0, ship is destroyed
+;   - 15% chance per damage instance to damage a random system:
+;     * Weapons: Phasers/torpedoes may become disabled
+;     * Shields: Shield regeneration stops
+;     * Engines: Ship can't move
+;     * Sensors: Can't scan
+;     * Life Support: Crew takes damage
+;     * Communications: Can't contact bases
+;==============================================================================
 Procedure ApplyDamage(*target.Ship, dmg.i)
   If dmg <= 0 : ProcedureReturn : EndIf
 
@@ -2972,6 +3044,23 @@ Procedure ApplyDamage(*target.Ship, dmg.i)
   If (*target\sysShields & #SYS_DAMAGED) And Random(99) < 10 : *target\sysShields = *target\sysShields | #SYS_DISABLED : EndIf
 EndProcedure
 
+;==============================================================================
+; RegenAndRepair(*s.Ship, isEnemy.i)
+; Regenerates shields and repairs hull at the end of each combat turn.
+; Parameters:
+;   *s - Ship to repair
+;   isEnemy - 1 if enemy ship, 0 if player (affects repair rates)
+; 
+; Shield regeneration:
+;   - Based on shield allocation percentage
+;   - 10-30 shield points per turn depending on allocation
+;   - Not affected by damage (shields always regen)
+;
+; Hull repair:
+;   - 1-5 hull points per turn (random)
+;   - Only if hull > 0 and not critically damaged
+;   - Enemy ships repair slower than player
+;==============================================================================
 Procedure RegenAndRepair(*s.Ship, isEnemy.i)
   Protected reactor.i = *s\reactorMax
   Protected shP.i = reactor * *s\allocShields / 100
@@ -3024,6 +3113,21 @@ Procedure.i CombatMaxMove(*p.Ship)
   ProcedureReturn ClampInt(maxMove, 0, 6)
 EndProcedure
 
+;==============================================================================
+; PlayerMove(*p.Ship, *cs.CombatState, dir.s, amount.i)
+; Moves the player ship in combat (changes range to enemy).
+; Parameters:
+;   *p - Pointer to player ship
+;   *cs - Pointer to combat state
+;   dir - Direction: "closer" or "away" (or "in" / "out")
+;   amount - How many units to move (default 2)
+; 
+; What it does:
+; - Consumes fuel for each move (1 fuel per move)
+; - Changes combat range: closer moves toward enemy, away moves farther
+; - Minimum range is 1, maximum is 40
+; - Each move uses engine power from weapon cap
+;==============================================================================
 Procedure PlayerMove(*p.Ship, *cs.CombatState, dir.s, amount.i)
   Protected maxMove.i = CombatMaxMove(*p)
   If maxMove <= 0
@@ -3057,6 +3161,22 @@ Procedure PlayerMove(*p.Ship, *cs.CombatState, dir.s, amount.i)
   EndSelect
 EndProcedure
 
+;==============================================================================
+; PlayerPhaser(*p.Ship, *e.Ship, *cs.CombatState, power.i)
+; Executes player's phaser attack on enemy ship.
+; Parameters:
+;   *p - Pointer to player ship
+;   *e - Pointer to enemy ship
+;   *cs - Pointer to combat state
+;   power - Power level for phasers (1-100, default 30)
+; 
+; What it does:
+; - Checks if weapons are operational
+; - Calculates phaser power based on weapon cap and power level
+; - 80% base hit chance, reduced by range
+; - Damage reduced by enemy shields first, then hull
+; - Plays phaser sound and shows tactical effect
+;==============================================================================
 Procedure PlayerPhaser(*p.Ship, *e.Ship, *cs.CombatState, power.i)
   If (*p\sysWeapons & #SYS_DISABLED)
     PrintN("Weapons are disabled.")
@@ -3113,6 +3233,22 @@ Procedure PlayerPhaser(*p.Ship, *e.Ship, *cs.CombatState, power.i)
   EndIf
 EndProcedure
 
+;==============================================================================
+; PlayerTorpedo(*p.Ship, *e.Ship, *cs.CombatState, count.i)
+; Executes player's photon torpedo attack on enemy ship.
+; Parameters:
+;   *p - Pointer to player ship
+;   *e - Pointer to enemy ship
+;   *cs - Pointer to combat state
+;   count - Number of torpedoes to fire (default 1)
+; 
+; What it does:
+; - Checks if torpedoes are available and weapons operational
+; - Requires close range (torpedoes only work at range < 15)
+; - Each torpedo has high damage (50-80) but 40% miss chance
+; - Consumes torpedoes from inventory
+; - Plays torpedo sound and shows tactical effect
+;==============================================================================
 Procedure PlayerTorpedo(*p.Ship, *e.Ship, *cs.CombatState, count.i)
   If (*p\sysWeapons & #SYS_DISABLED)
     PrintN("Weapons are disabled.")
@@ -3325,6 +3461,21 @@ Procedure PlayerTractor(*p.Ship, *e.Ship, *cs.CombatState, mode.s)
   LogLine("TRACTOR: " + mode + " (range=" + Str(*cs\range) + ")")
 EndProcedure
 
+;==============================================================================
+; EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
+; Controls enemy ship behavior during combat. Called at the end of each turn.
+; Parameters:
+;   *e - Pointer to enemy ship
+;   *p - Pointer to player ship
+;   *cs - Pointer to combat state
+; 
+; AI Decision Logic:
+; - If shields low: recharge shields before attacking
+; - If far away: move closer or hold position
+; - If close enough: attack with phasers or torpedoes
+; - Random targeting and power management based on hull/shield status
+; - 40% chance to use torpedoes if available, otherwise phasers
+;==============================================================================
 Procedure EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
   If *e\hull <= 0 : ProcedureReturn : EndIf
   
@@ -3476,6 +3627,18 @@ Procedure EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
   EndIf
 EndProcedure
 
+;==============================================================================
+; EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
+; Controls enemy ship movement and behavior in galaxy mode.
+; Called at the end of each player turn when enemies are present.
+; 
+; AI behavior:
+;   - Enemies move toward player if in same galaxy
+;   - Movement speed based on enemy level (higher = faster)
+;   - If enemy enters player's sector, combat begins
+;   - Enemy names update as they upgrade (Raider -> Fighter -> Cruiser -> Destroyer)
+;   - Higher level enemies have more hull, shields, and weapons
+;==============================================================================
 Procedure EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
   Protected mx.i, my.i, x.i, y.i, dx.i, dy.i, nx.i, ny.i
   Protected targetFound.i, targetX.i, targetY.i
@@ -3526,8 +3689,11 @@ Procedure EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
                   enemy\phaserBanks = 12
                   enemy\torpTubes = 4
                   enemy\torpMax = 20
-                  enemy\torp = enemy\torpMax
-                ElseIf enemy\name = "" Or enemy\hullMax <= 0
+            enemy\torp = enemy\torpMax
+          ElseIf CurCell(gx, gy)\entType = #ENT_PIRATE And enemy\name = ""
+            enemy\name = "Pirate Hunter"
+            enemy\class = "Pirate"
+          ElseIf enemy\name = "" Or enemy\hullMax <= 0
                   enemy\name = "Raider"
                   enemy\class = "Raider"
                   enemy\hullMax = 100
@@ -3682,6 +3848,7 @@ Procedure.s EntSymbol(t.i)
     Case #ENT_PLANET : ProcedureReturn "O"
     Case #ENT_BASE   : ProcedureReturn "%"
     Case #ENT_ENEMY  : ProcedureReturn "E"
+    Case #ENT_PIRATE : ProcedureReturn "P"
     Case #ENT_SHIPYARD: ProcedureReturn "+"
     Case #ENT_WORMHOLE: ProcedureReturn "#"
     Case #ENT_BLACKHOLE: ProcedureReturn "?"
@@ -3840,6 +4007,21 @@ Procedure ClearSectorMap(mapX.i, mapY.i)
   Next
 EndProcedure
 
+;==============================================================================
+; GenerateSectorMap(mapX.i, mapY.i)
+; Generates contents for a single sector within a galaxy.
+; Parameters:
+;   mapX - Galaxy X coordinate (0-3)
+;   mapY - Galaxy Y coordinate (0-3)
+; 
+; Populates the 8x8 sector with random entities based on probability:
+;   - Empty space (.)
+;   - Stars (*)
+;   - Planets (O)
+;   - Dilithium asteroids (D) with richness 1-10
+;   - Anomalies (A)
+;   - Enemy spawns based on player progress/difficulty
+;==============================================================================
 Procedure GenerateSectorMap(mapX.i, mapY.i)
   ; Deterministic-ish per map for variety
   Protected x.i
@@ -3980,6 +4162,29 @@ Procedure GenerateSectorMap(mapX.i, mapY.i)
   EndIf
 EndProcedure
 
+;==============================================================================
+; GenerateGalaxy()
+; Creates the entire game universe - all galaxies, sectors, and entities.
+; 
+; What it generates for each galaxy (4x4 grid):
+;   - 8x8 sector grid per galaxy
+;   - Random stars (*), planets (O), dilithium (D), anomalies (A)
+;   - Starbases (%) at random locations
+;   - Shipyards (+) at random locations
+;   - Wormholes (#) and black holes (?) in some galaxies
+;   - Enemy spawns based on difficulty level
+;   - Refineries (R) in random locations
+;
+; Probability distribution:
+;   - Stars: ~15% of sectors
+;   - Planets: ~10% of sectors
+;   - Dilithium: ~8% of sectors (richness varies)
+;   - Anomalies: ~3% of sectors
+;   - Starbases: 1-2 per galaxy
+;   - Shipyards: 1 per galaxy
+;   - Wormholes: 0-2 per galaxy
+;   - Black holes: 0-1 per galaxy
+;==============================================================================
 Procedure GenerateGalaxy()
   Protected mx.i, my.i
   For my = 0 To #GALAXY_H - 1
@@ -3999,6 +4204,23 @@ Procedure GenerateGalaxy()
   EndIf
 EndProcedure
 
+;==============================================================================
+; PrintMap()
+; Displays the dual-panel galaxy/sector display.
+; 
+; Left panel (8x8): Current sector view
+;   - Shows entities in current sector
+;   - @ = Player, E = Enemy, P = Pirate, O = Planet
+;   - * = Star, D = Dilithium, A = Anomaly
+;   - % = Starbase, + = Shipyard, R = Refinery
+;   - # = Wormhole, ? = Black Hole, S = Sun
+;
+; Right panel (4x4): Galaxy overview
+;   - Shows which galaxies have been visited
+;   - X = Current galaxy, M = Mission galaxy
+;   - ! = Mission target location
+;   - . = Unexplored galaxy
+;==============================================================================
 Procedure PrintMap()
   Protected x.i, row.i
   Protected maxRows.i = #MAP_H
@@ -4060,8 +4282,8 @@ Procedure PrintMap()
             EndIf
           EndIf
 
-          ; Check for pirate ships (show as 'P' instead of 'E')
-          If CurCell(x, row)\entType = #ENT_ENEMY And FindString(LCase(CurCell(x, row)\name), "pirate") > 0
+          ; Check for pirate ships (show as 'P')
+          If CurCell(x, row)\entType = #ENT_PIRATE
             ConsoleColor(#C_LIGHTRED, #C_BLACK)
             Print("P ")
           Else
@@ -4236,6 +4458,25 @@ Procedure.i FindRandomCellOfType(entType.i, *outMapX.Integer, *outMapY.Integer, 
   ProcedureReturn 0
 EndProcedure
 
+;==============================================================================
+; GenerateMission(*p.Ship)
+; Creates a new random mission for the player to undertake.
+; 
+; Mission types:
+;   - #MIS_NONE: No active mission
+;   - #MIS_BOUNTY: Hunt and destroy X enemies
+;   - #MIS_ESCORT: Protect a ship to destination
+;   - #MIS_DELIVER: Deliver cargo/passengers to destination
+;   - #MIS_SCOUT: Explore and scan a specific galaxy
+;   - #MIS_PLANETKILLER: Hunt down the Planet Killer ship
+;
+; Each mission has:
+;   - Type and description
+;   - Target location (galaxy X/Y, sector X/Y)
+;   - Reward credits
+;   - Difficulty/threat level
+;   - For bounties: number of kills required
+;==============================================================================
 Procedure GenerateMission(*p.Ship)
   ; Only generate an offer when none exists.
   If gMission\type <> #MIS_NONE
@@ -4664,6 +4905,18 @@ Procedure DeliverMission(*p.Ship)
   gMission\type = #MIS_NONE
 EndProcedure
 
+;==============================================================================
+; DockAtBase(*p.Ship)
+; Docks player ship at a starbase for repairs and supplies.
+; 
+; What happens when docked:
+;   - Full hull and shield repair (free)
+;   - Refuel ship (costs credits based on amount)
+;   - Repair ship systems (costs credits)
+;   - Access to shipyard for upgrades
+;   - Can add/remove fleet ships
+;   - Ship automatically stops moving (engine loop stops)
+;==============================================================================
 Procedure DockAtBase(*p.Ship)
   If CurCell(gx, gy)\entType <> #ENT_BASE
     PrintN("No starbase in this sector.")
@@ -4952,6 +5205,22 @@ Procedure ShuttleMine()
   EndIf
 EndProcedure
 
+;==============================================================================
+; DockAtShipyard(*p.Ship, *base.Ship)
+; Docks player ship at a shipyard for upgrades and repairs.
+; 
+; Shipyard services:
+;   - Repair hull: 1 credit per 2 hull points
+;   - Upgrade hull: +10-50 max hull (costs credits based on amount)
+;   - Upgrade shields: +10-40 max shields
+;   - Upgrade weapons: +20-50 max weapon capacity
+;   - Upgrade propulsion: +fuel efficiency
+;   - Upgrade power/cargo: +cargo capacity
+;   - Upgrade probes: +probe capacity and range
+;   - Build/upgrade shuttle: Enable or improve shuttle
+;
+; Each upgrade has a base cost and is tracked in gUpgrade* variables.
+;==============================================================================
 Procedure DockAtShipyard(*p.Ship, *base.Ship)
   If CurCell(gx, gy)\entType <> #ENT_SHIPYARD
     PrintN("No shipyard in this sector.")
@@ -5023,6 +5292,7 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
     PrintN("  poweroverwhelming = all stats x2 for 30 turns")
     Print("")
     Print("YARD> ")
+    ConsoleColor(#C_WHITE, #C_BLACK)
     Protected choice.s = TrimLower(Input())
     If choice = "0" Or choice = "leave" Or choice = "exit" Or choice = "undock"
       gDocked = 0
@@ -5270,6 +5540,20 @@ Procedure DockAtShipyard(*p.Ship, *base.Ship)
   Wend
 EndProcedure
 
+;==============================================================================
+; DockAtRefinery(*p.Ship)
+; Docks player ship at a dilithium refinery to process ore and trade.
+; 
+; Refinery functions:
+;   - REFINE: Convert raw ore to dilithium crystals (costs fuel)
+;   - SELL: Sell dilithium for credits (price varies randomly)
+;   - BUY: Buy dilithium to transport (price varies randomly)
+;   - CARGO: Show current cargo hold
+;   - STATUS: Show refinery status and prices
+; 
+; The refinery acts as a marketplace for dilithium with fluctuating prices.
+; High dilithium cargo attracts pirates when leaving!
+;==============================================================================
 Procedure DockAtRefinery(*p.Ship)
   If CurCell(gx, gy)\entType <> #ENT_REFINERY
     PrintN("No refinery in this sector.")
@@ -5327,6 +5611,7 @@ Procedure DockAtRefinery(*p.Ship)
     PrintN("  SELL ALL           - Sell all cargo")
     PrintN("  UNDOCK             - Leave the refinery")
     Print("")
+    ConsoleColor(#C_WHITE, #C_BLACK)
     Print("REFINERY> ")
     Protected cmd.s = TrimLower(Input())
     
@@ -5571,6 +5856,22 @@ Procedure DockAtRefinery(*p.Ship)
   Wend
 EndProcedure
 
+;==============================================================================
+; Nav(*p.Ship, dir.s, steps.i)
+; Handles player movement in galaxy mode - moves ship to adjacent sector.
+; Parameters:
+;   *p - Pointer to player ship
+;   dir - Direction (n/s/e/w or north/south/east/west)
+;   steps - Number of sectors to move (default 1)
+; 
+; What it does:
+; - Validates move is within sector bounds (0-7)
+; - Consumes fuel: 1 fuel per move
+; - Triggers random events during travel (radiation, ion storms)
+; - Checks for enemy encounters in new sector
+; - Handles movement into special entities (planets, bases, etc.)
+; - Triggers pirate attacks if carrying high-value dilithium cargo
+;==============================================================================
 Procedure Nav(*p.Ship, dir.s, steps.i)
   dir = TrimLower(dir)
   steps = ClampInt(steps, 1, 5)
@@ -5724,7 +6025,7 @@ Procedure Nav(*p.Ship, dir.s, steps.i)
       Break
     EndIf
 
-    If CurCell(gx, gy)\entType = #ENT_ENEMY
+    If CurCell(gx, gy)\entType = #ENT_ENEMY Or CurCell(gx, gy)\entType = #ENT_PIRATE
       gEnemyMapX = gMapX
       gEnemyMapY = gMapY
       gEnemyX = gx
@@ -5791,8 +6092,9 @@ Procedure.i AutopilotToMission(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Co
     EndIf
 
     ; Enemy contact should interrupt. Let the player choose whether to engage.
-    If CurCell(gx, gy)\entType = #ENT_ENEMY
+    If CurCell(gx, gy)\entType = #ENT_ENEMY Or CurCell(gx, gy)\entType = #ENT_PIRATE
       PrintN("Autopilot: enemy contact detected.")
+      ConsoleColor(#C_WHITE, #C_BLACK)
       Print("Engage? (F)ight / (A)bort > ")
       Protected respRaw.s = Input()
       respRaw = ReplaceString(respRaw, Chr(13), "")
@@ -5846,11 +6148,50 @@ Procedure.i AutopilotToMission(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Co
   ProcedureReturn 1
 EndProcedure
 
+;==============================================================================
+; EnterCombat(*p.Ship, *enemy.Ship, *cs.CombatState)
+; Transitions the game from galaxy mode to tactical combat mode.
+; Parameters:
+;   *p - Pointer to player ship structure
+;   *enemy - Pointer to enemy ship structure
+;   *cs - Pointer to combat state (range, turn, aim, fleet states)
+; 
+; What it does:
+; - Ensures player and enemy have valid hull/shields (fixes ghost ships)
+; - Sets game mode to tactical combat
+; - Initializes combat state (range, turn counter, fleet states)
+; - Plays red alert sound
+; - Displays combat status and instructions
+; - Logs combat entry to captain's log
+; - Spawns enemy fleet for high-level enemies (level > 3)
+;==============================================================================
 Procedure EnterCombat(*p.Ship, *enemy.Ship, *cs.CombatState)
   ; Ensure player has hull to fight
   If *p\hull <= 0
     *p\hull = *p\hullMax
     *p\shields = *p\shieldsMax
+  EndIf
+  
+  ; Ensure enemy has valid stats (fix ghost ships)
+  If *enemy\hullMax <= 0
+    *enemy\hullMax = 100
+    *enemy\hull = 100
+    *enemy\shieldsMax = 90
+    *enemy\shields = 90
+    *enemy\weaponCapMax = 210
+    *enemy\weaponCap = 105
+    *enemy\phaserBanks = 6
+    *enemy\torpTubes = 2
+    *enemy\torpMax = 8
+    *enemy\torp = 8
+    *enemy\name = "Raider"
+    *enemy\class = "Raider"
+  EndIf
+  If *enemy\hull <= 0
+    *enemy\hull = *enemy\hullMax
+  EndIf
+  If *enemy\shields <= 0
+    *enemy\shields = *enemy\shieldsMax
   EndIf
   
   PlayRedAlert()
@@ -5889,6 +6230,13 @@ Procedure EnterCombat(*p.Ship, *enemy.Ship, *cs.CombatState)
   EndIf
 EndProcedure
 
+;==============================================================================
+; LeaveCombat()
+; Called when combat ends (player wins, flees, or enemy is destroyed).
+; - Sets game mode back to galaxy exploration
+; - Stops combat sounds and restarts engine loop if undocked
+; - Clears enemy fleet count
+;==============================================================================
 Procedure LeaveCombat()
   gMode = #MODE_GALAXY
   gEngineLoopChannel = -1
@@ -5898,6 +6246,16 @@ Procedure LeaveCombat()
   EndIf
 EndProcedure
 
+;==============================================================================
+; Main()
+; Entry point for the entire game. Initializes all game systems, loads data,
+; generates the galaxy, and starts the main game loop. Handles both galaxy mode
+; (exploration) and tactical mode (combat).
+; - Initializes console, logging, sounds, and ship data
+; - Generates the galaxy map with planets, stars, enemies, etc.
+; - Runs the main command loop (CMD>) for player input
+; - Handles transitions between galaxy and combat modes
+;==============================================================================
 Procedure Main()
   Protected player.Ship
   Protected enemyTemplate.Ship
@@ -5916,9 +6274,9 @@ Procedure Main()
   InitLogging()
   OnErrorCall(@CrashHandler())
 
-  ConsoleColor(#C_LIGHTGRAY, #C_BLACK)
+  ConsoleColor(#C_WHITE, #C_BLACK)
   PrintN("Starship Console (Galaxy + Tactical)")
-  ConsoleColor(#C_DARKGRAY, #C_BLACK)
+  ConsoleColor(#C_WHITE, #C_BLACK)
   PrintN("Data: " + gDatPath + " (fallback " + gIniPath + ")")
   ResetColor()
   PrintN("")
@@ -5956,6 +6314,7 @@ Procedure Main()
   RedrawGalaxy(@player)
 
   While IsAlive(@player)
+    ConsoleColor(#C_WHITE, #C_BLACK)
     Print("CMD> ")
     Protected lineRaw.s = Input()
     ; When stdin is closed (eg. redirected), some consoles feed EOF as control chars.
@@ -6241,7 +6600,7 @@ Procedure Main()
               For huntY = 0 To #MAP_H - 1
                 For huntX = 0 To #MAP_W - 1
                   If gGalaxy(gMapX, gMapY, huntX, huntY)\entType = #ENT_EMPTY
-                    gGalaxy(gMapX, gMapY, huntX, huntY)\entType = #ENT_ENEMY
+                    gGalaxy(gMapX, gMapY, huntX, huntY)\entType = #ENT_PIRATE
                     gGalaxy(gMapX, gMapY, huntX, huntY)\enemyLevel = 2 + Int(player\dilithium / 3)
                     If gGalaxy(gMapX, gMapY, huntX, huntY)\enemyLevel > 10
                       gGalaxy(gMapX, gMapY, huntX, huntY)\enemyLevel = 10
@@ -6261,8 +6620,12 @@ Procedure Main()
           PlayAmbientChatter()
           RedrawGalaxy(@player)
 
-        If CurCell(gx, gy)\entType = #ENT_ENEMY
+        If CurCell(gx, gy)\entType = #ENT_ENEMY Or CurCell(gx, gy)\entType = #ENT_PIRATE
           CopyStructure(@enemyTemplate, @enemy, Ship)
+          ; Override name from galaxy cell (e.g., "Pirate Hunter")
+          If CurCell(gx, gy)\name <> ""
+            enemy\name = CurCell(gx, gy)\name
+          EndIf
           Protected lvl.i = CurCell(gx, gy)\enemyLevel
           If lvl < 1 : lvl = 1 : EndIf
           ; Check for Planet Killer (very powerful)
@@ -7341,12 +7704,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,7,5
-; VersionField1 = 1,0,7,5
+; VersionField0 = 1,0,8,0
+; VersionField1 = 1,0,8,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.7.5
-; VersionField5 = 1.0.7.5
+; VersionField4 = 1.0.8.0
+; VersionField5 = 1.0.8.0
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
