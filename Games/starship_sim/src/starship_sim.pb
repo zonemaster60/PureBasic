@@ -10,7 +10,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.7.2"
+Global version.s = "v1.0.7.4"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -335,7 +335,7 @@ Declare PrintStatusGalaxy(*p.Ship)
 Declare PrintStatusTactical(*p.Ship, *e.Ship, *cs.CombatState)
 Declare PrintArenaTactical(*p.Ship, *e.Ship, *cs.CombatState)
 Declare ArenaPositions(range.i, *posP.Integer, *posE.Integer, *interior.Integer)
-Declare PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsEnemy.i, *cs.CombatState = 0)
+Declare PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsEnemy.i, *cs.CombatState = 0, *e.Ship = 0)
 Declare TacticalFxPhaser(range.i, attackerIsEnemy.i)
 Declare TacticalFxTorpedo(range.i, attackerIsEnemy.i)
 Declare.i EvasionBonus(*target.Ship)
@@ -536,11 +536,11 @@ Structure CombatState
   turn.i
   pAim.i
   eAim.i
-  ; Fleet combat states
-  pFleetAttack.i  ; Which player fleet ship attacked (0 = none)
-  pFleetHit.i     ; Which player fleet ship got hit (0 = none)
-  eFleetAttack.i  ; Which enemy fleet ship attacked (0 = none)
-  eFleetHit.i     ; Which enemy fleet ship got hit (0 = none)
+  ; Fleet combat states (bitmask: bit 0 = ship 1, bit 1 = ship 2, etc.)
+  pFleetAttack.i  ; Bitmask of which player fleet ships attacked
+  pFleetHit.i     ; Bitmask of which player fleet ships got hit
+  eFleetAttack.i  ; Bitmask of which enemy fleet ships attacked
+  eFleetHit.i     ; Bitmask of which enemy fleet ships got hit
 EndStructure
 
 Structure Cell
@@ -1412,15 +1412,18 @@ EndProcedure
 Procedure PrintLegendLine(indent.s)
   ; Prints a colorized legend line (caller controls surrounding text)
   Print(indent)
-    ConsoleColor(#C_WHITE, #C_BLACK) : Print("@") : ResetColor() : Print("=YourShip ")
+  ConsoleColor(#C_WHITE, #C_BLACK) : Print("@") : ResetColor() : Print("=YourShip")
+  PrintN("")
+  Print(indent)
   ConsoleColor(#C_DARKGRAY, #C_BLACK) : Print(".") : ResetColor() : Print("=EmptySector ")
   ConsoleColor(#C_LIGHTBLUE, #C_BLACK) : Print("O") : ResetColor() : Print("=Planet ")
   ConsoleColor(#C_YELLOW, #C_BLACK) : Print("*") : ResetColor() : Print("=Star (blocked) ")
-  ConsoleColor(#C_LIGHTCYAN, #C_BLACK) : Print("%") : ResetColor() : Print("=Starbase")
+  ConsoleColor(#C_LIGHTCYAN, #C_BLACK) : Print("%") : ResetColor() : Print("=Starbase ")
+  ConsoleColor(#C_GREEN, #C_BLACK) : Print("+") : ResetColor() : Print("=Shipyard")
   PrintN("")
   Print(indent)
-  ConsoleColor(#C_GREEN, #C_BLACK) : Print("+") : ResetColor() : Print("=Shipyard ")
   ConsoleColor(#C_LIGHTRED, #C_BLACK) : Print("E") : ResetColor() : Print("=EnemyShip ")
+  ConsoleColor(#C_LIGHTRED, #C_BLACK) : Print("P") : ResetColor() : Print("=PirateShip ")
   ConsoleColor(#C_LIGHTMAGENTA, #C_BLACK) : Print("#") : ResetColor() : Print("=Wormhole ")
   ConsoleColor(#C_WHITE, #C_BLACK) : Print("?") : ResetColor() : Print("=Blackhole ")
   ConsoleColor(#C_BROWN, #C_BLACK) : Print("S") : ResetColor() : Print("=Sun (blocked)")
@@ -2703,7 +2706,7 @@ Procedure PrintArenaTactical(*p.Ship, *e.Ship, *cs.CombatState)
   Protected posP.Integer, posE.Integer, interior.Integer
   ArenaPositions(*cs\range, @posP, @posE, @interior)
   PrintN("")
-  PrintArenaFrame(posP\i, posE\i, -1, "", 0, 0, *cs)
+  PrintArenaFrame(posP\i, posE\i, -1, "", 0, 0, *cs, *e)
 EndProcedure
 
 Procedure ArenaPositions(range.i, *posP.Integer, *posE.Integer, *interior.Integer)
@@ -2721,13 +2724,14 @@ Procedure ArenaPositions(range.i, *posP.Integer, *posE.Integer, *interior.Intege
   *interior\i = interior
 EndProcedure
 
-Procedure PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsEnemy.i, *cs.CombatState = 0)
+Procedure PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsEnemy.i, *cs.CombatState = 0, *e.Ship = 0)
   ; Draws a 5-row arena with optional effect: either a beam line or a single character.
   ; attackerIsEnemy: 0 = player, 1 = enemy
   ; Player phaser: cyan '=' | Player torpedo: yellow '*'
   ; Enemy disruptor: red '-' | Enemy torpedo: green '*'
   ; Fleet ships: '>' for player fleet (white=idle, yellow=attacking, red=hit)
   ;              '<' for enemy fleet (white=idle, yellow=attacking, red=hit)
+  ; Pirate ships: 'P' instead of 'E'
   Protected aw.i = 33
   Protected interior.i = aw - 2
   Protected rowMid.i = 2
@@ -2777,10 +2781,10 @@ Procedure PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsE
               pfX = posP + 4
           EndSelect
           If pfX < posE - 2 And y = pfY And x = pfX
-            If *cs And *cs\pFleetHit = pfi
+            If *cs And ((*cs\pFleetHit & (1 << (pfi - 1))) <> 0)
               ConsoleColor(#C_RED, #C_LIGHTGRAY)
               Print(">")
-            ElseIf *cs And *cs\pFleetAttack = pfi
+            ElseIf *cs And ((*cs\pFleetAttack & (1 << (pfi - 1))) <> 0)
               ConsoleColor(#C_YELLOW, #C_LIGHTGRAY)
               Print(">")
             Else
@@ -2822,10 +2826,10 @@ Procedure PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsE
               efX = posE - 4
           EndSelect
           If efX > posP + 2 And y = efY And x = efX
-            If *cs And *cs\eFleetHit = efi
+            If *cs And ((*cs\eFleetHit & (1 << (efi - 1))) <> 0)
               ConsoleColor(#C_RED, #C_LIGHTGRAY)
               Print("<")
-            ElseIf *cs And *cs\eFleetAttack = efi
+            ElseIf *cs And ((*cs\eFleetAttack & (1 << (efi - 1))) <> 0)
               ConsoleColor(#C_YELLOW, #C_LIGHTGRAY)
               Print("<")
             Else
@@ -2874,7 +2878,11 @@ Procedure PrintArenaFrame(posP.i, posE.i, fxPos.i, fxChar.s, beam.i, attackerIsE
         ResetColor()
       ElseIf y = rowMid And x = posE
         ConsoleColor(#C_LIGHTRED, #C_BLACK)
-        Print("E")
+        If *e And FindString(LCase(*e\name), "pirate") > 0
+          Print("P")
+        Else
+          Print("E")
+        EndIf
         ResetColor()
       Else
         ConsoleColor(#C_DARKGRAY, #C_BLACK)
@@ -3612,7 +3620,7 @@ Procedure EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
           For pf = 1 To gPlayerFleetCount
             If gPlayerFleet(pf)\hull > 0
               pfDmg = Random(25) + 5
-              *cs\pFleetAttack = pf
+              *cs\pFleetAttack = *cs\pFleetAttack | (1 << (pf - 1))
               PlaySoundFX(SoundPhaser)
               If Random(99) < 50
                 enemy\shields - pfDmg
@@ -4833,8 +4841,9 @@ Procedure PrintProbeScan(mapX.i, mapY.i)
     PrintN(line)
   Next
   
-  PrintN("Legend: @=YourShip .=Empty O=Planet *=Star %=Starbase")
-  PrintN("        +=Shipyard E=Enemy #=Wormhole ?=Blackhole S=Sun")
+  PrintN("Legend: @=YourShip")
+  PrintN("        .=EmptySector O=Planet *=Star (blocked) %=Starbase +=Shipyard")
+  PrintN("        E=EnemyShip P=PirateShip #=Wormhole ?=Blackhole S=Sun (blocked)")
   PrintN("        D=Dilithium A=Anomaly <=Planet Killer R=Refinery")
   PrintN("")
 EndProcedure
@@ -6917,7 +6926,7 @@ Procedure Main()
           If gEnemyFleet(pfHit)\hull > 0
             Protected pfDmg.i = Random(pwr / 2) + 5
             gEnemyFleet(pfHit)\hull - pfDmg
-            cs\eFleetHit = pfHit  ; Mark enemy fleet ship as hit
+            cs\eFleetHit = cs\eFleetHit | (1 << (pfHit - 1))  ; Mark enemy fleet ship as hit
             PrintN("Phasers hit enemy fleet ship " + Str(pfHit) + " for " + Str(pfDmg) + " damage!")
             If gEnemyFleet(pfHit)\hull <= 0
               PrintN("Enemy fleet ship " + Str(pfHit) + " destroyed!")
@@ -6947,7 +6956,7 @@ Procedure Main()
           If gEnemyFleet(tfHit)\hull > 0
             Protected tfDmg.i = Random(50) + 30
             gEnemyFleet(tfHit)\hull - tfDmg
-            cs\eFleetHit = tfHit  ; Mark enemy fleet ship as hit
+            cs\eFleetHit = cs\eFleetHit | (1 << (tfHit - 1))  ; Mark enemy fleet ship as hit
             PrintN("Torpedo hits enemy fleet ship " + Str(tfHit) + " for " + Str(tfDmg) + " damage!")
             If gEnemyFleet(tfHit)\hull <= 0
               PrintN("Enemy fleet ship " + Str(tfHit) + " destroyed!")
@@ -6966,7 +6975,7 @@ Procedure Main()
           For pf = 1 To gPlayerFleetCount
             If gPlayerFleet(pf)\hull > 0
               pfDmg.i = Random(25) + 5
-              cs\pFleetAttack = pf
+              cs\pFleetAttack = cs\pFleetAttack | (1 << (pf - 1))
               PlaySoundFX(SoundPhaser)
               If Random(99) < 50
                 enemy\shields - pfDmg
@@ -7135,7 +7144,7 @@ Procedure Main()
           For pf = 1 To gPlayerFleetCount
             If gPlayerFleet(pf)\hull > 0
               pfDmg.i = Random(25) + 5
-              cs\pFleetAttack = pf
+              cs\pFleetAttack = cs\pFleetAttack | (1 << (pf - 1))
               PlaySoundFX(SoundPhaser)
               If Random(99) < 50
                 enemy\shields - pfDmg
@@ -7185,7 +7194,7 @@ Procedure Main()
           For ef = 1 To gEnemyFleetCount
             If gEnemyFleet(ef)\hull > 0
               Protected efDmg.i = Random(30) + 10
-              cs\eFleetAttack = ef  ; Mark enemy fleet ship as attacking (show yellow even on miss)
+              cs\eFleetAttack = cs\eFleetAttack | (1 << (ef - 1))  ; Mark enemy fleet ship as attacking
               PlaySoundFX(SoundDisruptor)  ; Enemy fleet fires
               If Random(99) < 60  ; 60% chance to hit
                 ; 50% chance to hit player, 50% chance to hit fleet
@@ -7193,7 +7202,7 @@ Procedure Main()
                   Protected pfTarget.i = Random(gPlayerFleetCount) + 1
                   If gPlayerFleet(pfTarget)\hull > 0
                     gPlayerFleet(pfTarget)\hull - efDmg
-                    cs\pFleetHit = pfTarget  ; Mark player fleet ship as hit
+                    cs\pFleetHit = cs\pFleetHit | (1 << (pfTarget - 1))  ; Mark player fleet ship as hit
                     PlaySoundFX(SoundExplode)  ; Fleet ship hit!
                     PrintN("Enemy fleet ship " + Str(ef) + " fires at your fleet! " + Str(efDmg) + " damage to fleet " + Str(pfTarget) + "!")
                     If gPlayerFleet(pfTarget)\hull <= 0
@@ -7316,7 +7325,8 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 2
+; CursorPosition = 4845
+; FirstLine = 4825
 ; Folding = ------------------------
 ; Optimizer
 ; EnableThread
@@ -7326,12 +7336,12 @@ Main()
 ; UseIcon = starship_sim.ico
 ; Executable = ..\Starship_Sim.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,7,2
-; VersionField1 = 1,0,7,2
+; VersionField0 = 1,0,7,4
+; VersionField1 = 1,0,7,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarShip_Sim
-; VersionField4 = 1.0.7.2
-; VersionField5 = 1.0.7.2
+; VersionField4 = 1.0.7.4
+; VersionField5 = 1.0.7.4
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarShip_Sim
 ; VersionField8 = StarShip_Sim.exe
