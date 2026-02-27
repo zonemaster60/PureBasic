@@ -1835,7 +1835,7 @@ EndProcedure
 Procedure.i SaveGame(*p.Ship)
   Protected f.i = CreateFile(#PB_Any, gSavePath)
   If f = 0
-    LogLine("SAVE: failed to write " + gSavePath)
+    LogLine("SAVE: failed to write " + GetFilePart(gSavePath))
     ProcedureReturn 0
   EndIf
 
@@ -1923,7 +1923,7 @@ Procedure.i SaveGame(*p.Ship)
   Next
 
   CloseFile(f)
-  LogLine("SAVE: wrote " + gSavePath)
+  LogLine("SAVE: wrote " + GetFilePart(gSavePath))
   ProcedureReturn 1
 EndProcedure
 
@@ -2163,7 +2163,7 @@ Procedure.i LoadGame(*p.Ship)
     StartEngineLoop()
   EndIf
   
-  LogLine("LOAD: loaded " + gSavePath)
+  LogLine("LOAD: loaded " + GetFilePart(gSavePath))
   ProcedureReturn 1
 EndProcedure
 
@@ -2775,15 +2775,15 @@ Procedure PrintStatusGalaxy(*p.Ship)
   EndIf
   If gWarpCooldown > 0
     ConsoleColor(#C_YELLOW, #C_BLACK)
-    PrintN("  Warp recharging: " + Str(gWarpCooldown) + " turn(s) remaining (costs 5 dilithium)")
+    PrintN("  WARP RECHARGING: " + Str(gWarpCooldown) + " turn(s) remaining (costs 5 dilithium)")
     ResetColor()
   ElseIf *p\dilithium >= 5
     ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
-    PrintN("  WARP READY  — costs 5 dilithium (you have " + Str(*p\dilithium) + ")")
+    PrintN("  WARP READY: costs 5 dilithium (you have " + Str(*p\dilithium) + ")")
     ResetColor()
   Else
     ConsoleColor(#C_LIGHTRED, #C_BLACK)
-    PrintN("  WARP OFFLINE — need 5 dilithium (you have " + Str(*p\dilithium) + ")")
+    PrintN("  WARP OFFLINE: need 5 dilithium (you have " + Str(*p\dilithium) + ")")
     ResetColor()
   EndIf
   If gIonStormTurns > 0
@@ -10078,8 +10078,8 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 1784
-; FirstLine = 7590
+; CursorPosition = 1925
+; FirstLine = 1907
 ; Folding = ---------------------------
 ; Optimizer
 ; EnableThread
