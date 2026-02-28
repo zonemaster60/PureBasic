@@ -3278,7 +3278,7 @@ Procedure RegenAndRepair(*s.Ship, isEnemy.i)
   If (*s\sysShields & #SYS_DISABLED) = 0
     If (*s\sysShields & #SYS_DAMAGED) : shP / 2 : EndIf
     If isEnemy
-      *s\shields + 1  ; Enemies get minimal shield regen (1 per turn)
+      If *s\shields > 0 : *s\shields + 1 : EndIf  ; Only regen shields that are still active (not from 0 - shields stay down once drained)
     Else
       *s\shields + (shP / 3)
     EndIf
@@ -7364,6 +7364,8 @@ Procedure EnterCombat(*p.Ship, *enemy.Ship, *cs.CombatState)
   PrintStatusTactical(*p, *enemy, *cs)
   PrintN("")
   PrintN("Type HELP for combat commands.")
+  PrintN("< Press ENTER >")
+  Input()
   
   ; Log combat entry
   AddCaptainLog("COMBAT: Engaged " + *enemy\name + " at range " + Str(*cs\range))
@@ -7522,6 +7524,7 @@ Procedure.s GetNextInput()
     ResetColor()
     PrintN(nextCmd)
     Delay(350)
+    LogLine("[MACRO] " + nextCmd)
     ProcedureReturn nextCmd
   Wend
 
@@ -8556,11 +8559,14 @@ Procedure Main()
     lineRaw = ReplaceString(lineRaw, Chr(10), "")
     lineRaw = CleanLine(lineRaw)
 
+    LogLine("INPUT_RAW: '" + lineRaw + "'")
+
     gLastCmdLine = lineRaw
 
     Protected line.s = Trim(lineRaw)
     Protected cmd.s  = TrimLower(TokenAt(line, 1))
     If cmd = "" : cmd = "end" : EndIf
+    LogLine("LOOP_MODE: " + Str(gMode) + " line='" + line + "' cmd='" + cmd + "'")
     
     ; Log every command for the captain's log
     If cmd <> "" And cmd <> "end"
@@ -8933,6 +8939,7 @@ Procedure Main()
               gEnemyIsPirate = 0
             EndIf
             EnterCombat(@player, @enemy, @cs)
+            Continue
           Else
             PrintN("You evade the enemy and continue exploring.")
           EndIf
@@ -9518,6 +9525,7 @@ Procedure Main()
         LogLine("Unknown: " + cmd)
         RedrawGalaxy(@player)
       EndIf
+    EndIf  ; End of If gMode = #MODE_GALAXY command dispatch
 
       ; Handle autoclear and autosave (run even if mode changed to tactical during command)
       If gAutoclearInterval > 0
@@ -9567,6 +9575,7 @@ Procedure Main()
         EndIf
 
       ElseIf gMode = #MODE_TACTICAL
+        LogLine("TACTICAL_CMD: '" + line + "' tok='" + cmd + "'")
         Select cmd
           Case "help"
             ClearConsole()
@@ -9628,7 +9637,7 @@ Procedure Main()
         ; Check if player wants to target fleet
         Protected phaserTarget.s = TokenAt(line, 3)
         If phaserTarget = "fleet" And gEnemyFleetCount > 0
-          Protected pfHit.i = Random(gEnemyFleetCount) + 1
+          Protected pfHit.i = Random(gEnemyFleetCount - 1) + 1
           If gEnemyFleet(pfHit)\hull > 0
             Protected pfDmg.i = Random(pwr / 2) + 5
             gEnemyFleet(pfHit)\hull - pfDmg
@@ -9662,7 +9671,7 @@ Procedure Main()
         ; Check if player wants to target fleet
         Protected torpTarget.s = TokenAt(line, 3)
         If torpTarget = "fleet" And gEnemyFleetCount > 0
-          Protected tfHit.i = Random(gEnemyFleetCount) + 1
+          Protected tfHit.i = Random(gEnemyFleetCount - 1) + 1
           If gEnemyFleet(tfHit)\hull > 0
             Protected tfDmg.i = Random(50) + 30
             gEnemyFleet(tfHit)\hull - tfDmg
@@ -9922,7 +9931,7 @@ Procedure Main()
               If Random(99) < 60  ; 60% chance to hit
                 ; 50% chance to hit player, 50% chance to hit fleet
                 If gPlayerFleetCount > 0 And Random(99) < 50
-                  Protected pfTarget.i = Random(gPlayerFleetCount) + 1
+                  Protected pfTarget.i = Random(gPlayerFleetCount - 1) + 1
                   If gPlayerFleet(pfTarget)\hull > 0
                     gPlayerFleet(pfTarget)\hull - efDmg
                     cs\pFleetHit = cs\pFleetHit | (1 << (pfTarget - 1))  ; Mark player fleet ship as hit
@@ -10052,7 +10061,6 @@ Procedure Main()
           PrintStatusTactical(@player, @enemy, @cs)
         EndIf
       EndIf
-    EndIf
   Wend
 
   PrintDivider()
@@ -10079,7 +10087,6 @@ Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 1925
-; FirstLine = 1907
 ; Folding = ---------------------------
 ; Optimizer
 ; EnableThread
