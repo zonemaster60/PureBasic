@@ -9051,7 +9051,7 @@ Procedure Main()
 
   RandomSeed(Date())
 
-  If OpenConsole() = 0
+  If OpenConsole(#APP_NAME + " " + version) = 0
     MessageRequester("Error", "Unable to open console")
     End
   EndIf
@@ -10825,8 +10825,8 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 4788
-; FirstLine = 4772
+; CursorPosition = 9053
+; FirstLine = 9023
 ; Folding = ----------------------------
 ; Optimizer
 ; EnableThread
