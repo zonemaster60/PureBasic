@@ -165,7 +165,7 @@ EndProcedure
 
 Procedure InitializePowerups()
   Protected Dim powerupTypes(7)
-  Protected i, j, randomType
+  Protected i, randomType
   
   ; Available power-up types
   powerupTypes(0) = #POWERUP_DOUBLE_STRIKE
@@ -408,12 +408,16 @@ EndProcedure
 ; === Power-up Procedures ===
 Procedure RotateBoard()
   Protected Dim newBoard.s(#BOARD_SIZE-1, #BOARD_SIZE-1)
+  Protected Dim newShield.b(#BOARD_SIZE-1, #BOARD_SIZE-1)
+  Protected Dim newBlocked.b(#BOARD_SIZE-1, #BOARD_SIZE-1)
   Protected x, y
   
   ; Rotate board 90 degrees clockwise
   For y = 0 To #BOARD_SIZE-1
     For x = 0 To #BOARD_SIZE-1
       newBoard(#BOARD_SIZE-1-y, x) = Board(x, y)
+      newShield(#BOARD_SIZE-1-y, x) = ShieldBoard(x, y)
+      newBlocked(#BOARD_SIZE-1-y, x) = BlockedBoard(x, y)
     Next
   Next
   
@@ -421,13 +425,14 @@ Procedure RotateBoard()
   For y = 0 To #BOARD_SIZE-1
     For x = 0 To #BOARD_SIZE-1
       Board(x, y) = newBoard(x, y)
+      ShieldBoard(x, y) = newShield(x, y)
+      BlockedBoard(x, y) = newBlocked(x, y)
     Next
   Next
 EndProcedure
 
 Procedure ExecutePowerup(powerupType, player.s)
   Protected x, y, found = #False
-  Protected swapX, swapY
   
   Select powerupType
     Case #POWERUP_DOUBLE_STRIKE
@@ -504,23 +509,23 @@ Procedure ExecutePowerup(powerupType, player.s)
       
     Case #POWERUP_BOMB
       ; Clear center and place symbol
-      If Board(1, 1) = ""
+      If Not ShieldBoard(1, 1) And Not BlockedBoard(1, 1)
         Board(1, 1) = player
         SetGadgetText(#Gadget_PowerupStatus, "'" + player + "' used Bomb in center!")
       Else
-        SetGadgetText(#Gadget_PowerupStatus, "Center already occupied!")
+        SetGadgetText(#Gadget_PowerupStatus, "Center is shielded or blocked!")
       EndIf
   EndSelect
 EndProcedure
 
 ; === Game Logic ===
 Procedure.s CheckWinner()
-  Protected i, j
+  Protected i
   
   ; Clear winning line
   WinningLineCount = 0
   
-  ; Check rows
+  ; Check columns
   For i = 0 To #BOARD_SIZE-1
     If Board(i, 0) <> "" And Board(i, 0) = Board(i, 1) And Board(i, 0) = Board(i, 2)
       ; Store winning line positions
@@ -532,7 +537,7 @@ Procedure.s CheckWinner()
     EndIf
   Next
   
-  ; Check columns
+  ; Check rows
   For i = 0 To #BOARD_SIZE-1
     If Board(0, i) <> "" And Board(0, i) = Board(1, i) And Board(0, i) = Board(2, i)
       ; Store winning line positions
@@ -783,8 +788,33 @@ Procedure AITurn()
     LastMove\y = y
     LastPlayer = "O"
     
-    AnimateSymbol("O", x, y, $808080)
+    AnimateSymbol("O", x, y, $FF0000)
     Board(x, y) = "O"
+    
+    If DoubleStrikeActive
+      DoubleStrikeCount + 1
+      If DoubleStrikeCount < 2
+        If CheckWinner() = ""
+          SetGadgetText(#Gadget_PowerupStatus, "AI is taking its second strike!")
+          DrawBoard()
+          Delay(500)
+          
+          move = GetBestMove()
+          If move >= 0
+            x = move & $FFFF
+            y = (move >> 16) & $FFFF
+            LastMove\x = x
+            LastMove\y = y
+            LastPlayer = "O"
+            AnimateSymbol("O", x, y, $FF0000)
+            Board(x, y) = "O"
+          EndIf
+        EndIf
+      EndIf
+      DoubleStrikeActive = #False
+      DoubleStrikeCount = 0
+    EndIf
+    
     CurrentPlayer = "X"
     
     ; Update status for next turn
@@ -884,11 +914,19 @@ Procedure CanvasClick()
     
     ; Place current player's symbol
     If CurrentPlayer = "X"
-      AnimateSymbol("X", x, y, $808080)
+      AnimateSymbol("X", x, y, $0000FF)
       Board(x, y) = "X"
     Else
-      AnimateSymbol("O", x, y, $808080)
+      AnimateSymbol("O", x, y, $FF0000)
       Board(x, y) = "O"
+    EndIf
+    
+    ; Check for game end
+    result = CheckWinner()
+    If result <> ""
+      DrawBoard()
+      EndGame(result)
+      ProcedureReturn
     EndIf
     
     ; Handle double strike
@@ -903,14 +941,6 @@ Procedure CanvasClick()
         DrawBoard()
         ProcedureReturn ; Don't switch players yet
       EndIf
-    EndIf
-    
-    ; Check for game end
-    result = CheckWinner()
-    If result <> ""
-      DrawBoard()
-      EndGame(result)
-      ProcedureReturn
     EndIf
     
     ; Handle next turn based on game mode
