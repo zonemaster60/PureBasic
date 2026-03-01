@@ -11,7 +11,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.1.1.5"
+Global version.s = "v1.1.2.5"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -367,6 +367,7 @@ Declare ClearSectorMap(mapX.i, mapY.i)
 Declare GenerateSectorMap(mapX.i, mapY.i)
 Declare GenerateGalaxy()
 Declare PrintMap()
+Declare PrintCompassRow(compassRow.i)
 Declare ScanGalaxy()
 Declare DockAtBase(*p.Ship)
 Declare DockAtRefinery(*p.Ship)
@@ -390,6 +391,7 @@ Declare.i CheckCheatCode(code.s)
 
 ; Missions
 Declare GenerateMission(*p.Ship)
+Declare.i HQOrdersTier()
 Declare GenerateHQMission(*p.Ship)
 Declare PrintMission(*p.Ship)
 Declare AcceptMission(*p.Ship)
@@ -471,6 +473,9 @@ Enumeration
   #C_YELLOW
   #C_WHITE
 EndEnumeration
+
+; Alias for readability (same as #C_CYAN in 16-color palette)
+#C_DARKCYAN = #C_CYAN
 
 EnumerationBinary
   #SYS_OK = 1
@@ -667,6 +672,17 @@ Global gHQMapX.i = 0   ; Galaxy sector X containing HQ
 Global gHQMapY.i = 0   ; Galaxy sector Y containing HQ
 Global gHQX.i    = 0   ; Cell X within that sector
 Global gHQY.i    = 0   ; Cell Y within that sector
+; HQ standing orders and recall beacon
+Global gHQMissionsCompleted.i = 0  ; HQ Priority Bounties completed
+Global gRecallArmed.i         = 0  ; 1 = recall beacon is armed
+
+; Lifetime combat record (for MANIFEST)
+Global gTotalKills.i          = 0
+Global gTotalMissions.i       = 0
+Global gTotalCreditsEarned.i  = 0
+
+; Compass: last NAV heading in degrees (-1 = no heading set yet)
+Global gLastHeading.i = -1
 
 ; Enemy fleet - up to 5 computer-controlled ships
 Global Dim gEnemyFleet.Ship(5)
@@ -1505,7 +1521,8 @@ Procedure PrintLegendLine(indent.s)
   ConsoleColor(#C_MAGENTA, #C_BLACK) : Print("D") : ResetColor() : Print("=Dilithium ")
   ConsoleColor(#C_LIGHTBLUE, #C_BLACK) : Print("A") : ResetColor() : Print("=Anomaly ")
   ConsoleColor(#C_LIGHTRED, #C_BLACK) : Print("K") : ResetColor() : Print("=Planet Killer ")
-  ConsoleColor(#C_YELLOW, #C_BLACK) : Print("R") : ResetColor() : PrintN("=Refinery")
+  ConsoleColor(#C_YELLOW, #C_BLACK) : Print("R") : ResetColor() : Print("=Refinery ")
+  ConsoleColor(#C_YELLOW, #C_BLACK) : Print("$") : ResetColor() : PrintN("=StarComm HQ")
 EndProcedure
 
 Procedure SetColorForEnt(t.i)
@@ -1871,6 +1888,9 @@ Procedure.i SaveGame(*p.Ship)
   WriteStringN(f, "cheats|" + Str(gCheatsUnlocked) + "|" + gCheatCode)
   WriteStringN(f, "powerbuff|" + Str(gPowerBuff) + "|" + Str(gPowerBuffTurns))
   WriteStringN(f, "hq|" + Str(gHQMapX) + "|" + Str(gHQMapY) + "|" + Str(gHQX) + "|" + Str(gHQY))
+  WriteStringN(f, "hqmissions|" + Str(gHQMissionsCompleted) + "|" + Str(gRecallArmed))
+  WriteStringN(f, "manifest|" + Str(gTotalKills) + "|" + Str(gTotalMissions) + "|" + Str(gTotalCreditsEarned))
+  WriteStringN(f, "lastheading|" + Str(gLastHeading))
 
   ; Save player fleet
   WriteStringN(f, "playerfleet|" + Str(gPlayerFleetCount))
@@ -1908,7 +1928,7 @@ Procedure.i SaveGame(*p.Ship)
     WriteStringN(f, "recruit|" + Str(r) + "|" + SafeField(gRecruitNames(r)) + "|" + SafeField(gRecruitRoles(r)))
   Next
 
-  WriteStringN(f, "missions|" + Str(gMission\active) + "|" + Str(gMission\type) + "|" +
+  WriteStringN(f, "mission|" + Str(gMission\active) + "|" + Str(gMission\type) + "|" +
                   SafeField(gMission\title) + "|" + SafeField(gMission\desc) + "|" +
                   Str(gMission\oreRequired) + "|" +
                   Str(gMission\killsRequired) + "|" + Str(gMission\killsDone) + "|" +
@@ -2053,6 +2073,24 @@ Procedure.i LoadGame(*p.Ship)
         If gHQMapY < 0 Or gHQMapY >= #GALAXY_H : gHQMapY = #GALAXY_H / 2 : EndIf
         If gHQX < 0 Or gHQX >= #MAP_W : gHQX = 0 : EndIf
         If gHQY < 0 Or gHQY >= #MAP_H : gHQY = 0 : EndIf
+      Case "hqmissions"
+        gHQMissionsCompleted = Val(StringField(line, 2, "|"))
+        gRecallArmed         = Val(StringField(line, 3, "|"))
+        If gHQMissionsCompleted < 0 : gHQMissionsCompleted = 0 : EndIf
+        If gRecallArmed <> 0 And gRecallArmed <> 1 : gRecallArmed = 0 : EndIf
+      Case "manifest"
+        gTotalKills         = Val(StringField(line, 2, "|"))
+        gTotalMissions      = Val(StringField(line, 3, "|"))
+        gTotalCreditsEarned = Val(StringField(line, 4, "|"))
+        If gTotalKills < 0         : gTotalKills = 0         : EndIf
+        If gTotalMissions < 0      : gTotalMissions = 0      : EndIf
+        If gTotalCreditsEarned < 0 : gTotalCreditsEarned = 0 : EndIf
+      Case "lastheading"
+        Protected lhVal.i = Val(StringField(line, 2, "|"))
+        Select lhVal
+          Case -1, 0, 45, 90, 135, 180, 225, 270, 315
+            gLastHeading = lhVal
+        EndSelect
       Case "playerfleet"
         gPlayerFleetCount = Val(StringField(line, 2, "|"))
         If gPlayerFleetCount < 0 : gPlayerFleetCount = 0 : EndIf
@@ -4563,6 +4601,53 @@ EndProcedure
 ;   - ! = Mission target location
 ;   - . = Unexplored galaxy
 ;==============================================================================
+
+;==============================================================================
+; PrintCompassRow(compassRow) — prints one row of the 3×3 compass rose.
+; Row 0: 315 0 45   Row 1: 270 + 90   Row 2: 225 180 135
+; Active heading is highlighted in yellow.  gLastHeading = -1 means no highlight.
+; Each cell is 4 chars wide (constant width even when highlighted):
+;   prints a right-aligned 3-digit (or 1-2 digit) number plus a trailing space
+;==============================================================================
+Procedure PrintCompassCell(label.s, heading.i)
+  ; 4-char fixed-width cell; highlight uses color only (no brackets)
+  If label = "+"
+    Print(" +  ")
+    ProcedureReturn
+  EndIf
+
+  ; Pad numeric headings to 3 digits (e.g. 0 -> 000, 45 -> 045)
+  Protected core.s = RSet(label, 3, "0")
+
+  If gLastHeading >= 0 And heading >= 0 And heading = gLastHeading
+    ConsoleColor(#C_DARKCYAN, #C_BLACK)
+    Print(core + " ")
+    ResetColor()
+  Else
+    Print(core + " ")
+  EndIf
+EndProcedure
+
+Procedure PrintCompassRow(compassRow.i)
+  Protected c0.s, c1.s, c2.s
+  Protected h0.i, h1.i, h2.i
+
+  Select compassRow
+    Case 0 : c0 = "315" : h0 = 315 : c1 = "0"   : h1 = 0   : c2 = "45"  : h2 = 45
+    Case 1 : c0 = "270" : h0 = 270 : c1 = "+"   : h1 = -1  : c2 = "90"  : h2 = 90  ; h1=-1: center never highlights
+    Case 2 : c0 = "225" : h0 = 225 : c1 = "180" : h1 = 180 : c2 = "135" : h2 = 135
+    Default : ProcedureReturn  ; guard against out-of-range row
+  EndSelect
+
+  Print("  ")  ; separator from galaxy map
+
+  PrintCompassCell(c0, h0)
+  Print(" ")
+  PrintCompassCell(c1, h1)
+  Print(" ")
+  PrintCompassCell(c2, h2)
+EndProcedure
+
 Procedure PrintMap()
   Protected x.i, row.i
   Protected maxRows.i = #MAP_H
@@ -4691,11 +4776,17 @@ Procedure PrintMap()
       Next
     EndIf
 
+    ; Compass rose: append to the right of galaxy map rows 0-2
+    If row <= 2
+      PrintCompassRow(row)
+    EndIf
+
     PrintN("")
   Next
 
   PrintLegendLine("Legend: ")
   Print("Galaxy: ")
+  ConsoleColor(#C_YELLOW, #C_BLACK) : Print("$") : ResetColor() : Print("=StarComm HQ ")
   ConsoleColor(#C_WHITE, #C_BLACK) : Print("X") : ResetColor() : Print("=Current map ")
   ConsoleColor(#C_YELLOW, #C_BLACK) : Print("M") : ResetColor() : Print("=Mission map ")
   ConsoleColor(#C_YELLOW, #C_BLACK) : Print("!") : ResetColor() : PrintN("=Mission target")
@@ -4733,6 +4824,7 @@ Procedure ScanGalaxy()
   If gMission\active And gMission\type = #MIS_SURVEY
     If gMapX = gMission\destMapX And gMapY = gMission\destMapY And gx = gMission\destX And gy = gMission\destY
       gCredits + gMission\rewardCredits
+      gTotalCreditsEarned + gMission\rewardCredits
       ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
       PrintDivider()
       PrintN("*** MISSION COMPLETE: Survey finished! (+" + Str(gMission\rewardCredits) + " credits) ***")
@@ -4741,6 +4833,7 @@ Procedure ScanGalaxy()
       LogLine("MISSION COMPLETE: survey (+" + Str(gMission\rewardCredits) + " credits)")
       ClearStructure(@gMission, Mission)
       gMission\type = #MIS_NONE
+      gTotalMissions + 1
     EndIf
   EndIf
 
@@ -4944,6 +5037,17 @@ Procedure GenerateMission(*p.Ship)
     gMission\desc = "Locate and destroy the Planet Killer at " + LocText(mxPK, myPK, xPK, yPK) + ". Warning: extremely dangerous!"
   EndIf
 
+EndProcedure
+
+;==============================================================================
+; HQOrdersTier()
+; Returns the current Standing Orders tier (0-3) based on HQ missions done.
+;==============================================================================
+Procedure.i HQOrdersTier()
+  If gHQMissionsCompleted >= 6 : ProcedureReturn 3 : EndIf
+  If gHQMissionsCompleted >= 3 : ProcedureReturn 2 : EndIf
+  If gHQMissionsCompleted >= 1 : ProcedureReturn 1 : EndIf
+  ProcedureReturn 0
 EndProcedure
 
 ;==============================================================================
@@ -5341,6 +5445,7 @@ Procedure DefendMissionTick(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Comba
 
   If gMission\turnsLeft <= 0
     gCredits + gMission\rewardCredits
+    gTotalCreditsEarned + gMission\rewardCredits
     ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
     PrintDivider()
     PrintN("*** MISSION COMPLETE: Shipyard secured! (+" + Str(gMission\rewardCredits) + " credits) ***")
@@ -5349,6 +5454,7 @@ Procedure DefendMissionTick(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Comba
     LogLine("MISSION COMPLETE: defend shipyard (+" + Str(gMission\rewardCredits) + " credits)")
     ClearStructure(@gMission, Mission)
     gMission\type = #MIS_NONE
+    gTotalMissions + 1
   EndIf
 EndProcedure
 
@@ -5372,6 +5478,7 @@ Procedure DeliverMission(*p.Ship)
 
   *p\ore - gMission\oreRequired
   gCredits + gMission\rewardCredits
+  gTotalCreditsEarned + gMission\rewardCredits
   ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
   PrintDivider()
   PrintN("*** MISSION COMPLETE: Ore delivered! (+" + Str(gMission\rewardCredits) + " credits) ***")
@@ -5380,6 +5487,7 @@ Procedure DeliverMission(*p.Ship)
   LogLine("MISSION COMPLETE: delivered ore (+" + Str(gMission\rewardCredits) + " credits)")
   ClearStructure(@gMission, Mission)
   gMission\type = #MIS_NONE
+  gTotalMissions + 1
 EndProcedure
 
 ;==============================================================================
@@ -5775,6 +5883,14 @@ Procedure DockAtBase(*p.Ship)
   *p\torp = *p\torpMax
   *p\fuel = *p\fuelMax
   *p\probes = *p\probesMax
+  ; ORDERS Tier 1: +1 torpedo per dock (any base)
+  If HQOrdersTier() >= 1
+    *p\torp + 1
+  EndIf
+  ; ORDERS Tier 3: +1 probe per dock (any base)
+  If HQOrdersTier() >= 3
+    *p\probes + 1
+  EndIf
   *p\sysEngines = #SYS_OK
   *p\sysWeapons = #SYS_OK
   *p\sysShields = #SYS_OK
@@ -5796,6 +5912,7 @@ Procedure DockAtBase(*p.Ship)
   GenerateDockedShips(0)
 
   ; Interactive command loop for starbase
+  Protected isHQ.i = Bool(CurCell(gx, gy)\entType = #ENT_HQ)
   While gDocked
     RefreshDockedShips()
     PrintDockedShips(*p)
@@ -5806,6 +5923,9 @@ Procedure DockAtBase(*p.Ship)
     PrintN("")
     PrintN("Commands: RECRUIT <1-3> (75 cr signing fee) | DISMISS <role> | CODE <number> | UNDOCK")
     PrintN("          FLEET ADD | FLEET REMOVE | FLEET (status)")
+    If isHQ
+      PrintN("HQ only:  INTEL | ORDERS | MANIFEST | RECALL")
+    EndIf
     If gCheatsUnlocked = 1
       PrintN("Cheats: poweroverwhelming | showmethemoney | miner2049er")
       PrintN("        spawnyard | spawnbase | spawnhq | spawnrefinery | spawncluster")
@@ -5817,6 +5937,153 @@ Procedure DockAtBase(*p.Ship)
     Protected cmd.s = TrimLower(Input())
     ResetColor()
     
+    ; HQ-exclusive commands
+    If isHQ And cmd = "intel"
+      ; --- INTEL: Galaxy Threat Report ---
+      Protected intelEnemies.i = 0, intelPirates.i = 0, intelPKActive.i = 0
+      Protected intelPKSectorX.i = -1, intelPKSectorY.i = -1
+      Protected Dim intelSectorCount.i(#GALAXY_W - 1, #GALAXY_H - 1)
+      Protected intelMX.i, intelMY.i, intelIX.i, intelIY.i
+      For intelMY = 0 To #GALAXY_H - 1
+        For intelMX = 0 To #GALAXY_W - 1
+          For intelIY = 0 To #MAP_H - 1
+            For intelIX = 0 To #MAP_W - 1
+              Protected intelEnt.i = gGalaxy(intelMX, intelMY, intelIX, intelIY)\entType
+              If intelEnt = #ENT_ENEMY
+                intelEnemies + 1
+                intelSectorCount(intelMX, intelMY) + 1
+              ElseIf intelEnt = #ENT_PIRATE
+                intelPirates + 1
+                intelSectorCount(intelMX, intelMY) + 1
+              ElseIf intelEnt = #ENT_PLANETKILLER
+                intelPKActive = 1
+                intelPKSectorX = intelMX : intelPKSectorY = intelMY
+              EndIf
+            Next
+          Next
+        Next
+      Next
+      ; Find top 3 hostile sectors
+      Protected Dim intelTop.i(2)
+      Protected Dim intelTopX.i(2)
+      Protected Dim intelTopY.i(2)
+      Protected intelTi.i, intelTj.i
+      For intelTi = 0 To 2 : intelTop(intelTi) = -1 : Next
+      For intelMY = 0 To #GALAXY_H - 1
+        For intelMX = 0 To #GALAXY_W - 1
+          If intelSectorCount(intelMX, intelMY) > 0
+            For intelTi = 0 To 2
+              If intelSectorCount(intelMX, intelMY) > intelTop(intelTi)
+                For intelTj = 2 To intelTi + 1 Step -1
+                  intelTop(intelTj)  = intelTop(intelTj - 1)
+                  intelTopX(intelTj) = intelTopX(intelTj - 1)
+                  intelTopY(intelTj) = intelTopY(intelTj - 1)
+                Next
+                intelTop(intelTi)  = intelSectorCount(intelMX, intelMY)
+                intelTopX(intelTi) = intelMX
+                intelTopY(intelTi) = intelMY
+                Break
+              EndIf
+            Next
+          EndIf
+        Next
+      Next
+      PrintN("")
+      ConsoleColor(#C_YELLOW, #C_BLACK)
+      PrintN("=== STARCOMM INTELLIGENCE REPORT ===")
+      ResetColor()
+      PrintN("Hostile vessels detected: " + Str(intelEnemies) + " enemy  |  " + Str(intelPirates) + " pirate")
+      If intelPKActive
+        ConsoleColor(#C_LIGHTRED, #C_BLACK)
+        PrintN("PLANET KILLER ACTIVE at galaxy sector (" + Str(intelPKSectorX) + "," + Str(intelPKSectorY) + ") !!!")
+        ResetColor()
+      Else
+        PrintN("Planet Killer: no current signature detected.")
+      EndIf
+      PrintN("Most hostile sectors:")
+      For intelTi = 0 To 2
+        If intelTop(intelTi) > 0
+          PrintN("  [" + Str(intelTi + 1) + "] Sector (" + Str(intelTopX(intelTi)) + "," + Str(intelTopY(intelTi)) + ")  - " + Str(intelTop(intelTi)) + " hostile contact(s)")
+        EndIf
+      Next
+      If gMission\active
+        PrintN("Active mission destination: galaxy sector (" + Str(gMission\destMapX) + "," + Str(gMission\destMapY) + ")")
+      EndIf
+      PrintN("")
+      Continue
+    EndIf
+
+    If isHQ And cmd = "orders"
+      ; --- ORDERS: Standing Orders display ---
+      Protected ordTier.i = HQOrdersTier()
+      PrintN("")
+      ConsoleColor(#C_YELLOW, #C_BLACK)
+      PrintN("=== STANDING ORDERS ===")
+      ResetColor()
+      PrintN("HQ missions completed: " + Str(gHQMissionsCompleted))
+      PrintN("Current tier: " + Str(ordTier) + "/3")
+      PrintN("")
+      If ordTier >= 1
+        ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+        PrintN("  [Tier 1 ACTIVE] +1 torpedo on every dock")
+      Else
+        PrintN("  [Tier 1]  Complete 1 HQ mission  - +1 torpedo per dock")
+      EndIf
+      ResetColor()
+      If ordTier >= 2
+        ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+        PrintN("  [Tier 2 ACTIVE] +5% bonus credits on all bounty rewards")
+      Else
+        PrintN("  [Tier 2]  Complete 3 HQ missions - +5% bounty credits")
+      EndIf
+      ResetColor()
+      If ordTier >= 3
+        ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+        PrintN("  [Tier 3 ACTIVE] +1 probe per dock  |  sensor range already boosted")
+      Else
+        PrintN("  [Tier 3]  Complete 6 HQ missions - +1 probe/dock + permanent sensor +1")
+      EndIf
+      ResetColor()
+      PrintN("")
+      Continue
+    EndIf
+
+    If isHQ And cmd = "manifest"
+      ; --- MANIFEST: Lifetime combat record ---
+      Protected manRating.i = (gTotalKills * 10) + (gTotalMissions * 100) + (gTotalCreditsEarned / 10)
+      PrintN("")
+      ConsoleColor(#C_YELLOW, #C_BLACK)
+      PrintN("=== COMMANDER'S RECORD ===")
+      ResetColor()
+      PrintN("Enemies destroyed:    " + Str(gTotalKills))
+      PrintN("Missions completed:   " + Str(gTotalMissions))
+      PrintN("Credits earned:       " + Str(gTotalCreditsEarned))
+      PrintN("HQ missions done:     " + Str(gHQMissionsCompleted) + "  (Orders Tier " + Str(HQOrdersTier()) + " active)")
+      ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+      PrintN("Starcomm Rating:      " + Str(manRating))
+      ResetColor()
+      PrintN("")
+      Continue
+    EndIf
+
+    If isHQ And cmd = "recall"
+      ; --- RECALL: Arm the emergency jump beacon ---
+      If gRecallArmed
+        ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+        PrintN("Recall beacon is already armed. Leave HQ and type RECALL to jump home.")
+        ResetColor()
+      Else
+        gRecallArmed = 1
+        ConsoleColor(#C_YELLOW, #C_BLACK)
+        PrintN("Recall beacon armed. From anywhere outside HQ sector, type RECALL to emergency jump home.")
+        PrintN("Cost: all remaining fuel. One use per arming.")
+        ResetColor()
+        LogLine("RECALL: beacon armed at HQ")
+        AddCaptainLog("RECALL: beacon armed")
+      EndIf
+      Continue
+    EndIf
+
     If cmd = "0" Or cmd = "undock" Or cmd = "leave" Or cmd = "exit"
       gDocked = 0
       ; Find an empty adjacent spot to undock to
@@ -7444,7 +7711,7 @@ Procedure Nav(*p.Ship, dir.s, steps.i)
       EndIf
       
       ; Enemy contact
-      If CurCell(gx, gy)\entType = #ENT_ENEMY Or CurCell(gx, gy)\entType = #ENT_PIRATE
+      If CurCell(gx, gy)\entType = #ENT_ENEMY Or CurCell(gx, gy)\entType = #ENT_PIRATE Or CurCell(gx, gy)\entType = #ENT_PLANETKILLER
         gEnemyMapX = gMapX
         gEnemyMapY = gMapY
         gEnemyX = gx
@@ -7661,9 +7928,9 @@ Procedure EnterCombat(*p.Ship, *enemy.Ship, *cs.CombatState)
   ; Log combat entry
   AddCaptainLog("COMBAT: Engaged " + *enemy\name + " at range " + Str(*cs\range))
   
-  ; Spawn enemy fleet based on enemy level
+  ; Spawn enemy fleet based on enemy level (Planet Killer fights alone)
   Protected enemyLvl.i = CurCell(gx, gy)\enemyLevel
-  If enemyLvl > 3
+  If enemyLvl > 3 And *enemy\class <> "Planet Killer"
     gEnemyFleetCount = Random(2)  ; 0-2 fleet ships
     Protected efSetup.i
     For efSetup = 1 To gEnemyFleetCount
@@ -8841,6 +9108,14 @@ Procedure Main()
     gMacroOre       = player\ore
     gMacroDilithium = player\dilithium
     gMacroOreMax    = player\oreMax
+    ; RECALL auto-prompt: warn when hull is critical and beacon is armed
+    If gRecallArmed = 1 And gDocked = 0 And player\hullMax > 0
+      If player\hull <= Int(player\hullMax * 0.25)
+        ConsoleColor(#C_YELLOW, #C_BLACK)
+        PrintN("Hull critical! RECALL beacon armed - type RECALL to emergency jump home.")
+        ResetColor()
+      EndIf
+    EndIf
     ConsoleColor(#C_WHITE, #C_BLACK)
     If gMacroPlaybackActive = 0
       Print("CMD> ")
@@ -8861,6 +9136,36 @@ Procedure Main()
     Protected line.s = Trim(lineRaw)
     Protected cmd.s  = TrimLower(TokenAt(line, 1))
     If cmd = "" : cmd = "end" : EndIf
+    ; RECALL: emergency jump to HQ (any mode, not docked)
+    If cmd = "recall" And gDocked = 0
+      If gRecallArmed = 0
+        PrintN("No recall beacon armed. Dock at Starcomm HQ and type RECALL to arm one.")
+      ElseIf gMapX = gHQMapX And gMapY = gHQMapY
+        PrintN("Already in HQ sector. Recall not needed.")
+      Else
+        ; Jump to HQ sector, adjacent to HQ cell
+        Protected recallDestX.i = gHQX
+        Protected recallDestY.i = gHQY - 1
+        If recallDestY < 0 : recallDestY = gHQY + 1 : EndIf
+        If recallDestY >= #MAP_H : recallDestY = gHQY : EndIf
+        gMapX = gHQMapX
+        gMapY = gHQMapY
+        gx    = recallDestX
+        gy    = recallDestY
+        player\fuel = 0
+        gRecallArmed = 0
+        ConsoleColor(#C_YELLOW, #C_BLACK)
+        PrintDivider()
+        PrintN("*** EMERGENCY RECALL ACTIVATED - jumped to Starcomm HQ. Fuel depleted. ***")
+        PrintDivider()
+        ResetColor()
+        LogLine("RECALL: emergency jump to HQ (" + Str(gHQMapX) + "," + Str(gHQMapY) + "), fuel depleted")
+        AddCaptainLog("RECALL: jumped home")
+        PlaySoundFX(SoundWarp)
+        RedrawGalaxy(@player)
+      EndIf
+      Continue
+    EndIf
 
     ; Log every command for the captain's log
     If cmd <> "" And cmd <> "end"
@@ -9133,7 +9438,14 @@ Procedure Main()
           Protected oldX.i = gx
           Protected oldY.i = gy
           Nav(@player, navDir, navSteps)
-          
+
+          ; Track last intended heading for compass display (set even if movement was blocked)
+          Protected navHeadVal.i = ParseIntSafe(navDir, -1)
+          Select navHeadVal
+            Case 0, 45, 90, 135, 180, 225, 270, 315
+              gLastHeading = navHeadVal
+          EndSelect
+
           ; Log the movement
           If gx <> oldX Or gy <> oldY
             AddCaptainLog("NAV: " + navDir + " to (" + Str(gMapX) + "," + Str(gMapY) + ") sector (" + Str(gx) + "," + Str(gy) + ")")
@@ -9903,6 +10215,7 @@ Procedure Main()
         ShipComputerTerminal(@player)
         RedrawGalaxy(@player)
       ElseIf cmd = "quit" Or cmd = "exit"
+        PlaySoundFX(SoundAlarm)
         Protected quitConfirm.i = MessageRequester("Starship Sim", "Are you sure you want to exit?", #PB_MessageRequester_YesNo)
         If quitConfirm = #PB_MessageRequester_Yes
           CloseConsole()
@@ -10316,20 +10629,45 @@ Procedure Main()
 
           ; Log victory
           AddCaptainLog("COMBAT: Destroyed " + enemy\name)
+          gTotalKills + 1
 
           ; Mission: bounty progress
           If gMission\active And gMission\type = #MIS_BOUNTY
             gMission\killsDone + 1
             If gMission\killsDone >= gMission\killsRequired
               gCredits + gMission\rewardCredits
+              gTotalCreditsEarned + gMission\rewardCredits
+              ; ORDERS Tier 2: +5% bonus on all bounty rewards
+              If HQOrdersTier() >= 2
+                Protected bonusTier2.i = Int(gMission\rewardCredits * 0.05)
+                gCredits + bonusTier2
+                gTotalCreditsEarned + bonusTier2
+                If bonusTier2 > 0
+                  PrintN("Standing Orders bonus: +" + Str(bonusTier2) + " credits (Tier 2).")
+                EndIf
+              EndIf
               ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
               PrintDivider()
               PrintN("*** MISSION COMPLETE: Bounty claimed! (+" + Str(gMission\rewardCredits) + " credits) ***")
               PrintDivider()
               ResetColor()
               LogLine("MISSION COMPLETE: bounty (+" + Str(gMission\rewardCredits) + " credits)")
+              ; Track HQ Priority Bounty completion for Standing Orders
+              If gMission\title = "HQ Priority Bounty"
+                gHQMissionsCompleted + 1
+                LogLine("HQ MISSION: completed #" + Str(gHQMissionsCompleted))
+                ; Tier 3 unlock: one-time permanent sensor bonus
+                If gHQMissionsCompleted = 6
+                  player\sensorRange + 1
+                  ConsoleColor(#C_YELLOW, #C_BLACK)
+                  PrintN("*** STANDING ORDERS TIER 3 UNLOCKED: Sensor range +1 (permanent)! ***")
+                  ResetColor()
+                  AddCaptainLog("ORDERS Tier 3 unlocked: sensor +1")
+                EndIf
+              EndIf
               ClearStructure(@gMission, Mission)
               gMission\type = #MIS_NONE
+              gTotalMissions + 1
             Else
               LogLine("BOUNTY: " + Str(gMission\killsDone) + "/" + Str(gMission\killsRequired))
             EndIf
@@ -10338,6 +10676,7 @@ Procedure Main()
           ; Mission: Planet Killer hunt
           If gMission\active And gMission\type = #MIS_PLANETKILLER
             gCredits + gMission\rewardCredits
+            gTotalCreditsEarned + gMission\rewardCredits
             ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
             PrintDivider()
             PrintN("*** MISSION COMPLETE: Planet Killer destroyed! (+" + Str(gMission\rewardCredits) + " credits) ***")
@@ -10346,6 +10685,7 @@ Procedure Main()
             LogLine("MISSION COMPLETE: Planet Killer hunt (+" + Str(gMission\rewardCredits) + " credits)")
             ClearStructure(@gMission, Mission)
             gMission\type = #MIS_NONE
+            gTotalMissions + 1
           EndIf
 
           ; Bonus XP for destroying Planet Killer
@@ -10485,9 +10825,9 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 2145
-; FirstLine = 2283
-; Folding = ---------------------------
+; CursorPosition = 4788
+; FirstLine = 4772
+; Folding = ----------------------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -10496,12 +10836,12 @@ Main()
 ; UseIcon = starcomm.ico
 ; Executable = ..\starcomm.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,1,1,5
-; VersionField1 = 1,1,1,5
+; VersionField0 = 1,1,2,5
+; VersionField1 = 1,1,2,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarComm
-; VersionField4 = 1.1.1.5
-; VersionField5 = 1.1.1.5
+; VersionField4 = 1.1.2.5
+; VersionField5 = 1.1.2.5
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarComm
 ; VersionField8 = StarComm.exe
