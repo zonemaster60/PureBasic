@@ -6,7 +6,7 @@ EnableExplicit
 
 #APP_NAME = "Yahtzee_3D"
 
-Global version.s = "v1.0.0.0"
+Global version.s = "v1.0.0.1"
 Global AppPath.s        = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -25,7 +25,6 @@ EndIf
 #NUM_DICE = 5
 #MAX_ROLLS = 3
 #NUM_CATEGORIES = 13
-#FULLSCREEN = #False ; Set to #False for windowed mode
 #DEBUG_TESTS = #False ; Set True to run self-tests at startup
 #NETWORK_PORT = 7331
 
@@ -55,10 +54,14 @@ Enumeration
 EndEnumeration
 
 ; Structures
+Structure NetworkBufferType
+  *memory
+  size.i
+  capacity.i
+EndStructure
+
 Structure DiceType
   value.i
-  mesh.i
-  entity.i
   rolling.i
   held.i
   targetRotX.f
@@ -106,6 +109,7 @@ Structure NetworkStateType
   isHost.i
   connected.i
   opponentConnected.i
+  buffer.NetworkBufferType
 EndStructure
 
 ; Global Variables
@@ -113,7 +117,6 @@ Global Dim Dice.DiceType(#NUM_DICE - 1)
 Global Dim Categories.ScoreCategoryType(#NUM_CATEGORIES - 1)
 Global GameState.GameStateType
 Global NetworkState.NetworkStateType
-Global Camera, Light
 Global Font1, Font2, Font3, Font4
 Global Dim KeyPressed.i(5)  ; Track key states to prevent bouncing
 Global KeyDPressed.i = 0     ; Track D key state
@@ -139,43 +142,79 @@ Global LanHostCount.i
 Global LanScanActive.i
 Global LanScanPrefix.s
 Global LanScanIndex.i
+Global LanScanThread.i
+Global LanScanMutex.i = CreateMutex()
 Global PrevHDown.i
 Global PrevJDown.i
 Global PrevSDown.i
 Global PrevEscDown.i
-Global IsFullscreen.i = #FULLSCREEN
+Global IsFullscreen.i = #False
+If OpenPreferences(#APP_NAME + ".ini")
+  IsFullscreen = ReadPreferenceInteger("Fullscreen", #False)
+  ClosePreferences()
+EndIf
 Global PlayerName.s = "Player1"
 Global ServerIP.s = "127.0.0.1"
 Global HostIP.s = ""
 Global LastJoinedIP.s = ""
 
+Declare DisconnectNetwork()
 
 ; Category names
+Procedure LanScannerThread(dummy.i)
+  Protected currentIndex.i
+  Protected ip.s
+  Protected conn.i
+  
+  Repeat
+    LockMutex(LanScanMutex)
+    If LanScanActive = 0
+      UnlockMutex(LanScanMutex)
+      Break
+    EndIf
+    
+    currentIndex = LanScanIndex
+    LanScanIndex + 1
+    If LanScanIndex > 254
+      LanScanActive = 0
+    EndIf
+    
+    ip = LanScanPrefix + Str(currentIndex)
+    UnlockMutex(LanScanMutex)
+    
+    If currentIndex <= 254
+      ; Mode 1 = #PB_Network_TCP, Timeout = 100ms
+      conn = OpenNetworkConnection(ip, #NETWORK_PORT, 1, 100)
+      If conn
+        CloseNetworkConnection(conn)
+        
+        LockMutex(LanScanMutex)
+        LanHostCount + 1
+        ReDim LanHostList.s(LanHostCount)
+        LanHostList(LanHostCount) = ip
+        UnlockMutex(LanScanMutex)
+      EndIf
+    EndIf
+  Until currentIndex > 254
+EndProcedure
+
 Procedure StartLanScan(prefix.s)
+  If IsThread(LanScanThread)
+    LockMutex(LanScanMutex)
+    LanScanActive = 0
+    UnlockMutex(LanScanMutex)
+    WaitThread(LanScanThread, 1000)
+  EndIf
+
+  LockMutex(LanScanMutex)
   LanScanPrefix = prefix
   LanScanIndex = 1
   LanScanActive = 1
   LanHostCount = 0
   ReDim LanHostList.s(0)
-EndProcedure
-
-Procedure ContinueLanScanStep()
-  If LanScanActive = 0 : ProcedureReturn : EndIf
-
-  Protected ip.s = LanScanPrefix + Str(LanScanIndex)
-  Protected conn.i = OpenNetworkConnection(ip, #NETWORK_PORT, 80)
-
-  If conn
-    CloseNetworkConnection(conn)
-    LanHostCount + 1
-    ReDim LanHostList.s(LanHostCount)
-    LanHostList(LanHostCount) = ip
-  EndIf
-
-  LanScanIndex + 1
-  If LanScanIndex > 254
-    LanScanActive = 0
-  EndIf
+  UnlockMutex(LanScanMutex)
+  
+  LanScanThread = CreateThread(@LanScannerThread(), 0)
 EndProcedure
 
 Procedure InitializeCategories()
@@ -194,184 +233,270 @@ Procedure InitializeCategories()
   Categories(12)\name = "Chance"
 EndProcedure
 
-; Network: Send packet
+; Network: Send packet (Length prefixed)
 Procedure SendPacket(packetType.i, dataStr.s = "")
-  Protected *buffer, bufferSize.i
+  Protected *buffer, dataSize.i, totalSize.i
 
-  ; Simple packet = 1 byte type + UTF-8 string (null-terminated)
-  bufferSize = 1 + StringByteLength(dataStr, #PB_UTF8) + 1
-  *buffer = AllocateMemory(bufferSize)
+  ; Calculate string length in bytes
+  dataSize = StringByteLength(dataStr, #PB_UTF8)
+  
+  ; Frame: [Total Size (4 bytes)][Packet Type (1 byte)][Data String (N bytes)]
+  totalSize = 4 + 1 + dataSize
+  *buffer = AllocateMemory(totalSize)
 
   If *buffer
-    PokeA(*buffer, packetType)
-    If dataStr <> ""
-      PokeS(*buffer + 1, dataStr, -1, #PB_UTF8)
-    Else
-      PokeA(*buffer + 1, 0)
+    PokeL(*buffer, totalSize)
+    PokeA(*buffer + 4, packetType)
+    If dataSize > 0
+      PokeS(*buffer + 5, dataStr, dataSize, #PB_UTF8 | #PB_String_NoZero)
     EndIf
 
     If NetworkState\isHost And NetworkState\clientID
-      SendNetworkData(NetworkState\clientID, *buffer, bufferSize)
+      SendNetworkData(NetworkState\clientID, *buffer, totalSize)
     ElseIf Not NetworkState\isHost And NetworkState\serverID
-      SendNetworkData(NetworkState\serverID, *buffer, bufferSize)
+      SendNetworkData(NetworkState\serverID, *buffer, totalSize)
     EndIf
 
     FreeMemory(*buffer)
   EndIf
 EndProcedure
 
+; Append received data to accumulator buffer
+Procedure AppendNetworkBuffer(*newBuffer, bytes.i)
+  Protected newCapacity.i
+  
+  ; Initialize buffer if needed
+  If NetworkState\buffer\memory = 0
+    NetworkState\buffer\capacity = 4096
+    NetworkState\buffer\memory = AllocateMemory(NetworkState\buffer\capacity)
+    NetworkState\buffer\size = 0
+  EndIf
+  
+  ; Resize if necessary
+  If NetworkState\buffer\size + bytes > NetworkState\buffer\capacity
+    newCapacity = (NetworkState\buffer\size + bytes) * 2
+    NetworkState\buffer\memory = ReAllocateMemory(NetworkState\buffer\memory, newCapacity)
+    NetworkState\buffer\capacity = newCapacity
+  EndIf
+  
+  ; Copy new data into buffer
+  CopyMemory(*newBuffer, NetworkState\buffer\memory + NetworkState\buffer\size, bytes)
+  NetworkState\buffer\size + bytes
+EndProcedure
+
+; Network: Process one single extracted packet
+Procedure ProcessSinglePacket(packetType.i, dataStr.s)
+  Select packetType
+    Case #PKT_CONNECT
+      GameState\opponentName = dataStr
+      If Not NetworkState\isHost
+        NetworkState\connected = 1
+        ; Client initializes game state when receiving connection confirm
+        GameState\currentPlayer = 0  ; Host goes first
+        GameState\round = 1
+        GameState\rollsLeft = #MAX_ROLLS
+        GameState\gameOver = 0
+        GameState\message = "Connected! Waiting for host to start..."
+      EndIf
+
+    Case #PKT_ROLL_DICE
+      ; Opponent rolled - extract comma separated dice array
+      Protected i = 0, pos = 1, nextPos = 0, val.i
+      While i < #NUM_DICE
+        nextPos = FindString(dataStr, ",", pos)
+        If nextPos
+          val = Val(Mid(dataStr, pos, nextPos - pos))
+          pos = nextPos + 1
+        Else
+          val = Val(Mid(dataStr, pos))
+        EndIf
+        
+        GameState\diceValues[i] = val
+        Dice(i)\value = val
+        Dice(i)\rolling = 1
+        Dice(i)\targetRotX = Random(360) * 10
+        Dice(i)\targetRotY = Random(360) * 10
+        Dice(i)\targetRotZ = Random(360) * 10
+        i + 1
+      Wend
+      GameState\rollsLeft = GameState\rollsLeft - 1
+      GameState\showingDiceRoll = 1
+      GameState\rollAnimTime = 0.0
+
+    Case #PKT_HOLD_DICE
+      ; Opponent toggled hold state on a die (dataStr is index)
+      Protected idx = Val(dataStr)
+      If idx >= 0 And idx < #NUM_DICE
+        Dice(idx)\held = 1 - Dice(idx)\held
+        GameState\diceHeld[idx] = Dice(idx)\held
+      EndIf
+
+    Case #PKT_SCORE
+      ; Opponent scored - update their scorecard
+      Protected catPos = FindString(dataStr, ",", 1)
+      If catPos
+        Protected cat = Val(Left(dataStr, catPos - 1))
+        Protected scr = Val(Mid(dataStr, catPos + 1))
+        If cat >= 0 And cat < #NUM_CATEGORIES
+          Categories(cat)\aiScore = scr
+          Categories(cat)\aiUsed = 1
+          GameState\message = "Opponent scored " + Str(scr) + " in " + Categories(cat)\name
+        EndIf
+      EndIf
+
+    Case #PKT_TURN_END
+      ; Switch turn to local player
+      If NetworkState\isHost
+        GameState\currentPlayer = 0
+        ; When client ends its turn, host advances to next round.
+        GameState\round = GameState\round + 1
+        If GameState\round > 13
+          GameState\gameOver = 1
+        EndIf
+      Else
+        GameState\currentPlayer = 1
+        ; Client receives round number from host
+        If dataStr <> ""
+          GameState\round = Val(dataStr)
+          If GameState\round > 13
+            GameState\gameOver = 1
+          EndIf
+        EndIf
+      EndIf
+      GameState\rollsLeft = #MAX_ROLLS
+      
+      ; Reset local dice held state for new turn
+      Protected j
+      For j = 0 To #NUM_DICE - 1
+        Dice(j)\held = 0
+        GameState\diceHeld[j] = 0
+      Next
+
+  EndSelect
+EndProcedure
+
+; Process fully formed packets from accumulator
+Procedure ParseNetworkBuffer()
+  Protected packetLen.i, packetType.i, dataStr.s
+  
+  If NetworkState\buffer\memory = 0 Or NetworkState\buffer\size < 5
+    ProcedureReturn
+  EndIf
+  
+  While NetworkState\buffer\size >= 5
+    ; Peek the packet length (first 4 bytes)
+    packetLen = PeekL(NetworkState\buffer\memory)
+    
+    ; If we haven't received the full packet yet, break and wait for more data
+    If NetworkState\buffer\size < packetLen
+      Break
+    EndIf
+    
+    ; Extract packet type
+    packetType = PeekA(NetworkState\buffer\memory + 4)
+    
+    ; Extract string data (if any)
+    If packetLen > 5
+      dataStr = PeekS(NetworkState\buffer\memory + 5, packetLen - 5, #PB_UTF8)
+    Else
+      dataStr = ""
+    EndIf
+    
+    ; Process the payload
+    ProcessSinglePacket(packetType, dataStr)
+    
+    ; Remove processed packet from buffer by shifting remainder down
+    Protected remaining = NetworkState\buffer\size - packetLen
+    If remaining > 0
+      MoveMemory(NetworkState\buffer\memory + packetLen, NetworkState\buffer\memory, remaining)
+    EndIf
+    NetworkState\buffer\size = remaining
+  Wend
+EndProcedure
+
 ; Network: Receive and process packets
 Procedure ProcessNetworkPackets()
   Protected event.i, clientID.i
-  Protected *buffer, bytes.i
-  Protected packetType.a, dataStr.s
+  Protected *tempBuffer, bytes.i
+
+  *tempBuffer = AllocateMemory(4096)
+  If Not *tempBuffer : ProcedureReturn : EndIf
 
   If NetworkState\isHost And NetworkState\serverID
     event = NetworkServerEvent(NetworkState\serverID)
+    
+    While event
+      Select event
+        Case #PB_NetworkEvent_Connect
+          clientID = EventClient()
+          If Not NetworkState\opponentConnected
+            NetworkState\clientID = clientID
+            NetworkState\opponentConnected = 1
+            GameState\message = "Opponent connected! Game starting..."
 
-    Select event
-      Case #PB_NetworkEvent_Connect
-        clientID = EventClient()
-        If Not NetworkState\opponentConnected
-          NetworkState\clientID = clientID
-          NetworkState\opponentConnected = 1
-          GameState\message = "Opponent connected! Game starting..."
+            ; Send our name to opponent
+            SendPacket(#PKT_CONNECT, PlayerName)
 
-          ; Send our name to opponent
-          SendPacket(#PKT_CONNECT, PlayerName)
-
-          ; Reset game state for multiplayer start
-          GameState\currentPlayer = 0  ; Host starts first
-          GameState\round = 1
-          GameState\rollsLeft = #MAX_ROLLS
-          GameState\gameOver = 0
-        Else
-          CloseNetworkConnection(clientID) ; Only allow one opponent
-        EndIf
-
-      Case #PB_NetworkEvent_Data
-        clientID = EventClient()
-
-        ; Read up to a fixed buffer (simple protocol: 1 byte + optional UTF-8 string)
-        ; Note: This still assumes one packet per Receive call; for robust networking,
-        ; add length framing and an accumulator buffer.
-        *buffer = AllocateMemory(4096)
-        If *buffer
-          bytes = ReceiveNetworkData(clientID, *buffer, 4096)
-          If bytes > 0
-            packetType = PeekA(*buffer)
-
-            Select packetType
-              Case #PKT_CONNECT
-                GameState\opponentName = PeekS(*buffer + 1, -1, #PB_UTF8)
-
-              Case #PKT_ROLL_DICE
-                ; Opponent rolled - update their dice (not implemented)
-
-              Case #PKT_SCORE
-                ; Opponent scored - update their scorecard
-                dataStr = PeekS(*buffer + 1, -1, #PB_UTF8)
-                Protected catPos = FindString(dataStr, ",", 1)
-                If catPos
-                  Protected cat = Val(Left(dataStr, catPos - 1))
-                  Protected scr = Val(Mid(dataStr, catPos + 1))
-                  If cat >= 0 And cat < #NUM_CATEGORIES
-                    Categories(cat)\aiScore = scr
-                    Categories(cat)\aiUsed = 1
-                    GameState\message = "Opponent scored " + Str(scr) + " in " + Categories(cat)\name
-                  EndIf
-                EndIf
-
-              Case #PKT_TURN_END
-                ; Opponent (client) finished turn, switch to host's turn (me)
-                GameState\currentPlayer = 0
-                GameState\rollsLeft = #MAX_ROLLS
-
-                ; When client ends its turn, host advances to next round.
-                GameState\round = GameState\round + 1
-                If GameState\round > 13
-                  GameState\gameOver = 1
-                EndIf
-
-
-            EndSelect
+            ; Reset game state for multiplayer start
+            GameState\currentPlayer = 0  ; Host starts first
+            GameState\round = 1
+            GameState\rollsLeft = #MAX_ROLLS
+            GameState\gameOver = 0
+            
+            ; Reset network buffer
+            NetworkState\buffer\size = 0
+          Else
+            CloseNetworkConnection(clientID) ; Only allow one opponent
           EndIf
 
-          FreeMemory(*buffer)
-        EndIf
+        Case #PB_NetworkEvent_Data
+          clientID = EventClient()
+          If clientID = NetworkState\clientID
+            bytes = ReceiveNetworkData(clientID, *tempBuffer, 4096)
+            If bytes > 0
+              AppendNetworkBuffer(*tempBuffer, bytes)
+              ParseNetworkBuffer()
+            EndIf
+          EndIf
 
-      Case #PB_NetworkEvent_Disconnect
-        NetworkState\opponentConnected = 0
-        GameState\message = "Opponent disconnected!"
-    EndSelect
+        Case #PB_NetworkEvent_Disconnect
+          clientID = EventClient()
+          If clientID = NetworkState\clientID
+            NetworkState\opponentConnected = 0
+            GameState\message = "Opponent disconnected!"
+            DisconnectNetwork()
+            GameState\inMenu = 1
+          EndIf
+      EndSelect
+      
+      ; Grab next event if any are queued
+      event = NetworkServerEvent(NetworkState\serverID)
+    Wend
 
   ElseIf Not NetworkState\isHost And NetworkState\serverID
     event = NetworkClientEvent(NetworkState\serverID)
 
-    Select event
-      Case #PB_NetworkEvent_Data
-        *buffer = AllocateMemory(4096)
-        If *buffer
-          bytes = ReceiveNetworkData(NetworkState\serverID, *buffer, 4096)
+    While event
+      Select event
+        Case #PB_NetworkEvent_Data
+          bytes = ReceiveNetworkData(NetworkState\serverID, *tempBuffer, 4096)
           If bytes > 0
-            packetType = PeekA(*buffer)
-
-            Select packetType
-            Case #PKT_CONNECT
-              GameState\opponentName = PeekS(*buffer + 1, -1, #PB_UTF8)
-              NetworkState\connected = 1
-
-              ; Request a state snapshot so we can join mid-game
-              ; Client initializes game state when receiving connection confirm
-              GameState\currentPlayer = 0  ; Host goes first
-              GameState\round = 1
-              GameState\rollsLeft = #MAX_ROLLS
-              GameState\gameOver = 0
-              GameState\message = "Connected! Waiting for host to start..."
-
-              Case #PKT_ROLL_DICE
-                ; Host rolled (not implemented)
-
-              Case #PKT_SCORE
-                ; Host scored
-                dataStr = PeekS(*buffer + 1, -1, #PB_UTF8)
-                Protected catPos2 = FindString(dataStr, ",", 1)
-                If catPos2
-                  Protected cat2 = Val(Left(dataStr, catPos2 - 1))
-                  Protected scr2 = Val(Mid(dataStr, catPos2 + 1))
-                  If cat2 >= 0 And cat2 < #NUM_CATEGORIES
-                    Categories(cat2)\aiScore = scr2
-                    Categories(cat2)\aiUsed = 1
-                    GameState\message = "Opponent scored " + Str(scr2) + " in " + Categories(cat2)\name
-                  EndIf
-                EndIf
-
-              Case #PKT_TURN_END
-                ; Opponent (host) finished turn, switch to client's turn (me)
-                GameState\currentPlayer = 1
-                GameState\rollsLeft = #MAX_ROLLS
-
-                ; Client receives round number from host
-                dataStr = PeekS(*buffer + 1, -1, #PB_UTF8)
-                If dataStr <> ""
-                  GameState\round = Val(dataStr)
-                  If GameState\round > 13
-                    GameState\gameOver = 1
-                  EndIf
-                EndIf
-
-
-            EndSelect
+            AppendNetworkBuffer(*tempBuffer, bytes)
+            ParseNetworkBuffer()
           EndIf
 
-          FreeMemory(*buffer)
-        EndIf
-
-      Case #PB_NetworkEvent_Disconnect
-        NetworkState\connected = 0
-        GameState\message = "Disconnected from host!"
-    EndSelect
+        Case #PB_NetworkEvent_Disconnect
+          NetworkState\connected = 0
+          GameState\message = "Disconnected from host!"
+          DisconnectNetwork()
+          GameState\inMenu = 1
+      EndSelect
+      
+      event = NetworkClientEvent(NetworkState\serverID)
+    Wend
   EndIf
+  
+  FreeMemory(*tempBuffer)
 EndProcedure
 
 Procedure.s GetPrivateIPv4FromIPConfigLine(line.s)
@@ -645,33 +770,55 @@ Procedure AISelectCategory()
   
   Select GameState\aiDifficulty
     Case #AI_EASY
-      ; Easy: Random available category
+      ; Easy: Random available category, prefers scoring > 0
       Protected Dim available.i(#NUM_CATEGORIES - 1)
       Protected count = 0
       For i = 0 To #NUM_CATEGORIES - 1
-        If Categories(i)\aiUsed = 0
+        If Categories(i)\aiUsed = 0 And categoryScores(i) > 0
           available(count) = i
           count = count + 1
         EndIf
       Next
       If count > 0
         bestCategory = available(Random(count - 1))
+      Else
+        ; Fallback if no points available
+        For i = 0 To #NUM_CATEGORIES - 1
+          If Categories(i)\aiUsed = 0
+            available(count) = i
+            count = count + 1
+          EndIf
+        Next
+        If count > 0
+          bestCategory = available(Random(count - 1))
+        EndIf
       EndIf
       
     Case #AI_MEDIUM
-      ; Medium: Pick highest scoring category, 30% chance of mistake
-      If Random(100) < 30
+      ; Medium: Pick highest scoring category, 5% chance of mistake
+      If Random(100) < 5
         ; Make a mistake - pick random
         Protected Dim available2.i(#NUM_CATEGORIES - 1)
         Protected count2 = 0
         For i = 0 To #NUM_CATEGORIES - 1
-          If Categories(i)\aiUsed = 0
+          If Categories(i)\aiUsed = 0 And categoryScores(i) > 0
             available2(count2) = i
             count2 = count2 + 1
           EndIf
         Next
         If count2 > 0
           bestCategory = available2(Random(count2 - 1))
+        Else
+          ; Fallback if no positive score
+          For i = 0 To #NUM_CATEGORIES - 1
+            If Categories(i)\aiUsed = 0
+              available2(count2) = i
+              count2 = count2 + 1
+            EndIf
+          Next
+          If count2 > 0
+            bestCategory = available2(Random(count2 - 1))
+          EndIf
         EndIf
       Else
         ; Pick best score
@@ -692,7 +839,7 @@ Procedure AISelectCategory()
       ; Prioritize upper section if close to bonus
       If upperTotal >= 45 And upperTotal < 63
         For i = 0 To 5
-          If categoryScores(i) >= 0
+          If categoryScores(i) > 0 ; Only if it actually gives points!
             ; Weight upper section categories higher when close to bonus
             bonusValue = categoryScores(i) + 10
             If bonusValue > bestScore Or bestCategory = -1
@@ -907,36 +1054,25 @@ EndProcedure
 Procedure Initialize3D()
   Protected i, mat, screenW, screenH
   
-  InitEngine3D()
   InitSprite()
   InitKeyboard()
   InitMouse()
   
   ; Get desktop resolution or use defaults
-  CompilerIf #FULLSCREEN
+  If IsFullscreen
     ExamineDesktops()
     screenW = DesktopWidth(0)
     screenH = DesktopHeight(0)
     
     OpenWindow(0, 0, 0, screenW, screenH, "3D Yahtzee - Player vs AI", #PB_Window_BorderLess)
     OpenScreen(screenW, screenH, 32, "3D Yahtzee - Player vs AI")
-  CompilerElse
+  Else
     screenW = #WINDOW_WIDTH
     screenH = #WINDOW_HEIGHT
     
     OpenWindow(0, 0, 0, screenW, screenH, "3D Yahtzee - Player vs AI", #PB_Window_ScreenCentered | #PB_Window_SystemMenu | #PB_Window_MinimizeGadget)
     OpenWindowedScreen(WindowID(0), 0, 0, screenW, screenH, 0, 0, 0)
-  CompilerEndIf
-  
-  ; Create camera for background
-  Camera = CreateCamera(#PB_Any, 0, 0, 100, 100)
-  MoveCamera(Camera, 0, 4, 12)
-  CameraLookAt(Camera, 0, 0, 0)
-  CameraBackColor(Camera, RGB(30, 50, 80))
-  
-  ; Create light
-  Light = CreateLight(#PB_Any, RGB(255, 255, 255), 0, 8, 8)
-  AmbientColor(RGB(80, 80, 80))
+  EndIf
   
   ; Load fonts
   Font1 = LoadFont(#PB_Any, "Arial", 12, #PB_Font_Bold)
@@ -991,14 +1127,14 @@ Procedure DrawDiceValues()
   Protected angle.f, wobbleX.f, wobbleY.f
   Protected totalWidth, startX
   
-  CompilerIf #FULLSCREEN
+  If IsFullscreen
     ExamineDesktops()
     screenW = DesktopWidth(0)
     screenH = DesktopHeight(0)
-  CompilerElse
+  Else
     screenW = #WINDOW_WIDTH
     screenH = #WINDOW_HEIGHT
-  CompilerEndIf
+  EndIf
   
   DrawingMode(#PB_2DDrawing_Transparent)
   
@@ -1109,14 +1245,14 @@ Procedure DrawMenu()
   Protected screenW, screenH, centerX, centerY, menuY, i
   Protected diffText.s, fsText.s
   
-  CompilerIf #FULLSCREEN
+  If IsFullscreen
     ExamineDesktops()
     screenW = DesktopWidth(0)
     screenH = DesktopHeight(0)
-  CompilerElse
+  Else
     screenW = #WINDOW_WIDTH
     screenH = #WINDOW_HEIGHT
-  CompilerEndIf
+  EndIf
   
   centerX = screenW / 2
   centerY = screenH / 2
@@ -1128,42 +1264,46 @@ Procedure DrawMenu()
   DrawingFont(FontID(Font4))
   FrontColor(RGB(255, 255, 100))
   Protected titleWidth = TextWidth("YAHTZEE 3D")
-  DrawText(centerX - titleWidth/2, 100, "YAHTZEE 3D")
+  DrawText(centerX - titleWidth/2, centerY - 350, "YAHTZEE 3D")
   
   ; Subtitle
   DrawingFont(FontID(Font2))
   FrontColor(RGB(180, 180, 180))
   Protected subtitleWidth = TextWidth("Dice Game - Player vs AI/Network")
-  DrawText(centerX - subtitleWidth/2, 180, "Dice Game - Player vs AI/Network")
+  DrawText(centerX - subtitleWidth/2, centerY - 250, "Dice Game - Player vs AI/Network")
   
   ; Menu options - sequential layout
   DrawingFont(FontID(Font2))
-  menuY = 280
+  menuY = centerY - 150
   
   ; === OPTION 0: START GAME ===
+  Protected textHeight = TextHeight("START GAME")
+  Protected boxHeight = 50
+  Protected textOffset = (boxHeight - textHeight) / 2
+  
   If GameState\menuSelection = 0
     DrawingMode(#PB_2DDrawing_AlphaBlend)
-    Box(centerX - 220, menuY - 10, 440, 50, RGBA(100, 200, 100, 200))
+    Box(centerX - 220, menuY, 440, boxHeight, RGBA(100, 200, 100, 200))
     DrawingMode(#PB_2DDrawing_Transparent)
     FrontColor(RGB(255, 255, 255))
   Else
     FrontColor(RGB(180, 180, 180))
   EndIf
   Protected textWidth = TextWidth("START GAME")
-  DrawText(centerX - textWidth/2, menuY, "START GAME")
+  DrawText(centerX - textWidth/2, menuY + textOffset, "START GAME")
   
   ; === OPTION 1: MULTIPLAYER ===
   menuY = menuY + 70
   If GameState\menuSelection = 1
     DrawingMode(#PB_2DDrawing_AlphaBlend)
-    Box(centerX - 220, menuY - 10, 440, 50, RGBA(100, 150, 200, 200))
+    Box(centerX - 220, menuY, 440, boxHeight, RGBA(100, 150, 200, 200))
     DrawingMode(#PB_2DDrawing_Transparent)
     FrontColor(RGB(255, 255, 255))
   Else
     FrontColor(RGB(180, 180, 180))
   EndIf
   textWidth = TextWidth("MULTIPLAYER (LAN/NET)")
-  DrawText(centerX - textWidth/2, menuY, "MULTIPLAYER (LAN/NET)")
+  DrawText(centerX - textWidth/2, menuY + textOffset, "MULTIPLAYER (LAN/NET)")
   
   ; === OPTION 2: AI DIFFICULTY ===
   menuY = menuY + 70
@@ -1175,7 +1315,7 @@ Procedure DrawMenu()
   
   If GameState\menuSelection = 2
     DrawingMode(#PB_2DDrawing_AlphaBlend)
-    Box(centerX - 220, menuY - 10, 440, 50, RGBA(200, 150, 100, 200))
+    Box(centerX - 220, menuY, 440, boxHeight, RGBA(200, 150, 100, 200))
     DrawingMode(#PB_2DDrawing_Transparent)
     FrontColor(RGB(255, 255, 255))
   Else
@@ -1183,7 +1323,7 @@ Procedure DrawMenu()
   EndIf
   Protected diffMenuText.s = "AI DIFFICULTY: " + diffText
   textWidth = TextWidth(diffMenuText)
-  DrawText(centerX - textWidth/2, menuY, diffMenuText)
+  DrawText(centerX - textWidth/2, menuY + textOffset, diffMenuText)
   
   ; === OPTION 3: FULLSCREEN ===
   menuY = menuY + 70
@@ -1195,7 +1335,7 @@ Procedure DrawMenu()
   
   If GameState\menuSelection = 3
     DrawingMode(#PB_2DDrawing_AlphaBlend)
-    Box(centerX - 220, menuY - 10, 440, 50, RGBA(150, 100, 200, 200))
+    Box(centerX - 220, menuY, 440, boxHeight, RGBA(150, 100, 200, 200))
     DrawingMode(#PB_2DDrawing_Transparent)
     FrontColor(RGB(255, 255, 255))
   Else
@@ -1203,30 +1343,30 @@ Procedure DrawMenu()
   EndIf
   Protected fsMenuText.s = "FULLSCREEN: " + fsText
   textWidth = TextWidth(fsMenuText)
-  DrawText(centerX - textWidth/2, menuY, fsMenuText)
+  DrawText(centerX - textWidth/2, menuY + textOffset - 6, fsMenuText)
   FrontColor(RGB(255, 100, 100))
   DrawingFont(FontID(Font1))
   textWidth = TextWidth("(Requires Restart)")
-  DrawText(centerX - textWidth/2, menuY + 20, "(Requires Restart)")
+  DrawText(centerX - textWidth/2, menuY + textOffset + 14, "(Requires Restart)")
   DrawingFont(FontID(Font2))
   
   ; === OPTION 4: EXIT ===
   menuY = menuY + 85
   If GameState\menuSelection = 4
     DrawingMode(#PB_2DDrawing_AlphaBlend)
-    Box(centerX - 220, menuY - 10, 440, 50, RGBA(200, 100, 100, 200))
+    Box(centerX - 220, menuY, 440, boxHeight, RGBA(200, 100, 100, 200))
     DrawingMode(#PB_2DDrawing_Transparent)
     FrontColor(RGB(255, 255, 255))
   Else
     FrontColor(RGB(180, 180, 180))
   EndIf
   textWidth = TextWidth("EXIT GAME")
-  DrawText(centerX - textWidth/2, menuY, "EXIT GAME")
+  DrawText(centerX - textWidth/2, menuY + textOffset, "EXIT GAME")
   
   ; Instructions at bottom
   DrawingFont(FontID(Font1))
   FrontColor(RGB(200, 200, 200))
-  Protected instructText.s = "↑↓ Navigate  |  ←→ Change Options  |  Enter Select"
+  Protected instructText.s = "Navigate  |  Change Options  |  Enter Select"
   textWidth = TextWidth(instructText)
   DrawText(centerX - textWidth/2, screenH - 100, instructText)
   
@@ -1257,14 +1397,14 @@ Procedure DrawUI()
   EndIf
   
   ; Get current screen dimensions
-  CompilerIf #FULLSCREEN
+  If IsFullscreen
     ExamineDesktops()
     screenW = DesktopWidth(0)
     screenH = DesktopHeight(0)
-  CompilerElse
+  Else
     screenW = #WINDOW_WIDTH
     screenH = #WINDOW_HEIGHT
-  CompilerEndIf
+  EndIf
   
   StartDrawing(ScreenOutput())
   
@@ -1723,14 +1863,14 @@ Repeat
           Define mpTimer = 0
           Define mpMsgBoxX, mpMsgBoxY, mpCenterX, mpCenterY, mpScreenW, mpScreenH
           
-          CompilerIf #FULLSCREEN
+          If IsFullscreen
             ExamineDesktops()
             mpScreenW = DesktopWidth(0)
             mpScreenH = DesktopHeight(0)
-          CompilerElse
+          Else
             mpScreenW = #WINDOW_WIDTH
             mpScreenH = #WINDOW_HEIGHT
-          CompilerEndIf
+          EndIf
           
           mpCenterX = mpScreenW / 2
           mpCenterY = mpScreenH / 2
@@ -1750,8 +1890,14 @@ Repeat
            Define mpAutoJoinAttempt.i = 0
            
            While mpWaiting
-            ; Keep rendering so game doesn't freeze
-            RenderWorld()
+            ; Keep window events pumping so game doesn't freeze
+            While WindowEvent() : Wend
+            
+            If GameState\networkActive
+              ProcessNetworkPackets()
+            EndIf
+            
+            ClearScreen(RGB(30, 50, 80))
             
             StartDrawing(ScreenOutput())
             DrawingMode(#PB_2DDrawing_Transparent)
@@ -1801,6 +1947,7 @@ Repeat
             EndIf
 
             ; Show scan results
+            LockMutex(LanScanMutex)
             FrontColor(RGB(180, 180, 255))
             DrawText(mpLeft, mpY, "Found Hosts: " + Str(LanHostCount) + " (↑↓ select, Enter join)")
             mpY + mpLineH2
@@ -1840,6 +1987,7 @@ Repeat
                 listShown + 1
               Next
               DrawingFont(FontID(Font1))
+            UnlockMutex(LanScanMutex)
             
             StopDrawing()
             FlipBuffers()
@@ -1862,16 +2010,17 @@ Repeat
              Define enterPressed2 = Bool(enterDown And Not PrevEnterDown)
              escPressed = Bool(escDown And Not PrevEscDown)
              
-             ; Continue incremental scan if active
+             ; Adjust selection if list changed
+             LockMutex(LanScanMutex)
              If LanScanActive
-               ContinueLanScanStep()
-               If mpSelectedHost > LanHostCount
+               If mpSelectedHost > LanHostCount And LanHostCount > 0
                  mpSelectedHost = LanHostCount
                EndIf
-               If mpSelectedHost < 1
+               If mpSelectedHost < 1 And LanHostCount > 0
                  mpSelectedHost = 1
                EndIf
              EndIf
+             UnlockMutex(LanScanMutex)
              
              If sPressed
                ; Derive a reasonable LAN prefix from HostIP if possible
@@ -1889,6 +2038,7 @@ Repeat
                EndIf
              EndIf
              
+             LockMutex(LanScanMutex)
              If upPressed And LanHostCount > 0
                mpSelectedHost - 1
                If mpSelectedHost < 1 : mpSelectedHost = 1 : EndIf
@@ -1942,17 +2092,20 @@ Repeat
  
                    GameState\message = "Auto-join trying " + ServerIP + ":" + Str(#NETWORK_PORT)
                  EndIf
+                 UnlockMutex(LanScanMutex)
                  If JoinGame(ServerIP)
                    LastJoinedIP = ServerIP
                    GameState\inMenu = 0
                    mpWaiting = #False
                  EndIf
               ElseIf hPressed
-              If HostGame()
-                GameState\inMenu = 0
-              EndIf
-              mpWaiting = #False
+                UnlockMutex(LanScanMutex)
+                If HostGame()
+                  GameState\inMenu = 0
+                EndIf
+                mpWaiting = #False
             ElseIf jPressed
+              UnlockMutex(LanScanMutex)
               ; IP input mode
               Define ipInputActive = #True
               Define inputIP.s = "127.0.0.1"
@@ -1969,8 +2122,14 @@ Repeat
               PrevDigitDown(5) = 0 : PrevDigitDown(6) = 0 : PrevDigitDown(7) = 0 : PrevDigitDown(8) = 0 : PrevDigitDown(9) = 0
               
               While ipInputActive
-                ; Keep rendering
-                RenderWorld()
+                ; Keep window events pumping
+                While WindowEvent() : Wend
+                
+                If GameState\networkActive
+                  ProcessNetworkPackets()
+                EndIf
+                
+                ClearScreen(RGB(30, 50, 80))
                 
                 StartDrawing(ScreenOutput())
                 DrawingMode(#PB_2DDrawing_Transparent)
@@ -2007,65 +2166,12 @@ Repeat
                 ; Process keyboard input
                 ExamineKeyboard()
                 
-                ; Digit keys / period (edge)
-                Define kDown.i, kPressed.i
-                
-                kDown = Bool(KeyboardPushed(#PB_Key_0))
-                kPressed = Bool(kDown And Not PrevDigitDown(0))
-                If kPressed : inputIP = Left(inputIP, cursorPos) + "0" + Right(inputIP, Len(inputIP) - cursorPos) : cursorPos + 1 : EndIf
-                PrevDigitDown(0) = kDown
-                
-                kDown = Bool(KeyboardPushed(#PB_Key_1))
-                kPressed = Bool(kDown And Not PrevDigitDown(1))
-                If kPressed : inputIP = Left(inputIP, cursorPos) + "1" + Right(inputIP, Len(inputIP) - cursorPos) : cursorPos + 1 : EndIf
-                PrevDigitDown(1) = kDown
-                
-                kDown = Bool(KeyboardPushed(#PB_Key_2))
-                kPressed = Bool(kDown And Not PrevDigitDown(2))
-                If kPressed : inputIP = Left(inputIP, cursorPos) + "2" + Right(inputIP, Len(inputIP) - cursorPos) : cursorPos + 1 : EndIf
-                PrevDigitDown(2) = kDown
-                
-                kDown = Bool(KeyboardPushed(#PB_Key_3))
-                kPressed = Bool(kDown And Not PrevDigitDown(3))
-                If kPressed : inputIP = Left(inputIP, cursorPos) + "3" + Right(inputIP, Len(inputIP) - cursorPos) : cursorPos + 1 : EndIf
-                PrevDigitDown(3) = kDown
-                
-                kDown = Bool(KeyboardPushed(#PB_Key_4))
-                kPressed = Bool(kDown And Not PrevDigitDown(4))
-                If kPressed : inputIP = Left(inputIP, cursorPos) + "4" + Right(inputIP, Len(inputIP) - cursorPos) : cursorPos + 1 : EndIf
-                PrevDigitDown(4) = kDown
-                
-                kDown = Bool(KeyboardPushed(#PB_Key_5))
-                If kDown And Not PrevDigitDown(5)
-                  inputIP = Left(inputIP, cursorPos) + "5" + Right(inputIP, Len(inputIP) - cursorPos)
+                ; Character input using KeyboardInkey
+                Define char.s = KeyboardInkey()
+                If char <> "" And (Asc(char) >= 48 And Asc(char) <= 57 Or char = ".")
+                  inputIP = Left(inputIP, cursorPos) + char + Right(inputIP, Len(inputIP) - cursorPos)
                   cursorPos + 1
                 EndIf
-                PrevDigitDown(5) = kDown
-                
-                kDown = Bool(KeyboardPushed(#PB_Key_6))
-                kPressed = Bool(kDown And Not PrevDigitDown(6))
-                If kPressed : inputIP = Left(inputIP, cursorPos) + "6" + Right(inputIP, Len(inputIP) - cursorPos) : cursorPos + 1 : EndIf
-                PrevDigitDown(6) = kDown
-                
-                kDown = Bool(KeyboardPushed(#PB_Key_7))
-                kPressed = Bool(kDown And Not PrevDigitDown(7))
-                If kPressed : inputIP = Left(inputIP, cursorPos) + "7" + Right(inputIP, Len(inputIP) - cursorPos) : cursorPos + 1 : EndIf
-                PrevDigitDown(7) = kDown
-                
-                kDown = Bool(KeyboardPushed(#PB_Key_8))
-                kPressed = Bool(kDown And Not PrevDigitDown(8))
-                If kPressed : inputIP = Left(inputIP, cursorPos) + "8" + Right(inputIP, Len(inputIP) - cursorPos) : cursorPos + 1 : EndIf
-                PrevDigitDown(8) = kDown
-                
-                kDown = Bool(KeyboardPushed(#PB_Key_9))
-                kPressed = Bool(kDown And Not PrevDigitDown(9))
-                If kPressed : inputIP = Left(inputIP, cursorPos) + "9" + Right(inputIP, Len(inputIP) - cursorPos) : cursorPos + 1 : EndIf
-                PrevDigitDown(9) = kDown
-                
-                kDown = Bool(KeyboardPushed(#PB_Key_Period))
-                kPressed = Bool(kDown And Not PrevPeriodDown)
-                If kPressed : inputIP = Left(inputIP, cursorPos) + "." + Right(inputIP, Len(inputIP) - cursorPos) : cursorPos + 1 : EndIf
-                PrevPeriodDown = kDown
                 
                 ; Backspace
                 If KeyboardPushed(#PB_Key_Back) And cursorPos > 0
@@ -2129,8 +2235,11 @@ Repeat
               Wend
               
             ElseIf escPressed
+              UnlockMutex(LanScanMutex)
               mpWaiting = #False
               GameState\message = ""
+            Else
+              UnlockMutex(LanScanMutex)
             EndIf
             
              PrevHDown = hDown
@@ -2193,7 +2302,15 @@ Repeat
           GameState\message = "Rolling dice..."
           ; Send roll to network opponent if multiplayer
           If GameState\networkActive
-            SendPacket(#PKT_ROLL_DICE, "")
+            Define rollData.s = ""
+            Define j
+            For j = 0 To #NUM_DICE - 1
+              rollData = rollData + Str(GameState\diceValues[j])
+              If j < #NUM_DICE - 1
+                rollData = rollData + ","
+              EndIf
+            Next
+            SendPacket(#PKT_ROLL_DICE, rollData)
           EndIf
         EndIf
         
@@ -2208,6 +2325,11 @@ Repeat
             If digitPressed
               Dice(iKey - 1)\held = 1 - Dice(iKey - 1)\held
               GameState\diceHeld[iKey - 1] = Dice(iKey - 1)\held
+              
+              ; Notify network opponent
+              If GameState\networkActive
+                SendPacket(#PKT_HOLD_DICE, Str(iKey - 1))
+              EndIf
             EndIf
 
             PrevDigitDown(iKey) = digitDown
@@ -2347,7 +2469,7 @@ Repeat
   ; Update and render
   UpdateDice(deltaTime)
   
-  RenderWorld()
+  ClearScreen(RGB(30, 50, 80))
   
    If GameState\inMenu
      DrawMenu()
@@ -2355,15 +2477,30 @@ Repeat
      DrawUI()
    EndIf
   
+  Delay(1)
   FlipBuffers()
   
-Until WindowEvent() = #PB_Event_CloseWindow
+  Define Event.i
+  Define doQuit.i = #False
+  Repeat
+    Event = WindowEvent()
+    If Event = #PB_Event_CloseWindow
+      doQuit = #True
+    EndIf
+  Until Event = 0
+  
+Until doQuit = #True
+
+If CreatePreferences(#APP_NAME + ".ini")
+  WritePreferenceInteger("Fullscreen", IsFullscreen)
+  ClosePreferences()
+EndIf
 End
 
 
-; IDE Options = PureBasic 6.30 beta 7 (Windows - x64)
-; CursorPosition = 21
-; FirstLine = 9
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 2471
+; FirstLine = 2444
 ; Folding = -----
 ; Optimizer
 ; EnableThread
@@ -2371,14 +2508,14 @@ End
 ; EnableAdmin
 ; DPIAware
 ; UseIcon = Yahtzee_3D.ico
-; Executable = ..\yahtzee_3d.exe
+; Executable = ..\Yahtzee_3D.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = Yahtzee_3D
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = Yahtzee game for 2 players with instructions
 ; VersionField7 = Yahtzee_3D
 ; VersionField8 = Yahtzee_3D.exe
