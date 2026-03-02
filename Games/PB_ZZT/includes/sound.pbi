@@ -350,8 +350,7 @@ Procedure BuildSfxCache()
 
     Protected *wav = BuildSfxWavMemory(@p)
     If *wav
-      Protected wavBytes.i = 44 + ((44100 * p\DurationMS) / 1000) * 2
-      SfxSoundId(i) = CatchSound(#PB_Any, *wav, wavBytes)
+      SfxSoundId(i) = CatchSound(#PB_Any, *wav, MemorySize(*wav))
       FreeMemory(*wav)
     EndIf
   Next
@@ -713,7 +712,7 @@ Procedure StartBoardMusic(TrackKey.s, TrackText.s)
     ProcedureReturn
   EndIf
 
-  MusicSoundId = CatchSound(#PB_Any, *wav, bytes\i)
+  MusicSoundId = CatchSound(#PB_Any, *wav, MemorySize(*wav))
   FreeMemory(*wav)
 
   If MusicSoundId

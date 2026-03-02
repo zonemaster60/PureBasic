@@ -2964,7 +2964,7 @@ ShutdownApp()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 2957
-; FirstLine = 2935
+; FirstLine = 231
 ; Folding = -----------
 ; Optimizer
 ; EnableThread
@@ -2974,12 +2974,12 @@ ShutdownApp()
 ; UseIcon = PB_ZZT.ico
 ; Executable = PB_ZZT.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_ZZT
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = A ZZT clone
 ; VersionField7 = PB_ZZT
 ; VersionField8 = PB_ZZT.exe

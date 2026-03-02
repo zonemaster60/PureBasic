@@ -76,6 +76,7 @@ Procedure.b TryMovePlayer(dx.i, dy.i)
       EndIf
 
       objId = 0
+      ProcedureReturn #False
     ElseIf ObjOverlayChar(idx) = Asc("w")
       PlaySfx(#Sfx_Beep)
       TriggerObjectLabel(objId, "TOUCH")
@@ -124,22 +125,12 @@ Procedure.b TryMovePlayer(dx.i, dy.i)
     PlaySfx(#Sfx_Beep)
 
   ElseIf CellIsSolidForPlayer(nx, ny)
-    ; Attack enemy object / collect treasure by bumping
-    If objId <> 0 And ObjOverlayChar(idx) = Asc("E")
-      RemoveObjectById(objId)
-      PlaySfx(#Sfx_Hurt)
-      Score + 25
-
-      ; Chance to drop HP pickup on enemy kill.
-      If Random(99) < #ENEMY_DROP_HEALTH_PCT
-        If GetCell(nx, ny) = Asc(".") Or GetCell(nx, ny) = Asc(" ")
-          SetCell(nx, ny, Asc(Chr(#HEALTH_PICKUP_CHAR)))
-        EndIf
-      EndIf
-    ElseIf ch = Asc("$")
+    ; Background cell is solid.
+    If ch = Asc("$")
       SetCell(nx, ny, Asc("."))
       PlaySfx(#Sfx_Treasure)
       Score + 10
+      ; The player can step into the space since we picked up the treasure
     Else
       ProcedureReturn #False
     EndIf
