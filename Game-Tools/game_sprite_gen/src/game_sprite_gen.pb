@@ -11,7 +11,7 @@ EnableExplicit
 #MAX_COLORS = 16
 #APP_NAME = "Game_Sprite_Gen"
 
-Global version.s = "v1.0.0.0"
+Global version.s = "v1.0.0.1"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -85,12 +85,13 @@ Enumeration
   #ListTheme
   #ListType
   #ButtonGenerate
+  #ButtonRandomSeed
   #ButtonSave
   #ButtonExport
   #CanvasPreview
   #TextSeed
   #StringSeed
-  #CheckSymmetry
+  #ComboSymmetry
   #CheckOutline
   #TextComplexity
   #SpinComplexity
@@ -143,9 +144,23 @@ Declare GenerateMotorcycle(*sprite.SpriteData, *palette.ColorPalette, symmetry.l
 Declare GenerateScooter(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
 Declare GenerateRaceCar(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
 Declare GenerateBus(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
+Declare ApplySymmetry(*sprite.SpriteData, symmetryType.l)
+Declare AddOutline(*sprite.SpriteData, outlineColor.l)
+Declare GenerateCurrentSprite()
+Declare SaveCurrentSprite()
+Declare ExportSpriteLarge()
+Declare UpdateThemeTypes()
 Declare InitializePalettes()
 Declare DrawSpritePreview()
 Declare.l SaveSpritePNG(filename.s, *sprite.SpriteData)
+Declare.l RGB2(r.l, g.l, b.l)
+Declare.l RandomColor(*palette.ColorPalette)
+Declare ClearSprite(*sprite.SpriteData)
+Declare SetPixel(*sprite.SpriteData, x.l, y.l, color.l)
+Declare.l GetPixel(*sprite.SpriteData, x.l, y.l)
+Declare DrawRectangle(*sprite.SpriteData, x.l, y.l, w.l, h.l, color.l)
+Declare DrawCircle(*sprite.SpriteData, cx.l, cy.l, radius.l, color.l)
+
 
 ; Exit procedure
 Procedure ConfirmExit()
@@ -319,10 +334,11 @@ Procedure GenerateSpaceShip(*sprite.SpriteData, *palette.ColorPalette, symmetry.
     Next
   EndIf
   
-  If symmetry
-    ApplySymmetry(*sprite, 1)
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
   EndIf
 EndProcedure
+
 
 Procedure GenerateAlien(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, eyeColor.l, detailColor.l
@@ -364,10 +380,11 @@ Procedure GenerateAlien(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, c
     DrawCircle(*sprite, 13, 4, 1, RGB2(255, 200, 0))
   EndIf
   
-  If symmetry
-    ApplySymmetry(*sprite, 1)
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
   EndIf
 EndProcedure
+
 
 Procedure GenerateRobot(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, detailColor.l, jointColor.l
@@ -398,10 +415,11 @@ Procedure GenerateRobot(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, c
   SetPixel(*sprite, 14, 24, jointColor)
   SetPixel(*sprite, 18, 24, jointColor)
   
-  If symmetry
-    ApplySymmetry(*sprite, 1)
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
   EndIf
 EndProcedure
+
 
 Procedure GenerateTree(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected trunkColor.l, leafColor.l, y, w
@@ -471,10 +489,11 @@ Procedure GenerateAnimal(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, 
     Next
   EndIf
   
-  If symmetry
-    ApplySymmetry(*sprite, 1)
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
   EndIf
 EndProcedure
+
 
 Procedure GenerateCar(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, windowColor.l, wheelColor.l
@@ -505,7 +524,12 @@ Procedure GenerateCar(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, com
     SetPixel(*sprite, 26, 17, RGB2(255, 255, 0))
     SetPixel(*sprite, 26, 18, RGB2(255, 255, 0))
   EndIf
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateCrystal(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected crystalColor.l, glowColor.l, i
@@ -539,10 +563,11 @@ Procedure GenerateCrystal(*sprite.SpriteData, *palette.ColorPalette, symmetry.l,
     SetPixel(*sprite, 18, 14, glowColor)
   EndIf
   
-  If symmetry
-    ApplySymmetry(*sprite, 1)
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
   EndIf
 EndProcedure
+
 
 Procedure GenerateWeapon(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected handleColor.l, bladeColor.l, detailColor.l
@@ -603,7 +628,12 @@ Procedure GenerateBuilding(*sprite.SpriteData, *palette.ColorPalette, symmetry.l
   
   ; Door
   DrawRectangle(*sprite, 14, 26, 4, 4, RGB2(100, 50, 0))
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateMonster(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, eyeColor.l, teethColor.l
@@ -640,10 +670,11 @@ Procedure GenerateMonster(*sprite.SpriteData, *palette.ColorPalette, symmetry.l,
     Next
   EndIf
   
-  If symmetry
-    ApplySymmetry(*sprite, 1)
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
   EndIf
 EndProcedure
+
 
 Procedure GeneratePowerUp(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected coreColor.l, glowColor.l, i
@@ -703,7 +734,12 @@ Procedure GeneratePlanet(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, 
       Next
     Next
   EndIf
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateFood(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected foodColor.l, detailColor.l
@@ -732,7 +768,12 @@ Procedure GenerateFood(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, co
   ; Shine
   SetPixel(*sprite, 13, 16, RGB2(255, 255, 255))
   SetPixel(*sprite, 17, 16, RGB2(255, 255, 255))
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateParticle(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected particleColor.l, i, x, y
@@ -758,7 +799,12 @@ Procedure GenerateParticle(*sprite.SpriteData, *palette.ColorPalette, symmetry.l
     ; Add glow
     DrawCircle(*sprite, 16, 16, 6, RGB2(255, 255, 255))
   EndIf
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateTerrain(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected groundColor.l, grassColor.l, y, x, height
@@ -789,7 +835,12 @@ Procedure GenerateTerrain(*sprite.SpriteData, *palette.ColorPalette, symmetry.l,
       SetPixel(*sprite, x, height - 2, grassColor)
     Next
   EndIf
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateTank(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, trackColor.l, turretColor.l, gunColor.l
@@ -841,7 +892,12 @@ Procedure GenerateTank(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, co
   SetPixel(*sprite, 18, 13, RGB2(100, 100, 100))
   SetPixel(*sprite, 18, 12, RGB2(100, 100, 100))
   SetPixel(*sprite, 18, 11, RGB2(100, 100, 100))
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateHelicopter(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, rotorColor.l, windowColor.l, tailColor.l
@@ -897,7 +953,12 @@ Procedure GenerateHelicopter(*sprite.SpriteData, *palette.ColorPalette, symmetry
     SetPixel(*sprite, 23, 19, RGB2(100, 100, 100))
     SetPixel(*sprite, 24, 19, RGB2(100, 100, 100))
   EndIf
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateJet(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, wingColor.l, cockpitColor.l, engineColor.l
@@ -959,10 +1020,12 @@ Procedure GenerateJet(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, com
     SetPixel(*sprite, 17, 12, RGB2(60, 60, 60))
   EndIf
   
-  If symmetry
-    ApplySymmetry(*sprite, 1)
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
   EndIf
 EndProcedure
+
+
 
 Procedure GenerateSoldier(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected uniformColor.l, skinColor.l, weaponColor.l, helmetColor.l
@@ -1020,13 +1083,18 @@ Procedure GenerateSoldier(*sprite.SpriteData, *palette.ColorPalette, symmetry.l,
     SetPixel(*sprite, 19, 17, weaponColor)
   EndIf
   
-  ; Vest/gear details
+    ; Vest/gear details
   If complexity > 60
     DrawRectangle(*sprite, 14, 14, 4, 2, RGB2(70, 85, 35))
     SetPixel(*sprite, 15, 16, RGB2(150, 150, 150))
     SetPixel(*sprite, 16, 16, RGB2(150, 150, 150))
   EndIf
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateHumvee(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, windowColor.l, wheelColor.l, detailColor.l
@@ -1144,10 +1212,12 @@ Procedure GenerateSpaceShuttle(*sprite.SpriteData, *palette.ColorPalette, symmet
   DrawRectangle(*sprite, 16, 24, 1, 2, RGB2(100, 100, 100))
   DrawRectangle(*sprite, 17, 24, 1, 2, RGB2(100, 100, 100))
   
-  If symmetry
-    ApplySymmetry(*sprite, 1)
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
   EndIf
 EndProcedure
+
+
 
 Procedure GenerateRocket(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, noseColor.l, finColor.l, engineColor.l
@@ -1198,10 +1268,12 @@ Procedure GenerateRocket(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, 
     SetPixel(*sprite, 16, 10, RGB2(100, 150, 200))
   EndIf
   
-  If symmetry
-    ApplySymmetry(*sprite, 1)
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
   EndIf
 EndProcedure
+
+
 
 Procedure GenerateSatellite(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, panelColor.l, antennaColor.l
@@ -1246,9 +1318,14 @@ Procedure GenerateSatellite(*sprite.SpriteData, *palette.ColorPalette, symmetry.
     SetPixel(*sprite, 18, 7, antennaColor)
   EndIf
   
-  ; Central details
+    ; Central details
   DrawRectangle(*sprite, 14, 16, 4, 2, RGB2(100, 100, 100))
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateSpaceStation(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected moduleColor.l, panelColor.l, windowColor.l
@@ -1293,7 +1370,12 @@ Procedure GenerateSpaceStation(*sprite.SpriteData, *palette.ColorPalette, symmet
     DrawRectangle(*sprite, 11, 15, 2, 3, RGB2(100, 100, 100))
     DrawRectangle(*sprite, 19, 15, 2, 3, RGB2(100, 100, 100))
   EndIf
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateLunarLander(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, legColor.l, goldColor.l
@@ -1350,10 +1432,12 @@ Procedure GenerateLunarLander(*sprite.SpriteData, *palette.ColorPalette, symmetr
   ; Window
   DrawRectangle(*sprite, 15, 15, 2, 2, RGB2(50, 100, 150))
   
-  If symmetry
-    ApplySymmetry(*sprite, 1)
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
   EndIf
 EndProcedure
+
+
 
 Procedure GenerateStarFighter(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, wingColor.l, cockpitColor.l, engineColor.l
@@ -1406,10 +1490,12 @@ Procedure GenerateStarFighter(*sprite.SpriteData, *palette.ColorPalette, symmetr
     SetPixel(*sprite, 16, 16, RGB2(200, 200, 255))
   EndIf
   
-  If symmetry
-    ApplySymmetry(*sprite, 1)
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
   EndIf
 EndProcedure
+
+
 
 Procedure GenerateCapitalShip(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected hullColor.l, bridgeColor.l, turretColor.l, windowColor.l
@@ -1461,10 +1547,12 @@ Procedure GenerateCapitalShip(*sprite.SpriteData, *palette.ColorPalette, symmetr
     DrawRectangle(*sprite, 20, 20, 3, 2, RGB2(50, 50, 50))
   EndIf
   
-  If symmetry
-    ApplySymmetry(*sprite, 1)
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
   EndIf
 EndProcedure
+
+
 
 Procedure GenerateCargo(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected hullColor.l, containerColor.l, engineColor.l
@@ -1509,11 +1597,13 @@ Procedure GenerateCargo(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, c
     DrawRectangle(*sprite, 11, 9, 10, 1, RGB2(100, 100, 100))
     DrawRectangle(*sprite, 11, 16, 10, 1, RGB2(100, 100, 100))
   EndIf
-
-  If symmetry
-    ApplySymmetry(*sprite, 1)
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
   EndIf
 EndProcedure
+
+
 
 Procedure GenerateScout(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, cockpitColor.l, engineColor.l
@@ -1559,10 +1649,12 @@ Procedure GenerateScout(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, c
     SetPixel(*sprite, 19, 17, RGB2(0, 255, 0))
   EndIf
   
-  If symmetry
-    ApplySymmetry(*sprite, 1)
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
   EndIf
 EndProcedure
+
+
 
 Procedure GenerateMiningShip(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected hullColor.l, drillColor.l, tankColor.l
@@ -1618,10 +1710,12 @@ Procedure GenerateMiningShip(*sprite.SpriteData, *palette.ColorPalette, symmetry
     SetPixel(*sprite, 19, 13, RGB2(255, 255, 0))
   EndIf
   
-  If symmetry
-    ApplySymmetry(*sprite, 1)
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
   EndIf
 EndProcedure
+
+
 
 Procedure GenerateSportsCar(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, windowColor.l, wheelColor.l
@@ -1674,7 +1768,12 @@ Procedure GenerateSportsCar(*sprite.SpriteData, *palette.ColorPalette, symmetry.
     ; Air intake
     DrawRectangle(*sprite, 10, 16, 2, 1, RGB2(50, 50, 50))
   EndIf
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateSedan(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, windowColor.l, wheelColor.l
@@ -1726,7 +1825,12 @@ Procedure GenerateSedan(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, c
     SetPixel(*sprite, 13, 19, RGB2(100, 100, 100))
     SetPixel(*sprite, 18, 19, RGB2(100, 100, 100))
   EndIf
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateSUV(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, windowColor.l, wheelColor.l
@@ -1773,7 +1877,12 @@ Procedure GenerateSUV(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, com
     ; Running boards
     DrawRectangle(*sprite, 8, 23, 16, 1, RGB2(120, 120, 120))
   EndIf
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GeneratePickupTruck(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, bedColor.l, windowColor.l, wheelColor.l
@@ -1826,7 +1935,12 @@ Procedure GeneratePickupTruck(*sprite.SpriteData, *palette.ColorPalette, symmetr
     ; Cargo in bed
     DrawRectangle(*sprite, 18, 18, 4, 3, RGB2(139, 69, 19))
   EndIf
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateSemiTruck(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected cabColor.l, trailerColor.l, wheelColor.l
@@ -1873,7 +1987,12 @@ Procedure GenerateSemiTruck(*sprite.SpriteData, *palette.ColorPalette, symmetry.
     ; Company logo
     DrawRectangle(*sprite, 18, 18, 6, 4, RGB2(255, 200, 0))
   EndIf
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateVan(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, windowColor.l, wheelColor.l
@@ -1914,7 +2033,12 @@ Procedure GenerateVan(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, com
     ; Roof vent
     DrawRectangle(*sprite, 14, 11, 4, 1, RGB2(120, 120, 120))
   EndIf
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateMotorcycle(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bikeColor.l, wheelColor.l, chromeColor.l
@@ -1970,7 +2094,12 @@ Procedure GenerateMotorcycle(*sprite.SpriteData, *palette.ColorPalette, symmetry
     SetPixel(*sprite, 13, 11, RGB2(50, 50, 50))
     SetPixel(*sprite, 12, 11, RGB2(50, 50, 50))
   EndIf
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateScooter(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected scooterColor.l, wheelColor.l
@@ -2014,7 +2143,12 @@ Procedure GenerateScooter(*sprite.SpriteData, *palette.ColorPalette, symmetry.l,
     ; Mirror
     SetPixel(*sprite, 9, 16, RGB2(200, 200, 200))
   EndIf
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateRaceCar(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, wheelColor.l, sponsorColor.l
@@ -2067,7 +2201,12 @@ Procedure GenerateRaceCar(*sprite.SpriteData, *palette.ColorPalette, symmetry.l,
     ; Air intake
     DrawRectangle(*sprite, 12, 17, 2, 1, RGB2(50, 50, 50))
   EndIf
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure GenerateBus(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, windowColor.l, wheelColor.l
@@ -2113,7 +2252,12 @@ Procedure GenerateBus(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, com
     ; Route number
     DrawRectangle(*sprite, 14, 11, 4, 1, RGB2(255, 255, 0))
   EndIf
+  
+  If symmetry > 0
+    ApplySymmetry(*sprite, symmetry)
+  EndIf
 EndProcedure
+
 
 Procedure InitializePalettes()
   ; Space/Sci-Fi Palette
@@ -2229,7 +2373,7 @@ Procedure GenerateCurrentSprite()
   Protected theme = GetGadgetState(#ListTheme)
   Protected selectedIndex = GetGadgetState(#ListType)
   Protected spriteType
-  Protected symmetry = GetGadgetState(#CheckSymmetry)
+  Protected symmetry = GetGadgetState(#ComboSymmetry)
   Protected outline = GetGadgetState(#CheckOutline)
   Protected complexity = GetGadgetState(#SpinComplexity)
   Protected seedText.s = GetGadgetText(#StringSeed)
@@ -2242,6 +2386,7 @@ Procedure GenerateCurrentSprite()
     RandomSeed(randomSeed)
     SetGadgetText(#StringSeed, Str(randomSeed))
   EndIf
+
   
   CopyStructure(@themePalettes(theme), @currentPalette, ColorPalette)
 
@@ -2532,8 +2677,13 @@ If InitSprite()
   
   FrameGadget(#PB_Any, 170, 300, 250, 160, "Options")
   
-  CheckBoxGadget(#CheckSymmetry, 180, 325, 230, 20, "Vertical Symmetry")
-  SetGadgetState(#CheckSymmetry, #True)
+  TextGadget(#PB_Any, 180, 325, 100, 20, "Symmetry:")
+  ComboBoxGadget(#ComboSymmetry, 280, 322, 120, 22)
+  AddGadgetItem(#ComboSymmetry, -1, "None")
+  AddGadgetItem(#ComboSymmetry, -1, "Vertical")
+  AddGadgetItem(#ComboSymmetry, -1, "Horizontal")
+  AddGadgetItem(#ComboSymmetry, -1, "Both")
+  SetGadgetState(#ComboSymmetry, 1) ; Default to Vertical
   
   CheckBoxGadget(#CheckOutline, 180, 350, 230, 20, "Add Black Outline")
   SetGadgetState(#CheckOutline, #True)
@@ -2542,10 +2692,12 @@ If InitSprite()
   SpinGadget(#SpinComplexity, 180, 400, 220, 25, 0, 100, #PB_Spin_Numeric)
   SetGadgetState(#SpinComplexity, 50)
   
-  TextGadget(#TextSeed, 180, 430, 100, 20, "Random Seed:")
-  StringGadget(#StringSeed, 280, 427, 120, 20, "")
+  TextGadget(#TextSeed, 180, 430, 100, 20, "Seed:")
+  StringGadget(#StringSeed, 220, 427, 100, 20, "")
+  ButtonGadget(#ButtonRandomSeed, 330, 426, 80, 22, "Random")
   
   ButtonGadget(#ButtonGenerate, 430, 30, 250, 40, "Generate Sprite")
+
   ButtonGadget(#ButtonSave, 430, 80, 250, 35, "Save PNG (32x32)")
   ButtonGadget(#ButtonExport, 430, 125, 250, 35, "Export Scaled (256x256)")
   
@@ -2577,8 +2729,12 @@ If InitSprite()
           Case #ListTheme
             UpdateThemeTypes()
             
+          Case #ButtonRandomSeed
+            SetGadgetText(#StringSeed, Str(Random(999999)))
+            
           Case #ButtonGenerate
             GenerateCurrentSprite()
+
             
           Case #ButtonSave
             SaveCurrentSprite()
@@ -2596,7 +2752,7 @@ EndIf
 End
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 11
+; CursorPosition = 13
 ; Folding = ----------
 ; Optimizer
 ; EnableThread
@@ -2604,14 +2760,14 @@ End
 ; EnableAdmin
 ; DPIAware
 ; UseIcon = game_sprite_gen.ico
-; Executable = Game_Sprite_Gen.exe
+; Executable = ..\Game_Sprite_Gen.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = Game_Sprite_Gen
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = A configurable game sprite generator
 ; VersionField7 = Game_Sprite_Gen
 ; VersionField8 = Game_Sprite_Gen.exe

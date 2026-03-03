@@ -11,7 +11,7 @@ EnableExplicit
 #CHANNELS = 1
 #APP_NAME = "Game_Sndfx_Gen"
 
-Global version.s = "v1.0.0.0"
+Global version.s = "v1.0.0.1"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -41,7 +41,8 @@ Structure WaveHeader
 EndStructure
 
 Structure SoundEffect
-  List samples.f()
+  Array samples.f(0)
+  numSamples.i
   duration.f
   name.s
 EndStructure
@@ -151,346 +152,353 @@ Procedure.f Envelope(t.f, attack.f, decay.f, sustain.f, release.f, duration.f)
 EndProcedure
 
 Procedure GenerateExplosion(*effect.SoundEffect, *params.SoundParams)
-  Protected samples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
-  Protected.f t, amplitude, frequency, noise, envelope
+  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected.f t, amplitude, noise, envelope
   Protected i.i
   
   *effect\duration = *params\duration
   *effect\name = "Explosion"
-  ClearList(*effect\samples())
+  *effect\numSamples = numSamples
+  Dim *effect\samples(numSamples - 1)
   
-  For i = 0 To samples - 1
+  For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
     envelope = Envelope(t, *params\attack, *params\decay, *params\sustain, *params\release, *params\duration)
     
     noise = RandomFloat(-1.0, 1.0)
-    frequency = 50.0 * *params\pitch * Exp(-t * 3.0)
     
     amplitude = noise * envelope * Exp(-t * 2.0)
-    amplitude = Clamp(amplitude, -1.0, 1.0)
-    
-    AddElement(*effect\samples())
-    *effect\samples() = amplitude
+    *effect\samples(i) = amplitude
   Next
 EndProcedure
 
 Procedure GenerateLaser(*effect.SoundEffect, *params.SoundParams)
-  Protected samples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
   Protected.f t, amplitude, currentFreq, phase
   Protected i.i
+  Protected.f twoPi = 2.0 * #PI
   
   *effect\duration = *params\duration
   *effect\name = "Laser"
-  ClearList(*effect\samples())
+  *effect\numSamples = numSamples
+  Dim *effect\samples(numSamples - 1)
   
-  For i = 0 To samples - 1
+  For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
     currentFreq = *params\frequency * *params\pitch * (1.0 - t / *params\duration * 0.8)
-    phase = 2.0 * #PI * currentFreq * t
+    phase = twoPi * currentFreq * t
     
     amplitude = Sin(phase) * Envelope(t, *params\attack, *params\decay, *params\sustain, *params\release, *params\duration)
-    amplitude = Clamp(amplitude * 0.7, -1.0, 1.0)
-    
-    AddElement(*effect\samples())
-    *effect\samples() = amplitude
+    *effect\samples(i) = amplitude * 0.7
   Next
 EndProcedure
 
 Procedure GenerateJump(*effect.SoundEffect, *params.SoundParams)
-  Protected samples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
   Protected.f t, amplitude, frequency, phase
   Protected i.i
+  Protected.f twoPi = 2.0 * #PI
   
   *effect\duration = *params\duration
   *effect\name = "Jump"
-  ClearList(*effect\samples())
+  *effect\numSamples = numSamples
+  Dim *effect\samples(numSamples - 1)
   
-  For i = 0 To samples - 1
+  For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
     frequency = (200.0 + (t / *params\duration) * 400.0) * *params\pitch
-    phase = 2.0 * #PI * frequency * t
+    phase = twoPi * frequency * t
     
     amplitude = Sin(phase) * Envelope(t, *params\attack, *params\decay, *params\sustain, *params\release, *params\duration)
-    amplitude = Clamp(amplitude * 0.6, -1.0, 1.0)
-    
-    AddElement(*effect\samples())
-    *effect\samples() = amplitude
+    *effect\samples(i) = amplitude * 0.6
   Next
 EndProcedure
 
 Procedure GeneratePickup(*effect.SoundEffect, *params.SoundParams)
-  Protected samples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
   Protected.f t, amplitude, frequency, phase
   Protected i.i
+  Protected.f twoPi = 2.0 * #PI
   
   *effect\duration = *params\duration
   *effect\name = "Pickup"
-  ClearList(*effect\samples())
+  *effect\numSamples = numSamples
+  Dim *effect\samples(numSamples - 1)
   
-  For i = 0 To samples - 1
+  For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
     frequency = (400.0 + Sin(t * 40.0) * 200.0) * *params\pitch
-    phase = 2.0 * #PI * frequency * t
+    phase = twoPi * frequency * t
     
     amplitude = Sin(phase) * Envelope(t, *params\attack, *params\decay, *params\sustain, *params\release, *params\duration)
-    amplitude = Clamp(amplitude * 0.5, -1.0, 1.0)
-    
-    AddElement(*effect\samples())
-    *effect\samples() = amplitude
+    *effect\samples(i) = amplitude * 0.5
   Next
 EndProcedure
 
 Procedure GeneratePowerUp(*effect.SoundEffect, *params.SoundParams)
-  Protected samples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
   Protected.f t, amplitude, frequency, phase, envelope
   Protected i.i
+  Protected.f twoPi = 2.0 * #PI
   
   *effect\duration = *params\duration
   *effect\name = "PowerUp"
-  ClearList(*effect\samples())
+  *effect\numSamples = numSamples
+  Dim *effect\samples(numSamples - 1)
   
-  For i = 0 To samples - 1
+  For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
     frequency = (200.0 + (t / *params\duration) * 800.0) * *params\pitch
-    phase = 2.0 * #PI * frequency * t
+    phase = twoPi * frequency * t
     envelope = Envelope(t, *params\attack, *params\decay, *params\sustain, *params\release, *params\duration)
     
     amplitude = (Sin(phase) + Sin(phase * 1.5) * 0.5) * envelope
-    amplitude = Clamp(amplitude * 0.5, -1.0, 1.0)
-    
-    AddElement(*effect\samples())
-    *effect\samples() = amplitude
+    *effect\samples(i) = amplitude * 0.5
   Next
 EndProcedure
 
 Procedure GenerateHit(*effect.SoundEffect, *params.SoundParams)
-  Protected samples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
   Protected.f t, amplitude, noise
   Protected i.i
   
   *effect\duration = *params\duration
   *effect\name = "Hit"
-  ClearList(*effect\samples())
+  *effect\numSamples = numSamples
+  Dim *effect\samples(numSamples - 1)
   
-  For i = 0 To samples - 1
+  For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
     noise = RandomFloat(-1.0, 1.0)
     
     amplitude = noise * Envelope(t, *params\attack, *params\decay, *params\sustain, *params\release, *params\duration)
-    amplitude = Clamp(amplitude * 0.8, -1.0, 1.0)
-    
-    AddElement(*effect\samples())
-    *effect\samples() = amplitude
+    *effect\samples(i) = amplitude * 0.8
   Next
 EndProcedure
 
 Procedure GenerateShoot(*effect.SoundEffect, *params.SoundParams)
-  Protected samples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
   Protected.f t, amplitude, frequency, phase, noise
   Protected i.i
+  Protected.f twoPi = 2.0 * #PI
   
   *effect\duration = *params\duration
   *effect\name = "Shoot"
-  ClearList(*effect\samples())
+  *effect\numSamples = numSamples
+  Dim *effect\samples(numSamples - 1)
   
-  For i = 0 To samples - 1
+  For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
     frequency = 150.0 * *params\pitch * Exp(-t * 8.0)
-    phase = 2.0 * #PI * frequency * t
+    phase = twoPi * frequency * t
     noise = RandomFloat(-0.3, 0.3)
     
     amplitude = (Sin(phase) + noise) * Envelope(t, *params\attack, *params\decay, *params\sustain, *params\release, *params\duration)
-    amplitude = Clamp(amplitude * 0.7, -1.0, 1.0)
-    
-    AddElement(*effect\samples())
-    *effect\samples() = amplitude
+    *effect\samples(i) = amplitude * 0.7
   Next
 EndProcedure
 
 Procedure GenerateBeep(*effect.SoundEffect, *params.SoundParams)
-  Protected samples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
   Protected.f t, amplitude, phase, envelope
   Protected i.i
+  Protected.f twoPi = 2.0 * #PI
   
   *effect\duration = *params\duration
   *effect\name = "Beep"
-  ClearList(*effect\samples())
+  *effect\numSamples = numSamples
+  Dim *effect\samples(numSamples - 1)
   
-  For i = 0 To samples - 1
+  For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
-    phase = 2.0 * #PI * *params\frequency * *params\pitch * t
+    phase = twoPi * *params\frequency * *params\pitch * t
     envelope = Envelope(t, *params\attack, *params\decay, *params\sustain, *params\release, *params\duration)
     
     amplitude = Sin(phase) * envelope
-    amplitude = Clamp(amplitude * 0.5, -1.0, 1.0)
-    
-    AddElement(*effect\samples())
-    *effect\samples() = amplitude
+    *effect\samples(i) = amplitude * 0.5
   Next
 EndProcedure
 
 Procedure GenerateAlarm(*effect.SoundEffect, *params.SoundParams)
-  Protected samples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
   Protected.f t, amplitude, frequency, phase
   Protected i.i
+  Protected.f twoPi = 2.0 * #PI
   
   *effect\duration = *params\duration
   *effect\name = "Alarm"
-  ClearList(*effect\samples())
+  *effect\numSamples = numSamples
+  Dim *effect\samples(numSamples - 1)
   
-  For i = 0 To samples - 1
+  For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
     frequency = (600.0 + Sin(t * 8.0) * 200.0) * *params\pitch
-    phase = 2.0 * #PI * frequency * t
+    phase = twoPi * frequency * t
     
     amplitude = Sin(phase) * Envelope(t, *params\attack, *params\decay, *params\sustain, *params\release, *params\duration) * 0.6
-    amplitude = Clamp(amplitude, -1.0, 1.0)
-    
-    AddElement(*effect\samples())
-    *effect\samples() = amplitude
+    *effect\samples(i) = amplitude
   Next
 EndProcedure
 
 Procedure GenerateCoin(*effect.SoundEffect, *params.SoundParams)
-  Protected samples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
   Protected.f t, amplitude, frequency, phase
   Protected i.i
+  Protected.f twoPi = 2.0 * #PI
   
   *effect\duration = *params\duration
   *effect\name = "Coin"
-  ClearList(*effect\samples())
+  *effect\numSamples = numSamples
+  Dim *effect\samples(numSamples - 1)
   
-  For i = 0 To samples - 1
+  For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
     frequency = (900.0 + Sin(t * 50.0) * 100.0) * *params\pitch
-    phase = 2.0 * #PI * frequency * t
+    phase = twoPi * frequency * t
     
     amplitude = Sin(phase) * Envelope(t, *params\attack, *params\decay, *params\sustain, *params\release, *params\duration)
-    amplitude = Clamp(amplitude * 0.5, -1.0, 1.0)
-    
-    AddElement(*effect\samples())
-    *effect\samples() = amplitude
+    *effect\samples(i) = amplitude * 0.5
   Next
 EndProcedure
 
 Procedure GenerateFootstep(*effect.SoundEffect, *params.SoundParams)
-  Protected samples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
   Protected.f t, amplitude, noise, lowFreq, phase
   Protected i.i
+  Protected.f twoPi = 2.0 * #PI
   
   *effect\duration = *params\duration
   *effect\name = "Footstep"
-  ClearList(*effect\samples())
+  *effect\numSamples = numSamples
+  Dim *effect\samples(numSamples - 1)
   
-  For i = 0 To samples - 1
+  For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
     noise = RandomFloat(-0.5, 0.5)
     lowFreq = 80.0 * *params\pitch
-    phase = 2.0 * #PI * lowFreq * t
+    phase = twoPi * lowFreq * t
     
     amplitude = (Sin(phase) * 0.5 + noise * 0.5) * Envelope(t, *params\attack, *params\decay, *params\sustain, *params\release, *params\duration)
-    amplitude = Clamp(amplitude * 0.6, -1.0, 1.0)
-    
-    AddElement(*effect\samples())
-    *effect\samples() = amplitude
+    *effect\samples(i) = amplitude * 0.6
   Next
 EndProcedure
 
 Procedure GenerateClick(*effect.SoundEffect, *params.SoundParams)
-  Protected samples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
   Protected.f t, amplitude, noise
   Protected i.i
   
   *effect\duration = *params\duration
   *effect\name = "Click"
-  ClearList(*effect\samples())
+  *effect\numSamples = numSamples
+  Dim *effect\samples(numSamples - 1)
   
-  For i = 0 To samples - 1
+  For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
     noise = RandomFloat(-1.0, 1.0)
     
     amplitude = noise * Envelope(t, *params\attack, *params\decay, *params\sustain, *params\release, *params\duration)
-    amplitude = Clamp(amplitude * 0.4, -1.0, 1.0)
-    
-    AddElement(*effect\samples())
-    *effect\samples() = amplitude
+    *effect\samples(i) = amplitude * 0.4
   Next
 EndProcedure
 
 Procedure GenerateWhoosh(*effect.SoundEffect, *params.SoundParams)
-  Protected samples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
   Protected.f t, amplitude, noise, envelope
   Protected i.i
   
   *effect\duration = *params\duration
   *effect\name = "Whoosh"
-  ClearList(*effect\samples())
+  *effect\numSamples = numSamples
+  Dim *effect\samples(numSamples - 1)
   
-  For i = 0 To samples - 1
+  For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
     noise = RandomFloat(-1.0, 1.0)
     envelope = Envelope(t, *params\attack, *params\decay, *params\sustain, *params\release, *params\duration)
     
     amplitude = noise * envelope * 0.5
-    amplitude = Clamp(amplitude, -1.0, 1.0)
-    
-    AddElement(*effect\samples())
-    *effect\samples() = amplitude
+    *effect\samples(i) = amplitude
   Next
 EndProcedure
 
 Procedure GenerateBounce(*effect.SoundEffect, *params.SoundParams)
-  Protected samples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
   Protected.f t, amplitude, frequency, phase
   Protected i.i
+  Protected.f twoPi = 2.0 * #PI
   
   *effect\duration = *params\duration
   *effect\name = "Bounce"
-  ClearList(*effect\samples())
+  *effect\numSamples = numSamples
+  Dim *effect\samples(numSamples - 1)
   
-  For i = 0 To samples - 1
+  For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
     frequency = 300.0 * *params\pitch * Exp(-t * 5.0)
-    phase = 2.0 * #PI * frequency * t
+    phase = twoPi * frequency * t
     
     amplitude = Sin(phase) * Envelope(t, *params\attack, *params\decay, *params\sustain, *params\release, *params\duration)
-    amplitude = Clamp(amplitude * 0.6, -1.0, 1.0)
-    
-    AddElement(*effect\samples())
-    *effect\samples() = amplitude
+    *effect\samples(i) = amplitude * 0.6
   Next
 EndProcedure
 
 Procedure GenerateGameOver(*effect.SoundEffect, *params.SoundParams)
-  Protected samples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
   Protected.f t, amplitude, frequency, phase, envelope
   Protected i.i
+  Protected.f twoPi = 2.0 * #PI
   
   *effect\duration = *params\duration
   *effect\name = "GameOver"
-  ClearList(*effect\samples())
+  *effect\numSamples = numSamples
+  Dim *effect\samples(numSamples - 1)
   
-  For i = 0 To samples - 1
+  For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
     frequency = (300.0 - (t / *params\duration) * 200.0) * *params\pitch
-    phase = 2.0 * #PI * frequency * t
+    phase = twoPi * frequency * t
     envelope = Envelope(t, *params\attack, *params\decay, *params\sustain, *params\release, *params\duration)
     
     amplitude = Sin(phase) * envelope
-    amplitude = Clamp(amplitude * 0.6, -1.0, 1.0)
-    
-    AddElement(*effect\samples())
-    *effect\samples() = amplitude
+    *effect\samples(i) = amplitude * 0.6
   Next
+EndProcedure
+
+Procedure NormalizeEffect(*effect.SoundEffect)
+  Protected i.i
+  Protected.f maxAmp = 0.0
+  Protected.f currentAbs
+  
+  If *effect\numSamples <= 0
+    ProcedureReturn
+  EndIf
+  
+  ; Find maximum amplitude
+  For i = 0 To *effect\numSamples - 1
+    currentAbs = Abs(*effect\samples(i))
+    If currentAbs > maxAmp
+      maxAmp = currentAbs
+    EndIf
+  Next
+  
+  ; Normalize if needed
+  If maxAmp > 0.0001
+    Protected.f ratio = 0.95 / maxAmp ; Target 95% of full range
+    For i = 0 To *effect\numSamples - 1
+      *effect\samples(i) = *effect\samples(i) * ratio
+    Next
+  EndIf
 EndProcedure
 
 Procedure.i CreateWaveFile(filename.s, *effect.SoundEffect)
   Protected file
   Protected.WaveHeader header
   Protected.w sample16
-  Protected numSamples = ListSize(*effect\samples())
+  Protected numSamples = *effect\numSamples
   Protected dataSize = numSamples * (#BITS_PER_SAMPLE / 8)
   Protected.f scaled
+  Protected i.i
 
   If numSamples <= 0
     ProcedureReturn #False
@@ -514,8 +522,8 @@ Procedure.i CreateWaveFile(filename.s, *effect.SoundEffect)
   If file
     WriteData(file, @header, SizeOf(WaveHeader))
 
-    ForEach *effect\samples()
-      scaled = Clamp(*effect\samples(), -1.0, 1.0) * 32767.0
+    For i = 0 To numSamples - 1
+      scaled = Clamp(*effect\samples(i), -1.0, 1.0) * 32767.0
       sample16 = Round(scaled, #PB_Round_Nearest)
       WriteWord(file, sample16)
     Next
@@ -555,6 +563,7 @@ Enumeration
   #SpinSustain
   #TextRelease
   #SpinRelease
+  #ButtonRandomize
   #TextStatus
 EndEnumeration
 
@@ -589,7 +598,7 @@ Procedure UpdateControls()
     DisableGadget(#ButtonGenerate, #True)
   EndIf
   
-  If ListSize(currentEffect\samples()) > 0
+  If currentEffect\numSamples > 0
     DisableGadget(#ButtonSave, #False)
     DisableGadget(#ButtonPlay, #False)
     DisableGadget(#ButtonStop, #False)
@@ -598,6 +607,17 @@ Procedure UpdateControls()
     DisableGadget(#ButtonPlay, #True)
     DisableGadget(#ButtonStop, #True)
   EndIf
+EndProcedure
+
+Procedure RandomizeParameters()
+  SetGadgetState(#SpinDuration, Random(200, 20)) ; 0.2s - 2.0s
+  SetGadgetState(#SpinFrequency, Random(1500, 100))
+  SetGadgetState(#SpinPitch, Random(150, 50))
+  SetGadgetState(#SpinSpeed, Random(150, 50))
+  SetGadgetState(#SpinAttack, Random(200, 0))
+  SetGadgetState(#SpinDecay, Random(300, 0))
+  SetGadgetState(#SpinSustain, Random(100, 0))
+  SetGadgetState(#SpinRelease, Random(500, 10))
 EndProcedure
 
 Procedure GenerateCurrentEffect()
@@ -659,7 +679,9 @@ Procedure GenerateCurrentEffect()
       GenerateGameOver(@currentEffect, @params)
   EndSelect
   
-  SetGadgetText(#TextStatus, "Generated: " + currentEffect\name + " (" + StrF(currentEffect\duration, 2) + "s, " + Str(ListSize(currentEffect\samples())) + " samples)")
+  NormalizeEffect(@currentEffect)
+  
+  SetGadgetText(#TextStatus, "Generated: " + currentEffect\name + " (" + StrF(currentEffect\duration, 2) + "s, " + Str(currentEffect\numSamples) + " samples)")
   UpdateControls()
 EndProcedure
 
@@ -786,7 +808,8 @@ If InitSound()
   SetGadgetState(#SpinRelease, 100)
   TextGadget(#PB_Any, 770, 350, 20, 25, "ms")
   
-  ButtonGadget(#ButtonGenerate, 310, 425, 470, 35, "Generate Sound Effect")
+  ButtonGadget(#ButtonRandomize, 310, 425, 110, 35, "Randomize")
+  ButtonGadget(#ButtonGenerate, 430, 425, 350, 35, "Generate Sound Effect")
   ButtonGadget(#ButtonPlay, 310, 470, 150, 35, "Play")
   ButtonGadget(#ButtonStop, 470, 470, 70, 35, "Stop")
   ButtonGadget(#ButtonSave, 550, 470, 230, 35, "Save WAV File")
@@ -816,6 +839,10 @@ If InitSound()
           Case #ButtonGenerate
             GenerateCurrentEffect()
             
+          Case #ButtonRandomize
+            RandomizeParameters()
+            GenerateCurrentEffect()
+            
           Case #ButtonSave
             SaveCurrentEffect()
             
@@ -837,7 +864,7 @@ EndIf
 End
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 11
+; CursorPosition = 13
 ; Folding = -----
 ; Optimizer
 ; EnableThread
@@ -847,12 +874,12 @@ End
 ; UseIcon = game_sndfx_gen.ico
 ; Executable = ..\Game_Sndfx_Gen.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = Game_Sndfx_Gen
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = A configurable Sound Effects generator
 ; VersionField7 = Game_Sndfx_Gen
 ; VersionField8 = Game_Sndfx_Gen.exe

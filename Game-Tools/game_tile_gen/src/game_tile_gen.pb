@@ -12,7 +12,7 @@ EnableExplicit
 #MAX_COLORS = 16
 #APP_NAME = "Game_Tile_Gen"
 
-Global version.s = "v1.0.0.0"
+Global version.s = "v1.0.0.1"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -43,6 +43,7 @@ Enumeration
   #ListPalette
   #ListTileType
   #ButtonGenerate
+  #ButtonRandomSeed
   #ButtonSaveTile
   #ButtonExportTileset
   #CanvasPreview
@@ -72,6 +73,7 @@ Declare InitializePalettes()
 Declare DrawTilePreview()
 Declare GenerateTile(*tile.TileData, tileType.l, *palette.ColorPalette, symmetry.l, complexity.l)
 Declare GenerateCurrentTile()
+Declare SetRandomSeed()
 Declare SaveCurrentTile()
 Declare ExportTileset()
 Declare.l SaveTilePNG(filename.s, *tile.TileData)
@@ -247,6 +249,9 @@ Procedure GenerateTile(*tile.TileData, tileType.l, *palette.ColorPalette, symmet
         For x = 0 To #TILE_SIZE - 1
           If Random(100) < (10 + complexity / 3)
             SetPixel(*tile, x, y, secondaryColor)
+          EndIf
+          If complexity > 30 And Random(200) < 1
+            DrawRectangle(*tile, x, y, 2 + Random(2), 2 + Random(2), detailColor)
           EndIf
         Next
       Next
@@ -493,6 +498,11 @@ Procedure PopulateTileTypes()
   SetGadgetState(#ListTileType, 0)
 EndProcedure
 
+Procedure SetRandomSeed()
+  randomSeed = Random($7FFFFFFF)
+  SetGadgetText(#StringSeed, Str(randomSeed))
+EndProcedure
+
 Procedure GenerateCurrentTile()
   Protected symmetry, outline, complexity
   Protected paletteIndex, typeIndex, tileType
@@ -518,8 +528,7 @@ Procedure GenerateCurrentTile()
   If inputSeed <> ""
     randomSeed = Val(inputSeed)
   Else
-    randomSeed = Random($7FFFFFFF)
-    SetGadgetText(#StringSeed, Str(randomSeed))
+    SetRandomSeed()
   EndIf
 
   RandomSeed(randomSeed)
@@ -608,8 +617,10 @@ If InitSprite()
   SpinGadget(#SpinComplexity, 220, 375, 220, 25, 0, 100, #PB_Spin_Numeric)
   SetGadgetState(#SpinComplexity, 50)
 
-  TextGadget(#TextSeed, 220, 405, 100, 20, "Random Seed:")
-  StringGadget(#StringSeed, 305, 405, 140, 20, "")
+  TextGadget(#TextSeed, 220, 405, 80, 20, "Seed:")
+  StringGadget(#StringSeed, 270, 403, 130, 22, "")
+  ButtonGadget(#ButtonRandomSeed, 405, 403, 50, 22, "Rand")
+  SetRandomSeed()
 
   ButtonGadget(#ButtonGenerate, 500, 30, 200, 40, "Generate Tile")
   ButtonGadget(#ButtonSaveTile, 500, 80, 200, 35, "Save Tile PNG")
@@ -642,6 +653,9 @@ If InitSprite()
           Case #ButtonGenerate
             GenerateCurrentTile()
 
+          Case #ButtonRandomSeed
+            SetRandomSeed()
+
           Case #ButtonSaveTile
             SaveCurrentTile()
 
@@ -658,8 +672,8 @@ EndIf
 End
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 611
-; Folding = ----
+; CursorPosition = 14
+; Folding = -----
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -668,12 +682,12 @@ End
 ; UseIcon = game_tile_gen.ico
 ; Executable = ..\Game_Tile_Gen.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = Game_Tile_Gen
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = A configurable game tile generator
 ; VersionField7 = Game_Tile_Gen
 ; VersionField8 = Game_Tile_Gen.exe
