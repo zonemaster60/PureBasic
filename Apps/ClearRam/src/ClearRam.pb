@@ -1,5 +1,11 @@
 EnableExplicit
 
+; Native memory-list purge (no RAMMap dependency)
+; ---------------------------------------------------------
+Prototype.l ProtoNtSetSystemInformation(SystemInformationClass.l, SystemInformation.i, SystemInformationLength.l)
+Prototype.l ProtoRtlAdjustPrivilege(Privilege.l, Enable.l, CurrentThread.l, *Enabled)
+Global gNtdll.i, NtSetSystemInformation.ProtoNtSetSystemInformation, RtlAdjustPrivilege.ProtoRtlAdjustPrivilege
+
 ; ---------------------------------------------------------
 ; Tray & UI constants
 ; ---------------------------------------------------------
@@ -33,7 +39,7 @@ Global gTooltipOverrideText.s = ""
 
 ; Logging toggle
 Global loggingEnabled   = #True
-Global version.s = "v1.0.0.8"
+Global version.s = "v1.0.0.9"
 
 ; Memory threshold (auto-clean when available RAM <= threshold)
 Global gMemThresholdEnabled.i = #False
@@ -45,6 +51,7 @@ Global gLogPath.s = ""
 Global gLogRotateEnabled.i = #True
 Global gLogRotateMaxBytes.q = 1024 * 1024 ; 1 MiB
 Global gLogRotateKeep.i = 3
+Global gLogMutex.i = CreateMutex()
 
 ; Paths / config
 #INI_FILE        = "ClearRam.ini"
@@ -94,12 +101,11 @@ Procedure LogRotateIfNeeded()
     ProcedureReturn
   EndIf
 
-  Protected size.q = FileSize(gLogPath)
-  If size < 0
-    ProcedureReturn
-  EndIf
+  LockMutex(gLogMutex)
 
-  If size <= gLogRotateMaxBytes
+  Protected size.q = FileSize(gLogPath)
+  If size < 0 Or size <= gLogRotateMaxBytes
+    UnlockMutex(gLogMutex)
     ProcedureReturn
   EndIf
 
@@ -120,6 +126,7 @@ Procedure LogRotateIfNeeded()
   Next
 
   RenameFile(gLogPath, gLogPath + ".1")
+  UnlockMutex(gLogMutex)
 EndProcedure
 
 Procedure LogMessage(msg.s)
@@ -127,7 +134,8 @@ Procedure LogMessage(msg.s)
     ProcedureReturn
   EndIf
 
-  Protected file = OpenFile(#PB_Any, gLogPath)
+  LockMutex(gLogMutex)
+  Protected file = OpenFile(#PB_Any, gLogPath, #PB_File_SharedRead | #PB_File_SharedWrite)
   If file = 0
     file = CreateFile(#PB_Any, gLogPath)
   EndIf
@@ -137,6 +145,7 @@ Procedure LogMessage(msg.s)
     WriteStringN(file, FormatDate("[%yy-%mm-%dd]-[%hh:%ii:%ss] ", Date()) + msg)
     CloseFile(file)
   EndIf
+  UnlockMutex(gLogMutex)
 EndProcedure
 
 ; ---------------------------------------------------------
@@ -343,7 +352,7 @@ Procedure.b EditMemoryThresholdSlider()
   EndIf
 
   CloseWindow(win)
-  ProcedureReturn #False
+  ProcedureReturn apply
 EndProcedure
 
 ; ---------------------------------------------------------
@@ -546,6 +555,22 @@ Procedure Exit()
   Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
   If Req = #PB_MessageRequester_Yes
     LogMessage("Program exiting")
+    quitProgram = #True
+    
+    ; Allow some time for threads to finish
+    Delay(200)
+
+    ; Proper cleanup
+    RemoveSysTrayIcon(#TRAY_ICON)
+    FreeMenu(#TRAY_MENU)
+    FreeImage(#ICON_IDLE)
+    FreeImage(#ICON_ACTIVE)
+    
+    If IsLibrary(gNtdll)
+      CloseLibrary(gNtdll)
+    EndIf
+    
+    FreeMutex(gLogMutex)
     CloseHandle_(hMutex)
     End
   EndIf
@@ -584,14 +609,6 @@ EndProcedure
 ; Uses NtSetSystemInformation(SystemMemoryListInformation, ...) to request trims.
 ; Note: these calls usually require admin + privileges to have impact.
 
-Prototype.l ProtoNtSetSystemInformation(SystemInformationClass.l, SystemInformation.i, SystemInformationLength.l)
-; Use LONGs here to avoid PB's "native types with pointers" restrictions
-Prototype.l ProtoRtlAdjustPrivilege(Privilege.l, Enable.l, CurrentThread.l, *Enabled)
-
-Global gNtdll.i
-Global NtSetSystemInformation.ProtoNtSetSystemInformation
-Global RtlAdjustPrivilege.ProtoRtlAdjustPrivilege
-
 ; SYSTEM_INFORMATION_CLASS (winternl): SystemMemoryListInformation is commonly 80.
 Enumeration 80
   #SystemMemoryListInformation
@@ -611,12 +628,12 @@ EndEnumeration
 Global gRunInProgress.i = #False
 
 Procedure EnsureNtdll()
-  If gNtdll
+  If IsLibrary(gNtdll)
     ProcedureReturn
   EndIf
 
   gNtdll = OpenLibrary(#PB_Any, "ntdll.dll")
-  If gNtdll
+  If IsLibrary(gNtdll)
     NtSetSystemInformation = GetFunction(gNtdll, "NtSetSystemInformation")
     RtlAdjustPrivilege     = GetFunction(gNtdll, "RtlAdjustPrivilege")
   EndIf
@@ -633,39 +650,42 @@ Procedure.b EnablePrivilege(privilegeId.l)
   ProcedureReturn Bool(status = 0)
 EndProcedure
 
+Procedure.b GetMemoryStatus( *ms.MEMORYSTATUSEX )
+  *ms\dwLength = SizeOf(MEMORYSTATUSEX)
+  ProcedureReturn Bool(GlobalMemoryStatusEx_(*ms) <> 0)
+EndProcedure
+
 Procedure.q GetAvailPhysBytes()
   Protected ms.MEMORYSTATUSEX
-  ms\dwLength = SizeOf(MEMORYSTATUSEX)
-  If GlobalMemoryStatusEx_(@ms) = 0
-    ProcedureReturn 0
+  If GetMemoryStatus(@ms)
+    ProcedureReturn ms\ullAvailPhys
   EndIf
-  ProcedureReturn ms\ullAvailPhys
+  ProcedureReturn 0
 EndProcedure
 
 Procedure.i GetAvailPhysMB()
-  Protected b.q = GetAvailPhysBytes()
-  ProcedureReturn b / 1024 / 1024
+  ProcedureReturn GetAvailPhysBytes() / 1024 / 1024
 EndProcedure
 
 Procedure.i GetTotalPhysMB()
   Protected ms.MEMORYSTATUSEX
-  ms\dwLength = SizeOf(MEMORYSTATUSEX)
-  If GlobalMemoryStatusEx_(@ms) = 0
-    ProcedureReturn 0
+  If GetMemoryStatus(@ms)
+    ProcedureReturn ms\ullTotalPhys / 1024 / 1024
   EndIf
-  ProcedureReturn ms\ullTotalPhys / 1024 / 1024
+  ProcedureReturn 0
 EndProcedure
 
 Procedure.i GetUsedMemPercent()
-  Protected totalMB.i = GetTotalPhysMB()
-  If totalMB <= 0
-    ProcedureReturn 0
+  Protected ms.MEMORYSTATUSEX
+  If GetMemoryStatus(@ms)
+    Protected totalMB.i = ms\ullTotalPhys / 1024 / 1024
+    If totalMB <= 0 : ProcedureReturn 0 : EndIf
+    Protected availMB.i = ms\ullAvailPhys / 1024 / 1024
+    Protected usedMB.i = totalMB - availMB
+    If usedMB < 0 : usedMB = 0 : EndIf
+    ProcedureReturn (usedMB * 100) / totalMB
   EndIf
-  Protected availMB.i = GetAvailPhysMB()
-  Protected usedMB.i = totalMB - availMB
-  If usedMB < 0 : usedMB = 0 : EndIf
-  If usedMB > totalMB : usedMB = totalMB : EndIf
-  ProcedureReturn (usedMB * 100) / totalMB
+  ProcedureReturn 0
 EndProcedure
 
 
@@ -793,29 +813,24 @@ EndProcedure
 ; ---------------------------------------------------------
 
 Procedure TimerThread(*unused)
-  Protected i
-
   LogMessage("Timer thread started. Interval: " + Str(IntervalMinutes) + " minutes")
 
   g_TimerNextRun = ElapsedMilliseconds() + IntervalMS
 
   While quitProgram = #False
-
-    For i = 1 To IntervalMS / 1000
-      If quitProgram : Break : EndIf
-      Delay(1000)
-
-      If ShouldTriggerThresholdClear()
-        LogMessage("Memory threshold reached (avail <= " + Str(gMemThresholdAvailMB) + "MB), triggering clean")
-        CreateThread(@RunClearRam_Thread(), 0)
-      EndIf
-    Next
+    Delay(1000)
 
     If quitProgram : Break : EndIf
 
-    CreateThread(@RunClearRam_Thread(), 0)
-    g_TimerNextRun = ElapsedMilliseconds() + IntervalMS
+    If ShouldTriggerThresholdClear()
+      LogMessage("Memory threshold reached (avail <= " + Str(gMemThresholdAvailMB) + "MB), triggering clean")
+      CreateThread(@RunClearRam_Thread(), 0)
+    EndIf
 
+    If ElapsedMilliseconds() >= g_TimerNextRun
+      CreateThread(@RunClearRam_Thread(), 0)
+      g_TimerNextRun = ElapsedMilliseconds() + IntervalMS
+    EndIf
   Wend
 
   LogMessage("Timer thread exiting")
@@ -845,91 +860,85 @@ Procedure ReloadSettingsFromFile()
 EndProcedure
 
 Procedure EditSettings()
-  Protected newInterval.s
-  Protected newLogging.s
-  Protected newStartup.s
-  Protected newRotateEnabled.s
-  Protected newRotateKeep.s
-  Protected newRotateMaxKB.s
-  Protected changed.i = #False
+  Protected w = 350
+  Protected h = 260
+  Protected win = OpenWindow(#PB_Any, 0, 0, w, h, "Edit Settings", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  If win = 0 : ProcedureReturn : EndIf
+
+  Protected ly = 15
+  TextGadget(#PB_Any, 15, ly, 150, 20, "Interval (Minutes):")
+  Protected gadInterval = StringGadget(#PB_Any, 170, ly, 150, 20, Str(IntervalMinutes), #PB_String_Numeric)
   
-  ; Edit Interval Minutes
-  newInterval = InputRequester("Edit Settings", "Interval Minutes (current: " + Str(IntervalMinutes) + "):", Str(IntervalMinutes))
-  If newInterval <> "" And Val(newInterval) > 0
-    If Val(newInterval) <> IntervalMinutes
-      IntervalMinutes = Val(newInterval)
-      IntervalMS = IntervalMinutes * 60000
-      g_TimerNextRun = ElapsedMilliseconds() + IntervalMS
-      changed = #True
-    EndIf
-  EndIf
-  
-  ; Edit Logging Enabled (0 or 1)
-  newLogging = InputRequester("Edit Settings", "Logging Enabled - 0=No, 1=Yes (current: " + Str(loggingEnabled) + "):", Str(loggingEnabled))
-  If newLogging <> ""
-    Protected logVal = Val(newLogging)
-    If logVal = 0 Or logVal = 1
-      If logVal <> loggingEnabled
-        loggingEnabled = logVal
-        changed = #True
+  ly + 30
+  Protected gadLogging = CheckBoxGadget(#PB_Any, 15, ly, 300, 20, "Enable Logging")
+  SetGadgetState(gadLogging, loggingEnabled)
+
+  ly + 30
+  Protected gadRotate = CheckBoxGadget(#PB_Any, 15, ly, 300, 20, "Enable Log Rotation")
+  SetGadgetState(gadRotate, gLogRotateEnabled)
+
+  ly + 30
+  TextGadget(#PB_Any, 15, ly, 150, 20, "Rotate Keep Files:")
+  Protected gadRotKeep = StringGadget(#PB_Any, 170, ly, 150, 20, Str(gLogRotateKeep), #PB_String_Numeric)
+
+  ly + 30
+  TextGadget(#PB_Any, 15, ly, 150, 20, "Rotate Max KB:")
+  Protected gadRotMax = StringGadget(#PB_Any, 170, ly, 150, 20, Str(gLogRotateMaxBytes / 1024), #PB_String_Numeric)
+
+  ly + 50
+  Protected gadOk = ButtonGadget(#PB_Any, w - 180, h - 40, 80, 25, "OK")
+  Protected gadCancel = ButtonGadget(#PB_Any, w - 90, h - 40, 80, 25, "Cancel")
+
+  Protected done = #False, changed = #False
+  Repeat
+    Protected ev = WaitWindowEvent()
+    If ev = #PB_Event_CloseWindow
+      done = #True
+    ElseIf ev = #PB_Event_Gadget
+      Protected g = EventGadget()
+      If g = gadOk
+        Protected newInt = Val(GetGadgetText(gadInterval))
+        If newInt > 0 And newInt <> IntervalMinutes
+          IntervalMinutes = newInt
+          IntervalMS = IntervalMinutes * 60000
+          g_TimerNextRun = ElapsedMilliseconds() + IntervalMS
+          changed = #True
+        EndIf
+
+        If GetGadgetState(gadLogging) <> loggingEnabled
+          loggingEnabled = GetGadgetState(gadLogging)
+          changed = #True
+        EndIf
+
+        If GetGadgetState(gadRotate) <> gLogRotateEnabled
+          gLogRotateEnabled = GetGadgetState(gadRotate)
+          changed = #True
+        EndIf
+
+        Protected newKeep = Val(GetGadgetText(gadRotKeep))
+        If newKeep > 0 And newKeep <> gLogRotateKeep
+          gLogRotateKeep = newKeep
+          changed = #True
+        EndIf
+
+        Protected newMax = Val(GetGadgetText(gadRotMax))
+        If newMax > 0 And (newMax * 1024) <> gLogRotateMaxBytes
+          gLogRotateMaxBytes = newMax * 1024
+          changed = #True
+        EndIf
+
+        If changed
+          SaveSettings()
+          UpdateLogMenuLabel()
+          LogMessage("Settings updated via dialog")
+        EndIf
+        done = #True
+      ElseIf g = gadCancel
+        done = #True
       EndIf
     EndIf
-  EndIf
-  
-  ; Edit Run at Startup (0 or 1)
-  newStartup = InputRequester("Edit Settings", "Run at Startup - 0=No, 1=Yes (current: " + Str(startupEnabled) + "):", Str(startupEnabled))
-  If newStartup <> ""
-    Protected startVal = Val(newStartup)
-    If startVal = 0 Or startVal = 1
-      If startVal <> startupEnabled
-        startupEnabled = startVal
-        changed = #True
-      EndIf
-    EndIf
-  EndIf
-  
-  ; Edit Log Rotate Enabled (0 or 1)
-  newRotateEnabled = InputRequester("Edit Settings", "Log Rotate Enabled - 0=No, 1=Yes (current: " + Str(gLogRotateEnabled) + "):", Str(gLogRotateEnabled))
-  If newRotateEnabled <> ""
-    Protected rotVal = Val(newRotateEnabled)
-    If rotVal = 0 Or rotVal = 1
-      If rotVal <> gLogRotateEnabled
-        gLogRotateEnabled = rotVal
-        changed = #True
-      EndIf
-    EndIf
-  EndIf
-  
-  ; Edit Log Rotate Keep
-  newRotateKeep = InputRequester("Edit Settings", "Log Rotate Keep (files, current: " + Str(gLogRotateKeep) + "):", Str(gLogRotateKeep))
-  If newRotateKeep <> "" And Val(newRotateKeep) > 0
-    If Val(newRotateKeep) <> gLogRotateKeep
-      gLogRotateKeep = Val(newRotateKeep)
-      changed = #True
-    EndIf
-  EndIf
-  
-  ; Edit Log Rotate Max KB
-  Protected currentMaxKB = gLogRotateMaxBytes / 1024
-  newRotateMaxKB = InputRequester("Edit Settings", "Log Rotate Max KB (current: " + Str(currentMaxKB) + "):", Str(currentMaxKB))
-  If newRotateMaxKB <> "" And Val(newRotateMaxKB) > 0
-    Protected newMaxKB = Val(newRotateMaxKB)
-    If newMaxKB <> currentMaxKB
-      gLogRotateMaxBytes = newMaxKB * 1024
-      changed = #True
-    EndIf
-  EndIf
-  
-  ; Save if anything changed
-  If changed
-    SaveSettings()
-    UpdateStartupMenuLabel()
-    UpdateLogMenuLabel()
-    LogMessage("Settings edited and saved via input dialogs")
-    MessageRequester("Settings Saved", "Settings have been saved successfully.", #PB_MessageRequester_Info)
-  Else
-    LogMessage("Settings editing cancelled or no changes made")
-  EndIf
+  Until done
+  CloseWindow(win)
 EndProcedure
 
 ; ---------------------------------------------------------
@@ -1147,24 +1156,24 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 1056
-; FirstLine = 1030
+; CursorPosition = 35
+; FirstLine = 33
 ; Folding = -------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = ClearRam-idle.ico
+; UseIcon = ClearRam.ico
 ; Executable = ..\ClearRam.exe
 ; DisableDebugger
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,8
-; VersionField1 = 1,0,0,8
+; VersionField0 = 1,0,0,9
+; VersionField1 = 1,0,0,9
 ; VersionField2 = ZoneSoft
 ; VersionField3 = ClearRam
-; VersionField4 = 1.0.0.8
-; VersionField5 = 1.0.0.8
+; VersionField4 = 1.0.0.9
+; VersionField5 = 1.0.0.9
 ; VersionField6 = Clears RAM using native Windows APIs
 ; VersionField7 = ClearRam
 ; VersionField8 = ClearRam.exe
