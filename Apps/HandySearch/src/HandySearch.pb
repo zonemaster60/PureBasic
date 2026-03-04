@@ -1036,6 +1036,12 @@ Procedure IndexDirectoryWorker(dir.s, List batch.IndexRecord())
           batch()\Size = DirectoryEntrySize(dirID)
           batch()\MTime = DirectoryEntryDate(dirID, #PB_Date_Modified)
         EndIf
+        
+        ; Update counters more frequently for smooth status bar
+        If localFiles % 100 = 0
+          AddProgressFiles(100, 0)
+          localFiles - 100
+        EndIf
 
       Case #PB_DirectoryEntry_Directory
         If IsExcludedDirName(entryName) = 0
@@ -2363,6 +2369,11 @@ Procedure PumpPendingResults(maxItems.i)
 
       ; Dedupe UI entries.
       If FindMapElement(LiveShownPaths(), path) = 0
+        ; Check if we have already reached the limit for current search
+        If CountGadgetItems(#Gadget_ResultsList) >= SearchMaxResults
+          Continue
+        EndIf
+
         LiveShownPaths(path) = 1
 
         If LiveMatchFullPath
@@ -2385,6 +2396,50 @@ Procedure PumpPendingResults(maxItems.i)
           Default
             If LiveMatcherNeedle = "" Or FindString(LCase(fileName), LiveMatcherNeedle, 1)
               Protected defImg.i = GetFileIconIndex(path)
+              If defImg
+                AddGadgetItem(#Gadget_ResultsList, -1, path, ImageID(defImg))
+              Else
+                AddGadgetItem(#Gadget_ResultsList, -1, path)
+              EndIf
+            EndIf
+        EndSelect
+      EndIf
+    Wend
+    UnlockMutex(ResultMutex)
+  EndIf
+
+  ; Drain worker-produced paths and append matches live.
+  If ResultMutex
+    LockMutex(ResultMutex)
+    While pulled < maxItems And FirstElement(PendingResults())
+      path = PendingResults()
+      DeleteElement(PendingResults())
+      pulled + 1
+
+      ; Dedupe UI entries.
+      If FindMapElement(LiveShownPaths(), path) = 0
+        LiveShownPaths(path) = 1
+
+        If LiveMatchFullPath
+          fileName = path
+        Else
+          fileName = GetFilePart(path)
+        EndIf
+
+        Select LiveMatcherMode
+          Case 2, 1
+            If LiveMatcherRegexID And MatchRegularExpression(LiveMatcherRegexID, fileName)
+              pathImg.i = GetFileIconIndex(path)
+              If pathImg
+                AddGadgetItem(#Gadget_ResultsList, -1, path, ImageID(pathImg))
+              Else
+                AddGadgetItem(#Gadget_ResultsList, -1, path)
+              EndIf
+            EndIf
+
+          Default
+            If LiveMatcherNeedle = "" Or FindString(LCase(fileName), LiveMatcherNeedle, 1)
+              defImg.i = GetFileIconIndex(path)
               If defImg
                 AddGadgetItem(#Gadget_ResultsList, -1, path, ImageID(defImg))
               Else
@@ -2916,7 +2971,8 @@ If TrayIconHandle : DestroyIcon_(TrayIconHandle) : TrayIconHandle = 0 : EndIf
 If hMutex : CloseHandle_(hMutex) : EndIf
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 6
+; CursorPosition = 2441
+; FirstLine = 2437
 ; Folding = --------------
 ; Optimizer
 ; EnableThread
