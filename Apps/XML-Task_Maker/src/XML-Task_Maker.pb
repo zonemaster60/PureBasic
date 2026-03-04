@@ -26,7 +26,7 @@ EnableExplicit
 Global LogBuffer.s = ""
 Global LogFile.s = #LogFileDefault
 
-Global version.s = "v1.0.0.2"
+Global version.s = "v1.0.0.3"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -93,9 +93,12 @@ Procedure FlushLog()
     ProcedureReturn
   EndIf
 
-  If CreateFile(0, LogFile)
-    WriteString(0, LogBuffer)
-    CloseFile(0)
+  Protected file = OpenFile(#PB_Any, LogFile, #PB_File_SharedRead | #PB_File_NoBuffering)
+  If file
+    FileSeek(file, Lof(file))
+    WriteString(file, LogBuffer)
+    CloseFile(file)
+    LogBuffer = "" ; Clear buffer after flush
   EndIf
 EndProcedure
 
@@ -130,37 +133,57 @@ EndProcedure
 ; XML builder
 ;-----------------------------
 
+Procedure.s EscapeXml(text.s)
+  text = ReplaceString(text, "&", "&amp;")
+  text = ReplaceString(text, "<", "&lt;")
+  text = ReplaceString(text, ">", "&gt;")
+  text = ReplaceString(text, Chr(34), "&quot;")
+  text = ReplaceString(text, "'", "&apos;")
+  ProcedureReturn text
+EndProcedure
+
+Procedure.s TaskBool(val.i)
+  If val : ProcedureReturn "true" : Else : ProcedureReturn "false" : EndIf
+EndProcedure
+
 Procedure.s BuildTaskXml(*opt.TaskOptions)
   Protected xml.s
+  
+  ; Escape user inputs
+  Protected author.s = EscapeXml(*opt\author)
+  Protected desc.s = EscapeXml(*opt\description)
+  Protected exe.s = EscapeXml(*opt\exePath)
+  Protected args.s = EscapeXml(*opt\arguments)
+  Protected wdir.s = EscapeXml(*opt\workingDir)
 
   ; RegistrationInfo
   Protected regBlock.s = "    <RegistrationInfo>" + #CRLF$ +
-                         "      <Author>" + *opt\author + "</Author>" + #CRLF$ +
-                         "      <Description>" + *opt\description + "</Description>" + #CRLF$ +
+                         "      <Author>" + author + "</Author>" + #CRLF$ +
+                         "      <Description>" + desc + "</Description>" + #CRLF$ +
                          "    </RegistrationInfo>" + #CRLF$
 
   ; Principals
-  Protected runLevelTag.s
+  Protected runLevelTag.s = ""
   If *opt\runLevelHighest
-    runLevelTag = "<RunLevel>HighestAvailable</RunLevel>"
+    runLevelTag = #CRLF$ + "        <RunLevel>HighestAvailable</RunLevel>"
   EndIf
 
   Protected principalsBlock.s = "    <Principals>" + #CRLF$ +
                                 "      <Principal id="+Chr(34)+"Author"+Chr(34)+">" + #CRLF$ +
                                 "        <UserId>S-1-5-18</UserId>" + #CRLF$ +
-                                "        <LogonType>" + *opt\logonType + "</LogonType>" + #CRLF$ +
-                                "        " + runLevelTag + #CRLF$ +
+                                "        <LogonType>" + *opt\logonType + "</LogonType>" +
+                                         runLevelTag + #CRLF$ +
                                 "      </Principal>" + #CRLF$ +
                                 "    </Principals>" + #CRLF$
   
   ; Settings
   Protected settingsBlock.s = "    <Settings>" + #CRLF$ +
                               "      <MultipleInstancesPolicy>" + *opt\multipleInstancesPolicy + "</MultipleInstancesPolicy>" + #CRLF$ +
-                              "      <AllowStartOnDemand>" + Str(*opt\allowDemandStart) + "</AllowStartOnDemand>" + #CRLF$ +
-                              "      <AllowHardTerminate>" + Str(*opt\allowHardTerminate) + "</AllowHardTerminate>" + #CRLF$ +
-                              "      <RunOnlyIfNetworkAvailable>" + Str(*opt\runOnlyIfNetworkAvailable) + "</RunOnlyIfNetworkAvailable>" + #CRLF$ +
-                              "      <DisallowStartIfOnBatteries>" + Str(*opt\disallowStartOnBattery) + "</DisallowStartIfOnBatteries>" + #CRLF$ +
-                              "      <StopIfGoingOnBatteries>" + Str(*opt\stopOnBattery) + "</StopIfGoingOnBatteries>" + #CRLF$ +
+                              "      <AllowStartOnDemand>" + TaskBool(*opt\allowDemandStart) + "</AllowStartOnDemand>" + #CRLF$ +
+                              "      <AllowHardTerminate>" + TaskBool(*opt\allowHardTerminate) + "</AllowHardTerminate>" + #CRLF$ +
+                              "      <RunOnlyIfNetworkAvailable>" + TaskBool(*opt\runOnlyIfNetworkAvailable) + "</RunOnlyIfNetworkAvailable>" + #CRLF$ +
+                              "      <DisallowStartIfOnBatteries>" + TaskBool(*opt\disallowStartOnBattery) + "</DisallowStartIfOnBatteries>" + #CRLF$ +
+                              "      <StopIfGoingOnBatteries>" + TaskBool(*opt\stopOnBattery) + "</StopIfGoingOnBatteries>" + #CRLF$ +
                               "      <Enabled>true</Enabled>" + #CRLF$ +
                               "    </Settings>" + #CRLF$
 
@@ -184,9 +207,9 @@ Procedure.s BuildTaskXml(*opt.TaskOptions)
   ; Actions
   Protected actionsBlock.s = "    <Actions Context="+Chr(34)+"Author"+Chr(34)+">" + #CRLF$ +
                              "      <Exec>" + #CRLF$ +
-                             "        <Command>" + *opt\exePath + "</Command>" + #CRLF$
-  If *opt\arguments <> "" : actionsBlock + "        <Arguments>" + *opt\arguments + "</Arguments>" + #CRLF$ : EndIf
-  If *opt\workingDir <> "" : actionsBlock + "        <WorkingDirectory>" + *opt\workingDir + "</WorkingDirectory>" + #CRLF$ : EndIf
+                             "        <Command>" + exe + "</Command>" + #CRLF$
+  If args <> "" : actionsBlock + "        <Arguments>" + args + "</Arguments>" + #CRLF$ : EndIf
+  If wdir <> "" : actionsBlock + "        <WorkingDirectory>" + wdir + "</WorkingDirectory>" + #CRLF$ : EndIf
   actionsBlock + "      </Exec>" + #CRLF$ +
                  "    </Actions>" + #CRLF$
 
@@ -223,7 +246,8 @@ EndProcedure
 
 Procedure.i RegisterTaskFromXml(xmlPath.s, taskName.s)
   Protected cmd.s = "schtasks.exe"
-  Protected args.s = "/Create /TN " + Chr(34) + taskName + Chr(34) + " /XML " + Chr(34) + xmlPath + Chr(34)
+  ; Added /F to force creation if it already exists
+  Protected args.s = "/Create /F /TN " + Chr(34) + taskName + Chr(34) + " /XML " + Chr(34) + xmlPath + Chr(34)
 
   LogLine("Executing: " + cmd + " " + args)
 
@@ -231,22 +255,33 @@ Procedure.i RegisterTaskFromXml(xmlPath.s, taskName.s)
   If prog
     Protected out.s
     While ProgramRunning(prog)
-      out = ReadProgramString(prog)
-      If out <> ""
-        LogLine("SCHTASKS: " + out)
+      If AvailableProgramOutput(prog)
+        out = ReadProgramString(prog)
+        If out <> ""
+          LogLine("SCHTASKS: " + out)
+        EndIf
+      Else
+        Delay(10)
       EndIf
-      Delay(10)
     Wend
-    ; Drain remaining output
+    
+    ; Drain any remaining output
     While AvailableProgramOutput(prog)
       out = ReadProgramString(prog)
       If out <> ""
         LogLine("SCHTASKS: " + out)
       EndIf
     Wend
+    
+    Protected exitCode = ProgramExitCode(prog)
     CloseProgram(prog)
-    LogLine("schtasks.exe finished.")
-    ProcedureReturn #True
+    LogLine("schtasks.exe finished with exit code: " + Str(exitCode))
+    
+    If exitCode = 0
+      ProcedureReturn #True
+    Else
+      LogLine("ERROR: schtasks returned non-zero exit code.")
+    EndIf
   Else
     LogLine("ERROR: Failed to start schtasks.exe")
   EndIf
@@ -274,6 +309,17 @@ Procedure LoadTaskOptions(*opt.TaskOptions, iniFile.s)
     *opt\disallowStartOnBattery   = ReadPreferenceInteger("DisallowStartOnBattery", 0)
     *opt\multipleInstancesPolicy  = ReadPreferenceString("MultipleInstancesPolicy", "IgnoreNew")
     ClosePreferences()
+
+    ; Basic Validation
+    If *opt\taskName = ""
+      LogLine("ERROR: Task name cannot be empty.")
+      ProcedureReturn #False
+    EndIf
+    If *opt\exePath = ""
+      LogLine("ERROR: Executable path cannot be empty.")
+      ProcedureReturn #False
+    EndIf
+
     ProcedureReturn #True
   EndIf
   ProcedureReturn #False
@@ -309,12 +355,14 @@ If xmlPath = ""
   End
 EndIf
 
-; Register via schtasks
+; Registration via schtasks
 If RegisterTaskFromXml(xmlPath, opts\taskName)
   LogLine("SUCCESS: Task registered: " + opts\taskName)
+  FlushLog() ; Flush before final message
   MessageRequester(#APP_NAME, "Task registered successfully: " + opts\taskName, #PB_MessageRequester_Info)
 Else
   LogLine("ERROR: Task registration failed.")
+  FlushLog()
   MessageRequester(#APP_NAME, "Task registration failed. See log: " + LogFile, #PB_MessageRequester_Error)
 EndIf
 
@@ -330,7 +378,7 @@ CloseHandle_(hMutex)
 End
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 28
-; FirstLine = 12
+; FirstLine = 9
 ; Folding = --
 ; Optimizer
 ; EnableThread
@@ -340,12 +388,12 @@ End
 ; UseIcon = XML-Task_Maker.ico
 ; Executable = ..\XML-Task_Maker.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = XML-Task_Maker
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = Creates Tasks for use with Task Scheduler
 ; VersionField7 = XML-Task_Maker
 ; VersionField8 = XML-Task_Maker.exe
