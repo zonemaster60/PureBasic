@@ -21,6 +21,7 @@ EnableExplicit
 #TOKEN_QUERY              = $0008
 #TokenElevation           = 20
 
+Global version.s = "v1.0.0.2"
 Global AppPath.s        = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -181,12 +182,36 @@ Procedure.b EnsureDirectory(path.s)
   EndIf
 EndProcedure
 
+; ====== Utility: Process shortcuts ======
+
+Procedure.b ShortcutExists(lnk.s)
+  If FileSize(lnk) <> -1
+    ProcedureReturn #True
+  EndIf
+  ProcedureReturn #False
+EndProcedure
+
+Procedure ProcessLink(target.s, lnk.s, desc.s, workingDir.s, type.s)
+  Protected res.l
+  If FileSize(lnk) = -1
+    res = ShellLink::CreateShellLink(target, lnk, "", desc, workingDir, target, 0)
+    If res = #S_OK
+      LogMessage("Created " + type + " link: " + lnk)
+    Else
+      MessageRequester("Error", "Failed to create " + type + " link." + #CRLF$ + "HRESULT: " + Hex(res), #PB_MessageRequester_Error)
+      LogMessage("Failed to create " + type + " link. HRESULT = " + Str(res))
+    EndIf
+  Else
+    LogMessage(type + " link already exists: " + lnk)
+  EndIf
+EndProcedure
+
 ; Exit procedure
 Procedure Exit()
   Protected Req.i
   Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
   If Req = #PB_MessageRequester_Yes
-    MessageRequester("Info",#APP_NAME + " - v1.0.0.1" + #CRLF$ +
+    MessageRequester("Info",#APP_NAME + " - " + version + #CRLF$ +
                             "Thank you for using this free tool!" + #CRLF$ +
                             "-----------------------------------" + #CRLF$ +
                             "Contact: " + #EMAIL_NAME + #CRLF$ +
@@ -198,23 +223,24 @@ EndProcedure
 
 ; ====== Main ======
 
-Define.s lnkname, line
+Define.s lnkname, line, iniPath
 Define   format, req, res.l
 
 LogMessage("=== " + #APP_NAME + " started ===")
 
-If ReadFile(0, #APP_NAME + ".ini")
+iniPath = #APP_NAME + ".ini"
+If ReadFile(0, iniPath)
   format = ReadStringFormat(0)
   While Eof(0) = 0
-    line = ReadString(0, format)
-    If Trim(line) <> ""
-      lnkname = Trim(line)
+    line = Trim(ReadString(0, format))
+    If line <> "" And Left(line, 1) <> ";" ; Basic comment support
+      lnkname = line
     EndIf
   Wend
   CloseFile(0)
 Else
-  MessageRequester("Info", "Couldn't open " + #APP_NAME + ".ini", #PB_MessageRequester_Info)
-  LogMessage("Failed to open " + #APP_NAME + ".ini")
+  MessageRequester("Error", "Couldn't open " + iniPath + #CRLF$ + "Please ensure the file exists in the application directory.", #PB_MessageRequester_Error)
+  LogMessage("Failed to open " + iniPath)
   End
 EndIf
 
@@ -269,121 +295,87 @@ EndIf
 
 ; ====== Create folders in Program Files and Program Files (x86) ======
 
-req = MessageRequester("Create folders",
-                       "Create application folders in:" + #CRLF$ +
-                       "- Program Files (x64)" + #CRLF$ +
-                       "- Program Files (x86)" + #CRLF$ +
-                       "- Startup link (x64)" + #CRLF$ +
-                       "- Startup link (x86)" + #CRLF$ +
-                       "for '" + lnkname + "' ?",
+req = MessageRequester("Confirmation",
+                       "This tool will perform the following actions for '" + lnkname + "':" + #CRLF$ +
+                       "- Create folder in Program Files (x64)" + #CRLF$ +
+                       "- Create folder in Program Files (x86)" + #CRLF$ +
+                       "- Optionally create Startup and Desktop shortcuts" + #CRLF$ + #CRLF$ +
+                       "Proceed?",
                        #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
 
 If req = #PB_MessageRequester_No
-  LogMessage("=== " + #APP_NAME + " finished ===")
+  LogMessage("Operation cancelled by user.")
   Exit()
 EndIf
 
-  If Not EnsureDirectory(Dir64)
-    MessageRequester("Error", "Failed to create or use x64 Program Files folder." + #CRLF$ + Dir64, #PB_MessageRequester_Error)
-  EndIf
+If Not EnsureDirectory(Dir64)
+  MessageRequester("Error", "Failed to create or access x64 Program Files folder:" + #CRLF$ + Dir64, #PB_MessageRequester_Error)
+EndIf
 
-  If Not EnsureDirectory(Dir32)
-    MessageRequester("Error", "Failed to create or use x86 Program Files folder." + #CRLF$ + Dir32, #PB_MessageRequester_Error)
-  EndIf
+If Not EnsureDirectory(Dir32)
+  MessageRequester("Error", "Failed to create or access x86 Program Files folder:" + #CRLF$ + Dir32, #PB_MessageRequester_Error)
+EndIf
 
 ; ====== Startup link (x64) ======
 
-req = MessageRequester("Startup link", 
-                       "Create a new startup link (x64)?", 
-                       #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
+If Not ShortcutExists(StartupDir + lnkname + ".lnk")
+  req = MessageRequester("Startup link", 
+                         "Create a new startup link (x64)?", 
+                         #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
 
-If req = #PB_MessageRequester_Yes
-  Define.s StartupLnk64 = StartupDir + lnkname + ".lnk"
-  If FileSize(StartupLnk64) = -1
-    res = ShellLink::CreateShellLink(Obj64, StartupLnk64, "", "Start " + lnkname + " (x64)", Dir64, Obj64, 0)
-    If res = #S_OK
-      MessageRequester("Info", "A Startup link (x64) was created.", #PB_MessageRequester_Info)
-      LogMessage("Created startup link x64: " + StartupLnk64)
-    Else
-      MessageRequester("Error", "Failed to create Startup link (x64).", #PB_MessageRequester_Error)
-      LogMessage("Failed to create startup link x64. HRESULT = " + Str(res))
-    EndIf
-  Else
-    MessageRequester("Info", "Startup link (x64) already exists.", #PB_MessageRequester_Info)
+  If req = #PB_MessageRequester_Yes
+    ProcessLink(Obj64, StartupDir + lnkname + ".lnk", "Start " + lnkname + " (x64)", Dir64, "Startup (x64)")
   EndIf
+Else
+  LogMessage("Startup link (x64) already exists. Skipping prompt.")
 EndIf
 
 ; ====== Desktop link (x64) ======
 
-req = MessageRequester("Desktop link (x64)", 
-                       "Create a new desktop link (x64)?", 
-                       #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
+If Not ShortcutExists(DesktopDir + lnkname + ".lnk")
+  req = MessageRequester("Desktop link (x64)", 
+                         "Create a new desktop link (x64)?", 
+                         #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
 
-If req = #PB_MessageRequester_Yes
-  Define.s DesktopLnk64 = DesktopDir + lnkname + ".lnk"
-  If FileSize(DesktopLnk64) = -1
-    res = ShellLink::CreateShellLink(Obj64, DesktopLnk64, "", "Start " + lnkname + " (x64)", Dir64, Obj64, 0)
-    If res = #S_OK
-      MessageRequester("Info", "A Desktop link (x64) was created.", #PB_MessageRequester_Info)
-      LogMessage("Created desktop link x64: " + DesktopLnk64)
-    Else
-      MessageRequester("Error", "Failed to create Desktop link (x64).", #PB_MessageRequester_Error)
-      LogMessage("Failed to create desktop link x64. HRESULT = " + Str(res))
-    EndIf
-  Else
-    MessageRequester("Info", "Desktop link (x64) already exists.", #PB_MessageRequester_Info)
+  If req = #PB_MessageRequester_Yes
+    ProcessLink(Obj64, DesktopDir + lnkname + ".lnk", "Start " + lnkname + " (x64)", Dir64, "Desktop (x64)")
   EndIf
+Else
+  LogMessage("Desktop link (x64) already exists. Skipping prompt.")
 EndIf
 
 ; ====== Startup link (x86) ======
 
-req = MessageRequester("Startup link (x86)", 
-                       "Create a new startup link (x86)?", 
-                       #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
+If Not ShortcutExists(StartupDir + lnkname + "_x86.lnk")
+  req = MessageRequester("Startup link (x86)", 
+                         "Create a new startup link (x86)?", 
+                         #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
 
-If req = #PB_MessageRequester_Yes
-  Define.s StartupLnk32 = StartupDir + lnkname + "_x86.lnk"
-  If FileSize(StartupLnk32) = -1
-    res = ShellLink::CreateShellLink(Obj32, StartupLnk32, "", "Start " + lnkname + " (x86)", Dir32, Obj32, 0)
-    If res = #S_OK
-      MessageRequester("Info", "A Startup link (x86) was created.", #PB_MessageRequester_Info)
-      LogMessage("Created startup link x86: " + StartupLnk32)
-    Else
-      MessageRequester("Error", "Failed to create Startup link (x86).", #PB_MessageRequester_Error)
-      LogMessage("Failed to create startup link x86. HRESULT = " + Str(res))
-    EndIf
-  Else
-    MessageRequester("Info", "Startup link (x86) already exists.", #PB_MessageRequester_Info)
+  If req = #PB_MessageRequester_Yes
+    ProcessLink(Obj32, StartupDir + lnkname + "_x86.lnk", "Start " + lnkname + " (x86)", Dir32, "Startup (x86)")
   EndIf
+Else
+  LogMessage("Startup link (x86) already exists. Skipping prompt.")
 EndIf
 
 ; ====== Desktop link (x86) ======
 
-req = MessageRequester("Desktop link (x86)", 
-                       "Create a new desktop link (x86)?", 
-                       #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
+If Not ShortcutExists(DesktopDir + lnkname + "_x86.lnk")
+  req = MessageRequester("Desktop link (x86)", 
+                         "Create a new desktop link (x86)?", 
+                         #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
 
-If req = #PB_MessageRequester_Yes
-  Define.s DesktopLnk32 = DesktopDir + lnkname + "_x86.lnk"
-  If FileSize(DesktopLnk32) = -1
-    res = ShellLink::CreateShellLink(Obj32, DesktopLnk32, "", "Start " + lnkname + " (x86)", Dir32, Obj32, 0)
-    If res = #S_OK
-      MessageRequester("Info", "A Desktop link (x86) was created.", #PB_MessageRequester_Info)
-      LogMessage("Created desktop link x86: " + DesktopLnk32)
-    Else
-      MessageRequester("Error", "Failed to create Desktop link (x86).", #PB_MessageRequester_Error)
-      LogMessage("Failed to create desktop link x86. HRESULT = " + Str(res))
-    EndIf
-  Else
-    MessageRequester("Info", "Desktop link (x86) already exists.", #PB_MessageRequester_Info)
+  If req = #PB_MessageRequester_Yes
+    ProcessLink(Obj32, DesktopDir + lnkname + "_x86.lnk", "Start " + lnkname + " (x86)", Dir32, "Desktop (x86)")
   EndIf
+Else
+  LogMessage("Desktop link (x86) already exists. Skipping prompt.")
 EndIf
 
 LogMessage("=== " + #APP_NAME + " ===")
 Exit()
-; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 26
-; FirstLine = 15
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 17
 ; Folding = ---
 ; Optimizer
 ; EnableThread
@@ -393,12 +385,12 @@ Exit()
 ; UseIcon = HandyLNKMaker.ico
 ; Executable = ..\HandyLNKMaker.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyLNKMaker
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
 ; VersionField6 = Creates x86/x64 startup and program links
 ; VersionField7 = HandyLNKMaker
 ; VersionField8 = HandyLNKMaker.exe
