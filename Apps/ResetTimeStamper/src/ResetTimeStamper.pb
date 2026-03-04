@@ -7,17 +7,36 @@
 EnableExplicit
 
 #App_Name = "ResetTimeStamper"
-#App_Version = "v1.0.0.2"
 #EMAIL_NAME = "zonemaster60@gmail.com"
+Global version.s = "v1.0.0.3"
 
 ; Prevent multiple instances (don't rely on window title text)
 Global hMutex.i
-hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
+hMutex = CreateMutex_(0, 1, #App_Name + "_mutex")
 If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
-  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  MessageRequester("Info", #App_Name + " is already running.", #PB_MessageRequester_Info)
   CloseHandle_(hMutex)
   End
 EndIf
+
+Procedure Exit()
+  Protected Req.i
+  Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
+  If Req = #PB_MessageRequester_Yes
+    CloseHandle_(hMutex)
+    End
+  EndIf
+EndProcedure
+
+Procedure ShowAbout()
+  Protected msg.s
+  msg = #App_Name + " - " + version + #CRLF$ +
+        "-----------------------------------------" + #CRLF$ +
+        "Resets file modified timestamps to the current time." + #CRLF$ +
+        "Contact: " + #EMAIL_NAME + #CRLF$ +
+        "Website: https://github.com/zonemaster60"
+  MessageRequester("About", msg, #PB_MessageRequester_Info)
+EndProcedure
 
 #Log_MaxSize = 1048576
 #Log_MaxBackups = 5
@@ -45,6 +64,9 @@ Global LogFile.s
 Global LogEnabled.i = #True
 Global NewList SearchResults.s()
 Global LastBrowsePath.s
+
+LogFile = GetPathPart(ProgramFilename()) + #App_Name + ".log"
+
 
 Procedure WriteLog(msg.s)
   Protected file.i
@@ -128,6 +150,11 @@ Procedure SearchInDirectory(directory.s, searchText.s, *count.Integer)
   Protected dir.i
   Protected entry.s
   Protected fullPath.s
+  Static lastUpdate.i = 0
+  
+  If Right(directory, 1) <> "\" And Right(directory, 1) <> "/"
+    directory + "\"
+  EndIf
   
   dir = ExamineDirectory(#PB_Any, directory, "*.*")
   If dir
@@ -138,16 +165,21 @@ Procedure SearchInDirectory(directory.s, searchText.s, *count.Integer)
         fullPath = directory + entry
         
         If DirectoryEntryType(dir) = #PB_DirectoryEntry_Directory
-          SearchInDirectory(fullPath + "\", searchText, *count)
+          SearchInDirectory(fullPath, searchText, *count)
         Else
-          If FindString(LCase(entry), LCase(searchText), 1) > 0 Or
+          If searchText = "*" Or 
+             FindString(LCase(entry), LCase(searchText), 1) > 0 Or
              FindString(LCase(fullPath), LCase(searchText), 1) > 0
+            
             AddElement(SearchResults())
             SearchResults() = fullPath
             *count\i + 1
             
-            If *count\i % 100 = 0
+            ; Throttled UI update (max 10 times per second) for better performance
+            If ElapsedMilliseconds() - lastUpdate > 100
               SetStatus("Searching... Found " + Str(*count\i) + " file(s)")
+              WindowEvent()
+              lastUpdate = ElapsedMilliseconds()
             EndIf
           EndIf
         EndIf
@@ -156,6 +188,7 @@ Procedure SearchInDirectory(directory.s, searchText.s, *count.Integer)
     FinishDirectory(dir)
   EndIf
 EndProcedure
+
 
 Procedure CheckTimestamps()
   Protected itemIndex.i = 0
@@ -405,6 +438,10 @@ Procedure AddFilesFromDirectory(directory.s, *count.Integer)
   Protected entry.s
   Protected fullPath.s
   
+  If Right(directory, 1) <> "\" And Right(directory, 1) <> "/"
+    directory + "\"
+  EndIf
+  
   dir = ExamineDirectory(#PB_Any, directory, "*.*")
   If dir
     While NextDirectoryEntry(dir)
@@ -422,13 +459,14 @@ Procedure AddFilesFromDirectory(directory.s, *count.Integer)
             WindowEvent()
           EndIf
         Else
-          AddFilesFromDirectory(fullPath + "\", *count)
+          AddFilesFromDirectory(fullPath, *count)
         EndIf
       EndIf
     Wend
     FinishDirectory(dir)
   EndIf
 EndProcedure
+
 
 Procedure BrowseFolder()
   Protected folder.s
@@ -501,7 +539,7 @@ Procedure ViewLog()
       Repeat
         event = WaitWindowEvent()
         If event = #PB_Event_CloseWindow And EventWindow() = #Win_LogViewer
-          Break
+          Exit()
         EndIf
       ForEver
       
@@ -509,25 +547,6 @@ Procedure ViewLog()
     EndIf
   Else
     MessageRequester("Error", "Could not open log file.", #PB_MessageRequester_Error)
-  EndIf
-EndProcedure
-
-Procedure ShowAbout()
-  Protected msg.s
-  msg = #App_Name + " - " + #App_Version + #CRLF$ +
-        "-----------------------------------------" + #CRLF$ +
-        "Resets file modified timestamps to the current time." + #CRLF$ +
-        "Contact: " + #EMAIL_NAME + #CRLF$ +
-        "Website: https://github.com/zonemaster60"
-  MessageRequester("About", msg, #PB_MessageRequester_Info)
-EndProcedure
-
-Procedure Exit()
-  Protected Req.i
-  Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
-  If Req = #PB_MessageRequester_Yes
-    CloseHandle_(hMutex)
-    End
   EndIf
 EndProcedure
 
@@ -546,8 +565,8 @@ Procedure PopulateDrives()
 EndProcedure
 
 Procedure CreateMainWindow()
-  If OpenWindow(#Win_Main, 0, 0, 700, 480, #App_Name, 
-                #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget)
+  If OpenWindow(#Win_Main, 0, 0, 700, 520, #App_Name + " - " + version, 
+                 #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget)
     
     CreateMenu(0, WindowID(#Win_Main))
     MenuTitle("File")
@@ -558,24 +577,30 @@ Procedure CreateMainWindow()
     MenuTitle("Help")
     MenuItem(2, "About...")
     
-    ButtonGadget(#Gad_Browse, 10, 10, 100, 30, "Browse Files")
-    ButtonGadget(#Gad_BrowseFolder, 120, 10, 100, 30, "Browse Folder")
-    ButtonGadget(#Gad_CheckTimestamps, 230, 10, 130, 30, "Check Timestamps")
-    ButtonGadget(#Gad_Reset, 370, 10, 130, 30, "Reset Timestamps")
-    DisableGadget(#Gad_Reset, #True)
-    ButtonGadget(#Gad_Clear, 510, 10, 60, 30, "Clear")
-    ButtonGadget(#Gad_ViewLog, 580, 10, 80, 30, "View Log")
+    ; Action Group
+    ContainerGadget(#PB_Any, 10, 10, 680, 50, #PB_Container_Flat)
+      ButtonGadget(#Gad_Browse, 5, 10, 100, 30, "Browse Files")
+      ButtonGadget(#Gad_BrowseFolder, 110, 10, 110, 30, "Browse Folder")
+      ButtonGadget(#Gad_CheckTimestamps, 225, 10, 130, 30, "Check Timestamps")
+      ButtonGadget(#Gad_Reset, 360, 10, 130, 30, "Reset Timestamps")
+      DisableGadget(#Gad_Reset, #True)
+      ButtonGadget(#Gad_Clear, 495, 10, 80, 30, "Clear List")
+      ButtonGadget(#Gad_ViewLog, 580, 10, 90, 30, "View Log")
+    CloseGadgetList()
     
-    TextGadget(#PB_Any, 10, 50, 50, 20, "Drive:")
-    ComboBoxGadget(#Gad_DriveCombo, 60, 48, 80, 24)
-    PopulateDrives()
+    ; Search Group
+    ContainerGadget(#PB_Any, 10, 65, 680, 45, #PB_Container_Flat)
+      TextGadget(#PB_Any, 10, 15, 40, 20, "Drive:")
+      ComboBoxGadget(#Gad_DriveCombo, 50, 12, 80, 24)
+      PopulateDrives()
+      
+      TextGadget(#PB_Any, 150, 15, 80, 20, "Search Term:")
+      StringGadget(#Gad_SearchText, 235, 12, 340, 24, "")
+      ButtonGadget(#Gad_Search, 580, 11, 90, 26, "Run Search")
+    CloseGadgetList()
     
-    TextGadget(#PB_Any, 150, 50, 50, 20, "Search:")
-    StringGadget(#Gad_SearchText, 200, 48, 300, 24, "")
-    ButtonGadget(#Gad_Search, 510, 48, 80, 24, "Search")
-    
-    ListIconGadget(#Gad_List, 10, 80, 680, 360, "Selected Files", 480, #PB_ListIcon_GridLines)
-    AddGadgetColumn(#Gad_List, 1, "Timestamp Status", 180)
+    ListIconGadget(#Gad_List, 10, 115, 680, 360, "Selected Files", 450, #PB_ListIcon_GridLines | #PB_ListIcon_FullRowSelect)
+    AddGadgetColumn(#Gad_List, 1, "Timestamp Status", 200)
     EnableGadgetDrop(#Gad_List, #PB_Drop_Files, #PB_Drag_Copy)
     
     CreateStatusBar(#StatusBar_Main, WindowID(#Win_Main))
@@ -585,10 +610,12 @@ Procedure CreateMainWindow()
   EndIf
 EndProcedure
 
-LogFile = GetCurrentDirectory() + #App_Name + ".log"
-WriteLog("Application started - " + #App_Name + " - " + #App_Version)
+
+LogFile = GetPathPart(ProgramFilename()) + #App_Name + ".log"
+WriteLog("Application started - " + #App_Name + " - " + version)
 
 CreateMainWindow()
+
 
 Define Event, Gadget
 Define droppedFile.s, dropCount.i, i.i
@@ -671,7 +698,8 @@ WriteLog("Application closed")
 End
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 9
+; CursorPosition = 614
+; FirstLine = 592
 ; Folding = ---
 ; Optimizer
 ; EnableThread
@@ -681,12 +709,12 @@ End
 ; UseIcon = ResetTimeStamper.ico
 ; Executable = ..\ResetTimeStamper.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = ResetTimeStamper
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = Resets any file/files timestamp
 ; VersionField7 = ResetTimeStamper
 ; VersionField8 = ResetTimeStamper.exe
