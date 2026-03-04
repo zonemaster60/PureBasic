@@ -8,7 +8,7 @@ EnableExplicit
 #APP_NAME   = "HandyMEMScan"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
-Global version.s = "v1.0.0.2"
+Global version.s = "v1.0.0.3"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -29,7 +29,13 @@ Procedure Exit()
   EndIf
 EndProcedure
 
+#FreezeTimerID = 101 ; Timer ID for memory freezing
+
+; Global variables
+Global SelectedProcess.l = -1
+
 ; Windows API Constants
+
 #PROCESS_ALL_ACCESS = $1F0FFF
 #PROCESS_QUERY_INFORMATION = $0400
 #PROCESS_VM_READ = $0010
@@ -53,10 +59,85 @@ EndProcedure
 #PAGE_NOCACHE           = $200
 #PAGE_WRITECOMBINE      = $400
 
-#MEM_COMMIT = $1000
-#MEM_RESERVE = $2000
-#MAX_PATH = 260
-#TH32CS_SNAPPROCESS = $00000002
+  #MAX_PATH = 260
+  #TH32CS_SNAPPROCESS = $00000002
+  #TH32CS_SNAPMODULE = $00000008
+  #TH32CS_SNAPMODULE32 = $00000010
+
+  ; Windows Module structure (needed for PB since not all versions define MODULEENTRY32)
+  Structure MODULEENTRY32_PB
+    dwSize.l
+    th32ModuleID.l
+    th32ProcessID.l
+    GlblcntUsage.l
+    ProccntUsage.l
+    modBaseAddr.i
+    modBaseSize.l
+    hModule.i
+    szModule.b[256]
+    szExePath.b[#MAX_PATH]
+  EndStructure
+
+  ; Module info structure for our internal list
+  Structure AppModuleInfo
+    BaseAddress.i
+    Size.l
+    Name.s
+    Path.s
+  EndStructure
+
+  Global NewList ModuleList.AppModuleInfo()
+
+  #ModulesButton = 1001
+  #ModulesWindow = 1002
+  #ModulesListGadget = 1003
+
+  Declare.s FormatAddress(Address.i)
+  Declare UpdateResultsUI()
+  Declare UpdateCheatListUI()
+  Declare.q ParseHex(Text.s)
+  Declare.i ValueSizeFromType(ValueType.l)
+  Declare.s FormatValueFromBits(Bits.q, ValueType.l)
+
+  Procedure RefreshModuleList()
+
+    Protected hSnapshot.i, me32.MODULEENTRY32_PB, Result.l
+    ClearList(ModuleList())
+    
+    If Not SelectedProcess Or SelectedProcess = -1 : ProcedureReturn : EndIf
+    
+    hSnapshot = CreateToolhelp32Snapshot_(#TH32CS_SNAPMODULE | #TH32CS_SNAPMODULE32, SelectedProcess)
+    If hSnapshot = -1 : ProcedureReturn : EndIf
+    
+    me32\dwSize = SizeOf(MODULEENTRY32_PB)
+    Result = Module32First_(hSnapshot, @me32)
+    If Result
+      Repeat
+        AddElement(ModuleList())
+        ModuleList()\BaseAddress = me32\modBaseAddr
+        ModuleList()\Size = me32\modBaseSize
+        ModuleList()\Name = PeekS(@me32\szModule, -1, #PB_Ascii)
+        ModuleList()\Path = PeekS(@me32\szExePath, -1, #PB_Ascii)
+        Result = Module32Next_(hSnapshot, @me32)
+      Until Result = 0
+    EndIf
+    CloseHandle_(hSnapshot)
+  EndProcedure
+
+  Procedure ShowModuleWindow()
+    RefreshModuleList()
+    If OpenWindow(#ModulesWindow, 0, 0, 800, 400, "Loaded Modules - " + Str(SelectedProcess), #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+      ListViewGadget(#ModulesListGadget, 10, 10, 780, 380)
+      ForEach ModuleList()
+        AddGadgetItem(#ModulesListGadget, -1, FormatAddress(ModuleList()\BaseAddress) + " - " + ModuleList()\Name + " (" + Str(ModuleList()\Size) + " bytes)")
+      Next
+      Repeat
+        Protected Event = WaitWindowEvent()
+      Until Event = #PB_Event_CloseWindow And EventWindow() = #ModulesWindow
+      CloseWindow(#ModulesWindow)
+    EndIf
+  EndProcedure
+
 
 ; Use PureBasic's built-in PROCESSENTRY32 (correct for Win11 x64/Unicode).
 Procedure.s ExeNameFromEntry(*pe32.PROCESSENTRY32)
@@ -114,7 +195,7 @@ Procedure.s GetProcessImagePath(ProcessID.l)
       If *GetModuleFileNameEx
         size = Len(buffer$)
         If CallFunctionFast(*GetModuleFileNameEx, hProc, 0, @buffer$, size)
-          path = PeekS(@buffer$)
+          path = buffer$
         EndIf
       EndIf
 
@@ -133,7 +214,11 @@ Enumeration ScanValueType
   #ValType_Quad = 8
   #ValType_Float = 32
   #ValType_Double = 64
+  #ValType_String = 128
+  #ValType_Unicode = 129
+  #ValType_AOB = 256
 EndEnumeration
+
 
 Enumeration ScanMode
   #ScanMode_Exact
@@ -165,7 +250,11 @@ Procedure.i ValueSizeFromType(ValueType.l)
     Case #ValType_Quad   : ProcedureReturn 8
     Case #ValType_Float  : ProcedureReturn 4
     Case #ValType_Double : ProcedureReturn 8
+    Case #ValType_String : ProcedureReturn 1 ; min 1
+    Case #ValType_Unicode : ProcedureReturn 2 ; min 2
+    Case #ValType_AOB    : ProcedureReturn 1 ; min 1
   EndSelect
+
   ProcedureReturn 4
 EndProcedure
 
@@ -206,10 +295,17 @@ Procedure.s FormatValueFromBits(Bits.q, ValueType.l)
   Select ValueType
     Case #ValType_Float, #ValType_Double
       ProcedureReturn StrD(DoubleFromBits(Bits, ValueType), 6)
+    Case #ValType_String
+      ProcedureReturn "String Data"
+    Case #ValType_Unicode
+      ProcedureReturn "Unicode Data"
+    Case #ValType_AOB
+      ProcedureReturn "AOB Pattern"
     Default
       ProcedureReturn Str(Bits)
   EndSelect
 EndProcedure
+
 
 Procedure.i CompareBits(Current.q, Previous.q, Mode.l, ValueType.l, SearchNumber.q, SearchFloat.d)
   Protected curD.d, prevD.d
@@ -294,22 +390,55 @@ Structure ScanResult
   Address.i
   ValueBits.q ; stores raw bits (int/float/double)
   ValueType.l
+  AOBPattern.s ; For string/AOB displays
 EndStructure
 
-; Use built-in PureBasic structures
+
+; Structure for frozen values (Cheat List)
+Structure CheatEntry
+  Address.i
+  ValueBits.q
+  ValueType.l
+  Description.s
+  Enabled.i
+EndStructure
 
 ; Global variables
 Global NewList ProcessList.PROCESSENTRY32()
 Global NewList ProcessInfoList.ProcessInfo()
-Global ProcessCount.l
-Global SelectedProcess.l = -1
-Global ProcessHandle.i
 Global NewList ScanResults.ScanResult()
+Global NewList CheatList.CheatEntry()
 Global NewList MemoryRegions.MemoryRegion()
+Global ProcessCount.l
+Global ProcessHandle.i
 Global PreviousScanInitialized.i
 Global ScanSessionValueType.l
 Global MaxDisplayResults.i = 5000
 Global ScanCancelRequested.i
+Global ScanThread.i
+Global ScanMutex.i = CreateMutex()
+Global CheatMutex.i = CreateMutex() ; Mutex for Cheat List
+Global FreezeTimer.i = 0
+Global FreezeInterval.i = 500 ; 500ms rewrite interval
+
+
+
+
+; Structure for thread params
+Structure ScanParams
+  Mode.l
+  ValueType.l
+  SearchInt.q
+  SearchFloat.d
+  SearchString.s
+  AOBPattern.s
+  Aligned.i
+  SkipReadOnly.i
+  SkipExecutable.i
+EndStructure
+
+
+Global CurrentScanParams.ScanParams
 
 ; GUI Controls
 Enumeration
@@ -340,11 +469,21 @@ Enumeration
   #ProcessInfoText
   #ButtonAbout
   #ButtonExit
+  #AlignedCheck ; New: Alignment checkbox
+  #HexCheck ; New: Hexadecimal search checkbox
+  #SkipReadOnlyCheck ; New: Skip Read-Only
+  #SkipExecCheck ; New: Skip Executable
+  #CheatListView ; New: List of saved/frozen addresses
+
+  #AddCheatButton ; New: Add to cheat list button
+  #RemoveCheatButton ; New: Remove from cheat list button
+  #FreezeTimerID = 101 ; Timer ID for memory freezing
 EndEnumeration
 
 ; Function declarations
 Declare RefreshProcessList()
 Declare AttachToProcess()
+Declare ScanMemoryThread(*Params.ScanParams)
 Declare ScanMemory()
 Declare ResetScan()
 Declare TogglePauseScan()
@@ -358,32 +497,389 @@ Declare GetProcessInformation(ProcessID.l, *Info.ProcessInfo)
 Declare.s GetFileDescription(FilePath.s)
 Declare.s GetFileCompany(FilePath.s)
 Declare.s GetFileVersion(FilePath.s)
+Declare UpdateResultsUI() ; New: Update UI from thread results
+Declare UpdateCheatListUI() ; New: Update the saved cheat list
+Declare HandleFreezeTimer() ; New: Periodically re-write frozen values
 
-Procedure.i PumpScanUI()
-  Protected ev.i
+; Helper: Parse hexadecimal string (e.g., "90 90 90" or "0x1234")
+Procedure.q ParseHex(Text.s)
+  Protected s.s = Trim(Text)
+  If Left(s, 2) = "0x" Or Left(s, 2) = "0X"
+    s = Mid(s, 3)
+  EndIf
+  ProcedureReturn Val("$" + ReplaceString(s, " ", ""))
+EndProcedure
 
-  Repeat
-    ev = WindowEvent()
-    If ev = 0
-      Break
+Procedure UpdateCheatListUI()
+  LockMutex(CheatMutex)
+  BeginListBatch(#CheatListView)
+  ClearGadgetItems(#CheatListView)
+  
+  ForEach CheatList()
+    Protected Status.s = " "
+    If CheatList()\Enabled : Status = "[X] " : EndIf
+    AddGadgetItem(#CheatListView, -1, Status + FormatAddress(CheatList()\Address) + " = " + FormatValueFromBits(CheatList()\ValueBits, CheatList()\ValueType) + " (" + CheatList()\Description + ")")
+  Next
+  
+  EndListBatch(#CheatListView)
+  UnlockMutex(CheatMutex)
+EndProcedure
+
+Procedure HandleFreezeTimer()
+  Protected BytesWritten.i
+  LockMutex(CheatMutex)
+  If ProcessHandle
+    ForEach CheatList()
+      If CheatList()\Enabled
+        WriteProcessMemory_(ProcessHandle, CheatList()\Address, @CheatList()\ValueBits, ValueSizeFromType(CheatList()\ValueType), @BytesWritten)
+      EndIf
+    Next
+  EndIf
+  UnlockMutex(CheatMutex)
+EndProcedure
+
+Procedure UpdateResultsUI()
+  Protected resultCount.i = 0
+  Protected itemText.s
+  
+  LockMutex(ScanMutex)
+  BeginListBatch(#ResultsList)
+  ClearGadgetItems(#ResultsList)
+  
+      ForEach ScanResults()
+    If resultCount < MaxDisplayResults
+      If ScanResults()\ValueType = #ValType_String Or ScanResults()\ValueType = #ValType_Unicode Or ScanResults()\ValueType = #ValType_AOB
+        itemText = FormatAddress(ScanResults()\Address) + " = " + ScanResults()\AOBPattern
+      Else
+        itemText = FormatAddress(ScanResults()\Address) + " = " + FormatValueFromBits(ScanResults()\ValueBits, ScanResults()\ValueType)
+      EndIf
+      AddGadgetItem(#ResultsList, -1, itemText)
+    EndIf
+    resultCount + 1
+  Next
+
+  
+  EndListBatch(#ResultsList)
+  
+  If resultCount > MaxDisplayResults
+    StatusBarText(#StatusBar, 0, "Scan complete. Matches: " + Str(resultCount) + " (showing first " + Str(MaxDisplayResults) + ")")
+  Else
+    StatusBarText(#StatusBar, 0, "Scan complete. Matches: " + Str(resultCount))
+  EndIf
+  UnlockMutex(ScanMutex)
+EndProcedure
+
+; Scan memory implementation (Threaded)
+Procedure ScanMemoryThread(*Params.ScanParams)
+  Protected mode.l = *Params\Mode
+  Protected valueType.l = *Params\ValueType
+  Protected searchInt.q = *Params\SearchInt
+  Protected searchFloat.d = *Params\SearchFloat
+  Protected searchString.s = *Params\SearchString
+  Protected aobPattern.s = *Params\AOBPattern
+  Protected aligned.i = *Params\Aligned
+  Protected bytesRead.i
+  Protected bufferSize.i = 65536
+  Protected *buffer = AllocateMemory(bufferSize)
+  Protected i.i, stepSize.i = ValueSizeFromType(valueType)
+  Protected iterStep.i = 1
+  Protected resultCount.i = 0
+  
+  ; For String/AOB
+  Protected searchLen.i = 0
+  If valueType = #ValType_String
+    searchLen = Len(searchString)
+    stepSize = searchLen
+  ElseIf valueType = #ValType_Unicode
+    searchLen = Len(searchString) * 2
+    stepSize = searchLen
+  ElseIf valueType = #ValType_AOB
+    ; AOB pattern parsing: "8B 45 ?? 50" -> 8B 45 ?? 50
+    ; Simplified for this logic: count spaces/2 or just length if compressed
+    ; Let's assume patterns like "8B 45 ?? 50" (spaces between hex bytes)
+    Protected count.i = CountString(aobPattern, " ") + 1
+    If count = 0 : count = Len(aobPattern)/2 : EndIf
+    searchLen = count
+    stepSize = searchLen
+  EndIf
+
+  If aligned And valueType < #ValType_String ; No alignment for strings/AOB by default
+    iterStep = ValueSizeFromType(valueType)
+  EndIf
+
+  If PreviousScanInitialized = #False
+    LockMutex(ScanMutex)
+    ClearList(ScanResults())
+    UnlockMutex(ScanMutex)
+    
+    Protected totalRegions.i = ListSize(MemoryRegions())
+    Protected regionIndex.i = 0
+    
+    ForEach MemoryRegions()
+      ; Protection filtering
+      Protected protect.i = MemoryRegions()\Protection & ~$FF00
+      If *Params\SkipReadOnly And protect = #PAGE_READONLY
+        Continue
+      EndIf
+      If *Params\SkipExecutable And (protect = #PAGE_EXECUTE Or protect = #PAGE_EXECUTE_READ Or protect = #PAGE_EXECUTE_READWRITE Or protect = #PAGE_EXECUTE_WRITECOPY)
+        Continue
+      EndIf
+
+      regionIndex + 1
+      PostEvent(#PB_Event_Gadget, #MainWindow, #ScanProgress, #PB_EventType_Change, (regionIndex * 100) / totalRegions)
+      
+      While ScanCancelRequested
+        Delay(50)
+      Wend
+
+      Protected base.i = MemoryRegions()\BaseAddress
+      Protected endAddr.i = base + MemoryRegions()\Size
+      Protected addr.i = base
+
+      While addr < endAddr
+        Protected readSize.i = bufferSize
+        If addr + readSize > endAddr
+          readSize = endAddr - addr
+        EndIf
+
+        If ReadProcessMemory_(ProcessHandle, addr, *buffer, readSize, @bytesRead) And bytesRead > 0
+          Protected limit.i = bytesRead - stepSize
+          If limit >= 0
+            i = 0
+            While i <= limit
+              Protected match.i = #False
+              
+              If valueType = #ValType_String
+                ; Case sensitive string search (ASCII)
+                If PeekS(*buffer + i, searchLen, #PB_Ascii) = searchString
+                  match = #True
+                EndIf
+              ElseIf valueType = #ValType_Unicode
+                ; Case sensitive string search (Unicode / UTF-16)
+                If PeekS(*buffer + i, Len(searchString), #PB_Unicode) = searchString
+                  match = #True
+                EndIf
+              ElseIf valueType = #ValType_AOB
+                ; Byte pattern search with wildcards
+                match = #True
+                Protected p.i
+                For p = 0 To searchLen - 1
+                  Protected pat.s = StringField(aobPattern, p + 1, " ")
+                  If pat <> "??" And pat <> "?"
+                    If PeekA(*buffer + i + p) <> Val("$" + pat)
+                      match = #False
+                      Break
+                    EndIf
+                  EndIf
+                Next
+              Else
+                Protected curBits.q = BitsFromBuffer(*buffer, i, valueType)
+                match = CompareBits(curBits, 0, mode, valueType, searchInt, searchFloat)
+              EndIf
+
+              If match
+                LockMutex(ScanMutex)
+                AddElement(ScanResults())
+                ScanResults()\Address = addr + i
+                If valueType < #ValType_String
+                  ScanResults()\ValueBits = BitsFromBuffer(*buffer, i, valueType)
+                ElseIf valueType = #ValType_String
+                  ScanResults()\AOBPattern = PeekS(*buffer + i, searchLen, #PB_Ascii)
+                ElseIf valueType = #ValType_Unicode
+                  ScanResults()\AOBPattern = PeekS(*buffer + i, Len(searchString), #PB_Unicode)
+                Else
+                  ; Hex display for AOB
+                  Protected h.i, hs.s = ""
+                  For h = 0 To searchLen - 1
+                    hs + RSet(Hex(PeekA(*buffer + i + h)), 2, "0") + " "
+                  Next
+                  ScanResults()\AOBPattern = Trim(hs)
+                EndIf
+                ScanResults()\ValueType = valueType
+                UnlockMutex(ScanMutex)
+                resultCount + 1
+              EndIf
+              i + iterStep
+            Wend
+          EndIf
+        EndIf
+
+        If bytesRead <= 0 : Break : EndIf
+        addr + bytesRead
+      Wend
+    Next
+    PreviousScanInitialized = #True
+    ScanSessionValueType = valueType
+  Else
+    ; NEXT SCAN (Filter existing results)
+    Protected totalHitsNext.i = ListSize(ScanResults())
+    Protected hitIndexNext.i = 0
+
+    LockMutex(ScanMutex)
+    ResetList(ScanResults())
+    While NextElement(ScanResults())
+      hitIndexNext + 1
+      UnlockMutex(ScanMutex)
+      
+      PostEvent(#PB_Event_Gadget, #MainWindow, #ScanProgress, #PB_EventType_Change, (hitIndexNext * 100) / totalHitsNext)
+
+      While ScanCancelRequested
+        Delay(50)
+      Wend
+      
+      LockMutex(ScanMutex)
+      Protected aNext.i = ScanResults()\Address
+      UnlockMutex(ScanMutex)
+
+      If ReadProcessMemory_(ProcessHandle, aNext, *buffer, stepSize, @bytesRead) And bytesRead = stepSize
+        Protected matchNext.i = #False
+        
+        If valueType = #ValType_String
+          If PeekS(*buffer, searchLen, #PB_Ascii) = searchString
+            matchNext = #True
+          EndIf
+        ElseIf valueType = #ValType_Unicode
+          If PeekS(*buffer, Len(searchString), #PB_Unicode) = searchString
+            matchNext = #True
+          EndIf
+        ElseIf valueType = #ValType_AOB
+          matchNext = #True
+          Protected pNext.i
+          For pNext = 0 To searchLen - 1
+            Protected patNext.s = StringField(aobPattern, pNext + 1, " ")
+            If patNext <> "??" And patNext <> "?"
+              If PeekA(*buffer + pNext) <> Val("$" + patNext)
+                matchNext = #False
+                Break
+              EndIf
+            EndIf
+          Next
+        Else
+          Protected newBitsNext.q = BitsFromBuffer(*buffer, 0, valueType)
+          LockMutex(ScanMutex)
+          Protected oldBitsNext.q = ScanResults()\ValueBits
+          matchNext = CompareBits(newBitsNext, oldBitsNext, mode, valueType, searchInt, searchFloat)
+          If matchNext
+            ScanResults()\ValueBits = newBitsNext
+          EndIf
+          UnlockMutex(ScanMutex)
+        EndIf
+
+        If Not matchNext
+          LockMutex(ScanMutex)
+          DeleteElement(ScanResults())
+          UnlockMutex(ScanMutex)
+        Else
+          resultCount + 1
+        EndIf
+      Else
+        LockMutex(ScanMutex)
+        DeleteElement(ScanResults())
+        UnlockMutex(ScanMutex)
+      EndIf
+      LockMutex(ScanMutex)
+    Wend
+    UnlockMutex(ScanMutex)
+  EndIf
+
+  FreeMemory(*buffer)
+
+  PostEvent(#PB_Event_Gadget, #MainWindow, #ScanButton, #PB_EventType_FirstCustomValue) ; Signal completion
+EndProcedure
+
+; Scan memory for specific value / next scan
+Procedure ScanMemory()
+  Protected mode.l = GetGadgetState(#ScanModeCombo)
+  Protected typeIndex.i = GetGadgetState(#ScanTypeCombo)
+  Protected valueType.l
+  
+  If IsThread(ScanThread)
+    MessageRequester("Info", "Scan is already running!", #PB_MessageRequester_Info)
+    ProcedureReturn
+  EndIf
+
+  If Not ProcessHandle
+    MessageRequester("Error", "No process attached!", #PB_MessageRequester_Error)
+    ProcedureReturn
+  EndIf
+
+  Select typeIndex
+    Case 0 : valueType = #ValType_Byte
+    Case 1 : valueType = #ValType_Word
+    Case 2 : valueType = #ValType_Long
+    Case 3 : valueType = #ValType_Quad
+    Case 4 : valueType = #ValType_Float
+    Case 5 : valueType = #ValType_Double
+    Case 6 : valueType = #ValType_String
+    Case 7 : valueType = #ValType_Unicode
+    Case 8 : valueType = #ValType_AOB
+    Default : valueType = #ValType_Long
+  EndSelect
+
+  ; Validate scan mode vs scan state
+  If mode <> #ScanMode_Exact And mode <> #ScanMode_Unknown And PreviousScanInitialized = #False
+    MessageRequester("Error", "Run a First Scan (Exact/Unknown) before Next Scan filters.", #PB_MessageRequester_Error)
+    ProcedureReturn
+  EndIf
+
+  ; Enforce consistent value type across Next Scans
+  If PreviousScanInitialized And mode <> #ScanMode_Exact And mode <> #ScanMode_Unknown
+    If ScanSessionValueType <> 0 And valueType <> ScanSessionValueType
+      MessageRequester("Error", "Data type changed since First Scan. Reset scan first.", #PB_MessageRequester_Error)
+      ProcedureReturn
+    EndIf
+  EndIf
+
+  CurrentScanParams\Mode = mode
+  CurrentScanParams\ValueType = valueType
+  CurrentScanParams\Aligned = GetGadgetState(#AlignedCheck)
+  CurrentScanParams\SkipReadOnly = GetGadgetState(#SkipReadOnlyCheck)
+  CurrentScanParams\SkipExecutable = GetGadgetState(#SkipExecCheck)
+  
+  If mode = #ScanMode_Exact
+    Protected searchNumberText.s = Trim(GetGadgetText(#ScanValueText))
+    If searchNumberText = ""
+      MessageRequester("Error", "Please enter a value for Exact scan.", #PB_MessageRequester_Error)
+      ProcedureReturn
     EndIf
 
-    Select ev
-      Case #PB_Event_CloseWindow
-        ProcedureReturn #False
+    If GetGadgetState(#HexCheck) = #PB_Checkbox_Checked
+      CurrentScanParams\SearchInt = ParseHex(searchNumberText)
+  ElseIf valueType = #ValType_String Or valueType = #ValType_AOB
+    If valueType = #ValType_String
+      CurrentScanParams\SearchString = searchNumberText
+    Else
+      CurrentScanParams\AOBPattern = searchNumberText
+    EndIf
+  Else
 
-      Case #PB_Event_Gadget
-        Select EventGadget()
-          Case #PauseScanButton
-            TogglePauseScan()
-          Case #ApplyMaxResultsButton
-            UpdateMaxResults()
-        EndSelect
-    EndSelect
-  ForEver
+      CurrentScanParams\SearchInt = ParseNumber(searchNumberText)
 
-  ProcedureReturn #True
+      ; Range checks
+      Select valueType
+        Case #ValType_Byte
+          If CurrentScanParams\SearchInt < -128 Or CurrentScanParams\SearchInt > 255
+            MessageRequester("Error", "Byte range is -128..255", #PB_MessageRequester_Error)
+            ProcedureReturn
+          EndIf
+        Case #ValType_Word
+          If CurrentScanParams\SearchInt < -32768 Or CurrentScanParams\SearchInt > 65535
+            MessageRequester("Error", "Word range is -32768..65535", #PB_MessageRequester_Error)
+            ProcedureReturn
+          EndIf
+        Case #ValType_Long
+          If CurrentScanParams\SearchInt < -2147483648 Or CurrentScanParams\SearchInt > 4294967295
+            MessageRequester("Error", "Long range is -2147483648..4294967295", #PB_MessageRequester_Error)
+            ProcedureReturn
+          EndIf
+      EndSelect
+    EndIf
+  EndIf
+
+  StatusBarText(#StatusBar, 0, "Scanning (Threaded)...")
+  ScanThread = CreateThread(@ScanMemoryThread(), @CurrentScanParams)
 EndProcedure
+
 
 ; Refresh process list using ToolHelp32
 Procedure RefreshProcessList()
@@ -498,6 +994,9 @@ Procedure GetMemoryRegions()
 
     ; Include readable regions (not just RW), but exclude guard/noaccess.
     If mbi\State = #MEM_COMMIT And (mbi\Protect & #PAGE_GUARD) = 0 And protect <> #PAGE_NOACCESS
+      Protected isReadOnly.i = Bool(protect = #PAGE_READONLY)
+      Protected isExecutable.i = Bool(protect = #PAGE_EXECUTE Or protect = #PAGE_EXECUTE_READ Or protect = #PAGE_EXECUTE_READWRITE Or protect = #PAGE_EXECUTE_WRITECOPY)
+      
       If protect = #PAGE_READONLY Or protect = #PAGE_READWRITE Or protect = #PAGE_WRITECOPY Or protect = #PAGE_EXECUTE_READ Or protect = #PAGE_EXECUTE_READWRITE Or protect = #PAGE_EXECUTE_WRITECOPY
         *NewRegion = AddElement(MemoryRegions())
         *NewRegion\BaseAddress = mbi\BaseAddress
@@ -506,6 +1005,7 @@ Procedure GetMemoryRegions()
         RegionCount + 1
       EndIf
     EndIf
+
 
     ; Move to next region
     Address = mbi\BaseAddress + mbi\RegionSize
@@ -555,242 +1055,8 @@ Procedure TogglePauseScan()
   EndIf
 EndProcedure
 
-; Scan memory for specific value / next scan
-Procedure ScanMemory()
-  Protected mode.l = GetGadgetState(#ScanModeCombo)
-  Protected typeIndex.i = GetGadgetState(#ScanTypeCombo)
-  Protected valueType.l
-  Protected searchInt.q
-  Protected searchFloat.d
-  Protected searchNumberText.s
-  Protected bytesRead.i
-  Protected *buffer, bufferSize.i = 65536
-  Protected *prevBuffer
-  Protected i.i, stepSize.i
-  Protected resultCount.i
-  Protected itemText.s
-
-  If Not ProcessHandle
-    MessageRequester("Error", "No process attached!", #PB_MessageRequester_Error)
-    ProcedureReturn
-  EndIf
-
-  ; Map UI index to internal type
-  Select typeIndex
-    Case 0 : valueType = #ValType_Byte
-    Case 1 : valueType = #ValType_Word
-    Case 2 : valueType = #ValType_Long
-    Case 3 : valueType = #ValType_Quad
-    Case 4 : valueType = #ValType_Float
-    Case 5 : valueType = #ValType_Double
-    Default
-      valueType = #ValType_Long
-  EndSelect
-
-  stepSize = ValueSizeFromType(valueType)
-
-  ; Validate scan mode vs scan state
-  If mode <> #ScanMode_Exact And mode <> #ScanMode_Unknown And PreviousScanInitialized = #False
-    MessageRequester("Error", "Run a First Scan (Exact/Unknown) before Next Scan filters.", #PB_MessageRequester_Error)
-    ProcedureReturn
-  EndIf
-
-  ; Enforce consistent value type across Next Scans
-  If PreviousScanInitialized And mode <> #ScanMode_Exact And mode <> #ScanMode_Unknown
-    If ScanSessionValueType <> 0 And valueType <> ScanSessionValueType
-      MessageRequester("Error", "Data type changed since First Scan. Reset scan first.", #PB_MessageRequester_Error)
-      ProcedureReturn
-    EndIf
-  EndIf
-
-  ; Parse search value only for Exact scans
-  If mode = #ScanMode_Exact
-    searchNumberText = Trim(GetGadgetText(#ScanValueText))
-    If searchNumberText = ""
-      MessageRequester("Error", "Please enter a value for Exact scan.", #PB_MessageRequester_Error)
-      ProcedureReturn
-    EndIf
-
-    If valueType = #ValType_Float Or valueType = #ValType_Double
-      searchFloat = ParseDouble(searchNumberText)
-    Else
-      searchInt = ParseNumber(searchNumberText)
-
-      ; Ensure the value fits the selected type (avoids confusing matches)
-      Select valueType
-        Case #ValType_Byte
-          If searchInt < 0 Or searchInt > 255
-            MessageRequester("Error", "Byte range is 0..255", #PB_MessageRequester_Error)
-            ProcedureReturn
-          EndIf
-        Case #ValType_Word
-          If searchInt < 0 Or searchInt > 65535
-            MessageRequester("Error", "Word range is 0..65535", #PB_MessageRequester_Error)
-            ProcedureReturn
-          EndIf
-        Case #ValType_Long
-          ; Allow full 32-bit unsigned range (common for game memory)
-          If searchInt < -2147483648 Or searchInt > 4294967295
-            MessageRequester("Error", "Long range is -2147483648..4294967295", #PB_MessageRequester_Error)
-            ProcedureReturn
-          EndIf
-      EndSelect
-    EndIf
-  EndIf
-
-  *buffer = AllocateMemory(bufferSize)
-  If Not *buffer
-    MessageRequester("Error", "Failed to allocate scan buffer!", #PB_MessageRequester_Error)
-    ProcedureReturn
-  EndIf
-
-  *prevBuffer = AllocateMemory(bufferSize)
-  If Not *prevBuffer
-    FreeMemory(*buffer)
-    MessageRequester("Error", "Failed to allocate previous buffer!", #PB_MessageRequester_Error)
-    ProcedureReturn
-  EndIf
-
-  BeginListBatch(#ResultsList)
-  ClearGadgetItems(#ResultsList)
-
-  resultCount = 0
-
-  If PreviousScanInitialized = #False
-    ClearList(ScanResults())
-  EndIf
-
-  StatusBarText(#StatusBar, 0, "Scanning...")
-  If IsGadget(#ScanProgress)
-    SetGadgetState(#ScanProgress, 0)
-  EndIf
-
-  If PreviousScanInitialized = #False
-    ; FIRST SCAN (Exact or Unknown) across all regions
-    Protected totalRegions.i = ListSize(MemoryRegions())
-    Protected regionIndex.i = 0
-    ForEach MemoryRegions()
-      regionIndex + 1
-      If IsGadget(#ScanProgress) And totalRegions > 0
-        SetGadgetState(#ScanProgress, (regionIndex * 100) / totalRegions)
-      EndIf
-
-      ; pump UI so Pause/Apply works during scan
-      If PumpScanUI() = #False
-        Break
-      EndIf
-
-      While ScanCancelRequested
-        Delay(30)
-        If PumpScanUI() = #False
-          Break 2
-        EndIf
-      Wend
-
-      Protected base.i = MemoryRegions()\BaseAddress
-      Protected endAddr.i = base + MemoryRegions()\Size
-      Protected addr.i = base
-
-      While addr < endAddr
-        Protected readSize.i = bufferSize
-        If addr + readSize > endAddr
-          readSize = endAddr - addr
-        EndIf
-
-        If ReadProcessMemory_(ProcessHandle, addr, *buffer, readSize, @bytesRead) And bytesRead > 0
-          ; Only iterate positions that have a full value available.
-          Protected limit.i = bytesRead - stepSize
-           If limit >= 0
-             For i = 0 To limit Step 1
-               Protected curBits.q = BitsFromBuffer(*buffer, i, valueType)
-
-            If CompareBits(curBits, 0, mode, valueType, searchInt, searchFloat)
-              AddElement(ScanResults())
-              ScanResults()\Address = addr + i
-              ScanResults()\ValueBits = curBits
-              ScanResults()\ValueType = valueType
-
-              If resultCount < MaxDisplayResults
-                itemText = FormatAddress(addr + i) + " = " + FormatValueFromBits(curBits, valueType)
-                AddGadgetItem(#ResultsList, -1, itemText)
-              EndIf
-
-              resultCount + 1
-            EndIf
-           Next
-           EndIf
-         EndIf
-
-        If bytesRead <= 0
-          Break
-        EndIf
-        addr + bytesRead
-      Wend
-    Next
-
-    PreviousScanInitialized = #True
-    ScanSessionValueType = valueType
-
-  Else
-    ; NEXT SCAN over previous results only
-    Protected totalHits.i = ListSize(ScanResults())
-    Protected hitIndex.i = 0
-
-    ResetList(ScanResults())
-    While NextElement(ScanResults())
-      hitIndex + 1
-      If IsGadget(#ScanProgress) And totalHits > 0
-        SetGadgetState(#ScanProgress, (hitIndex * 100) / totalHits)
-      EndIf
-
-      If PumpScanUI() = #False
-        Break
-      EndIf
-
-      While ScanCancelRequested
-        Delay(30)
-        If PumpScanUI() = #False
-          Break 2
-        EndIf
-      Wend
-      Protected a.i = ScanResults()\Address
-
-      If ReadProcessMemory_(ProcessHandle, a, *buffer, stepSize, @bytesRead) And bytesRead = stepSize
-        Protected newBits.q = BitsFromBuffer(*buffer, 0, valueType)
-        Protected oldBits.q = ScanResults()\ValueBits
-
-        If CompareBits(newBits, oldBits, mode, valueType, searchInt, searchFloat)
-          ScanResults()\ValueBits = newBits
-          ScanResults()\ValueType = valueType
-
-          If resultCount < MaxDisplayResults
-            itemText = FormatAddress(a) + " = " + FormatValueFromBits(newBits, valueType)
-            AddGadgetItem(#ResultsList, -1, itemText)
-          EndIf
-
-          resultCount + 1
-        Else
-          DeleteElement(ScanResults())
-        EndIf
-      Else
-        DeleteElement(ScanResults())
-      EndIf
-    Wend
-  EndIf
-
-  EndListBatch(#ResultsList)
-
-  FreeMemory(*prevBuffer)
-  FreeMemory(*buffer)
-
-  If resultCount > MaxDisplayResults
-    StatusBarText(#StatusBar, 0, "Scan complete. Matches: " + Str(resultCount) + " (showing first " + Str(MaxDisplayResults) + ")")
-  Else
-    StatusBarText(#StatusBar, 0, "Scan complete. Matches: " + Str(resultCount))
-  EndIf
-EndProcedure
-
 ; Write value to memory address
+
 Procedure WriteMemoryValue()
   Protected Address.i, BytesWritten.i
   Protected Value.q
@@ -1198,7 +1464,11 @@ CompilerIf #PB_Compiler_Processor = #PB_Processor_x64
 CompilerEndIf
 AddGadgetItem(#ScanTypeCombo, -1, "Float (4)")
 AddGadgetItem(#ScanTypeCombo, -1, "Double (8)")
+AddGadgetItem(#ScanTypeCombo, -1, "String (ASCII)")
+AddGadgetItem(#ScanTypeCombo, -1, "String (Unicode)")
+AddGadgetItem(#ScanTypeCombo, -1, "AOB (Wildcards ??)")
 SetGadgetState(#ScanTypeCombo, 2) ; Default to Long (4)
+
 
 TextGadget(-1, 410, 305, 45, 20, "Mode:")
 ComboBoxGadget(#ScanModeCombo, 460, 300, 200, 25)
@@ -1218,15 +1488,25 @@ ButtonGadget(#PauseScanButton, 880, 330, 90, 25, "Pause")
 TextGadget(-1, 460, 335, 90, 20, "Max shown:")
 StringGadget(#MaxResultsText, 540, 330, 60, 25, Str(MaxDisplayResults))
 ButtonGadget(#ApplyMaxResultsButton, 605, 330, 55, 25, "Apply")
+CheckBoxGadget(#AlignedCheck, 680, 330, 70, 25, "Aligned")
+SetGadgetState(#AlignedCheck, #PB_Checkbox_Checked)
+CheckBoxGadget(#HexCheck, 755, 330, 50, 25, "Hex")
+CheckBoxGadget(#SkipReadOnlyCheck, 810, 330, 75, 25, "No R-O")
+CheckBoxGadget(#SkipExecCheck, 890, 330, 75, 25, "No Exec")
+ButtonGadget(#ModulesButton, 830, 265, 80, 25, "Modules")
+
 
 ProgressBarGadget(#ScanProgress, 10, 360, 980, 18, 0, 100)
 
-; keep legacy Scan button for compatibility
-ButtonGadget(#ScanButton, 680, 330, 90, 25, "Scan")
-
-; Results section
+; Results and Cheat List section
 TextGadget(-1, 10, 385, 150, 20, "Scan Results:")
-ListViewGadget(#ResultsList, 10, 405, 980, 170)
+ListViewGadget(#ResultsList, 10, 405, 485, 170)
+TextGadget(-1, 505, 385, 150, 20, "Saved Addresses (Cheat List):")
+ListViewGadget(#CheatListView, 505, 405, 485, 170)
+
+ButtonGadget(#AddCheatButton, 420, 382, 80, 20, "Add ->")
+ButtonGadget(#RemoveCheatButton, 910, 382, 80, 20, "Remove")
+
 
 ; Memory editing section (below results)
 TextGadget(-1, 10, 585, 100, 20, "Memory Editor:")
@@ -1244,6 +1524,7 @@ AddStatusBarField(800)
 
 ; Load initial process list
 RefreshProcessList()
+AddWindowTimer(#MainWindow, #FreezeTimerID, FreezeInterval)
 
 ; Main event loop
 Define Event.i
@@ -1252,7 +1533,13 @@ Repeat
   Event = WaitWindowEvent()
   
   Select Event
+    Case #PB_Event_Timer
+      If EventTimer() = #FreezeTimerID
+        HandleFreezeTimer()
+      EndIf
+
     Case #PB_Event_CloseWindow
+
       Exit()
       
     Case #PB_Event_Gadget
@@ -1276,7 +1563,13 @@ Repeat
         Case #AttachButton
           AttachToProcess()
           
+        Case #ScanButton
+          If EventType() = #PB_EventType_FirstCustomValue
+            UpdateResultsUI()
+          EndIf
+          
         Case #FirstScanButton
+
           ; First scan: force Exact/Unknown only
           If GetGadgetState(#ScanModeCombo) > #ScanMode_Unknown
             SetGadgetState(#ScanModeCombo, #ScanMode_Exact)
@@ -1301,13 +1594,52 @@ Repeat
         Case #PauseScanButton
           TogglePauseScan()
 
-        Case #ApplyMaxResultsButton
-          UpdateMaxResults()
+        Case #ModulesButton
+          ShowModuleWindow()
 
-        Case #ScanButton
-          ; Legacy single-button behavior
-          ScanMemory()
-          
+        Case #AddCheatButton
+          Selection = GetGadgetState(#ResultsList)
+          If Selection >= 0
+            LockMutex(ScanMutex)
+            SelectElement(ScanResults(), Selection)
+            LockMutex(CheatMutex)
+            AddElement(CheatList())
+            CheatList()\Address = ScanResults()\Address
+            CheatList()\ValueBits = ScanResults()\ValueBits
+            CheatList()\ValueType = ScanResults()\ValueType
+            CheatList()\Enabled = #True
+            CheatList()\Description = "Cheat " + Str(ListSize(CheatList()))
+            UnlockMutex(CheatMutex)
+            UnlockMutex(ScanMutex)
+            UpdateCheatListUI()
+          EndIf
+
+        Case #RemoveCheatButton
+          Selection = GetGadgetState(#CheatListView)
+          If Selection >= 0
+            LockMutex(CheatMutex)
+            SelectElement(CheatList(), Selection)
+            DeleteElement(CheatList())
+            UnlockMutex(CheatMutex)
+            UpdateCheatListUI()
+          EndIf
+
+        Case #CheatListView
+          If EventType() = #PB_EventType_LeftDoubleClick
+            Selection = GetGadgetState(#CheatListView)
+            If Selection >= 0
+              LockMutex(CheatMutex)
+              SelectElement(CheatList(), Selection)
+              CheatList()\Enabled ! 1 ; Toggle freeze
+              UnlockMutex(CheatMutex)
+              UpdateCheatListUI()
+            EndIf
+          EndIf
+
+        Case #ScanProgress
+
+          SetGadgetState(#ScanProgress, EventData())
+
         Case #WriteButton
           WriteMemoryValue()
           
@@ -1352,9 +1684,9 @@ ForEver
 If ProcessHandle
   CloseHandle_(ProcessHandle)
 EndIf
-; IDE Options = PureBasic 6.30 beta 6 (Windows - x64)
+; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 10
-; Folding = ------
+; Folding = -------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1363,12 +1695,12 @@ EndIf
 ; UseIcon = HandyMEMScan.ico
 ; Executable = ..\HandyMEMScan.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyMEMScan
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = Memory scanner similar to cheat engine
 ; VersionField7 = HandyMEMScan
 ; VersionField8 = HandyMEMScan.exe

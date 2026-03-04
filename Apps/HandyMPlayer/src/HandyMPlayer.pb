@@ -2,116 +2,87 @@
 ; Handy Media Player
 ;
 
+IncludeFile "HandyMPlayer_Inc.pb"
+
 EnableExplicit
 
-#WindowWidth = 365
-#WindowHeight = 70
-#APP_NAME = "HandyMPlayer"
-#EMAIL_NAME = "zonemaster60@gmail.com"
-
-#Window_Main = 0
-#Window_Video = 1
-
-#Gadget_Progress = 0
 Global isUserSeeking.i = 0
 
-#LayoutPadding = 5
-#ProgressBarHeight = 15
-#ProgressBarLeft = 10
-#ProgressBarRightMargin = 10
-
-#ProgressScaleMax = 10000
-
-Structure WinPOINT
-  x.l
-  y.l
-EndStructure
-
-Structure WinRECT
-  left.l
-  top.l
-  right.l
-  bottom.l
-EndStructure
-
+; Global variables moved to State structure or handled by Include
+Global version.s = "v1.0.2.5"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
-; Prevent multiple instances (don't rely on window title text)
-Global hMutex.i
-hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
-If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
-  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
-  CloseHandle_(hMutex)
-  End
-EndIf
+; Initialize Resources
+Global hMutex.i, iconlib.s, AboutIcon.i, LoadIcon.i, PauseIcon.i, PlayIcon.i, StopIcon.i
 
-Global iconlib.s = AppPath + "files\" + #APP_NAME + ".icl"
-Global AboutIcon.i = ExtractIcon_(0, iconlib, 0)
-Global LoadIcon.i  = ExtractIcon_(0, iconlib, 1)
-Global PauseIcon.i = ExtractIcon_(0, iconlib, 2)
-Global PlayIcon.i  = ExtractIcon_(0, iconlib, 3)
-Global StopIcon.i  = ExtractIcon_(0, iconlib, 4)
+Structure PlayerState
+  volume.i
+  balance.i
+  winX.i
+  winY.i
+  movieLoaded.i
+  moviePath.s
+  movieState.i ; 0:stopped/init, 1:playing, 2:paused, 3:stopped
+  movieLengthFrames.q
+  movieFPS_x1000.q
+  movieHasVideo.i
+  
+  audioStartMS.q
+  audioPausedElapsedMS.q
+  audioTotalMS.q
+  audioTotalFrames.q
+  audioProgressMaxMS.q
+  
+  previousMovieStatus.q
+  lastProgressUpdate.i
+  currentVolume.i
+  currentBalance.i
+  fileName.s
+  targetW.i
+  targetH.i
+EndStructure
 
-Global volume.i = 100
-Global balance.i = 0
-Global movieLoaded.i = 0
-Global moviePath.s
-Global movieState.i = 0
-Global movieLengthFrames.q = 0
-Global movieFPS_x1000.q = 0
-Global movieHasVideo.i = 0
+Global State.PlayerState
 
-; Audio-only progress tracking
-Global audioStartMS.q = 0
-Global audioPausedElapsedMS.q = 0
-Global audioTotalMS.q = 0
-Global audioTotalFrames.q = 0
-Global audioProgressMaxMS.q = 0
+Procedure SaveSettings()
+  If CreatePreferences(AppPath + "HandyMPlayer.ini")
+    PreferenceGroup("Settings")
+    WritePreferenceInteger("Volume", State\volume)
+    WritePreferenceInteger("Balance", State\balance)
+    WritePreferenceInteger("WinX", WindowX(#Window_Main))
+    WritePreferenceInteger("WinY", WindowY(#Window_Main))
+    ClosePreferences()
+  EndIf
+EndProcedure
 
+Procedure LoadSettings()
+  If OpenPreferences(AppPath + "HandyMPlayer.ini")
+    PreferenceGroup("Settings")
+    State\volume = ReadPreferenceInteger("Volume", 100)
+    State\balance = ReadPreferenceInteger("Balance", 0)
+    State\winX = ReadPreferenceInteger("WinX", -1)
+    State\winY = ReadPreferenceInteger("WinY", -1)
+    ClosePreferences()
+  Else
+    State\volume = 100
+    State\balance = 0
+    State\winX = -1
+    State\winY = -1
+  EndIf
+EndProcedure
 
-#GWL_STYLE = -16
-#WS_CHILD = $40000000
-#WS_CLIPCHILDREN = $02000000
-#WS_CLIPSIBLINGS = $04000000
-#WS_EX_COMPOSITED = $02000000
-#GWL_EXSTYLE = -20
-
-#SWP_NOMOVE = $0002
-#SWP_NOSIZE = $0001
-#SWP_NOZORDER = $0004
-#SWP_FRAMECHANGED = $0020
-#HWND_TOP = 0
-#HWND_BOTTOM = 1
-#SWP_NOACTIVATE = $0010
-
-Global previousMovieStatus.q = 0
-Global lastProgressUpdate.i = ElapsedMilliseconds()
-Global currentVolume.i = -1
-Global currentBalance.i = -999
-Global fileName.s = ""
-Global targetW.i = 0
-Global targetH.i = 0
-
-; temp vars (main loop) - can't use Protected outside procedures
-Global now.i
-Global st.q
-Global curSec.q
-Global totalSec.q
-Global elapsedMS.q
-Global seekTarget.q
-Global pbMax.q
-Global windowMS.q
-Global pos.i
-Global mainStyle.i
-
-Global vers$ = "1.0.2.4 (20252312)"
-
-Procedure Exit()
-  Protected req.i
-  req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
-  If req = #PB_MessageRequester_Yes
-    End
+Procedure CleanupResources()
+  SaveSettings()
+  If IsMovie(0) : FreeMovie(0) : EndIf
+  If AboutIcon : DestroyIcon_(AboutIcon) : EndIf
+  If LoadIcon : DestroyIcon_(LoadIcon) : EndIf
+  If PauseIcon : DestroyIcon_(PauseIcon) : EndIf
+  If PlayIcon : DestroyIcon_(PlayIcon) : EndIf
+  If StopIcon : DestroyIcon_(StopIcon) : EndIf
+  If hMutex
+    ReleaseMutex_(hMutex)
+    CloseHandle_(hMutex)
   EndIf
 EndProcedure
 
@@ -137,13 +108,13 @@ Procedure ResizeMainForVideo(videoW.i, videoH.i)
   Protected statusH.i = StatusBarHeight(0)
 
   ; Reserve room for toolbar + trackbar + status bar.
-  Protected pbH.i = #ProgressBarHeight + 6
+  Protected pbH.i = DesktopScaledY(#ProgressBarHeight + 6)
 
   Protected innerW.i = videoW
-  Protected innerH.i = toolH + #LayoutPadding + pbH + #LayoutPadding + videoH + statusH
+  Protected innerH.i = toolH + DesktopScaledY(#LayoutPadding) + pbH + DesktopScaledY(#LayoutPadding) + videoH + statusH
 
-  If innerW < #WindowWidth : innerW = #WindowWidth : EndIf
-  If innerH < (#WindowHeight + 25) : innerH = #WindowHeight + 25 : EndIf
+  If innerW < DesktopScaledX(#WindowWidth) : innerW = DesktopScaledX(#WindowWidth) : EndIf
+  If innerH < DesktopScaledY(#WindowHeight + 25) : innerH = DesktopScaledY(#WindowHeight + 25) : EndIf
 
   ; ResizeWindow uses frame coordinates, so convert inner->frame delta.
   Protected frameDeltaW.i = WindowWidth(#Window_Main, #PB_Window_FrameCoordinate) - WindowWidth(#Window_Main, #PB_Window_InnerCoordinate)
@@ -181,12 +152,13 @@ Procedure EnsureVideoHostWindow()
 EndProcedure
 
 Procedure ProgressBarSeek()
-  If movieLoaded = 0 Or IsMovie(0) = 0
+  Protected pbMax.q, seekTarget.q
+  If State\movieLoaded = 0 Or IsMovie(0) = 0
     ProcedureReturn
   EndIf
 
   ; Only seek when playing or paused.
-  If movieState <> 1 And movieState <> 2
+  If State\movieState <> 1 And State\movieState <> 2
     ProcedureReturn
   EndIf
 
@@ -202,27 +174,27 @@ Procedure ProgressBarSeek()
 
   seekTarget = GetGadgetState(#Gadget_Progress)
 
-  If movieHasVideo
-    If movieLengthFrames > 0
-      seekTarget = (movieLengthFrames * seekTarget) / pbMax
+  If State\movieHasVideo
+    If State\movieLengthFrames > 0
+      seekTarget = (State\movieLengthFrames * seekTarget) / pbMax
       MovieSeek(0, seekTarget)
     EndIf
   Else
     ; Audio-only: use a seekable unit.
     ; Some audio formats report MovieLength() = 0 (no "frames"), but GetMovieLength() can still provide ms.
-    If audioTotalFrames > 0
-      seekTarget = (audioTotalFrames * seekTarget) / pbMax
+    If State\audioTotalFrames > 0
+      seekTarget = (State\audioTotalFrames * seekTarget) / pbMax
       MovieSeek(0, seekTarget)
 
       ; Keep our elapsed-time tracking roughly consistent (best-effort).
-      If audioTotalMS > 0
-        If audioTotalFrames = audioTotalMS
-          audioPausedElapsedMS = seekTarget
+      If State\audioTotalMS > 0
+        If State\audioTotalFrames = State\audioTotalMS
+          State\audioPausedElapsedMS = seekTarget
           MovieSeek(0, seekTarget)
         Else
-          audioPausedElapsedMS = (audioTotalMS * seekTarget) / audioTotalFrames
+          State\audioPausedElapsedMS = (State\audioTotalMS * seekTarget) / State\audioTotalFrames
         EndIf
-        audioStartMS = ElapsedMilliseconds() - audioPausedElapsedMS
+        State\audioStartMS = ElapsedMilliseconds() - State\audioPausedElapsedMS
       EndIf
     Else
       ; Unknown length: can't seek reliably.
@@ -249,6 +221,7 @@ Procedure ProgressBarClickToSeek()
 
   ScreenToClient_(GadgetID(#Gadget_Progress), @pt)
 
+  Protected pbMax.q
   If GetClientRect_(GadgetID(#Gadget_Progress), @rc) = 0
     ProcedureReturn
   EndIf
@@ -299,22 +272,26 @@ Procedure UpdateLayout()
   Protected winW.i = WindowWidth(#Window_Main, #PB_Window_InnerCoordinate)
   Protected winH.i = WindowHeight(#Window_Main, #PB_Window_InnerCoordinate)
 
-  Protected pbX.i = #ProgressBarLeft
-  Protected pbY.i = toolH + #LayoutPadding
-  Protected pbW.i = winW - (#ProgressBarLeft + #ProgressBarRightMargin)
+  Protected pbX.i = DesktopScaledX(#ProgressBarLeft)
+  Protected pbY.i = toolH + DesktopScaledY(#LayoutPadding)
+  Protected pbW.i = winW - DesktopScaledX(#ProgressBarLeft + #ProgressBarRightMargin)
+  Protected pbH.i = DesktopScaledY(#ProgressBarHeight + 6)
   If pbW < 10 : pbW = 10 : EndIf
 
   If IsGadget(#Gadget_Progress)
-    ResizeGadget(#Gadget_Progress, pbX, pbY, pbW, #ProgressBarHeight + 6)
+    ; Avoid resizing if dimensions didn't change to reduce flicker
+    If GadgetWidth(#Gadget_Progress) <> pbW Or GadgetHeight(#Gadget_Progress) <> pbH
+      ResizeGadget(#Gadget_Progress, pbX, pbY, pbW, pbH)
+    EndIf
   EndIf
 
-  Protected videoTop.i = pbY + (#ProgressBarHeight + 6) + #LayoutPadding
+  Protected videoTop.i = pbY + pbH + DesktopScaledY(#LayoutPadding)
   Protected videoH.i = winH - videoTop - statusH
   If videoH < 0 : videoH = 0 : EndIf
 
   EnsureVideoHostWindow()
   If IsWindow(#Window_Video)
-    If movieHasVideo
+    If State\movieHasVideo
       HideWindow(#Window_Video, 0)
       ResizeWindow(#Window_Video, 0, videoTop, winW, videoH)
       SetWindowPos_(WindowID(#Window_Video), 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
@@ -332,19 +309,137 @@ Procedure UpdateLayout()
     SetParent_(WindowID(#Window_Video), WindowID(#Window_Main))
   EndIf
 
-  If movieHasVideo And IsMovie(0) And IsWindow(#Window_Video)
+  If State\movieHasVideo And IsMovie(0) And IsWindow(#Window_Video)
     ResizeMovie(0, 0, 0, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate))
   EndIf
 EndProcedure
+
+Procedure LoadFile(path.s)
+  If path = "" : ProcedureReturn : EndIf
+  
+  If IsMovie(0)
+    FreeMovie(0)
+  EndIf
+
+  State\movieLoaded = 0
+  State\movieState = 0
+  State\audioStartMS = 0
+  State\audioPausedElapsedMS = 0
+  State\audioTotalMS = 0
+  State\audioProgressMaxMS = 0
+
+  If LoadMovie(0, path)
+    State\movieHasVideo = Bool(MovieHeight(0) > 0)
+
+    State\targetW = MovieWidth(0) / 2
+    State\targetH = MovieHeight(0) / 2
+
+    If State\movieHasVideo = 0
+      State\targetW = #WindowWidth + 50
+      State\targetH = #WindowHeight + 25
+    EndIf
+
+    SetGadgetState(#Gadget_Progress, 0)
+    State\moviePath = path
+    State\fileName = GetFilePart(path)
+
+    State\movieLoaded = 1
+    State\movieState = 0
+    State\previousMovieStatus = 0
+    State\lastProgressUpdate = ElapsedMilliseconds()
+
+    State\movieLengthFrames = MovieLength(0)
+    State\movieFPS_x1000 = 0
+    If State\movieHasVideo
+      State\movieFPS_x1000 = MovieInfo(0, 0)
+    EndIf
+
+    State\audioTotalMS = 0
+    State\audioProgressMaxMS = 0
+    If State\movieHasVideo = 0
+      State\audioTotalMS = MovieLengthMS(0)
+      State\audioTotalFrames = State\movieLengthFrames
+      If State\audioTotalFrames <= 0 And State\audioTotalMS > 0
+        State\audioTotalFrames = State\audioTotalMS
+      EndIf
+      State\audioStartMS = 0
+      State\audioPausedElapsedMS = 0
+      If State\audioTotalMS > 0
+        State\audioProgressMaxMS = State\audioTotalMS
+      Else
+        State\audioProgressMaxMS = 0
+      EndIf
+    EndIf
+
+    If State\movieHasVideo
+      ResizeMainForVideo(State\targetW, State\targetH)
+      StatusBarText(0, 0, "Video '" + State\fileName + "' loaded.", #PB_StatusBar_Center)
+      GadgetToolTip(#Gadget_Progress, "Video '" + State\fileName + "' loaded.")
+    Else
+      StatusBarText(0, 0, "Audio '" + State\fileName + "' loaded.", #PB_StatusBar_Center)
+      GadgetToolTip(#Gadget_Progress, "Audio '" + State\fileName + "' loaded.")
+    EndIf
+
+    UpdateLayout()
+  Else
+    StatusBarText(0, 0, "Can't load the file '" + GetFilePart(path) + "' ", #PB_StatusBar_Center)
+  EndIf
+EndProcedure
+
+Procedure Exit()
+  If MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info) = #PB_MessageRequester_Yes
+    CleanupResources()
+    End
+  EndIf
+EndProcedure
+
+; Initialize Resources
+LoadSettings()
+
+hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
+If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
+  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  CloseHandle_(hMutex)
+  End
+EndIf
+
+iconlib = AppPath + "files\" + #APP_NAME + ".icl"
+AboutIcon = ExtractIcon_(0, iconlib, 0)
+LoadIcon  = ExtractIcon_(0, iconlib, 1)
+PauseIcon = ExtractIcon_(0, iconlib, 2)
+PlayIcon  = ExtractIcon_(0, iconlib, 3)
+StopIcon  = ExtractIcon_(0, iconlib, 4)
+
+State\currentVolume = -1
+State\currentBalance = -999
+State\lastProgressUpdate = ElapsedMilliseconds()
+
+; temp vars (main loop) - can't use Protected outside procedures
+Global now.i, st.q, curSec.q, totalSec.q, elapsedMS.q, seekTarget.q, pbMax.q, windowMS.q, pos.i, mainStyle.i
 
 If InitMovie() = 0
   MessageRequester("Error", "Can't initialize video playback!", #PB_MessageRequester_Error)
   End
 EndIf
 
+If OpenWindow(#Window_Main, State\winX, State\winY, #WindowWidth+50, #WindowHeight+25, #APP_NAME + " - " +
+              version, #PB_Window_Invisible | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget | #PB_Window_ScreenCentered)
+  
+  If State\winX = -1
+    ; Center if no previous position
+  Else
+    ResizeWindow(#Window_Main, State\winX, State\winY, #PB_Ignore, #PB_Ignore)
+  EndIf
 
-If OpenWindow(#Window_Main, 100, 100, #WindowWidth+50, #WindowHeight+25, #APP_NAME + " v" +
-              vers$, #PB_Window_Invisible | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget)
+  EnableWindowDrop(#Window_Main, #PB_Drop_Files, #PB_Drag_Copy)
+
+  ; Add Keyboard Shortcuts
+  AddKeyboardShortcut(#Window_Main, #PB_Shortcut_Space, 2)  ; Play/Pause (mapped to Play for now)
+  AddKeyboardShortcut(#Window_Main, #PB_Shortcut_M, 8)      ; Mute (Case 8)
+  AddKeyboardShortcut(#Window_Main, #PB_Shortcut_Escape, 1) ; Exit (Case 1)
+  AddKeyboardShortcut(#Window_Main, #PB_Shortcut_L, 0)      ; Load (Case 0)
+  AddKeyboardShortcut(#Window_Main, #PB_Shortcut_S, 3)      ; Stop (Case 3)
+
   
   ; Improve child clipping (helps keep status bar visible).
   mainStyle.i = GetWindowLongPtr_(WindowID(#Window_Main), #GWL_STYLE)
@@ -425,174 +520,109 @@ If OpenWindow(#Window_Main, 100, 100, #WindowWidth+50, #WindowHeight+25, #APP_NA
         If EventWindow() = #Window_Main
           Select EventMenu()
             
-           Case 0 ; Load
-
-              moviePath = OpenFileRequester("Load a file", "",
-                                            "Media files|*.asf;*.avi;*.flac;*.mid;*.mp3;*.mp4;*.mpg;*.wav;*.wmv|All Files|*.*", 0)
-              If moviePath
-                If IsMovie(0)
-                  FreeMovie(0)
-                EndIf
-
-                movieLoaded = 0
-                movieState = 0
-                audioStartMS = 0
-                audioPausedElapsedMS = 0
-                audioTotalMS = 0
-                audioProgressMaxMS = 0
-
-                 If LoadMovie(0, moviePath)
-                   movieHasVideo = Bool(MovieHeight(0) > 0)
-
-                   targetW = MovieWidth(0) / 2
-                   targetH = MovieHeight(0) / 2
-
-                   ; Audio-only files (e.g. FLAC) sometimes report 0x0.
-                   ; Keep a sane window size and avoid 0-size resizes.
-                   If movieHasVideo = 0
-                     targetW = #WindowWidth + 50
-                     targetH = #WindowHeight + 25
-                   EndIf
-
-                  SetGadgetState(#Gadget_Progress, 0)
-                  fileName = GetFilePart(moviePath)
-
-                  movieLoaded = 1
-                  movieState = 0
-                  previousMovieStatus = 0
-                  lastProgressUpdate = ElapsedMilliseconds()
-
-                  movieLengthFrames = MovieLength(0)
-
-                  ; Some formats (especially audio-only) can trigger PB internal math issues
-                  ; when querying FPS. Only query it when we actually have video.
-                  movieFPS_x1000 = 0
-                  If movieHasVideo
-                    movieFPS_x1000 = MovieInfo(0, 0) ; frames per second (*1000)
-                  EndIf
-
-                   ; Audio length in ms (if supported by PB runtime)
-                   audioTotalMS = 0
-                   audioProgressMaxMS = 0
-                   If movieHasVideo = 0
-                     audioTotalMS = MovieLengthMS(0)
-
-                     ; Prefer MovieLength() units when available, otherwise fall back to milliseconds.
-                     audioTotalFrames = movieLengthFrames
-                     If audioTotalFrames <= 0 And audioTotalMS > 0
-                       audioTotalFrames = audioTotalMS
-                     EndIf
-
-                     audioStartMS = 0
-                     audioPausedElapsedMS = 0
-
-                     If audioTotalMS > 0
-                       audioProgressMaxMS = audioTotalMS
-                     Else
-                       audioProgressMaxMS = 0
-                     EndIf
-                   EndIf
-
-                   ; Trackbar range stays constant (0..#ProgressScaleMax).
-
-                   If movieHasVideo ; Audio/Video file...
-                     ResizeMainForVideo(targetW, targetH)
-                     StatusBarText(0, 0, "Video '" + fileName + "' loaded.", #PB_StatusBar_Center)
-                     GadgetToolTip(#Gadget_Progress, "Video '" + fileName + "' loaded.")
-                    Else ; Audio only file...
-                      StatusBarText(0, 0, "Audio '" + fileName + "' loaded.", #PB_StatusBar_Center)
-                      GadgetToolTip(#Gadget_Progress, "Audio '" + fileName + "' loaded.")
-                    EndIf
- 
-                    UpdateLayout()
-                Else
-                  StatusBarText(0, 0, "Can't load the file '" + GetFilePart(moviePath) + "' ", #PB_StatusBar_Center)
-                EndIf
-              EndIf
-
-          
+            Case 0 ; Load
+               LoadFile(OpenFileRequester("Load a file", "",
+                                            "Media files|*.asf;*.avi;*.flac;*.mid;*.mp3;*.mp4;*.mpg;*.wav;*.wmv|All Files|*.*", 0))
+        
           Case 1 ; Exit
             Exit()
             
           ; ---------------- Movie controls -------------------
             
-           Case 2 ; Play
-                 If movieLoaded
-                   If movieState = 2
-                     ResumeMovie(0)
-                     If movieHasVideo = 0
-                       audioStartMS = ElapsedMilliseconds() - audioPausedElapsedMS
-                     EndIf
-                   Else
-                      If movieHasVideo
+           Case 2 ; Play/Pause Toggle (Space/Button)
+                 If State\movieLoaded
+                   If State\movieState = 1 ; If playing, Pause
+                      PauseMovie(0)
+                      State\movieState = 2 ; Paused
+                      StatusBarText(0, 0, "Paused <> '" + State\fileName + "'", #PB_StatusBar_Center)
+                      GadgetToolTip(#Gadget_Progress, "Paused <> '" + State\fileName + "'")
+                      If State\movieHasVideo = 0 And State\audioStartMS > 0
+                        State\audioPausedElapsedMS = ElapsedMilliseconds() - State\audioStartMS
+                      EndIf
+                   ElseIf State\movieState = 2 ; If paused, Resume
+                      ResumeMovie(0)
+                      If State\movieHasVideo = 0
+                        State\audioStartMS = ElapsedMilliseconds() - State\audioPausedElapsedMS
+                      EndIf
+                      State\movieState = 1
+                   Else ; If stopped or init, Play
+                      If State\movieHasVideo
                         EnsureVideoHostWindow()
                         PlayMovie(0, WindowID(#Window_Video))
-                     Else
-                       ; Audio-only (e.g. FLAC): play on the main window.
-                       PlayMovie(0, WindowID(#Window_Main))
-                       audioStartMS = ElapsedMilliseconds()
-                       audioPausedElapsedMS = 0
-                     EndIf
-                     UpdateLayout()
-                     KeepStatusBarOnTop()
+                      Else
+                        PlayMovie(0, WindowID(#Window_Main))
+                        State\audioStartMS = ElapsedMilliseconds()
+                        State\audioPausedElapsedMS = 0
+                      EndIf
+                      UpdateLayout()
+                      KeepStatusBarOnTop()
+                      State\movieState = 1 ; Playing
+                   EndIf
+                  
+                  MovieAudio(0, State\volume, State\balance)
+                  State\currentVolume = State\volume
+                  State\currentBalance = State\balance
+                  If State\movieState = 1
+                    GadgetToolTip(#Gadget_Progress, "Playing <> '" + State\fileName + "'")
                   EndIf
-                  movieState = 1 ; Playing
-                  MovieAudio(0, volume, balance)
-                  currentVolume = volume
-                  currentBalance = balance
-                  GadgetToolTip(#Gadget_Progress, "Playing <> '" + fileName + "'")
                 EndIf
             
            Case 3 ; Stop
-               If movieLoaded And movieState = 1
+               If State\movieLoaded And State\movieState = 1
                  StopMovie(0)
-                 movieState = 3 ; Stopped
-                 StatusBarText(0, 0, "Stopped <> '" + fileName + "'", #PB_StatusBar_Center)
-                 GadgetToolTip(#Gadget_Progress, "Stopped <> '" + fileName + "'")
-                 If movieHasVideo
+                 State\movieState = 3 ; Stopped
+                 StatusBarText(0, 0, "Stopped <> '" + State\fileName + "'", #PB_StatusBar_Center)
+                 GadgetToolTip(#Gadget_Progress, "Stopped <> '" + State\fileName + "'")
+                 If State\movieHasVideo
                    UpdateLayout()
                  Else
-                   audioStartMS = 0
-                   audioPausedElapsedMS = 0
+                   State\audioStartMS = 0
+                   State\audioPausedElapsedMS = 0
                    SetGadgetState(#Gadget_Progress, 0)
-                   If audioTotalMS > 0
-                     StatusBarText(0, 0, fileName + "  00:00/" + FormatTime(audioTotalMS / 1000), #PB_StatusBar_Center)
+                   If State\audioTotalMS > 0
+                     StatusBarText(0, 0, State\fileName + "  00:00/" + FormatTime(State\audioTotalMS / 1000), #PB_StatusBar_Center)
                    EndIf
                  EndIf
                EndIf
             
            Case 4 ; Pause
-              If movieLoaded And movieState = 1
+              If State\movieLoaded And State\movieState = 1
                 PauseMovie(0)
-                movieState = 2 ; Paused
-                StatusBarText(0, 0, "Paused <> '" + fileName + "'", #PB_StatusBar_Center)
-                GadgetToolTip(#Gadget_Progress, "Paused <> '" + fileName + "'")
-                If movieHasVideo = 0 And audioStartMS > 0
-                  audioPausedElapsedMS = ElapsedMilliseconds() - audioStartMS
+                State\movieState = 2 ; Paused
+                StatusBarText(0, 0, "Paused <> '" + State\fileName + "'", #PB_StatusBar_Center)
+                GadgetToolTip(#Gadget_Progress, "Paused <> '" + State\fileName + "'")
+                If State\movieHasVideo = 0 And State\audioStartMS > 0
+                  State\audioPausedElapsedMS = ElapsedMilliseconds() - State\audioStartMS
                 EndIf
               EndIf
             
           ; ---------------- Volume -------------------
             
            Case 6 ; Full 100%
-             volume = 100
+             State\volume = 100
 
            Case 7 ; Half 50%
-             volume = 50
+             State\volume = 50
 
-           Case 8 ; Mute 0%
-             volume = 0
+            Case 8 ; Mute 0%
+             If State\volume > 0
+               State\volume = 0
+             Else
+               State\volume = 100
+             EndIf
+
             
            ; ---------------- Balance -------------------
 
            Case 9 ; Both (L+R)
-             balance = 0
+             State\balance = 0
 
            Case 10 ; Left (L)
-             balance = -100
+             State\balance = -100
 
            Case 11 ; Right (R)
-             balance = 100
+             State\balance = 100
+
 
            ; ---------------------------------------------
             
@@ -602,32 +632,27 @@ If OpenWindow(#Window_Main, 100, 100, #WindowWidth+50, #WindowHeight+25, #APP_NA
           ; ------------------ Size ---------------------
  
            Case 13 ; Default (50%)
-             If movieLoaded And movieHasVideo
-                ResizeMainForVideo(targetW, targetH)
+             If State\movieLoaded And State\movieHasVideo
+                ResizeMainForVideo(State\targetW, State\targetH)
                 UpdateLayout()
              EndIf
 
-
-
            Case 14 ; Size x1 (100%)
-             If movieLoaded And movieHasVideo
+             If State\movieLoaded And State\movieHasVideo
                 ResizeMainForVideo(MovieWidth(0), MovieHeight(0))
                 UpdateLayout()
              EndIf
 
-
            Case 15 ; Size x2 (200%)
-             If movieLoaded And movieHasVideo
+             If State\movieLoaded And State\movieHasVideo
                 ResizeMainForVideo(MovieWidth(0) * 2, MovieHeight(0) * 2)
                 UpdateLayout()
              EndIf
-
-
-            
+         
           ; ---------------- Misc -------------------
             
-           Case 16 ; About
-             MessageRequester("About", #APP_NAME + " v" + vers$ + #CRLF$ +
+            Case 16 ; About
+             MessageRequester("About", #APP_NAME + " - " + version + #CRLF$ +
                                        "A compact media player for playing audio/video files." + #CRLF$ +
                                        "-----------------------------------------------------" + #CRLF$ +
                                        "Contact: " + #EMAIL_NAME + #CRLF$ +
@@ -636,15 +661,20 @@ If OpenWindow(#Window_Main, 100, 100, #WindowWidth+50, #WindowHeight+25, #APP_NA
           EndSelect
         EndIf
 
-        If movieLoaded
-           If currentVolume <> volume Or currentBalance <> balance
-             MovieAudio(0, volume, balance)
-             currentVolume = volume
-             currentBalance = balance
+      Case #PB_Event_WindowDrop
+        If EventWindow() = #Window_Main
+          LoadFile(EventDropFiles())
+        EndIf
+
+        If State\movieLoaded
+
+           If State\currentVolume <> State\volume Or State\currentBalance <> State\balance
+             MovieAudio(0, State\volume, State\balance)
+             State\currentVolume = State\volume
+             State\currentBalance = State\balance
            EndIf
          EndIf
-
-        
+     
       Case #PB_Event_CloseWindow
         If EventWindow() = #Window_Main
           Exit()
@@ -655,102 +685,99 @@ If OpenWindow(#Window_Main, 100, 100, #WindowWidth+50, #WindowHeight+25, #APP_NA
           UpdateLayout()
           KeepStatusBarOnTop()
         EndIf
-
-
         
-        Case 0
-          If EventWindow() = #Window_Main And movieLoaded
+      Case 0
+          If EventWindow() = #Window_Main And State\movieLoaded
             now = ElapsedMilliseconds()
             st = MovieStatus(0) ; -1 paused, 0 stopped, >0 current frame
 
-
-            If movieState = 1 And now - lastProgressUpdate >= 250
-              If movieHasVideo
+            If State\movieState = 1 And now - State\lastProgressUpdate >= 250
+              If State\movieHasVideo
                 If st > 0
-                  If movieLengthFrames > 0 And st > movieLengthFrames
-                    st = movieLengthFrames
+                  If State\movieLengthFrames > 0 And st > State\movieLengthFrames
+                    st = State\movieLengthFrames
                   EndIf
-                    If movieLengthFrames > 0
+                    If State\movieLengthFrames > 0
                       isUserSeeking = 0
-                      SetGadgetState(#Gadget_Progress, (st * #ProgressScaleMax) / movieLengthFrames)
+                      SetGadgetState(#Gadget_Progress, (st * #ProgressScaleMax) / State\movieLengthFrames)
                       isUserSeeking = 1
                     EndIf
 
                   ; Optional: show human time if FPS is known
-                  If movieFPS_x1000 > 0
-                    curSec = (st * 1000) / movieFPS_x1000
+                  If State\movieFPS_x1000 > 0
+                    curSec = (st * 1000) / State\movieFPS_x1000
                     totalSec = 0
-                    If movieLengthFrames > 0
-                      totalSec = (movieLengthFrames * 1000) / movieFPS_x1000
+                    If State\movieLengthFrames > 0
+                      totalSec = (State\movieLengthFrames * 1000) / State\movieFPS_x1000
                     EndIf
-                    StatusBarText(0, 0, fileName + "  " + FormatTime(curSec) + "/" + FormatTime(totalSec), #PB_StatusBar_Center)
+                    StatusBarText(0, 0, State\fileName + "  " + FormatTime(curSec) + "/" + FormatTime(totalSec), #PB_StatusBar_Center)
                   EndIf
                 EndIf
               Else
                   ; Audio-only progress: prefer MovieStatus + a seekable unit.
                   ; When MovieLength() is 0, we fall back to milliseconds.
-                  If audioTotalFrames > 0
+                  If State\audioTotalFrames > 0
                     st = MovieStatus(0)
                     If st < 0 : st = 0 : EndIf
-                    If st > audioTotalFrames : st = audioTotalFrames : EndIf
+                    If st > State\audioTotalFrames : st = State\audioTotalFrames : EndIf
 
                     isUserSeeking = 0
-                    SetGadgetState(#Gadget_Progress, (st * #ProgressScaleMax) / audioTotalFrames)
+                    SetGadgetState(#Gadget_Progress, (st * #ProgressScaleMax) / State\audioTotalFrames)
                     isUserSeeking = 1
 
-                    If audioTotalMS > 0
+                    If State\audioTotalMS > 0
                       ; If audioTotalFrames was forced to ms, st is already ms.
-                      If audioTotalFrames = audioTotalMS
+                      If State\audioTotalFrames = State\audioTotalMS
                         elapsedMS = st
                       Else
-                        elapsedMS = (audioTotalMS * st) / audioTotalFrames
+                        elapsedMS = (State\audioTotalMS * st) / State\audioTotalFrames
                       EndIf
-                      StatusBarText(0, 0, fileName + "  " + FormatTime(elapsedMS / 1000) + "/" + FormatTime(audioTotalMS / 1000), #PB_StatusBar_Center)
+                      StatusBarText(0, 0, State\fileName + "  " + FormatTime(elapsedMS / 1000) + "/" + FormatTime(State\audioTotalMS / 1000), #PB_StatusBar_Center)
                     Else
-                      StatusBarText(0, 0, fileName, #PB_StatusBar_Center)
+                      StatusBarText(0, 0, State\fileName, #PB_StatusBar_Center)
                     EndIf
                   Else
                    ; If even MovieLength() isn't available, fall back to a moving indicator.
-                   If audioStartMS > 0
-                     elapsedMS = now - audioStartMS
+                   If State\audioStartMS > 0
+                     elapsedMS = now - State\audioStartMS
                      windowMS = 600000
                      pos = (elapsedMS % windowMS) * #ProgressScaleMax / windowMS
                      isUserSeeking = 0
                      SetGadgetState(#Gadget_Progress, pos)
                      isUserSeeking = 1
-                     StatusBarText(0, 0, fileName + "  " + FormatTime(elapsedMS / 1000), #PB_StatusBar_Center)
+                     StatusBarText(0, 0, State\fileName + "  " + FormatTime(elapsedMS / 1000), #PB_StatusBar_Center)
                    EndIf
                  EndIf
 
               EndIf
-              lastProgressUpdate = now
+              State\lastProgressUpdate = now
             EndIf
 
-            If st <> previousMovieStatus
+            If st <> State\previousMovieStatus
               Select st
                 Case -1
-                  StatusBarText(0, 0, "Paused <> '" + fileName + "'", #PB_StatusBar_Center)
-                  GadgetToolTip(#Gadget_Progress, "Paused <> '" + fileName + "'")
+                  StatusBarText(0, 0, "Paused <> '" + State\fileName + "'", #PB_StatusBar_Center)
+                  GadgetToolTip(#Gadget_Progress, "Paused <> '" + State\fileName + "'")
 
                 Case 0
-                  StatusBarText(0, 0, "Stopped <> '" + fileName + "'", #PB_StatusBar_Center)
-                  GadgetToolTip(#Gadget_Progress, "Stopped <> '" + fileName + "'")
-                  If movieState = 1
-                    movieState = 3
+                  StatusBarText(0, 0, "Stopped <> '" + State\fileName + "'", #PB_StatusBar_Center)
+                  GadgetToolTip(#Gadget_Progress, "Stopped <> '" + State\fileName + "'")
+                  If State\movieState = 1
+                    State\movieState = 3
                   EndIf
 
                 Default
-                  If movieLengthFrames > 0
-                    If st > movieLengthFrames
-                      st = movieLengthFrames
+                  If State\movieLengthFrames > 0
+                    If st > State\movieLengthFrames
+                      st = State\movieLengthFrames
                     EndIf
                     isUserSeeking = 0
-                    SetGadgetState(#Gadget_Progress, (st * #ProgressScaleMax) / movieLengthFrames)
+                    SetGadgetState(#Gadget_Progress, (st * #ProgressScaleMax) / State\movieLengthFrames)
                     isUserSeeking = 1
                   EndIf
               EndSelect
 
-              previousMovieStatus = st
+              State\previousMovieStatus = st
             EndIf
           EndIf
 
@@ -759,9 +786,9 @@ If OpenWindow(#Window_Main, 100, 100, #WindowWidth+50, #WindowHeight+25, #APP_NA
 EndIf
 End
 
-; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 9
-; Folding = --
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 11
+; Folding = ---
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -771,12 +798,12 @@ End
 ; Executable = ..\HandyMPlayer.exe
 ; Debugger = IDE
 ; IncludeVersionInfo
-; VersionField0 = 1,0,2,4
-; VersionField1 = 1,0,2,4
+; VersionField0 = 1,0,2,5
+; VersionField1 = 1,0,2,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyMPlayer
-; VersionField4 = 1.0.2.4
-; VersionField5 = 1.0.2.4
+; VersionField4 = 1.0.2.5
+; VersionField5 = 1.0.2.5
 ; VersionField6 = A Handy Compact Media Player
 ; VersionField7 = HandyMPlayer
 ; VersionField8 = HandyMPlayer.exe
