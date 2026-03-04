@@ -4,7 +4,7 @@ EnableExplicit
 
 #APP_NAME   = "HandySearch"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-Global version.s = "v1.0.1.0"
+Global version.s = "v1.0.1.2"
 
 ; Crash logging (best-effort)
 Declare InitCrashLogging()
@@ -49,16 +49,6 @@ If gInstallStartupTaskMode = #False And gRemoveStartupTaskMode = #False
   EndIf
 EndIf
 
-; Exit confirmation
-Procedure.b ConfirmExit()
-  Protected req.i
-  req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
-  ProcedureReturn Bool(req = #PB_MessageRequester_Yes)
-EndProcedure
-
-#SW_SHOWNORMAL = 1
-#WAIT_TIMEOUT = 258
-
 ; Forward declarations (avoid ordering issues)
 Declare.s ResolveDbPath(dbPath.s)
 Declare OpenPath(path.s, showError.i)
@@ -71,6 +61,7 @@ Declare SyncUiState()
 Declare.i GetFileIconIndex(path.s)
 Declare DbWriterThreadProc(dummy.i)
 Declare FlushIndexBatchToDb(List batch.IndexRecord())
+Declare.b ConfirmExit()
 
 ; Startup (run at login) helpers
 Declare.i IsInStartup()
@@ -80,6 +71,9 @@ Declare UpdateStartupMenuState()
 
 ; === Constants and Globals ===
 #Window_Main = 0
+#Menu_Main = 0
+#Menu_ResultsPopup = 1
+#Menu_TrayPopup = 2
 #Gadget_SearchBar = 1
 #Gadget_ResultsList = 2
 #Gadget_StartButton = 3
@@ -93,44 +87,38 @@ Declare UpdateStartupMenuState()
 #Timer_PumpResults = 1
 #StatusBar_Main = 0
 
-; Query debounce runs off the pump timer.
-
-#Menu_Main = 0
-#Menu_ResultsPopup = 1
+; Main menu actions
 #Menu_OpenFile = 100
 #Menu_OpenFolder = 101
 #Menu_StartSearchShortcut = 102
-
-  ; Main menu actions
-    #Menu_Index_StartResume = 299
-    #Menu_Index_Rebuild = 300
-    #Menu_Index_Stop = 301
-    #Menu_Index_PauseResume = 306
-    #Menu_App_RunAtStartup = 309
-
-  #Menu_Tools_Settings = 302
-  #Menu_Tools_OpenIni = 310
-  #Menu_Tools_Web = 303
-  #Menu_View_Compact = 307
-  #Menu_View_LiveMatchFullPath = 308
-
+#Menu_Index_StartResume = 299
+#Menu_Index_Rebuild = 300
+#Menu_Index_Stop = 301
+#Menu_Index_PauseResume = 306
+#Menu_App_RunAtStartup = 309
+#Menu_App_EditExcludes = 315
+#Menu_Tools_Settings = 302
+#Menu_Tools_OpenIni = 310
+#Menu_Tools_Web = 303
+#Menu_View_Compact = 307
+#Menu_View_LiveMatchFullPath = 308
 #Menu_Help_About = 304
 #Menu_File_Exit = 305
 
 ; System tray
 #SysTray_Main = 1
 #Menu_TrayPopup = 2
-  #Menu_Tray_ShowHide = 200
-  #Menu_Tray_RebuildIndex = 201
-  #Menu_Tray_OpenDbFolder = 203
-  #Menu_Tray_ShowIndexedCount = 204
-  #Menu_Tray_ShowDbPath = 205
-  #Menu_Tray_Diagnostics = 206
-  #Menu_Tray_OpenCrashLog = 212
-  #Menu_Tray_PauseResume = 207
-  #Menu_Tray_RunAtStartup = 208
-  #Menu_Tray_Settings = 211
-  #Menu_Tray_Exit = 202
+#Menu_Tray_ShowHide = 200
+#Menu_Tray_RebuildIndex = 201
+#Menu_Tray_OpenDbFolder = 203
+#Menu_Tray_ShowIndexedCount = 204
+#Menu_Tray_ShowDbPath = 205
+#Menu_Tray_Diagnostics = 206
+#Menu_Tray_OpenCrashLog = 212
+#Menu_Tray_PauseResume = 207
+#Menu_Tray_RunAtStartup = 208
+#Menu_Tray_Settings = 211
+#Menu_Tray_Exit = 202
 
 #Open_ShowError = 1
 #Open_Silent = 0
@@ -148,27 +136,50 @@ Global AppMinimizeToTray.i = 1
 Global AppRunAtStartup.i = 0
 Global AppAutoStartIndex.i = 0
 Global AppCompactMode.i = 0
+
+; Global state
+Global IndexingActive.i
+Global IndexingPaused.i
+Global IndexPauseEvent.i ; event handle for worker pause
+Global LastTrayTooltip.s
+Global LastQueryText.s
+Global LastQueryChangeMS.i
+Global QueryDirty.i
+Global QueryNextAtMS.i
+Global LiveMatcherMode.i ; 0=contains, 1=wildcard, 2=regex
+Global LiveMatcherNeedle.s
+Global LiveMatcherRegexID.i
 Global LiveMatchFullPath.i = 1
+
+; Stats
+Global FilesScanned.q
+Global DirsScanned.q
+Global MatchesFound.q
+Global IndexTotalFiles.q
+Global CurrentFolder.s
+
+; Database/Index Config
+#INI_FILE = "HandySearch.ini"
+Global IndexDbPath.s = "HandySearch.db"
+Global IndexDbId.i
+Global DbMutex.i
+Global SearchMaxResults.i = 10000
+Global SearchDebounceMS.i = 120
+Global ConfigThreadCount.i = 0
+Global ConfigBatchSize.i = 200
+
+; Global state duplicates removed
 Global CompactSavedW.i = 0
 Global CompactSavedH.i = 0
 Global CompactSavedX.i = 0
 Global CompactSavedY.i = 0
 
 ; SQLite index + query settings
-Global IndexDbPath.s = "HandySearch.db"
 Global EffectiveDbPath.s = ""
-Global SearchMaxResults.i = 10000
-Global SearchDebounceMS.i = 120
-Global IndexDbId.i = 0
-Global IndexingActive.i
 Global IndexingPaused.i
 Global IndexPauseEvent.i
-Global IndexTotalFiles.q
 Global CachedIndexedCount.q = -1
 Global CachedIndexedCountAtMS.q
-Global QueryDirty.i
-Global QueryNextAtMS.i
-Global LastQueryText.s
 
 ; Global reparse point tracking to prevent loops
 Global NewMap VisitedFolders.i()
@@ -179,19 +190,12 @@ Global NewMap IconCache.i()
 Global IconMutex.i
 
 ; Live incremental results (from worker threads -> UI)
-Global LiveMatcherMode.i ; 0=contains, 1=wildcard-regex, 2=regex-query
-Global LiveMatcherNeedle.s
-Global LiveMatcherRegexID.i
 Global NewMap LiveShownPaths.i() ; path -> 1 (GUI thread only)
 
 ; Tray icon handle when using embedded EXE icon
 Global TrayIconHandle.i
-Global LastTrayTooltip.s
 
 ; Search worker pool (used for indexing)
-Global ConfigBatchSize.i = 200
-Global ConfigThreadCount.i = 0 ; 0 = auto
-
 Global ScanStateMutex.i
 Global DirQueueSem.i
 Global NewList DirQueue.s()
@@ -212,12 +216,17 @@ Global NewList PendingResults.s()
 Global NewMap ExcludeDirNames.i()
 Global NewMap ExcludeFileNames.i()
 
-Global CurrentFolder.s
-Global FilesScanned.q
-Global DirsScanned.q
-Global MatchesFound.q
-
-#INI_FILE = "HandySearch.ini"
+; Exit confirmation
+Procedure.b ConfirmExit()
+  If IndexingActive
+    If MessageRequester("Exit", "Indexing is currently active. Do you want to stop indexing and exit?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning) = #PB_MessageRequester_Yes
+      ProcedureReturn #True
+    Else
+      ProcedureReturn #False
+    EndIf
+  EndIf
+  ProcedureReturn #True
+EndProcedure
 
 Procedure ClearExcludes()
   ClearMap(ExcludeDirNames())
@@ -341,10 +350,6 @@ Procedure LoadExcludesIni(filePath.s)
     WriteDefaultExcludesIni(filePath)
   EndIf
 
-  If FileSize(filePath) < 0
-    ProcedureReturn
-  EndIf
-
   f = ReadFile(#PB_Any, filePath)
   If f = 0
     ProcedureReturn
@@ -385,95 +390,94 @@ Procedure LoadExcludesIni(filePath.s)
       EndIf
     EndIf
 
-      Select section
-        Case "app"
-          Select key
-            Case "startminimized"
-              AppStartMinimized = Val(value)
-            Case "closetotray"
-              AppCloseToTray = Val(value)
-            Case "minimizetotray"
-              AppMinimizeToTray = Val(value)
-            Case "runatstartup"
-              AppRunAtStartup = Val(value)
-            Case "autostartindex"
-              AppAutoStartIndex = Val(value)
-            Case "livematchfullpath"
-              LiveMatchFullPath = Val(value)
+    Select section
+      Case "app"
+        Select key
+          Case "startminimized"
+            AppStartMinimized = Val(value)
+          Case "closetotray"
+            AppCloseToTray = Val(value)
+          Case "minimizetotray"
+            AppMinimizeToTray = Val(value)
+          Case "runatstartup"
+            AppRunAtStartup = Val(value)
+          Case "autostartindex"
+            AppAutoStartIndex = Val(value)
+          Case "livematchfullpath"
+            LiveMatchFullPath = Val(value)
+        EndSelect
+
+      Case "index"
+        Select key
+          Case "dbpath"
+            IndexDbPath = value
+        EndSelect
+
+      Case "search"
+        Select key
+          Case "maxresults"
+            SearchMaxResults = Val(value)
+          Case "debouncems"
+            SearchDebounceMS = Val(value)
+        EndSelect
+
+      Case "performance"
+        Select key
+          Case "threads"
+            ConfigThreadCount = Val(value)
+          Case "batchsize"
+            ConfigBatchSize = Val(value)
+        EndSelect
+
+      Case "excludedirs", "excludedir"
+        ; Support lines like:
+        ;   windows
+        ;   windows=
+        ;   windows=1
+        ;   enabled=windows
+        item.s = ""
+        If key <> ""
+          vLower = LCase(Trim(value))
+          Select vLower
+            Case "", "1", "true", "yes", "on"
+              item = key
+            Case "0", "false", "no", "off"
+              item = ""
+            Default
+              item = value
           EndSelect
+        Else
+          item = value
+        EndIf
 
-        Case "index"
-          Select key
-            Case "dbpath"
-              IndexDbPath = value
+        item = LCase(Trim(item))
+        If item <> ""
+          ExcludeDirNames(item) = 1
+        EndIf
+
+      Case "excludefiles", "excludefile"
+        ; Same rules as ExcludeDirs.
+        item = ""
+        If key <> ""
+          vLower = LCase(Trim(value))
+          Select vLower
+            Case "", "1", "true", "yes", "on"
+              item = key
+            Case "0", "false", "no", "off"
+              item = ""
+            Default
+              item = value
           EndSelect
+        Else
+          item = value
+        EndIf
 
-        Case "search"
-          Select key
-            Case "maxresults"
-              SearchMaxResults = Val(value)
-            Case "debouncems"
-              SearchDebounceMS = Val(value)
-          EndSelect
+        item = LCase(Trim(item))
+        If item <> ""
+          ExcludeFileNames(item) = 1
+        EndIf
 
-        Case "performance"
-          Select key
-            Case "threads"
-              ConfigThreadCount = Val(value)
-            Case "batchsize"
-              ConfigBatchSize = Val(value)
-          EndSelect
-
-        Case "excludedirs", "excludedir"
-          ; Support lines like:
-          ;   windows
-          ;   windows=
-          ;   windows=1
-          ;   enabled=windows
-          item = ""
-          If key <> ""
-            vLower = LCase(Trim(value))
-            Select vLower
-              Case "", "1", "true", "yes", "on"
-                item = key
-              Case "0", "false", "no", "off"
-                item = ""
-              Default
-                item = value
-            EndSelect
-          Else
-            item = value
-          EndIf
-
-          item = LCase(Trim(item))
-          If item <> ""
-            ExcludeDirNames(item) = 1
-          EndIf
-
-        Case "excludefiles", "excludefile"
-          ; Same rules as ExcludeDirs.
-          item = ""
-          If key <> ""
-            vLower = LCase(Trim(value))
-            Select vLower
-              Case "", "1", "true", "yes", "on"
-                item = key
-              Case "0", "false", "no", "off"
-                item = ""
-              Default
-                item = value
-            EndSelect
-          Else
-            item = value
-          EndIf
-
-          item = LCase(Trim(item))
-          If item <> ""
-            ExcludeFileNames(item) = 1
-          EndIf
-
-      EndSelect
-
+    EndSelect
   Wend
 
   CloseFile(f)
@@ -491,10 +495,26 @@ Procedure SaveIniKey(filePath.s, sectionName.s, keyName.s, value.s)
     ProcedureReturn
   EndIf
 
+  ; In PureBasic, CreatePreferences overwrites the file entirely! 
+  ; OpenPreferences is required to update an existing file.
   If OpenPreferences(filePath)
     PreferenceGroup(sectionName)
     WritePreferenceString(keyName, value)
+    
+    ; Ensure Exclude sections remain present and populated.
+    PreferenceGroup("ExcludeDirs")
+    ForEach ExcludeDirNames()
+      WritePreferenceString(MapKey(ExcludeDirNames()), "")
+    Next
+    
+    PreferenceGroup("ExcludeFiles")
+    ForEach ExcludeFileNames()
+      WritePreferenceString(MapKey(ExcludeFileNames()), "")
+    Next
+    
     ClosePreferences()
+    ; Reload all settings to ensure globals stay in sync
+    LoadExcludesIni(filePath)
   EndIf
 EndProcedure
 
@@ -1666,6 +1686,13 @@ Procedure StartIndexingAllFixedDrives()
     DbWriterThread = 0
   EndIf
 
+  ; Signal search results drain to finish
+  If ResultMutex
+    LockMutex(ResultMutex)
+    ClearList(PendingResults())
+    UnlockMutex(ResultMutex)
+  EndIf
+
   IndexingActive = 0
   UpdateControlStates()
 EndProcedure
@@ -1804,6 +1831,66 @@ Procedure.i ClampSettingInt(*changed.Integer, currentValue.i, newValue.i, minVal
   ProcedureReturn currentValue
 EndProcedure
 
+Procedure EditExcludeLists()
+  Protected newDirs.s, newFiles.s, currentDirs.s, currentFiles.s
+  Protected changed.i = #False
+  
+  ; 1. Build current comma-separated strings for the UI
+  ForEach ExcludeDirNames()
+    If currentDirs <> "" : currentDirs + ", " : EndIf
+    currentDirs + MapKey(ExcludeDirNames())
+  Next
+  
+  ForEach ExcludeFileNames()
+    If currentFiles <> "" : currentFiles + ", " : EndIf
+    currentFiles + MapKey(ExcludeFileNames())
+  Next
+  
+  ; 2. Ask user for new lists
+  newDirs = InputRequester("Edit Exclude Folders", "Enter folder names to skip (comma-separated):", currentDirs)
+  If newDirs <> currentDirs
+    ClearMap(ExcludeDirNames())
+    Protected i.i, count.i = CountString(newDirs, ",") + 1
+    For i = 1 To count
+      Protected part.s = LCase(Trim(StringField(newDirs, i, ",")))
+      If part <> "" : ExcludeDirNames(part) = 1 : EndIf
+    Next
+    changed = #True
+  EndIf
+  
+  newFiles = InputRequester("Edit Exclude Files", "Enter file names to skip (comma-separated):", currentFiles)
+  If newFiles <> currentFiles
+    ClearMap(ExcludeFileNames())
+    count = CountString(newFiles, ",") + 1
+    For i = 1 To count
+      part = LCase(Trim(StringField(newFiles, i, ",")))
+      If part <> "" : ExcludeFileNames(part) = 1 : EndIf
+    Next
+    changed = #True
+  EndIf
+  
+  ; 3. If changed, force a full save of the INI
+  If changed
+    If OpenPreferences(AppPath + #INI_FILE)
+      ; We must clear the existing group to remove deleted items
+      RemovePreferenceGroup("ExcludeDirs")
+      PreferenceGroup("ExcludeDirs")
+      ForEach ExcludeDirNames()
+        WritePreferenceString(MapKey(ExcludeDirNames()), "")
+      Next
+      
+      RemovePreferenceGroup("ExcludeFiles")
+      PreferenceGroup("ExcludeFiles")
+      ForEach ExcludeFileNames()
+        WritePreferenceString(MapKey(ExcludeFileNames()), "")
+      Next
+      
+      ClosePreferences()
+      MessageRequester(#APP_NAME, "Exclusion lists updated and saved.", #PB_MessageRequester_Info)
+    EndIf
+  EndIf
+EndProcedure
+
 Procedure EditSettings()
   ; PureBasic InputRequester-based settings like HandyDrvLED.
   ; Values are persisted to HandySearch.ini via SaveIniKey().
@@ -1875,6 +1962,40 @@ Procedure EditSettings()
     AppAutoStartIndex = ClampSettingInt(@changed, AppAutoStartIndex, Val(newAutoIndex), 0, 1)
   EndIf
 
+  ; --- ADDED EXCLUDE DIALOGS ---
+  Protected newDirs.s, newFiles.s, currentDirs.s, currentFiles.s
+  ForEach ExcludeDirNames()
+    If currentDirs <> "" : currentDirs + ", " : EndIf
+    currentDirs + MapKey(ExcludeDirNames())
+  Next
+  ForEach ExcludeFileNames()
+    If currentFiles <> "" : currentFiles + ", " : EndIf
+    currentFiles + MapKey(ExcludeFileNames())
+  Next
+
+  newDirs = InputRequester("Edit Exclude Folders", "Enter folder names to skip (comma-separated):", currentDirs)
+  If newDirs <> currentDirs
+    ClearMap(ExcludeDirNames())
+    Protected i.i, count.i = CountString(newDirs, ",") + 1
+    For i = 1 To count
+      Protected part.s = LCase(Trim(StringField(newDirs, i, ",")))
+      If part <> "" : ExcludeDirNames(part) = 1 : EndIf
+    Next
+    changed\i = #True
+  EndIf
+
+  newFiles = InputRequester("Edit Exclude Files", "Enter file names to skip (comma-separated):", currentFiles)
+  If newFiles <> currentFiles
+    ClearMap(ExcludeFileNames())
+    count = CountString(newFiles, ",") + 1
+    For i = 1 To count
+      part = LCase(Trim(StringField(newFiles, i, ",")))
+      If part <> "" : ExcludeFileNames(part) = 1 : EndIf
+    Next
+    changed\i = #True
+  EndIf
+  ; ----------------------------
+
   newLiveFullPath = InputRequester("Edit Settings", "LiveMatchFullPath (0/1) (current: " + Str(LiveMatchFullPath) + "):", Str(LiveMatchFullPath))
   If newLiveFullPath <> ""
     LiveMatchFullPath = ClampSettingInt(@changed, LiveMatchFullPath, Val(newLiveFullPath), 0, 1)
@@ -1883,22 +2004,63 @@ Procedure EditSettings()
   ClampConfigValues()
 
   If changed\i
-    SaveIniKey(AppPath + #INI_FILE, "Search", "MaxResults", Str(SearchMaxResults))
-    SaveIniKey(AppPath + #INI_FILE, "Search", "DebounceMS", Str(SearchDebounceMS))
-    SaveIniKey(AppPath + #INI_FILE, "Performance", "Threads", Str(ConfigThreadCount))
-    SaveIniKey(AppPath + #INI_FILE, "Performance", "BatchSize", Str(ConfigBatchSize))
-    SaveIniKey(AppPath + #INI_FILE, "Index", "DbPath", IndexDbPath)
-    SaveIniKey(AppPath + #INI_FILE, "App", "StartMinimized", Str(AppStartMinimized))
-    SaveIniKey(AppPath + #INI_FILE, "App", "CloseToTray", Str(AppCloseToTray))
-    SaveIniKey(AppPath + #INI_FILE, "App", "MinimizeToTray", Str(AppMinimizeToTray))
-    SaveIniKey(AppPath + #INI_FILE, "App", "AutoStartIndex", Str(AppAutoStartIndex))
-    SaveIniKey(AppPath + #INI_FILE, "App", "LiveMatchFullPath", Str(LiveMatchFullPath))
+    ; We must preserve the Exclude sections while updating keys.
+    ; PureBasic's OpenPreferences/WritePreference only handles Key=Value.
+    ; To preserve raw list sections like [ExcludeDirs], we must manually update.
+    If OpenPreferences(AppPath + #INI_FILE)
+      PreferenceGroup("Search")
+      WritePreferenceString("MaxResults", Str(SearchMaxResults))
+      WritePreferenceString("DebounceMS", Str(SearchDebounceMS))
+      
+      PreferenceGroup("Performance")
+      WritePreferenceString("Threads", Str(ConfigThreadCount))
+      WritePreferenceString("BatchSize", Str(ConfigBatchSize))
+      
+      PreferenceGroup("Index")
+      WritePreferenceString("DbPath", IndexDbPath)
+      
+      PreferenceGroup("App")
+      WritePreferenceString("StartMinimized", Str(AppStartMinimized))
+      WritePreferenceString("CloseToTray", Str(AppCloseToTray))
+      WritePreferenceString("MinimizeToTray", Str(AppMinimizeToTray))
+      WritePreferenceString("AutoStartIndex", Str(AppAutoStartIndex))
+      WritePreferenceString("LiveMatchFullPath", Str(LiveMatchFullPath))
+      WritePreferenceString("RunAtStartup", Str(AppRunAtStartup))
+      
+      ; --- FORCE WRITE EXCLUDES ---
+      RemovePreferenceGroup("ExcludeDirs")
+      PreferenceGroup("ExcludeDirs")
+      ForEach ExcludeDirNames()
+        WritePreferenceString(MapKey(ExcludeDirNames()), "")
+      Next
+      
+      RemovePreferenceGroup("ExcludeFiles")
+      PreferenceGroup("ExcludeFiles")
+      ForEach ExcludeFileNames()
+        WritePreferenceString(MapKey(ExcludeFileNames()), "")
+      Next
+      ; ----------------------------
+      
+      ClosePreferences()
+    Else
+      ; Fallback if file is missing entirely
+      WriteDefaultExcludesIni(AppPath + #INI_FILE)
+      If OpenPreferences(AppPath + #INI_FILE)
+        PreferenceGroup("Search") : WritePreferenceString("MaxResults", Str(SearchMaxResults))
+        PreferenceGroup("Performance") : WritePreferenceString("Threads", Str(ConfigThreadCount))
+        PreferenceGroup("Index") : WritePreferenceString("DbPath", IndexDbPath)
+        PreferenceGroup("App") : WritePreferenceString("StartMinimized", Str(AppStartMinimized))
+        PreferenceGroup("ExcludeDirs")
+        PreferenceGroup("ExcludeFiles")
+        ClosePreferences()
+      EndIf
+    EndIf
 
     If IsMenu(#Menu_Main)
       SetMenuItemState(#Menu_Main, #Menu_View_LiveMatchFullPath, LiveMatchFullPath)
     EndIf
 
-    ; Reload INI so runtime reflects the persisted settings.
+    ; Reload INI so runtime reflects the persisted settings
     LoadExcludesIni(AppPath + #INI_FILE)
 
     ; Apply DB path changes immediately when safe.
@@ -2376,77 +2538,36 @@ Procedure PumpPendingResults(maxItems.i)
 
         LiveShownPaths(path) = 1
 
-        If LiveMatchFullPath
-          fileName = path
-        Else
-          fileName = GetFilePart(path)
-        EndIf
-
-        Select LiveMatcherMode
-          Case 2, 1
-            If LiveMatcherRegexID And MatchRegularExpression(LiveMatcherRegexID, fileName)
-              Protected pathImg.i = GetFileIconIndex(path)
-              If pathImg
-                AddGadgetItem(#Gadget_ResultsList, -1, path, ImageID(pathImg))
-              Else
-                AddGadgetItem(#Gadget_ResultsList, -1, path)
-              EndIf
-            EndIf
-
-          Default
-            If LiveMatcherNeedle = "" Or FindString(LCase(fileName), LiveMatcherNeedle, 1)
-              Protected defImg.i = GetFileIconIndex(path)
-              If defImg
-                AddGadgetItem(#Gadget_ResultsList, -1, path, ImageID(defImg))
-              Else
-                AddGadgetItem(#Gadget_ResultsList, -1, path)
-              EndIf
-            EndIf
-        EndSelect
-      EndIf
-    Wend
-    UnlockMutex(ResultMutex)
+  ; Optimization: Only use full path if specifically requested.
+  ; Full path string matching (especially LCase) is 10x slower on long paths.
+  Protected testSubject.s
+  If LiveMatchFullPath
+    testSubject = LCase(path)
+  Else
+    testSubject = LCase(GetFilePart(path))
   EndIf
 
-  ; Drain worker-produced paths and append matches live.
-  If ResultMutex
-    LockMutex(ResultMutex)
-    While pulled < maxItems And FirstElement(PendingResults())
-      path = PendingResults()
-      DeleteElement(PendingResults())
-      pulled + 1
-
-      ; Dedupe UI entries.
-      If FindMapElement(LiveShownPaths(), path) = 0
-        LiveShownPaths(path) = 1
-
-        If LiveMatchFullPath
-          fileName = path
+  Select LiveMatcherMode
+    Case 2, 1
+      If LiveMatcherRegexID And MatchRegularExpression(LiveMatcherRegexID, testSubject)
+        Protected pathImg.i = GetFileIconIndex(path)
+        If pathImg
+          AddGadgetItem(#Gadget_ResultsList, -1, path, ImageID(pathImg))
         Else
-          fileName = GetFilePart(path)
+          AddGadgetItem(#Gadget_ResultsList, -1, path)
         EndIf
+      EndIf
 
-        Select LiveMatcherMode
-          Case 2, 1
-            If LiveMatcherRegexID And MatchRegularExpression(LiveMatcherRegexID, fileName)
-              pathImg.i = GetFileIconIndex(path)
-              If pathImg
-                AddGadgetItem(#Gadget_ResultsList, -1, path, ImageID(pathImg))
-              Else
-                AddGadgetItem(#Gadget_ResultsList, -1, path)
-              EndIf
-            EndIf
-
-          Default
-            If LiveMatcherNeedle = "" Or FindString(LCase(fileName), LiveMatcherNeedle, 1)
-              defImg.i = GetFileIconIndex(path)
-              If defImg
-                AddGadgetItem(#Gadget_ResultsList, -1, path, ImageID(defImg))
-              Else
-                AddGadgetItem(#Gadget_ResultsList, -1, path)
-              EndIf
-            EndIf
-        EndSelect
+    Default
+      If LiveMatcherNeedle = "" Or FindString(testSubject, LiveMatcherNeedle, 1)
+        Protected defImg.i = GetFileIconIndex(path)
+        If defImg
+          AddGadgetItem(#Gadget_ResultsList, -1, path, ImageID(defImg))
+        Else
+          AddGadgetItem(#Gadget_ResultsList, -1, path)
+        EndIf
+      EndIf
+  EndSelect
       EndIf
     Wend
     UnlockMutex(ResultMutex)
@@ -2730,6 +2851,9 @@ Procedure MainLoop()
               SaveIniKey(AppPath + #INI_FILE, "App", "RunAtStartup", Str(AppRunAtStartup))
               UpdateStartupMenuState()
 
+            Case #Menu_App_EditExcludes
+              EditExcludeLists()
+
             Case #Menu_Tray_Settings
               EditSettings()
 
@@ -2797,8 +2921,9 @@ Procedure MainLoop()
 
       Case #PB_Event_Timer
         If EventTimer() = #Timer_PumpResults
-          PumpPendingResults(200)
-          UpdateControlStates()
+          ; Only pump if the previous call has likely finished
+          ; and don't call UpdateControlStates() every 50ms (too heavy).
+          PumpPendingResults(50) 
           If IndexingActive = 0 And IsWindowVisible_(WindowID(#Window_Main))
             SetWindowTitle(#Window_Main, #APP_NAME + " - " + version + " Desktop")
           EndIf
@@ -2971,8 +3096,8 @@ If TrayIconHandle : DestroyIcon_(TrayIconHandle) : TrayIconHandle = 0 : EndIf
 If hMutex : CloseHandle_(hMutex) : EndIf
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 2441
-; FirstLine = 2437
+; CursorPosition = 436
+; FirstLine = 427
 ; Folding = --------------
 ; Optimizer
 ; EnableThread
@@ -2982,12 +3107,12 @@ If hMutex : CloseHandle_(hMutex) : EndIf
 ; UseIcon = HandySearch.ico
 ; Executable = ..\HandySearch.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,0
-; VersionField1 = 1,0,1,0
+; VersionField0 = 1,0,1,2
+; VersionField1 = 1,0,1,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandySearch
-; VersionField4 = 1.0.1.0
-; VersionField5 = 1.0.1.0
+; VersionField4 = 1.0.1.2
+; VersionField5 = 1.0.1.2
 ; VersionField6 = Everything-like search tool for desktop and web
 ; VersionField7 = HandySearch
 ; VersionField8 = HandySearch.exe
