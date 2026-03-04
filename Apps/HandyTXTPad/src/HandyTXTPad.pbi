@@ -1,25 +1,35 @@
 ﻿
 #APP_NAME = "HandyTXTPad"
+Global version.s = "v1.0.0.8"
 
 Procedure SetMainTitle()
-  SetWindowTitle(#Dlg1, #APP_NAME + GetFilePart(gsFilename))
+  Protected sTitle.s = #APP_NAME
+  If gsFilename <> ""
+    sTitle + " - [" + GetFilePart(gsFilename) + "]"
+  EndIf
+  SetWindowTitle(#Dlg1, sTitle)
 EndProcedure
 
 Procedure mnuNew(eventid)
+  If GetGadgetText(#Editor1) <> ""
+    If MessageRequester("New", "Clear current text?", #PB_MessageRequester_YesNo) = #PB_MessageRequester_No
+      ProcedureReturn
+    EndIf
+  EndIf
   gsFilename = ""
   SetGadgetText(#Editor1, "")
   SetMainTitle()
 EndProcedure
 
 Procedure mnuOpen(eventid)
-  Protected sOpenfile.s = OpenFileRequester("Select file to open...", "", "", 0)
+  Protected sOpenfile.s = OpenFileRequester("Select file to open...", "", "Text (*.txt)|*.txt|All files (*.*)|*.*", 0)
   If sOpenfile <> ""
-    Protected hFile = ReadFile(#PB_Any, sOpenfile)
+    Protected hFile = ReadFile(#PB_Any, sOpenfile, #PB_File_SharedRead)
     If hFile = 0
       MessageRequester("Error", "Couldn't open file!", #PB_MessageRequester_Error)
     Else
-      Protected sBuf.s
-      sBuf = ReadString(hFile, #PB_Ascii | #PB_File_IgnoreEOL, -1)
+      Protected format = ReadStringFormat(hFile)
+      Protected sBuf.s = ReadString(hFile, format | #PB_File_IgnoreEOL)
       CloseFile(hFile)
       SetGadgetText(#Editor1, sBuf)
       gsFilename = sOpenfile
@@ -33,11 +43,12 @@ Procedure SaveToFile(sFile.s)
     If hFile = 0
       MessageRequester("Error", "Couldn't create file!", #PB_MessageRequester_Error)
     Else
-      WriteString(hFile, GetGadgetText(#Editor1), #PB_Ascii)
+      WriteStringFormat(hFile, #PB_UTF8)
+      WriteString(hFile, GetGadgetText(#Editor1), #PB_UTF8)
       CloseFile(hFile)
       gsFilename = sFile
+      SetMainTitle()
     EndIf
-    SetMainTitle()
 EndProcedure
 
 Procedure mnuSaveAs(eventid)
@@ -63,15 +74,14 @@ Procedure mnuExit(eventid)
 EndProcedure
 
 Procedure mnuAbout(eventid)
-  Define version.s = " v1.0.0.7 (20252312)"
-  MessageRequester("Info", #APP_NAME + version + #CRLF$ +
+  MessageRequester("Info", #APP_NAME + " - " + version + #CRLF$ +
                            "A handy little text editor" + #CRLF$ +
                            "----------------------------------------" + #CRLF$ +
                            "Contact: " + #EMAIL_NAME + #CRLF$ +
                            "Website: https://github.com/zonemaster60", #PB_MessageRequester_Info)
 EndProcedure
-; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 1
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 75
 ; Folding = --
 ; Optimizer
 ; EnableThread

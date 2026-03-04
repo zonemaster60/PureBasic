@@ -34,19 +34,24 @@ EnableExplicit
              "  passwordgenerator --site example.com --len 16 --screen-only" + #CRLF$ +
              "  passwordgenerator --site example.com --len 16 --no-ambiguous" + #CRLF$ +
              "" + #CRLF$ +
-             "Options:" + #CRLF$ +
+              "Options:" + #CRLF$ +
              "  --len N, --count N, --user NAME, --site SITE" + #CRLF$ +
              "  --outfile FILE, --screen-only, --no-ambiguous" + #CRLF$ +
+             "  --no-special, --copy" + #CRLF$ +
              "  --help" + #CRLF$ +
              "" + #CRLF$ +
              "Tip: highlight a password and press CTRL-C" + #CRLF$ +
              "to copy from the console."
 
-Global version.s = "v1.0.0.2"
+Global version.s = "v1.0.0.3"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
 ; Seed RNG once per run
+If OpenCryptRandom() = 0
+  MessageRequester(#APP_NAME, "Error: Could not initialize secure random number generator.", #PB_MessageRequester_Error)
+  End
+EndIf
 RandomSeed(Date() ! ElapsedMilliseconds())
 
 ; Early help/version handling (must run before mutex)
@@ -71,17 +76,19 @@ If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
 EndIf
 
 Procedure.s RandomCharFromSet(charset.s)
-  If Len(charset) < 1
+  Define n.i = Len(charset)
+  If n < 1
     ProcedureReturn ""
   EndIf
-  ProcedureReturn Mid(charset, 1 + Random(Len(charset) - 1), 1)
+  ProcedureReturn Mid(charset, 1 + CryptRandom(n - 1), 1)
 EndProcedure
 
 Procedure.s RemoveChars(source.s, remove.s)
   Define i.i, c.s, out.s
-  For i = 1 To Len(source)
+  Define n = Len(source)
+  For i = 1 To n
     c = Mid(source, i, 1)
-    If FindString(remove, c, 1) = 0
+    If FindString(remove, c) = 0
       out + c
     EndIf
   Next
@@ -102,30 +109,40 @@ Procedure.s NormalizeSite(site.s)
 EndProcedure
 
 Procedure.s ShuffleString(s.s)
-  ; Fisher-Yates shuffle on string characters
-  Define i.i, j.i, tmp.s
-  For i = Len(s) To 2 Step -1
-    j = 1 + Random(i - 1)
-    tmp = Mid(s, i, 1)
-    s = Left(s, i - 1) + Mid(s, j, 1) + Mid(s, i + 1)
-    s = Left(s, j - 1) + tmp + Mid(s, j + 1)
+  ; Fisher-Yates shuffle on string characters (using pointers for efficiency)
+  Define *p.Character = @s
+  Define n.i = Len(s)
+  Define i.i, j.i, tmp.c
+  If n < 2 : ProcedureReturn s : EndIf
+  For i = n - 1 To 1 Step -1
+    j = CryptRandom(i)
+    tmp = PeekC(@s + i * SizeOf(Character))
+    PokeC(@s + i * SizeOf(Character), PeekC(@s + j * SizeOf(Character)))
+    PokeC(@s + j * SizeOf(Character), tmp)
   Next
   ProcedureReturn s
 EndProcedure
 
-Procedure.s GeneratePassword(pwlen.i, excludeAmbiguous.b)
-  Define lower.s = "abcdefghijklmnopqrstuvwxyz"
-  Define upper.s = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-  Define digits.s = "0123456789"
-  Define other.s
-  Define ambiguous.s = "O0Il1"
+Procedure.s GeneratePassword(pwlen.i, excludeAmbiguous.b, noSpecial.b = #False)
+  Static lower_base.s = "abcdefghijklmnopqrstuvwxyz"
+  Static upper_base.s = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  Static digits_base.s = "0123456789"
+  Static other_base.s = ~"!\"#$%&'()*+,-./:;<=>?@[]^_{|}~"
+  Static ambiguous.s = "O0Il1"
 
-  other = ~"!\"#$%&'()*+,-./:;<=>?@[]^_{|}~"
+  Define lower.s = lower_base
+  Define upper.s = upper_base
+  Define digits.s = digits_base
+  Define other.s = other_base
 
   If excludeAmbiguous
     lower = RemoveChars(lower, ambiguous)
     upper = RemoveChars(upper, ambiguous)
     digits = RemoveChars(digits, ambiguous)
+  EndIf
+  
+  If noSpecial
+    other = ""
   EndIf
 
   Define allChars.s = lower + upper + digits + other
@@ -133,19 +150,25 @@ Procedure.s GeneratePassword(pwlen.i, excludeAmbiguous.b)
   If pwlen < 8
     ProcedureReturn ""
   EndIf
-  If Len(lower) = 0 Or Len(upper) = 0 Or Len(digits) = 0 Or Len(other) = 0
+  If lower = "" Or upper = "" Or digits = "" Or (other = "" And noSpecial = #False)
     ProcedureReturn ""
   EndIf
 
   ; Ensure at least one from each group
-  Define pw.s
-  pw + RandomCharFromSet(lower)
-  pw + RandomCharFromSet(upper)
-  pw + RandomCharFromSet(digits)
-  pw + RandomCharFromSet(other)
+  Define pw.s = Space(pwlen)
+  Define *p.Character = @pw
+  
+  PokeC(*p, Asc(RandomCharFromSet(lower))) : *p + SizeOf(Character)
+  PokeC(*p, Asc(RandomCharFromSet(upper))) : *p + SizeOf(Character)
+  PokeC(*p, Asc(RandomCharFromSet(digits))) : *p + SizeOf(Character)
+  
+  If noSpecial = #False
+    PokeC(*p, Asc(RandomCharFromSet(other))) : *p + SizeOf(Character)
+  EndIf
 
-  While Len(pw) < pwlen
-    pw + RandomCharFromSet(allChars)
+  While *p < @pw + pwlen * SizeOf(Character)
+    PokeC(*p, Asc(RandomCharFromSet(allChars)))
+    *p + SizeOf(Character)
   Wend
 
   ProcedureReturn ShuffleString(pw)
@@ -174,33 +197,36 @@ Procedure PrintHelp()
 EndProcedure
 
 Procedure.s InputHdl(prompt.s="")
-  Define txt.s,
-         s.s,
-         r.i,
-         hlp.s
-  hlp = GetHelpText()
+  Define txt.s, s.s, r.i
   Print(prompt)
   Repeat
     s = Inkey()
     If s <> ""
-      If FindString("0123456789", s)
-        txt + s
-        Print(s)
-      EndIf
-      If s = Chr(27)
-        txt = "0"
-        Break
-      EndIf
+      Select Asc(s)
+        Case 13 ; Enter
+          Break
+        Case 27 ; Esc
+          txt = "0"
+          Break
+        Case 8 ; Backspace
+          If Len(txt) > 0
+            txt = Left(txt, Len(txt) - 1)
+            Print(Chr(8) + " " + Chr(8))
+          EndIf
+        Case '0' To '9'
+          txt + s
+          Print(s)
+      EndSelect
     ElseIf RawKey()
       r = RawKey()
-      If r = 112
+      If r = 112 ; F1
         PrintN("")
         PrintHelp()
-        Print(#CRLF$ + prompt)
+        Print(#CRLF$ + prompt + txt)
       EndIf
     EndIf
     Delay(20)
-  Until s = Chr(13)
+  ForEver
   PrintN("")
   ProcedureReturn txt
 EndProcedure
@@ -269,6 +295,8 @@ Define pwlen.i,
        useCli.b,
        screenOnly.b,
        excludeAmbiguous.b,
+       noSpecial.b,
+       copyToClipboard.b,
        arg.s,
        nextArg.s
 
@@ -277,6 +305,8 @@ pwlen = 16
 n_of_pw = 1
 screenOnly = #False
 excludeAmbiguous = #False
+noSpecial = #False
+copyToClipboard = #False
 outFile = ""
 
 ; Parse CLI args
@@ -319,11 +349,7 @@ If CountProgramParameters() > 0
 
     Select switch
       Case "--help", "-h", "/help", "/h", "/?"
-        ; Always show help even when no console is attached.
-        ; Note: depending on how the process is launched, cmd.exe may intercept '/?'
-        ; before it reaches this program. '/help' and '--help' are reliable.
-    MessageRequester(#APP_NAME + " " + version, #HELP_TEXT, #PB_MessageRequester_Info)
-
+        MessageRequester(#APP_NAME + " " + version, #HELP_TEXT, #PB_MessageRequester_Info)
         End
 
       Case "--screen-only"
@@ -332,37 +358,43 @@ If CountProgramParameters() > 0
       Case "--no-ambiguous"
         excludeAmbiguous = #True
 
+      Case "--no-special"
+        noSpecial = #True
+
+      Case "--copy"
+        copyToClipboard = #True
+
       Case "--len"
-        If hasValue = #False
-          value = nextArg
+        If hasValue = #False And i + 1 < CountProgramParameters()
+          value = ProgramParameter(i + 1)
           i + 1
         EndIf
         pwlen = Abs(Val(value))
 
       Case "--count"
-        If hasValue = #False
-          value = nextArg
+        If hasValue = #False And i + 1 < CountProgramParameters()
+          value = ProgramParameter(i + 1)
           i + 1
         EndIf
         n_of_pw = Abs(Val(value))
 
       Case "--user"
-        If hasValue = #False
-          value = nextArg
+        If hasValue = #False And i + 1 < CountProgramParameters()
+          value = ProgramParameter(i + 1)
           i + 1
         EndIf
         pname = value
 
       Case "--site"
-        If hasValue = #False
-          value = nextArg
+        If hasValue = #False And i + 1 < CountProgramParameters()
+          value = ProgramParameter(i + 1)
           i + 1
         EndIf
         wname = value
 
       Case "--outfile"
-        If hasValue = #False
-          value = nextArg
+        If hasValue = #False And i + 1 < CountProgramParameters()
+          value = ProgramParameter(i + 1)
           i + 1
         EndIf
         outFile = value
@@ -412,6 +444,20 @@ Repeat
       excludeAmbiguous = #False
     EndIf
 
+    PrintN("Exclude special characters (!@#$%...)? (y/N): ")
+    If LCase(Left(Trim(Input()), 1)) = "y"
+      noSpecial = #True
+    Else
+      noSpecial = #False
+    EndIf
+
+    PrintN("Copy first password to clipboard? (y/N): ")
+    If LCase(Left(Trim(Input()), 1)) = "y"
+      copyToClipboard = #True
+    Else
+      copyToClipboard = #False
+    EndIf
+
     PrintN("Screen-only (do not write a file)? (y/N): ")
     If LCase(Left(Trim(Input()), 1)) = "y"
       screenOnly = #True
@@ -434,20 +480,24 @@ Repeat
 
   If screenOnly = #False
     If CreateFile(0, outFile) = 0
-      MessageRequester("Error", "Can't create the file: " + outFile, #PB_MessageRequester_Error)
+      MessageRequester("Error", "Can't create the file: " + outFile + #CRLF$ + "Check if you have write permissions or if the file is open in another program.", #PB_MessageRequester_Error)
       Break
     EndIf
   EndIf
 
   PrintN("")
   For i = 1 To n_of_pw
-    pwstr = GeneratePassword(pwlen, excludeAmbiguous)
+    pwstr = GeneratePassword(pwlen, excludeAmbiguous, noSpecial)
     If pwstr = ""
       If screenOnly = #False
         CloseFile(0)
       EndIf
       MessageRequester("Error", "Failed to generate password.", #PB_MessageRequester_Error)
       Break 2
+    EndIf
+
+    If i = 1 And copyToClipboard
+      SetClipboardText(pwstr)
     EndIf
 
     line = RSet(Str(i), Len(Str(n_of_pw)), " ") + ")"
@@ -474,6 +524,10 @@ Repeat
     PrintN("(Screen-only mode: no file written.)")
   EndIf
 
+  If copyToClipboard
+    PrintN("(First password copied to clipboard.)")
+  EndIf
+
   If useCli
     CloseHandle_(hMutex)
     End
@@ -492,9 +546,9 @@ End
 
   
 
-; IDE Options = PureBasic 6.30 beta 6 (Windows - x64)
-; CursorPosition = 21
-; FirstLine = 6
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 45
+; FirstLine = 24
 ; Folding = --
 ; Optimizer
 ; EnableThread
@@ -504,15 +558,15 @@ End
 ; UseIcon = PassGen.ico
 ; Executable = ..\PassGen.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
-; VersionField3 = PasswordGenerator
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField3 = PassGen
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = Generates website passwords
-; VersionField7 = PasswordGenerator
-; VersionField8 = PasswordGenerator.exe
+; VersionField7 = PassGen
+; VersionField8 = PassGen.exe
 ; VersionField9 = David Scouten
 ; VersionField13 = zonemaster60@gmail.com
 ; VersionField14 = https://github.com/zonemaster60

@@ -24,15 +24,17 @@ OpenDlg1()
 Define event.i
 
 Repeat         ;main message loop
-event = WaitWindowEvent()
-  Dlg1_Events (event)
-Until event = #PB_Event_CloseWindow
-Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
-  If Req = #PB_MessageRequester_Yes
-    End
+  event = WaitWindowEvent()
+  If event = #PB_Event_CloseWindow
+    If MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info) = #PB_MessageRequester_Yes
+      End
+    EndIf
+  Else
+    Dlg1_Events (event)
   EndIf
-; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 15
+ForEver
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 5
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -41,12 +43,12 @@ Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_
 ; UseIcon = HandyTXTPad.ico
 ; Executable = ..\HandyTXTPad.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,7
-; VersionField1 = 1,0,0,7
+; VersionField0 = 1,0,0,8
+; VersionField1 = 1,0,0,8
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyTXTPad
-; VersionField4 = 1.0.0.7
-; VersionField5 = 1.0.0.7
+; VersionField4 = 1.0.0.8
+; VersionField5 = 1.0.0.8
 ; VersionField6 = A Handy Little Text Pad Program
 ; VersionField7 = HandyTXTPad
 ; VersionField8 = HandyTXTPad.exe
