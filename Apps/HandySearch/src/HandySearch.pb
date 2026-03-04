@@ -4,7 +4,7 @@ EnableExplicit
 
 #APP_NAME   = "HandySearch"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-Global version.s = "v1.0.0.9"
+Global version.s = "v1.0.1.0"
 
 ; Crash logging (best-effort)
 Declare InitCrashLogging()
@@ -1364,6 +1364,9 @@ Procedure DbWriterThreadProc(dummy.i)
       FlushIndexBatchToDb(localQueue()) ; This procedure still exists and does the actual SQL
       ClearList(localQueue())
     EndIf
+    
+    ; Yield to system to prevent CPU/IO saturation
+    Delay(10)
   Wend
 EndProcedure
 
@@ -1487,12 +1490,10 @@ Procedure WorkerThreadProc(*params.WorkerParams)
     EndIf
 
     MarkDirectoryDone()
+    
+    ; Prevent CPU pinning by yielding frequently
+    Delay(1)
   Wend
-
-  If ListSize(batch()) > 0
-    EnqueueDbBatch(batch())
-    ClearList(batch())
-  EndIf
 EndProcedure
 
 Procedure.i GetCpuCount()
@@ -1632,6 +1633,9 @@ Procedure StartIndexingAllFixedDrives()
 
   For i = 0 To WorkerCount - 1
     WorkerThreads(i) = CreateThread(@WorkerThreadProc(), *wparams)
+    If WorkerThreads(i)
+      SetThreadPriority_(ThreadID(WorkerThreads(i)), -1) ; THREAD_PRIORITY_BELOW_NORMAL
+    EndIf
   Next
 
   ; Wait for workers (in this thread)
@@ -2922,12 +2926,12 @@ If hMutex : CloseHandle_(hMutex) : EndIf
 ; UseIcon = HandySearch.ico
 ; Executable = ..\HandySearch.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,9
-; VersionField1 = 1,0,0,9
+; VersionField0 = 1,0,1,0
+; VersionField1 = 1,0,1,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandySearch
-; VersionField4 = 1.0.0.9
-; VersionField5 = 1.0.0.9
+; VersionField4 = 1.0.1.0
+; VersionField5 = 1.0.1.0
 ; VersionField6 = Everything-like search tool for desktop and web
 ; VersionField7 = HandySearch
 ; VersionField8 = HandySearch.exe
