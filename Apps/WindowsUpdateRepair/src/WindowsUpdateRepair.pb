@@ -15,6 +15,9 @@ UseZipPacker()
 ; WinAPI imports / constants
 ; ----------------------------
 
+#EM_SETSEL = $00B1
+#EM_REPLACESEL = $00C2
+
 #SERVICE_QUERY_STATUS   = $0004
 #SERVICE_START          = $0010
 #SERVICE_STOP           = $0020
@@ -56,7 +59,7 @@ UseZipPacker()
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.0.0"
+Global version.s = "v1.0.0.1"
 
 ; Prevent multiple instances (don't rely on window title text)
 Global hMutex.i
@@ -649,6 +652,7 @@ Procedure.i ResetWindowsUpdateCaches()
   Protected ts.s = NowStamp()
   Protected sd.s, sdBak.s, cr.s, crBak.s
   Protected r.i, rebootNeeded.i
+  Protected success.i = #True
 
   If winDir = "" : winDir = "C:\Windows" : EndIf
 
@@ -680,10 +684,16 @@ Procedure.i ResetWindowsUpdateCaches()
     StopServiceByName("cryptsvc", 120000)
   EndIf
 
+  ; Verify services are actually stopped before attempting renames
+  If GetServiceStateByName("wuauserv") = #SERVICE_RUNNING Or GetServiceStateByName("cryptsvc") = #SERVICE_RUNNING
+    LogLine("ERROR: Services still running, cannot safely reset caches. Aborting rename.")
+    ProcedureReturn #False
+  EndIf
+
   r = TryRenameDirWithRebootFallback(sd, sdBak, 20, 250, #True)
   If r = -1
     LogLine("ERROR: failed to rename: " + sd)
-    ProcedureReturn #False
+    success = #False
   ElseIf r = 0
     rebootNeeded = #True
   EndIf
@@ -692,17 +702,18 @@ Procedure.i ResetWindowsUpdateCaches()
   r = TryRenameDirWithRebootFallback(cr, crBak, 60, 500, #True)
   If r = -1
     LogLine("ERROR: failed to rename: " + cr)
-    ProcedureReturn #False
+    success = #False
   ElseIf r = 0
     rebootNeeded = #True
   EndIf
 
   If rebootNeeded
     LogLine("OK: cache reset scheduled. Reboot is required to complete folder renames.")
-  Else
+  ElseIf success
     LogLine("OK: cache reset done.")
   EndIf
-  ProcedureReturn #True
+  
+  ProcedureReturn success
 EndProcedure
 
 ; ----------------------------
@@ -999,6 +1010,8 @@ Procedure StopUpdateServices()
   If WasServiceRunning("DoSvc")     : StopServiceByName("DoSvc")     : EndIf
   If WasServiceRunning("wuauserv")  : StopServiceByName("wuauserv")  : EndIf
   If WasServiceRunning("bits")      : StopServiceByName("bits")      : EndIf
+  ; cryptsvc can take a long time to stop and often hangs on Win11.
+  ; We stop it only if needed for catroot2 rename, or if user specifically wants it stopped.
   If WasServiceRunning("cryptsvc")  : StopServiceByName("cryptsvc")  : EndIf
   If WasServiceRunning("msiserver") : StopServiceByName("msiserver") : EndIf
 EndProcedure
@@ -1021,6 +1034,7 @@ EndProcedure
 Procedure Worker(*dummy)
   Protected dism.s, sfc.s, netsh.s, ipconfig.s
   Protected shutdownExe.s
+  Protected resetSuccess.i = #True
 
   gIsRunning = #True
   LogLine("=== Start Repair ===")
@@ -1034,36 +1048,41 @@ Procedure Worker(*dummy)
   EndIf
 
   If gSelectedStep(#Step_ResetCaches)
-    ResetWindowsUpdateCaches()
+    resetSuccess = ResetWindowsUpdateCaches()
   EndIf
 
-  If gSelectedStep(#Step_RunDISM)
-    If IsWin10OrLater()
-      dism = SystemToolPath("dism.exe")
-      RunAndLog(dism, "/Online /Cleanup-Image /RestoreHealth")
-    Else
-      LogLine("SKIP: DISM /RestoreHealth not enabled for this OS preset.")
+  ; Only proceed with repairs if caches were successfully reset (if selected)
+  If resetSuccess
+    If gSelectedStep(#Step_RunDISM)
+      If IsWin10OrLater()
+        dism = SystemToolPath("dism.exe")
+        RunAndLog(dism, "/Online /Cleanup-Image /RestoreHealth")
+      Else
+        LogLine("SKIP: DISM /RestoreHealth not enabled for this OS preset.")
+      EndIf
     EndIf
-  EndIf
 
-  If gSelectedStep(#Step_RunSFC)
-    sfc = SystemToolPath("sfc.exe")
-    RunAndLog(sfc, "/scannow")
-  EndIf
+    If gSelectedStep(#Step_RunSFC)
+      sfc = SystemToolPath("sfc.exe")
+      RunAndLog(sfc, "/scannow")
+    EndIf
 
-  If gSelectedStep(#Step_ResetWinHTTP)
-    netsh = SystemToolPath("netsh.exe")
-    RunAndLog(netsh, "winhttp reset proxy")
-  EndIf
+    If gSelectedStep(#Step_ResetWinHTTP)
+      netsh = SystemToolPath("netsh.exe")
+      RunAndLog(netsh, "winhttp reset proxy")
+    EndIf
 
-  If gSelectedStep(#Step_ResetWinsock)
-    netsh = SystemToolPath("netsh.exe")
-    RunAndLog(netsh, "winsock reset")
-  EndIf
+    If gSelectedStep(#Step_ResetWinsock)
+      netsh = SystemToolPath("netsh.exe")
+      RunAndLog(netsh, "winsock reset")
+    EndIf
 
-  If gSelectedStep(#Step_FlushDNS)
-    ipconfig = SystemToolPath("ipconfig.exe")
-    RunAndLog(ipconfig, "/flushdns")
+    If gSelectedStep(#Step_FlushDNS)
+      ipconfig = SystemToolPath("ipconfig.exe")
+      RunAndLog(ipconfig, "/flushdns")
+    EndIf
+  Else
+    LogLine("CRITICAL: Cache reset failed. Subsequent repair steps skipped to prevent system corruption.")
   EndIf
 
   ; Restore services at the end (after repairs)
@@ -1076,10 +1095,12 @@ Procedure Worker(*dummy)
   If gRebootAfter
     If gDryRun
       LogLine("DRYRUN: reboot requested but skipped.")
-    Else
+    ElseIf resetSuccess
       shutdownExe = SystemToolPath("shutdown.exe")
       LogLine("Reboot requested. System will reboot in 10 seconds.")
       RunAndLog(shutdownExe, "/r /t 10 /c " + Quote(#APP_NAME + ": reboot requested"))
+    Else
+      LogLine("ABORT: reboot skipped because a critical error occurred.")
     EndIf
   EndIf
 
@@ -1267,14 +1288,20 @@ Procedure SyncSelectedStepsFromUI()
 EndProcedure
 
 Procedure DrainLogToUI()
-  Protected text.s
+  Protected text.s = ""
+  Protected count.i = 0
   LockMutex(gMutex)
   While FirstElement(gPendingLog())
-    text = gPendingLog()
+    text + gPendingLog() + #CRLF$
     DeleteElement(gPendingLog())
-    SetGadgetText(#EdLog, GetGadgetText(#EdLog) + text + #CRLF$)
+    count + 1
   Wend
   UnlockMutex(gMutex)
+  
+  If count > 0
+    SendMessage_(GadgetID(#EdLog), #EM_SETSEL, -1, -1)
+    SendMessage_(GadgetID(#EdLog), #EM_REPLACESEL, 0, text)
+  EndIf
 EndProcedure
 
 Procedure SetUiEnabled(enabled.i)
@@ -1402,7 +1429,7 @@ Repeat
 ForEver
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 51
+; CursorPosition = 61
 ; FirstLine = 36
 ; Folding = ---------
 ; Optimizer
@@ -1413,12 +1440,12 @@ ForEver
 ; UseIcon = WindowsUpdateRepair.ico
 ; Executable = ..\WindowsUpdateRepair.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = UpdateRepairPortable
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = Windows Update Repair Tool
 ; VersionField7 = UpdateRepairPortable
 ; VersionField8 = UpdateRepairPortable.exe
