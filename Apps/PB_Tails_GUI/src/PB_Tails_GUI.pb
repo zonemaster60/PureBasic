@@ -4,7 +4,7 @@ EnableExplicit
 #CHUNK_SIZE    = 8192
 #APP_NAME = "PB_Tails_GUI"
 
-Global version.s ="v1.0.0.0"
+Global version.s ="v1.0.0.1"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -143,21 +143,18 @@ EndProcedure
 
 Procedure.s NormalizePath(p.s)
   ; Normalize relative paths and remove any ".\\" / "..\\" segments.
-  Protected bufLen.i = 512
-  Protected out.s
+  Protected out.s = Space(#MAX_PATH)
   Protected r.i
 
   If p = "" : ProcedureReturn "" : EndIf
 
-  out = Space(bufLen)
-  r = WinGetFullPathName(p, bufLen, @out, 0)
+  r = WinGetFullPathName(p, #MAX_PATH, @out, 0)
   If r <= 0
     ProcedureReturn p
   EndIf
-  If r > bufLen
-    bufLen = r + 1
-    out = Space(bufLen)
-    r = WinGetFullPathName(p, bufLen, @out, 0)
+  If r > #MAX_PATH
+    out = Space(r + 1)
+    r = WinGetFullPathName(p, r + 1, @out, 0)
     If r <= 0
       ProcedureReturn p
     EndIf
@@ -286,6 +283,8 @@ Procedure AddInputArg(*opt.Options, arg.s)
   Else
     AddInputFile(*opt, arg)
   EndIf
+  
+  FreeList(matches())
 EndProcedure
 
 Procedure.i ShouldPause()
@@ -578,12 +577,11 @@ Procedure.s ReadFromStdin(Lines.i, Bytes.q, encMode.i, stripBOM.i)
   Protected chunkSize.i = #CHUNK_SIZE
   Protected *chunk = AllocateMemory(chunkSize)
   Protected bytesRead.l
+  Protected result.s = ""
 
   If *chunk = 0
     ProcedureReturn ""
   EndIf
-
-  Protected result.s = ""
 
   If Bytes >= 0
     If Bytes <= 0
@@ -685,11 +683,13 @@ Procedure.s ReadFromStdin(Lines.i, Bytes.q, encMode.i, stripBOM.i)
         Else
           If lineLen + 1 > lineCap
             lineCap + #CHUNK_SIZE
-            *lineBuf = ReAllocateMemory(*lineBuf, lineCap)
-            If *lineBuf = 0
+            Protected *newBuf = ReAllocateMemory(*lineBuf, lineCap)
+            If *newBuf = 0
+              FreeMemory(*lineBuf)
               FreeMemory(*chunk)
               ProcedureReturn ""
             EndIf
+            *lineBuf = *newBuf
           EndIf
           PokeA(*lineBuf + lineLen, ch)
           lineLen + 1
@@ -718,7 +718,7 @@ Procedure.s ReadFromStdin(Lines.i, Bytes.q, encMode.i, stripBOM.i)
     For j = 0 To count - 1
       k = start + j
       While k >= keep : k - keep : Wend
-      result + ringLines(k) + Chr(13) + Chr(10)
+      result + ringLines(k) + #CRLF$
     Next
   EndIf
 
@@ -1895,11 +1895,13 @@ If OpenWindow(0, 0, 0, 1020, 695, #APP_NAME + " " + version, #PB_Window_SystemMe
                                                              #PB_Window_ScreenCentered)
   ; Left: file inputs
   ListIconGadget(#gFiles, 12, 12, 500, 170, "Input files", 460, #PB_ListIcon_FullRowSelect)
+  GadgetToolTip(#gFiles, "Double-click a file to open it")
   ButtonGadget(#gAdd, 520, 12, 120, 26, "Add file...")
   ButtonGadget(#gRemove, 520, 44, 120, 26, "Remove")
   ButtonGadget(#gClear, 520, 76, 120, 26, "Clear")
   ButtonGadget(#gHelp, 520, 108, 120, 26, "Help")
   StringGadget(#gPattern, 12, 188, 420, 24, "")
+  GadgetToolTip(#gPattern, "Enter wildcards like C:\logs\*.log")
   ButtonGadget(#gAddPattern, 440, 188, 120, 24, "Add pattern")
 
   ; Source
@@ -1976,6 +1978,14 @@ If OpenWindow(0, 0, 0, 1020, 695, #APP_NAME + " " + version, #PB_Window_SystemMe
 
       Case #PB_Event_Gadget
         Select gad
+          Case #gFiles
+            If EventType() = #PB_EventType_LeftDoubleClick
+              Define selItem.i = GetGadgetState(#gFiles)
+              If selItem >= 0
+                RunProgram(GetGadgetItemText(#gFiles, selItem, 0))
+              EndIf
+            EndIf
+
           Case #gAdd
             AddFilesFromRequester()
 
@@ -2075,7 +2085,7 @@ EndIf
 End
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 4
+; CursorPosition = 6
 ; Folding = ---------
 ; Optimizer
 ; EnableThread
@@ -2085,12 +2095,12 @@ End
 ; UseIcon = PB_Tails_GUI.ico
 ; Executable = ..\PB_Tails_GUI.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = pb_tails
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = view the last few lines of a log file
 ; VersionField7 = pb_tails
 ; VersionField8 = pb_tails.exe
