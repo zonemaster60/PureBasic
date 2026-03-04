@@ -12,7 +12,11 @@ EnableExplicit
 #SET_MAX_PROC_STATE$ = "bc5038f7-23e0-4960-96da-33abaf5935ec"
 #SET_BOOST_MODE$     = "be337238-0d82-4146-a960-4f3749d470c7"
 #SET_SYS_COOLING_POLICY$ = "94d3a615-a899-4ac5-ae2b-e4d8f634367f"
+#SET_MIN_PROC_STATE$ = "893df05b-2057-4611-9126-1b0c369936d0"
 #SCHEME_BALANCED$    = "381b4222-f694-41f0-9685-ff5bb260df2e"
+#SUB_PCIE$           = "ee12f483-ad20-4395-8360-3116c4296227"
+#SET_ASPM$           = "ee12f483-ad20-4395-8360-3116c4296228"
+
 
 ; boost mode values (not all systems expose/honor these)
 #BOOST_DISABLED    = 0
@@ -21,7 +25,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.0.1"
+Global version.s = "v1.0.0.2"
 
 ; Registry base key (HKCU)
 #APP_NAME = "MyCPUCooler"
@@ -260,13 +264,17 @@ Structure AppSettings
   SchemeGuid.s
   ACMaxCPU.i
   DCMaxCPU.i
+  ACMinCPU.i
+  DCMinCPU.i
   BoostMode.i
   CoolingPolicy.i
+  ASPMMode.i
   AutoApply.i
   LiveApply.i
   RunAtStartup.i
   UseTaskScheduler.i
 EndStructure
+
 
 ; Forward declarations (used before definitions)
 Declare LoadAppSettings(iniPath$, *settings.AppSettings)
@@ -620,25 +628,52 @@ Procedure.i SupportsCoolingPolicySetting(scheme$)
 EndProcedure
 
 
-Procedure ApplySettings(scheme$, acMax.i, dcMax.i, boostValue.i, useBoost.i, coolingPolicy.i)
+Procedure ApplySettings(scheme$, acMax.i, dcMax.i, acMin.i, dcMin.i, boostValue.i, useBoost.i, coolingPolicy.i, aspmValue.i)
   LogLine(#LOG_INFO, "ApplySettings scheme=" + scheme$ +
-                     " ac=" + Str(acMax) + " dc=" + Str(dcMax) +
+                     " acMax=" + Str(acMax) + " dcMax=" + Str(dcMax) +
+                     " acMin=" + Str(acMin) + " dcMin=" + Str(dcMin) +
                      " boost=" + Str(boostValue) + " useBoost=" + Str(useBoost) +
-                     " coolingPolicy=" + Str(coolingPolicy))
+                     " coolingPolicy=" + Str(coolingPolicy) +
+                     " aspm=" + Str(aspmValue))
 
   ; clamp
   If acMax < 1 : acMax = 1 : EndIf
   If acMax > 100 : acMax = 100 : EndIf
   If dcMax < 1 : dcMax = 1 : EndIf
   If dcMax > 100 : dcMax = 100 : EndIf
+  If acMin < 1 : acMin = 1 : EndIf
+  If acMin > 100 : acMin = 100 : EndIf
+  If dcMin < 1 : dcMin = 1 : EndIf
+  If dcMin > 100 : dcMin = 100 : EndIf
+  If acMin > acMax : acMin = acMax : EndIf
+  If dcMin > dcMax : dcMin = dcMax : EndIf
 
   RunPowerCfg("-setacvalueindex " + scheme$ + " " + #SUB_PROCESSOR$ + " " + #SET_MAX_PROC_STATE$ + " " + Str(acMax))
   RunPowerCfg("-setdcvalueindex " + scheme$ + " " + #SUB_PROCESSOR$ + " " + #SET_MAX_PROC_STATE$ + " " + Str(dcMax))
+  RunPowerCfg("-setacvalueindex " + scheme$ + " " + #SUB_PROCESSOR$ + " " + #SET_MIN_PROC_STATE$ + " " + Str(acMin))
+  RunPowerCfg("-setdcvalueindex " + scheme$ + " " + #SUB_PROCESSOR$ + " " + #SET_MIN_PROC_STATE$ + " " + Str(dcMin))
 
   If useBoost
     RunPowerCfg("-setacvalueindex " + scheme$ + " " + #SUB_PROCESSOR$ + " " + #SET_BOOST_MODE$ + " " + Str(boostValue))
     RunPowerCfg("-setdcvalueindex " + scheme$ + " " + #SUB_PROCESSOR$ + " " + #SET_BOOST_MODE$ + " " + Str(boostValue))
   EndIf
+
+
+  ; Cooling policy (0=Active (fan first), 1=Passive (throttle first))
+  If coolingPolicy >= 0
+    If coolingPolicy <> 0 And coolingPolicy <> 1
+      coolingPolicy = 0
+    EndIf
+    RunPowerCfg("-setacvalueindex " + scheme$ + " " + #SUB_PROCESSOR$ + " " + #SET_SYS_COOLING_POLICY$ + " " + Str(coolingPolicy))
+    RunPowerCfg("-setdcvalueindex " + scheme$ + " " + #SUB_PROCESSOR$ + " " + #SET_SYS_COOLING_POLICY$ + " " + Str(coolingPolicy))
+  EndIf
+
+  ; ASPM (0=Off, 1=Moderate, 2=Maximum)
+  If aspmValue >= 0
+    RunPowerCfg("-setacvalueindex " + scheme$ + " " + #SUB_PCIE$ + " " + #SET_ASPM$ + " " + Str(aspmValue))
+    RunPowerCfg("-setdcvalueindex " + scheme$ + " " + #SUB_PCIE$ + " " + #SET_ASPM$ + " " + Str(aspmValue))
+  EndIf
+
 
 
   ; Cooling policy (0=Active (fan first), 1=Passive (throttle first))
@@ -677,9 +712,22 @@ Procedure.s IniEscape(value$)
   ProcedureReturn Trim(value$)
 EndProcedure
 
-Procedure SaveSystemInfo(iniPath$)
+Structure SystemInfoData
+  cpu.s
+  memBytes.s
+  osCaption.s
+  osArch.s
+  osBuild.s
+  osVer.s
+  lastUpdated.s
+  iniPath.s
+EndStructure
+
+Global gSysInfoData.SystemInfoData
+
+Procedure SaveSystemInfoThread(*data.SystemInfoData)
   ; Use CIM via PowerShell; print as key=value for easy parsing.
-  LogLine(#LOG_INFO, "Collecting system info via PowerShell")
+  LogLine(#LOG_INFO, "Collecting system info via PowerShell (threaded)")
   Protected ps$ = "-NoProfile -ExecutionPolicy Bypass -Command " + Chr(34) +
                   "$cpu=(Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name);" +
                   "$mem=(Get-CimInstance Win32_ComputerSystem | Select-Object -ExpandProperty TotalPhysicalMemory);" +
@@ -701,8 +749,6 @@ Procedure SaveSystemInfo(iniPath$)
     If gLastStdout <> "" : LogLine(#LOG_WARN, "output: " + ReplaceString(Trim(gLastStdout), #CRLF$, " | ")) : EndIf
   EndIf
 
-  Protected cpu$ = "", memBytes$ = "", osCaption$ = "", osArch$ = "", osBuild$ = "", osVer$ = ""
-
   Protected i, line$, k$, v$
   Protected lines = CountString(out$, #LF$) + 1
 
@@ -717,47 +763,57 @@ Procedure SaveSystemInfo(iniPath$)
     EndIf
 
     Select LCase(k$)
-      Case "cpu"            : cpu$ = v$
-      Case "memorybytes"    : memBytes$ = v$
-      Case "oscaption"      : osCaption$ = v$
-      Case "osarchitecture" : osArch$ = v$
-      Case "osbuild"        : osBuild$ = v$
-      Case "osversion"      : osVer$ = v$
+      Case "cpu"            : *data\cpu = v$
+      Case "memorybytes"    : *data\memBytes = v$
+      Case "oscaption"      : *data\osCaption = v$
+      Case "osarchitecture" : *data\osArch = v$
+      Case "osbuild"        : *data\osBuild = v$
+      Case "osversion"      : *data\osVer = v$
     EndSelect
   Next
 
-  Protected lastUpdated$ = FormatDate("[%yy-%mm-%dd]-[%hh:%ii:%ss] ", Date())
+  *data\lastUpdated = FormatDate("[%yy-%mm-%dd]-[%hh:%ii:%ss] ", Date())
 
   ; Save to HKCU registry (primary)
   Protected sysKey$ = #REG_BASE$ + "\\SystemInfo"
-  RegWriteString(sysKey$, "CPU", IniEscape(cpu$))
-  RegWriteString(sysKey$, "MemoryBytes", IniEscape(memBytes$))
-  RegWriteString(sysKey$, "OSCaption", IniEscape(osCaption$))
-  RegWriteString(sysKey$, "OSArchitecture", IniEscape(osArch$))
-  RegWriteString(sysKey$, "OSBuild", IniEscape(osBuild$))
-  RegWriteString(sysKey$, "OSVersion", IniEscape(osVer$))
-  RegWriteString(sysKey$, "LastUpdated", lastUpdated$)
+  RegWriteString(sysKey$, "CPU", IniEscape(*data\cpu))
+  RegWriteString(sysKey$, "MemoryBytes", IniEscape(*data\memBytes))
+  RegWriteString(sysKey$, "OSCaption", IniEscape(*data\osCaption))
+  RegWriteString(sysKey$, "OSArchitecture", IniEscape(*data\osArch))
+  RegWriteString(sysKey$, "OSBuild", IniEscape(*data\osBuild))
+  RegWriteString(sysKey$, "OSVersion", IniEscape(*data\osVer))
+  RegWriteString(sysKey$, "LastUpdated", *data\lastUpdated)
 
   ; Also write to INI for easy viewing/backup
-  If OpenPreferences(iniPath$)
+  If OpenPreferences(*data\iniPath)
     PreferenceGroup("SystemInfo")
-    WritePreferenceString("CPU", IniEscape(cpu$))
-    WritePreferenceString("MemoryBytes", IniEscape(memBytes$))
-    WritePreferenceString("OSCaption", IniEscape(osCaption$))
-    WritePreferenceString("OSArchitecture", IniEscape(osArch$))
-    WritePreferenceString("OSBuild", IniEscape(osBuild$))
-    WritePreferenceString("OSVersion", IniEscape(osVer$))
-    WritePreferenceString("LastUpdated", lastUpdated$)
+    WritePreferenceString("CPU", IniEscape(*data\cpu))
+    WritePreferenceString("MemoryBytes", IniEscape(*data\memBytes))
+    WritePreferenceString("OSCaption", IniEscape(*data\osCaption))
+    WritePreferenceString("OSArchitecture", IniEscape(*data\osArch))
+    WritePreferenceString("OSBuild", IniEscape(*data\osBuild))
+    WritePreferenceString("OSVersion", IniEscape(*data\osVer))
+    WritePreferenceString("LastUpdated", *data\lastUpdated)
     ClosePreferences()
   EndIf
+  LogLine(#LOG_INFO, "System info collection complete")
 EndProcedure
+
+Procedure StartSystemInfoUpdate(iniPath$)
+  gSysInfoData\iniPath = iniPath$
+  CreateThread(@SaveSystemInfoThread(), @gSysInfoData)
+EndProcedure
+
 
 Procedure LoadAppSettings(iniPath$, *settings.AppSettings)
   ; defaults tuned for thin Intel H laptops (like GF63)
   *settings\ACMaxCPU = 99
   *settings\DCMaxCPU = 85
+  *settings\ACMinCPU = 5
+  *settings\DCMinCPU = 5
   *settings\BoostMode = #BOOST_DISABLED
   *settings\CoolingPolicy = 0 ; 0=Active (fan first), 1=Passive (throttle first)
+  *settings\ASPMMode = 1 ; 0=Off, 1=Moderate, 2=Max
   *settings\AutoApply = 1
   *settings\LiveApply = 0
   *settings\RunAtStartup = 0
@@ -769,8 +825,11 @@ Procedure LoadAppSettings(iniPath$, *settings.AppSettings)
   *settings\SchemeGuid = RegReadString(settingsKey$, "SchemeGuid", *settings\SchemeGuid)
   *settings\ACMaxCPU   = RegReadDword(settingsKey$, "AC_MaxCPU", *settings\ACMaxCPU)
   *settings\DCMaxCPU   = RegReadDword(settingsKey$, "DC_MaxCPU", *settings\DCMaxCPU)
+  *settings\ACMinCPU   = RegReadDword(settingsKey$, "AC_MinCPU", *settings\ACMinCPU)
+  *settings\DCMinCPU   = RegReadDword(settingsKey$, "DC_MinCPU", *settings\DCMinCPU)
   *settings\BoostMode  = RegReadDword(settingsKey$, "BoostMode", *settings\BoostMode)
   *settings\CoolingPolicy = RegReadDword(settingsKey$, "CoolingPolicy", *settings\CoolingPolicy)
+  *settings\ASPMMode   = RegReadDword(settingsKey$, "ASPMMode", *settings\ASPMMode)
   *settings\AutoApply  = RegReadDword(settingsKey$, "AutoApply", *settings\AutoApply)
   *settings\LiveApply  = RegReadDword(settingsKey$, "LiveApply", *settings\LiveApply)
   *settings\RunAtStartup     = RegReadDword(settingsKey$, "RunAtStartup", *settings\RunAtStartup)
@@ -783,8 +842,11 @@ Procedure LoadAppSettings(iniPath$, *settings.AppSettings)
       *settings\SchemeGuid = ReadPreferenceString("SchemeGuid", *settings\SchemeGuid)
       *settings\ACMaxCPU   = ReadPreferenceLong("AC_MaxCPU", *settings\ACMaxCPU)
       *settings\DCMaxCPU   = ReadPreferenceLong("DC_MaxCPU", *settings\DCMaxCPU)
+      *settings\ACMinCPU   = ReadPreferenceLong("AC_MinCPU", *settings\ACMinCPU)
+      *settings\DCMinCPU   = ReadPreferenceLong("DC_MinCPU", *settings\DCMinCPU)
       *settings\BoostMode    = ReadPreferenceLong("BoostMode", *settings\BoostMode)
       *settings\CoolingPolicy = ReadPreferenceLong("CoolingPolicy", *settings\CoolingPolicy)
+      *settings\ASPMMode     = ReadPreferenceLong("ASPMMode", *settings\ASPMMode)
       *settings\AutoApply    = ReadPreferenceLong("AutoApply", *settings\AutoApply)
       *settings\LiveApply    = ReadPreferenceLong("LiveApply", *settings\LiveApply)
       *settings\RunAtStartup     = ReadPreferenceLong("RunAtStartup", *settings\RunAtStartup)
@@ -794,19 +856,25 @@ Procedure LoadAppSettings(iniPath$, *settings.AppSettings)
   EndIf
 EndProcedure
 
+
 Procedure SaveAppSettings(iniPath$, *settings.AppSettings)
   ; Persist app settings
   LogLine(#LOG_INFO, "SaveAppSettings" +
-                     " ac=" + Str(*settings\ACMaxCPU) + " dc=" + Str(*settings\DCMaxCPU) +
+                     " acMax=" + Str(*settings\ACMaxCPU) + " dcMax=" + Str(*settings\DCMaxCPU) +
+                     " acMin=" + Str(*settings\ACMinCPU) + " dcMin=" + Str(*settings\DCMinCPU) +
                      " boost=" + Str(*settings\BoostMode) + " coolingPolicy=" + Str(*settings\CoolingPolicy) +
+                     " aspm=" + Str(*settings\ASPMMode) +
                      " autoApply=" + Str(*settings\AutoApply) + " liveApply=" + Str(*settings\LiveApply) +
                      " runAtStartup=" + Str(*settings\RunAtStartup) + " useTaskScheduler=" + Str(*settings\UseTaskScheduler))
   Protected settingsKey$ = #REG_BASE$ + "\\Settings"
   RegWriteString(settingsKey$, "SchemeGuid", *settings\SchemeGuid)
   RegWriteDword(settingsKey$, "AC_MaxCPU", *settings\ACMaxCPU)
   RegWriteDword(settingsKey$, "DC_MaxCPU", *settings\DCMaxCPU)
+  RegWriteDword(settingsKey$, "AC_MinCPU", *settings\ACMinCPU)
+  RegWriteDword(settingsKey$, "DC_MinCPU", *settings\DCMinCPU)
   RegWriteDword(settingsKey$, "BoostMode", *settings\BoostMode)
   RegWriteDword(settingsKey$, "CoolingPolicy", *settings\CoolingPolicy)
+  RegWriteDword(settingsKey$, "ASPMMode", *settings\ASPMMode)
   RegWriteDword(settingsKey$, "AutoApply", *settings\AutoApply)
   RegWriteDword(settingsKey$, "LiveApply", *settings\LiveApply)
   RegWriteDword(settingsKey$, "RunAtStartup", *settings\RunAtStartup)
@@ -817,9 +885,13 @@ Procedure SaveAppSettings(iniPath$, *settings.AppSettings)
     WritePreferenceString("SchemeGuid", *settings\SchemeGuid)
     WritePreferenceLong("AC_MaxCPU", *settings\ACMaxCPU)
     WritePreferenceLong("DC_MaxCPU", *settings\DCMaxCPU)
+    WritePreferenceLong("AC_MinCPU", *settings\ACMinCPU)
+    WritePreferenceLong("DC_MinCPU", *settings\DCMinCPU)
     WritePreferenceLong("BoostMode", *settings\BoostMode)
     WritePreferenceLong("CoolingPolicy", *settings\CoolingPolicy)
+    WritePreferenceLong("ASPMMode", *settings\ASPMMode)
     WritePreferenceLong("AutoApply", *settings\AutoApply)
+
     WritePreferenceLong("LiveApply", *settings\LiveApply)
     WritePreferenceLong("RunAtStartup", *settings\RunAtStartup)
     WritePreferenceLong("UseTaskScheduler", *settings\UseTaskScheduler)
@@ -872,14 +944,20 @@ EndProcedure
 
 Enumeration
   #Win
-  #TrackAC
-  #TrackDC
+  #TrackACMax
+  #TrackDCMax
+  #TrackACMin
+  #TrackDCMin
   #ComboBoost
   #ComboCooling
+  #ComboASPM
 
-  #TxtACVal
-  #TxtDCVal
+  #TxtACMaxVal
+  #TxtDCMaxVal
+  #TxtACMinVal
+  #TxtDCMinVal
   #TxtBoostVal
+
 
   #ChkAutoApply
   #ChkLiveApply
@@ -905,12 +983,24 @@ Procedure.i CoolingPolicyArg(useCooling.i)
   ProcedureReturn -1
 EndProcedure
 
-Procedure UpdateDisplayedValues(useBoost.i)
-  Protected acMax.i = GetGadgetState(#TrackAC)
-  Protected dcMax.i = GetGadgetState(#TrackDC)
+Procedure.i ASPMArg()
+  Protected idx.i = GetGadgetState(#ComboASPM)
+  If idx >= 0
+    ProcedureReturn GetGadgetItemData(#ComboASPM, idx)
+  EndIf
+  ProcedureReturn -1
+EndProcedure
 
-  SetGadgetText(#TxtACVal, Str(acMax) + "%")
-  SetGadgetText(#TxtDCVal, Str(dcMax) + "%")
+Procedure UpdateDisplayedValues(useBoost.i)
+  Protected acMax.i = GetGadgetState(#TrackACMax)
+  Protected dcMax.i = GetGadgetState(#TrackDCMax)
+  Protected acMin.i = GetGadgetState(#TrackACMin)
+  Protected dcMin.i = GetGadgetState(#TrackDCMin)
+
+  SetGadgetText(#TxtACMaxVal, Str(acMax) + "%")
+  SetGadgetText(#TxtDCMaxVal, Str(dcMax) + "%")
+  SetGadgetText(#TxtACMinVal, Str(acMin) + "%")
+  SetGadgetText(#TxtDCMinVal, Str(dcMin) + "%")
 
   If useBoost
     Protected idx.i = GetGadgetState(#ComboBoost)
@@ -920,6 +1010,7 @@ Procedure UpdateDisplayedValues(useBoost.i)
     SetGadgetText(#TxtBoostVal, "Value: N/A")
   EndIf
 EndProcedure
+
 
 EnsureAdmin()
 
@@ -932,7 +1023,8 @@ If gLogLevel = #LOG_DEBUG
   LogLine(#LOG_DEBUG, "powercfg probe exit=" + Str(gLastExitCode) + " outLen=" + Str(Len(gLastStdout)))
 EndIf
 
-SaveSystemInfo(iniPath$)
+StartSystemInfoUpdate(iniPath$)
+
 
 Define settings.AppSettings
 LoadAppSettings(iniPath$, @settings)
@@ -940,11 +1032,10 @@ LoadAppSettings(iniPath$, @settings)
 Define scheme$  = EnsureCustomScheme(#APP_NAME, iniPath$)
 LogLine(#LOG_INFO, "Using scheme=" + scheme$)
 
-Define acMax.i = settings\ACMaxCPU
-Define dcMax.i = settings\DCMaxCPU
-Define boost.i = settings\BoostMode
+; Ensure settings match what's currently in registry/INI (already done by LoadAppSettings)
 
 Define useBoost.i = SupportsBoostModeSetting(scheme$)
+
 LogLine(#LOG_INFO, "Supports boost setting=" + Str(useBoost))
 
 Define useCooling.i = SupportsCoolingPolicySetting(scheme$)
@@ -954,15 +1045,16 @@ LogLine(#LOG_INFO, "Supports cooling policy setting=" + Str(useCooling))
 If HasArg("--silent")
   LogLine(#LOG_INFO, "--silent requested; applying saved settings and exiting")
   If useCooling
-    ApplySettings(scheme$, settings\ACMaxCPU, settings\DCMaxCPU, settings\BoostMode, useBoost, settings\CoolingPolicy)
+    ApplySettings(scheme$, settings\ACMaxCPU, settings\DCMaxCPU, settings\ACMinCPU, settings\DCMinCPU, settings\BoostMode, useBoost, settings\CoolingPolicy, settings\ASPMMode)
   Else
-    ApplySettings(scheme$, settings\ACMaxCPU, settings\DCMaxCPU, settings\BoostMode, useBoost, -1)
+    ApplySettings(scheme$, settings\ACMaxCPU, settings\DCMaxCPU, settings\ACMinCPU, settings\DCMinCPU, settings\BoostMode, useBoost, -1, settings\ASPMMode)
   EndIf
   CloseHandle_(hMutex)
   End
 EndIf
 
-OpenWindow(#Win, 0, 0, 500, 475, #APP_NAME + " - " + version + " (powercfg)", #PB_Window_SystemMenu | #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered)
+
+OpenWindow(#Win, 0, 0, 500, 620, #APP_NAME + " - " + version + " (powercfg)", #PB_Window_SystemMenu | #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered)
 LogLine(#LOG_INFO, "UI started")
 
 TextGadget(#PB_Any, 15, 15, 470, 20, "Custom power scheme: " + scheme$)
@@ -970,20 +1062,47 @@ TextGadget(#PB_Any, 15, 15, 470, 20, "Custom power scheme: " + scheme$)
 TextGadget(#PB_Any, 15, 45, 470, 20, "Tip: Setting AC Max CPU to 99% usually prevents Turbo Boost and drops temps.")
 
 TextGadget(#PB_Any, 15, 80, 220, 20, "AC (Plugged in) Max CPU %")
-TextGadget(#TxtACVal, 440, 80, 45, 20, "")
-TrackBarGadget(#TrackAC, 15, 100, 470, 25, 50, 100)
-SetGadgetState(#TrackAC, acMax)
+TextGadget(#TxtACMaxVal, 440, 80, 45, 20, "")
+TrackBarGadget(#TrackACMax, 15, 100, 470, 25, 5, 100)
+SetGadgetState(#TrackACMax, settings\ACMaxCPU)
 
 TextGadget(#PB_Any, 15, 135, 220, 20, "DC (Battery) Max CPU %")
-TextGadget(#TxtDCVal, 440, 135, 45, 20, "")
-TrackBarGadget(#TrackDC, 15, 155, 470, 25, 30, 100)
-SetGadgetState(#TrackDC, dcMax)
+TextGadget(#TxtDCMaxVal, 440, 135, 45, 20, "")
+TrackBarGadget(#TrackDCMax, 15, 155, 470, 25, 5, 100)
+SetGadgetState(#TrackDCMax, settings\DCMaxCPU)
 
-TextGadget(#PB_Any, 15, 190, 70, 20, "Boost mode:")
-TextGadget(#TxtBoostVal, 275, 190, 210, 20, "")
-ComboBoxGadget(#ComboBoost, 15, 210, 250, 25)
-TextGadget(#PB_Any, 275, 235, 210, 20, "Cooling policy:")
-ComboBoxGadget(#ComboCooling, 275, 255, 210, 25)
+TextGadget(#PB_Any, 15, 190, 220, 20, "AC (Plugged in) Min CPU %")
+TextGadget(#TxtACMinVal, 440, 190, 45, 20, "")
+TrackBarGadget(#TrackACMin, 15, 210, 470, 25, 1, 100)
+SetGadgetState(#TrackACMin, settings\ACMinCPU)
+
+TextGadget(#PB_Any, 15, 245, 220, 20, "DC (Battery) Min CPU %")
+TextGadget(#TxtDCMinVal, 440, 245, 45, 20, "")
+TrackBarGadget(#TrackDCMin, 15, 265, 470, 25, 1, 100)
+SetGadgetState(#TrackDCMin, settings\DCMinCPU)
+
+TextGadget(#PB_Any, 15, 300, 70, 20, "Boost mode:")
+TextGadget(#TxtBoostVal, 15, 345, 250, 20, "")
+ComboBoxGadget(#ComboBoost, 15, 320, 250, 25)
+
+TextGadget(#PB_Any, 275, 300, 210, 20, "Cooling policy:")
+ComboBoxGadget(#ComboCooling, 275, 320, 210, 25)
+
+TextGadget(#PB_Any, 15, 370, 210, 20, "Link State Power Mgmt (ASPM):")
+ComboBoxGadget(#ComboASPM, 15, 390, 470, 25)
+AddGadgetItem(#ComboASPM, -1, "Off (performance)")
+SetGadgetItemData(#ComboASPM, 0, 0)
+AddGadgetItem(#ComboASPM, -1, "Moderate Power Savings")
+SetGadgetItemData(#ComboASPM, 1, 1)
+AddGadgetItem(#ComboASPM, -1, "Maximum Power Savings")
+SetGadgetItemData(#ComboASPM, 2, 2)
+Select settings\ASPMMode
+  Case 0 : SetGadgetState(#ComboASPM, 0)
+  Case 1 : SetGadgetState(#ComboASPM, 1)
+  Case 2 : SetGadgetState(#ComboASPM, 2)
+  Default : SetGadgetState(#ComboASPM, 1)
+EndSelect
+
 AddGadgetItem(#ComboCooling, -1, "Active (fan first)")
 SetGadgetItemData(#ComboCooling, 0, 0)
 AddGadgetItem(#ComboCooling, -1, "Passive (throttle first)")
@@ -996,7 +1115,7 @@ AddGadgetItem(#ComboBoost, -1, "Aggressive (hottest)")
 SetGadgetItemData(#ComboBoost, 2, #BOOST_AGGRESSIVE)
 
 ; select current boost
-Select boost
+Select settings\BoostMode
   Case #BOOST_DISABLED
     SetGadgetState(#ComboBoost, 0)
   Case #BOOST_EFFICIENT
@@ -1014,42 +1133,43 @@ EndIf
 
 If useBoost = #False
   DisableGadget(#ComboBoost, #True)
-  TextGadget(#PB_Any, 90, 190, 210, 20, "(Not supported on this system)")
+  TextGadget(#PB_Any, 90, 300, 210, 20, "(Not supported on this system)")
 EndIf
 
 If useCooling = #False
   DisableGadget(#ComboCooling, #True)
 EndIf
 
-CheckBoxGadget(#ChkAutoApply, 15, 385, 250, 20, "Auto apply saved settings on startup")
+CheckBoxGadget(#ChkAutoApply, 15, 530, 250, 20, "Auto apply saved settings on startup")
 SetGadgetState(#ChkAutoApply, settings\AutoApply)
 
-CheckBoxGadget(#ChkLiveApply, 275, 385, 210, 20, "Live apply while adjusting")
+CheckBoxGadget(#ChkLiveApply, 275, 530, 210, 20, "Live apply while adjusting")
 SetGadgetState(#ChkLiveApply, settings\LiveApply)
 
-CheckBoxGadget(#ChkRunAtStartup, 15, 410, 470, 20, "Run at Windows startup (applies settings silently)")
+CheckBoxGadget(#ChkRunAtStartup, 15, 555, 470, 20, "Run at Windows startup (applies settings silently)")
 SetGadgetState(#ChkRunAtStartup, settings\RunAtStartup)
 
-CheckBoxGadget(#ChkUseTaskScheduler, 15, 430, 470, 20, "Use Task Scheduler (no UAC prompt at login)")
+CheckBoxGadget(#ChkUseTaskScheduler, 15, 575, 470, 20, "Use Task Scheduler (no UAC prompt at login)")
 SetGadgetState(#ChkUseTaskScheduler, settings\UseTaskScheduler)
 
-ButtonGadget(#BtnApply, 15, 285, 470, 28, "Apply now")
+ButtonGadget(#BtnApply, 15, 430, 470, 28, "Apply now")
 
 UpdateDisplayedValues(useBoost)
 
-ButtonGadget(#BtnCoolPreset, 15, 320, 150, 28, "Cool preset")
-ButtonGadget(#BtnBalancedPreset, 175, 320, 150, 28, "Balanced preset")
-ButtonGadget(#BtnPerfPreset, 335, 320, 150, 28, "Performance preset")
+ButtonGadget(#BtnCoolPreset, 15, 465, 150, 28, "Cool preset")
+ButtonGadget(#BtnBalancedPreset, 175, 465, 150, 28, "Balanced preset")
+ButtonGadget(#BtnPerfPreset, 335, 465, 150, 28, "Performance preset")
 
-ButtonGadget(#BtnRestoreBalanced, 15, 352, 470, 25, "Restore Windows Balanced plan (activate default)")
+ButtonGadget(#BtnRestoreBalanced, 15, 497, 470, 25, "Restore Windows Balanced plan (activate default)")
 
 ; Apply on startup if enabled
 If settings\AutoApply
   LogLine(#LOG_INFO, "AutoApply enabled; applying on startup")
-  ApplySettings(scheme$, GetGadgetState(#TrackAC), GetGadgetState(#TrackDC), boost, useBoost, CoolingPolicyArg(useCooling))
+  ApplySettings(scheme$, GetGadgetState(#TrackACMax), GetGadgetState(#TrackDCMax), GetGadgetState(#TrackACMin), GetGadgetState(#TrackDCMin), settings\BoostMode, useBoost, CoolingPolicyArg(useCooling), ASPMArg())
 Else
   LogLine(#LOG_INFO, "AutoApply disabled")
 EndIf
+
 
 
 Define ev, boostIndex, boostValue
@@ -1071,7 +1191,7 @@ Repeat
           settings\UseTaskScheduler = GetGadgetState(#ChkUseTaskScheduler)
           SaveAppSettings(iniPath$, @settings)
 
-        Case #TrackAC, #TrackDC, #ComboBoost, #ComboCooling
+        Case #TrackACMax, #TrackDCMax, #TrackACMin, #TrackDCMin, #ComboBoost, #ComboCooling, #ComboASPM
           UpdateDisplayedValues(useBoost)
           If GetGadgetState(#ChkLiveApply)
             liveBoostValue = #BOOST_DISABLED
@@ -1079,15 +1199,18 @@ Repeat
               liveIdx = GetGadgetState(#ComboBoost)
               liveBoostValue = GetGadgetItemData(#ComboBoost, liveIdx)
             EndIf
-            ApplySettings(scheme$, GetGadgetState(#TrackAC), GetGadgetState(#TrackDC), liveBoostValue, useBoost, CoolingPolicyArg(useCooling))
+            ApplySettings(scheme$, GetGadgetState(#TrackACMax), GetGadgetState(#TrackDCMax), GetGadgetState(#TrackACMin), GetGadgetState(#TrackDCMin), liveBoostValue, useBoost, CoolingPolicyArg(useCooling), ASPMArg())
           EndIf
 
         Case #BtnCoolPreset
           ; Recommended for GF63 i5-11400H
-          SetGadgetState(#TrackAC, 99)
-          SetGadgetState(#TrackDC, 80)
+          SetGadgetState(#TrackACMax, 99)
+          SetGadgetState(#TrackDCMax, 80)
+          SetGadgetState(#TrackACMin, 5)
+          SetGadgetState(#TrackDCMin, 5)
           If useBoost : SetGadgetState(#ComboBoost, 0) : EndIf
           SetGadgetState(#ComboCooling, 1)
+          SetGadgetState(#ComboASPM, 2)
           UpdateDisplayedValues(useBoost)
 
           If GetGadgetState(#ChkLiveApply)
@@ -1096,14 +1219,17 @@ Repeat
               presetIdx0 = GetGadgetState(#ComboBoost)
               presetBoostValue0 = GetGadgetItemData(#ComboBoost, presetIdx0)
             EndIf
-            ApplySettings(scheme$, GetGadgetState(#TrackAC), GetGadgetState(#TrackDC), presetBoostValue0, useBoost, CoolingPolicyArg(useCooling))
+            ApplySettings(scheme$, GetGadgetState(#TrackACMax), GetGadgetState(#TrackDCMax), GetGadgetState(#TrackACMin), GetGadgetState(#TrackDCMin), presetBoostValue0, useBoost, CoolingPolicyArg(useCooling), ASPMArg())
           EndIf
 
         Case #BtnBalancedPreset
-          SetGadgetState(#TrackAC, 100)
-          SetGadgetState(#TrackDC, 85)
+          SetGadgetState(#TrackACMax, 100)
+          SetGadgetState(#TrackDCMax, 85)
+          SetGadgetState(#TrackACMin, 5)
+          SetGadgetState(#TrackDCMin, 5)
           If useBoost : SetGadgetState(#ComboBoost, 1) : EndIf
           SetGadgetState(#ComboCooling, 0)
+          SetGadgetState(#ComboASPM, 1)
           UpdateDisplayedValues(useBoost)
 
           If GetGadgetState(#ChkLiveApply)
@@ -1112,14 +1238,17 @@ Repeat
               presetIdx1 = GetGadgetState(#ComboBoost)
               presetBoostValue1 = GetGadgetItemData(#ComboBoost, presetIdx1)
             EndIf
-            ApplySettings(scheme$, GetGadgetState(#TrackAC), GetGadgetState(#TrackDC), presetBoostValue1, useBoost, CoolingPolicyArg(useCooling))
+            ApplySettings(scheme$, GetGadgetState(#TrackACMax), GetGadgetState(#TrackDCMax), GetGadgetState(#TrackACMin), GetGadgetState(#TrackDCMin), presetBoostValue1, useBoost, CoolingPolicyArg(useCooling), ASPMArg())
           EndIf
 
         Case #BtnPerfPreset
-          SetGadgetState(#TrackAC, 100)
-          SetGadgetState(#TrackDC, 100)
+          SetGadgetState(#TrackACMax, 100)
+          SetGadgetState(#TrackDCMax, 100)
+          SetGadgetState(#TrackACMin, 5)
+          SetGadgetState(#TrackDCMin, 5)
           If useBoost : SetGadgetState(#ComboBoost, 2) : EndIf
           SetGadgetState(#ComboCooling, 0)
+          SetGadgetState(#ComboASPM, 0)
           UpdateDisplayedValues(useBoost)
 
           If GetGadgetState(#ChkLiveApply)
@@ -1128,7 +1257,7 @@ Repeat
               presetIdx2 = GetGadgetState(#ComboBoost)
               presetBoostValue2 = GetGadgetItemData(#ComboBoost, presetIdx2)
             EndIf
-            ApplySettings(scheme$, GetGadgetState(#TrackAC), GetGadgetState(#TrackDC), presetBoostValue2, useBoost, CoolingPolicyArg(useCooling))
+            ApplySettings(scheme$, GetGadgetState(#TrackACMax), GetGadgetState(#TrackDCMax), GetGadgetState(#TrackACMin), GetGadgetState(#TrackDCMin), presetBoostValue2, useBoost, CoolingPolicyArg(useCooling), ASPMArg())
           EndIf
 
         Case #BtnRestoreBalanced
@@ -1138,8 +1267,10 @@ Repeat
 
 Case #BtnApply
   LogLine(#LOG_INFO, "Apply button clicked")
-  acMax = GetGadgetState(#TrackAC)
-  dcMax = GetGadgetState(#TrackDC)
+  Define acMaxVal = GetGadgetState(#TrackACMax)
+  Define dcMaxVal = GetGadgetState(#TrackDCMax)
+  Define acMinVal = GetGadgetState(#TrackACMin)
+  Define dcMinVal = GetGadgetState(#TrackDCMin)
 
 
           boostValue = #BOOST_DISABLED
@@ -1151,31 +1282,39 @@ Case #BtnApply
           UpdateDisplayedValues(useBoost)
 
           ; save (registry primary, INI backup)
-          settings\ACMaxCPU = acMax
-          settings\DCMaxCPU = dcMax
+          settings\ACMaxCPU = acMaxVal
+          settings\DCMaxCPU = dcMaxVal
+          settings\ACMinCPU = acMinVal
+          settings\DCMinCPU = dcMinVal
           settings\BoostMode = boostValue
           If useCooling
             settings\CoolingPolicy = CoolingPolicyArg(useCooling)
           EndIf
+          settings\ASPMMode = ASPMArg()
           settings\AutoApply = GetGadgetState(#ChkAutoApply)
           settings\LiveApply = GetGadgetState(#ChkLiveApply)
           settings\RunAtStartup = GetGadgetState(#ChkRunAtStartup)
           settings\UseTaskScheduler = GetGadgetState(#ChkUseTaskScheduler)
           SaveAppSettings(iniPath$, @settings)
 
-          ApplySettings(scheme$, acMax, dcMax, boostValue, useBoost, CoolingPolicyArg(useCooling))
+          ApplySettings(scheme$, acMaxVal, dcMaxVal, acMinVal, dcMinVal, boostValue, useBoost, CoolingPolicyArg(useCooling), ASPMArg())
 
           If useBoost
             MessageRequester("Done", "Applied to custom scheme." + #CRLF$ +
-                                     "AC Max CPU: " + Str(acMax) + "%" + #CRLF$ + 
-                                     "DC Max CPU: " + Str(dcMax) + "%" + #CRLF$ +
+                                     "AC Max CPU: " + Str(acMaxVal) + "%" + #CRLF$ + 
+                                     "DC Max CPU: " + Str(dcMaxVal) + "%" + #CRLF$ +
+                                     "AC Min CPU: " + Str(acMinVal) + "%" + #CRLF$ +
+                                     "DC Min CPU: " + Str(dcMinVal) + "%" + #CRLF$ +
                                      "Boost mode value: " + Str(boostValue), #PB_MessageRequester_Info)
           Else
             MessageRequester("Done", "Applied to custom scheme." + #CRLF$ +
-                                     "AC Max CPU: " + Str(acMax) + "%" + #CRLF$ + 
-                                     "DC Max CPU: " + Str(dcMax) + "%" + #CRLF$ +
+                                     "AC Max CPU: " + Str(acMaxVal) + "%" + #CRLF$ + 
+                                     "DC Max CPU: " + Str(dcMaxVal) + "%" + #CRLF$ +
+                                     "AC Min CPU: " + Str(acMinVal) + "%" + #CRLF$ +
+                                     "DC Min CPU: " + Str(dcMinVal) + "%" + #CRLF$ +
                                      "Boost mode is Not available on this system.", #PB_MessageRequester_Info)
           EndIf
+
       EndSelect
 
 Case #PB_Event_CloseWindow
@@ -1189,7 +1328,7 @@ Case #PB_Event_CloseWindow
 ForEver
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 23
+; CursorPosition = 27
 ; Folding = ------
 ; Optimizer
 ; EnableThread
@@ -1199,13 +1338,13 @@ ForEver
 ; UseIcon = MyCPUCooler.ico
 ; Executable = ..\MyCPUCooler.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = MyCPUCooler
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
-; VersionField6 = Chooses the coolest powerplan 
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
+; VersionField6 = Chooses the coolest powerplan
 ; VersionField7 = MyCPUCooler
 ; VersionField8 = MyCPUCooler.exe
 ; VersionField9 = David Scouten
