@@ -4,12 +4,20 @@ EnableExplicit
 
 #APP_NAME   = "HandySearch"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-Global version.s = "v1.0.0.8"
+Global version.s = "v1.0.0.9"
 
 ; Crash logging (best-effort)
 Declare InitCrashLogging()
 Declare LogLine(msg.s)
 Declare CrashErrorHandler()
+
+Structure IndexRecord
+  Path.s
+  Name.s
+  Dir.s
+  Size.q
+  MTime.q
+EndStructure
 
 Procedure.b HasArg(arg$)
   Protected i
@@ -59,6 +67,10 @@ Declare EnqueueResult(path.s)
 Declare EnqueueResultsBatch(List batch.s())
 Declare InitDatabase()
 Declare.q GetIndexedCountFast()
+Declare SyncUiState()
+Declare.i GetFileIconIndex(path.s)
+Declare DbWriterThreadProc(dummy.i)
+Declare FlushIndexBatchToDb(List batch.IndexRecord())
 
 ; Startup (run at login) helpers
 Declare.i IsInStartup()
@@ -158,6 +170,14 @@ Global QueryDirty.i
 Global QueryNextAtMS.i
 Global LastQueryText.s
 
+; Global reparse point tracking to prevent loops
+Global NewMap VisitedFolders.i()
+Global VisitedFoldersMutex.i
+
+; Icon management
+Global NewMap IconCache.i()
+Global IconMutex.i
+
 ; Live incremental results (from worker threads -> UI)
 Global LiveMatcherMode.i ; 0=contains, 1=wildcard-regex, 2=regex-query
 Global LiveMatcherNeedle.s
@@ -180,6 +200,13 @@ Global ActiveDirCount.i
 Global WorkStop.i
 Global WorkerCount.i
 Global Dim WorkerThreads.i(0)
+
+; DB Writer thread objects
+Global DbWriterThread.i
+Global DbWriterStop.i
+Global DbWriterQueueMutex.i
+Global DbWriterQueueSem.i
+Global NewList DbWriterQueue.IndexRecord()
  
 Global NewList PendingResults.s()
 Global NewMap ExcludeDirNames.i()
@@ -730,14 +757,28 @@ Procedure.i IsInStartup()
   ProcedureReturn #False
 EndProcedure
 
-Procedure UpdateStartupMenuState()
+Procedure SyncUiState()
+  ; Synchronize checkmarks and text across all menus and tray
+  Protected pauseText.s = "Pause"
+  If IndexingPaused
+    pauseText = "Resume"
+  EndIf
+
   If IsMenu(#Menu_Main)
+    SetMenuItemState(#Menu_Main, #Menu_View_Compact, AppCompactMode)
+    SetMenuItemState(#Menu_Main, #Menu_View_LiveMatchFullPath, LiveMatchFullPath)
     SetMenuItemState(#Menu_Main, #Menu_App_RunAtStartup, Bool(AppRunAtStartup))
+    SetMenuItemText(#Menu_Main, #Menu_Index_PauseResume, pauseText)
   EndIf
 
   If IsMenu(#Menu_TrayPopup)
     SetMenuItemState(#Menu_TrayPopup, #Menu_Tray_RunAtStartup, Bool(AppRunAtStartup))
+    SetMenuItemText(#Menu_TrayPopup, #Menu_Tray_PauseResume, pauseText)
   EndIf
+EndProcedure
+
+Procedure UpdateStartupMenuState()
+  SyncUiState()
 EndProcedure
 
 Procedure UpdateControlStates()
@@ -745,6 +786,7 @@ Procedure UpdateControlStates()
   ; Buttons are now a menu, so the only thing to keep responsive
   ; is the search bar.
   DisableGadget(#Gadget_SearchBar, #False)
+  SyncUiState()
 EndProcedure
 
 ; === Search Parameters ===
@@ -923,14 +965,6 @@ Procedure SearchDirectoryWorker(dir.s, pattern.s, regexID.i, List localResults.s
   ; Deprecated: kept for compatibility with older structure.
 EndProcedure
 
-Structure IndexRecord
-  Path.s
-  Name.s
-  Dir.s
-  Size.q
-  MTime.q
-EndStructure
-
 Procedure.b IsReparsePoint(fullPath.s)
   Protected attrs.i = GetFileAttributes_(fullPath)
   If attrs = -1
@@ -942,6 +976,7 @@ EndProcedure
 Procedure IndexDirectoryWorker(dir.s, List batch.IndexRecord())
   Protected dirID.i, entryName.s, fullpath.s
   Protected localFiles.q
+  Protected retryCount.i
 
   If WorkStop Or StopSearch
     ProcedureReturn
@@ -954,10 +989,31 @@ Procedure IndexDirectoryWorker(dir.s, List batch.IndexRecord())
   SetProgressFolder(dir)
   AddProgressDir()
 
-  dirID = ExamineDirectory(#PB_Any, dir, "*.*")
-  If dirID = 0
+  ; Check for recursion loops using a normalized canonical path
+  Protected canonical.s = LCase(NormalizePath(dir))
+  LockMutex(VisitedFoldersMutex)
+  If FindMapElement(VisitedFolders(), canonical)
+    UnlockMutex(VisitedFoldersMutex)
     ProcedureReturn
   EndIf
+  VisitedFolders(canonical) = 1
+  UnlockMutex(VisitedFoldersMutex)
+
+  Repeat
+    dirID = ExamineDirectory(#PB_Any, dir, "*.*")
+    If dirID = 0
+      If retryCount < 2 And (WorkStop = 0 And StopSearch = 0)
+        LogLine("Retrying directory access: " + dir)
+        Delay(50)
+        retryCount + 1
+        Continue
+      Else
+        LogLine("Skipping directory (access denied/not found): " + dir)
+        ProcedureReturn
+      EndIf
+    EndIf
+    Break
+  Until #True
 
   While NextDirectoryEntry(dirID)
     If WorkStop Or StopSearch : Break : EndIf
@@ -1001,6 +1057,55 @@ Procedure IndexDirectoryWorker(dir.s, List batch.IndexRecord())
 EndProcedure
 
 ; === GUI Setup ===
+Procedure.i GetFileIconIndex(path.s)
+  ; Get system icon for a file/folder and return PB image ID
+  Protected shinfo.SHFILEINFO
+  Protected hImgList.i
+  Protected ext.s = GetExtensionPart(path)
+  Protected isDir.i = Bool(FileSize(path) = -2)
+  Protected key.s = LCase(ext)
+  If isDir : key = "_DIR_" : EndIf
+  If key = "" : key = "_FILE_" : EndIf
+
+  LockMutex(IconMutex)
+  If FindMapElement(IconCache(), key)
+    Protected cached.i = IconCache()
+    UnlockMutex(IconMutex)
+    ProcedureReturn cached
+  EndIf
+
+  ; SHGFI_USEFILEATTRIBUTES lets us get icons without the file existing
+  ; SHGFI_ICON | SHGFI_SMALL
+  Protected flags.i = $100 | $1 | $10 ; SHGFI_ICON | SHGFI_SMALL | SHGFI_USEFILEATTRIBUTES
+  Protected attr.i = 0
+  If isDir
+    attr = $10 ; FILE_ATTRIBUTE_DIRECTORY
+  Else
+    attr = $80 ; FILE_ATTRIBUTE_NORMAL
+  EndIf
+
+  If SHGetFileInfo_(path, attr, @shinfo, SizeOf(SHFILEINFO), flags)
+    If shinfo\hIcon
+      Protected img.i = CreateImage(#PB_Any, 16, 16, 32, #PB_Image_Transparent)
+      If img
+        Protected hdc.i = StartDrawing(ImageOutput(img))
+        If hdc
+          DrawIconEx_(hdc, 0, 0, shinfo\hIcon, 16, 16, 0, 0, 3)
+          StopDrawing()
+        EndIf
+        DestroyIcon_(shinfo\hIcon)
+        IconCache(key) = img
+        UnlockMutex(IconMutex)
+        ProcedureReturn img
+      EndIf
+      DestroyIcon_(shinfo\hIcon)
+    EndIf
+  EndIf
+
+  UnlockMutex(IconMutex)
+  ProcedureReturn 0
+EndProcedure
+
 Procedure ResizeMainWindow()
   If IsWindow(#Window_Main) = 0
     ProcedureReturn
@@ -1117,6 +1222,13 @@ Procedure InitGUI()
 
   StringGadget(#Gadget_SearchBar, 10, 10, 780, 25, "*.*")
   ListViewGadget(#Gadget_ResultsList, 10, 40, 780, 510)
+  
+  ; Note: ListViewGadget in PB doesn't support icons, but ListIconGadget does.
+  ; We swap to ListIconGadget for better visualization.
+  If IsGadget(#Gadget_ResultsList) : FreeGadget(#Gadget_ResultsList) : EndIf
+  ListIconGadget(#Gadget_ResultsList, 10, 40, 780, 510, "Path", 1000, #PB_ListIcon_FullRowSelect | #PB_ListIcon_AlwaysShowSelection)
+  ; Set column auto-resizing
+  SendMessage_(GadgetID(#Gadget_ResultsList), #LVM_SETCOLUMNWIDTH, 0, #LVSCW_AUTOSIZE_USEHEADER)
 
   ; Legacy gadgets kept (in case other code relies on IDs), but hidden.
   StringGadget(#Gadget_FolderPath, 0, 0, 0, 0, "")
@@ -1227,6 +1339,34 @@ Procedure.s DbEscape(text.s)
   ProcedureReturn ReplaceString(text, "'", "''")
 EndProcedure
 
+Procedure DbWriterThreadProc(dummy.i)
+  Protected NewList localQueue.IndexRecord()
+  
+  While DbWriterStop = 0
+    ; Wait for work
+    If WaitForSingleObject_(DbWriterQueueSem, 1000) = #WAIT_TIMEOUT
+      If DbWriterStop : Break : EndIf
+      Continue
+    EndIf
+    
+    ; Pull from shared queue
+    LockMutex(DbWriterQueueMutex)
+    If ListSize(DbWriterQueue()) > 0
+      ForEach DbWriterQueue()
+        AddElement(localQueue())
+        localQueue() = DbWriterQueue()
+      Next
+      ClearList(DbWriterQueue())
+    EndIf
+    UnlockMutex(DbWriterQueueMutex)
+    
+    If ListSize(localQueue()) > 0
+      FlushIndexBatchToDb(localQueue()) ; This procedure still exists and does the actual SQL
+      ClearList(localQueue())
+    EndIf
+  Wend
+EndProcedure
+
 Procedure FlushIndexBatchToDb(List batch.IndexRecord())
   Protected sql.s
   Protected values.s
@@ -1289,6 +1429,21 @@ Procedure FlushIndexBatchToDb(List batch.IndexRecord())
   ClearList(batch())
 EndProcedure
 
+Procedure EnqueueDbBatch(List batch.IndexRecord())
+  If DbWriterQueueMutex = 0 Or DbWriterQueueSem = 0
+    ProcedureReturn
+  EndIf
+  
+  LockMutex(DbWriterQueueMutex)
+  ForEach batch()
+    AddElement(DbWriterQueue())
+    DbWriterQueue() = batch()
+  Next
+  UnlockMutex(DbWriterQueueMutex)
+  
+  ReleaseSemaphore_(DbWriterQueueSem, 1, 0)
+EndProcedure
+
 Procedure WorkerThreadProc(*params.WorkerParams)
   Protected dir.s
   Protected NewList batch.IndexRecord()
@@ -1300,8 +1455,13 @@ Procedure WorkerThreadProc(*params.WorkerParams)
       Continue
     EndIf
 
-    If WaitForSingleObject_(DirQueueSem, 200) = #WAIT_TIMEOUT
+    ; Memory back-pressure: slow down workers if PendingResults is too large
+    If ListSize(PendingResults()) > 10000
+      Delay(100)
+      Continue
+    EndIf
 
+    If WaitForSingleObject_(DirQueueSem, 200) = #WAIT_TIMEOUT
       LockMutex(ScanStateMutex)
       If QueueCount = 0 And ActiveDirCount = 0
         UnlockMutex(ScanStateMutex)
@@ -1322,14 +1482,16 @@ Procedure WorkerThreadProc(*params.WorkerParams)
 
     IndexDirectoryWorker(dir, batch())
     If ListSize(batch()) >= ConfigBatchSize
-      FlushIndexBatchToDb(batch())
+      EnqueueDbBatch(batch())
+      ClearList(batch())
     EndIf
 
     MarkDirectoryDone()
   Wend
 
   If ListSize(batch()) > 0
-    FlushIndexBatchToDb(batch())
+    EnqueueDbBatch(batch())
+    ClearList(batch())
   EndIf
 EndProcedure
 
@@ -1381,12 +1543,23 @@ Procedure StartIndexingAllFixedDrives()
   Protected NewList roots.s()
   Protected *wparams.WorkerParams
  
-  ; Note: stopping/waiting an existing run is handled by StartIndexing() on the main thread.
- 
+  ; Reset tracking
+  LockMutex(VisitedFoldersMutex)
+  ClearMap(VisitedFolders())
+  UnlockMutex(VisitedFoldersMutex)
+
   StopSearch = 0
   WorkStop = 0
   IndexTotalFiles = 0
   WorkerCount = -1 ; diagnostics: thread entered
+
+  ; Start DB writer thread
+  DbWriterStop = 0
+  If DbWriterQueueMutex = 0 : DbWriterQueueMutex = CreateMutex() : EndIf
+  If DbWriterQueueSem = 0 : DbWriterQueueSem = CreateSemaphore_(0, 0, 2147483647, 0) : EndIf
+  If IsThread(DbWriterThread) = 0
+    DbWriterThread = CreateThread(@DbWriterThreadProc(), 0)
+  EndIf
 
   ; Ensure pause event exists and start unpaused.
   If IndexPauseEvent = 0
@@ -1473,7 +1646,18 @@ Procedure StartIndexingAllFixedDrives()
     FreeStructure(*wparams)
   EndIf
 
+  ; Signal DB writer to stop and wait
+  DbWriterStop = 1
+  If DbWriterQueueSem
+    ReleaseSemaphore_(DbWriterQueueSem, 1, 0)
+  EndIf
+  If IsThread(DbWriterThread)
+    WaitThread(DbWriterThread)
+    DbWriterThread = 0
+  EndIf
+
   IndexingActive = 0
+  UpdateControlStates()
 EndProcedure
 
 Procedure SearchThreadProc(*params.SearchParams)
@@ -2000,6 +2184,8 @@ Procedure RefreshResultsFromDb(query.s)
   Protected candidateLimit.i
   Protected rowName.s
   Protected rowPath.s
+  Protected rowImg.i
+  Protected startTime.q = ElapsedMilliseconds()
 
   If IndexDbId = 0
     ProcedureReturn
@@ -2039,12 +2225,22 @@ Procedure RefreshResultsFromDb(query.s)
           rowPath = GetDatabaseString(IndexDbId, 1)
 
           If MatchRegularExpression(regexID, rowName)
-            AddGadgetItem(#Gadget_ResultsList, -1, rowPath)
+            rowImg = GetFileIconIndex(rowPath)
+            If rowImg
+              AddGadgetItem(#Gadget_ResultsList, -1, rowPath, ImageID(rowImg))
+            Else
+              AddGadgetItem(#Gadget_ResultsList, -1, rowPath)
+            EndIf
             LiveShownPaths(rowPath) = 1
             shown + 1
             If shown >= SearchMaxResults
               Break
             EndIf
+          EndIf
+          
+          ; Keep UI responsive during large regex scans
+          If shown % 500 = 0 And ElapsedMilliseconds() - startTime > 500
+            While WindowEvent() : Wend
           EndIf
         Wend
         FinishDatabaseQuery(IndexDbId)
@@ -2066,7 +2262,12 @@ Procedure RefreshResultsFromDb(query.s)
   If DatabaseQuery(IndexDbId, sql)
     While NextDatabaseRow(IndexDbId)
       rowPath = GetDatabaseString(IndexDbId, 0)
-      AddGadgetItem(#Gadget_ResultsList, -1, rowPath)
+      rowImg = GetFileIconIndex(rowPath)
+      If rowImg
+        AddGadgetItem(#Gadget_ResultsList, -1, rowPath, ImageID(rowImg))
+      Else
+        AddGadgetItem(#Gadget_ResultsList, -1, rowPath)
+      EndIf
       LiveShownPaths(rowPath) = 1
       shown + 1
     Wend
@@ -2169,12 +2370,22 @@ Procedure PumpPendingResults(maxItems.i)
         Select LiveMatcherMode
           Case 2, 1
             If LiveMatcherRegexID And MatchRegularExpression(LiveMatcherRegexID, fileName)
-              AddGadgetItem(#Gadget_ResultsList, -1, path)
+              Protected pathImg.i = GetFileIconIndex(path)
+              If pathImg
+                AddGadgetItem(#Gadget_ResultsList, -1, path, ImageID(pathImg))
+              Else
+                AddGadgetItem(#Gadget_ResultsList, -1, path)
+              EndIf
             EndIf
 
           Default
             If LiveMatcherNeedle = "" Or FindString(LCase(fileName), LiveMatcherNeedle, 1)
-              AddGadgetItem(#Gadget_ResultsList, -1, path)
+              Protected defImg.i = GetFileIconIndex(path)
+              If defImg
+                AddGadgetItem(#Gadget_ResultsList, -1, path, ImageID(defImg))
+              Else
+                AddGadgetItem(#Gadget_ResultsList, -1, path)
+              EndIf
             EndIf
         EndSelect
       EndIf
@@ -2189,15 +2400,14 @@ Procedure PumpPendingResults(maxItems.i)
     dirs = DirsScanned
     UnlockMutex(ProgressMutex)
 
-    If IndexingActive
+    If IndexingActive And IndexingPaused = 0
       StatusBarText(#StatusBar_Main, 0, "Indexing: " + folder)
+      StatusBarText(#StatusBar_Main, 1, "Dirs: " + Str(dirs) + "  Files: " + Str(files) + "  Indexed: " + Str(IndexTotalFiles))
+    ElseIf IndexingActive And IndexingPaused
+      StatusBarText(#StatusBar_Main, 0, "Indexing: PAUSED")
+      StatusBarText(#StatusBar_Main, 1, "Indexed: " + Str(IndexTotalFiles))
     Else
       StatusBarText(#StatusBar_Main, 0, "Ready")
-    EndIf
-
-    If IndexingActive
-      StatusBarText(#StatusBar_Main, 1, "Dirs: " + Str(dirs) + "  Files: " + Str(files) + "  Indexed: " + Str(IndexTotalFiles))
-    Else
       ; Idle: keep the search status while also showing the index size.
       If LiveMatcherMode = 2 Or LiveMatcherMode = 1
         StatusBarText(#StatusBar_Main, 1, "Showing: " + Str(CountGadgetItems(#Gadget_ResultsList)) + "  (regex)  Indexed: " + Str(IndexTotalFiles))
@@ -2205,6 +2415,7 @@ Procedure PumpPendingResults(maxItems.i)
         StatusBarText(#StatusBar_Main, 1, "Showing: " + Str(CountGadgetItems(#Gadget_ResultsList)) + "  Indexed: " + Str(IndexTotalFiles))
       EndIf
     EndIf
+    UnlockMutex(ProgressMutex)
   EndIf
 EndProcedure
 
@@ -2416,7 +2627,7 @@ Procedure MainLoop()
           Case #Menu_Index_Rebuild
             StartIndexing(#True)
 
-          Case #Menu_Index_PauseResume
+          Case #Menu_Index_PauseResume, #Menu_Tray_PauseResume
             If IndexingActive
               If IndexingPaused
                 IndexingPaused = 0
@@ -2425,6 +2636,7 @@ Procedure MainLoop()
                 IndexingPaused = 1
                 If IndexPauseEvent : ResetEvent_(IndexPauseEvent) : EndIf
               EndIf
+              SyncUiState()
             EndIf
 
           Case #Menu_Index_Stop
@@ -2638,6 +2850,11 @@ RemoveLegacyStartupRegistryEntry()
 ResultMutex = CreateMutex()
 ProgressMutex = CreateMutex()
 DbMutex = CreateMutex()
+IconMutex = CreateMutex()
+VisitedFoldersMutex = CreateMutex()
+DbWriterQueueMutex = CreateMutex()
+DbWriterQueueSem = CreateSemaphore_(0, 0, 2147483647, 0)
+
 LoadExcludesIni(AppPath + #INI_FILE)
 
 ; Ensure menu checkmarks reflect INI state.
@@ -2684,6 +2901,10 @@ If IndexDbId : CloseDatabase(IndexDbId) : EndIf
 If ResultMutex : FreeMutex(ResultMutex) : EndIf
 If ProgressMutex : FreeMutex(ProgressMutex) : EndIf
 If DbMutex : FreeMutex(DbMutex) : EndIf
+If IconMutex : FreeMutex(IconMutex) : EndIf
+If VisitedFoldersMutex : FreeMutex(VisitedFoldersMutex) : EndIf
+If DbWriterQueueMutex : FreeMutex(DbWriterQueueMutex) : EndIf
+If DbWriterQueueSem : CloseHandle_(DbWriterQueueSem) : EndIf
 If ScanStateMutex : FreeMutex(ScanStateMutex) : EndIf
 If DirQueueSem : CloseHandle_(DirQueueSem) : EndIf
 If IndexPauseEvent : CloseHandle_(IndexPauseEvent) : EndIf
@@ -2692,7 +2913,7 @@ If hMutex : CloseHandle_(hMutex) : EndIf
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 6
-; Folding = -------------
+; Folding = --------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -2701,12 +2922,12 @@ If hMutex : CloseHandle_(hMutex) : EndIf
 ; UseIcon = HandySearch.ico
 ; Executable = ..\HandySearch.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,8
-; VersionField1 = 1,0,0,8
+; VersionField0 = 1,0,0,9
+; VersionField1 = 1,0,0,9
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandySearch
-; VersionField4 = 1.0.0.8
-; VersionField5 = 1.0.0.8
+; VersionField4 = 1.0.0.9
+; VersionField5 = 1.0.0.9
 ; VersionField6 = Everything-like search tool for desktop and web
 ; VersionField7 = HandySearch
 ; VersionField8 = HandySearch.exe

@@ -3,7 +3,7 @@ EnableExplicit
 #APP_NAME   = "HandyWSERTool"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
-Global version.s = "v1.0.0.5"
+Global version.s = "v1.0.0.6"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -92,30 +92,26 @@ Module EnvSys
 
     ; Query required size first (handles long values like PATH)
     result = RegQueryValueEx_(hKey, name, 0, @valueType, 0, @dataBytes)
-    If result <> #ERROR_SUCCESS Or dataBytes <= SizeOf(Character)
+    If result <> #ERROR_SUCCESS Or dataBytes = 0
       RegCloseKey_(hKey)
       ProcedureReturn ""
     EndIf
 
+    ; Allocate space for the number of characters, including null terminator
+    ; dataBytes is in bytes, so we divide by SizeOf(Character)
     Protected bufferChars.l = dataBytes / SizeOf(Character)
     buffer = Space(bufferChars)
 
     result = RegQueryValueEx_(hKey, name, 0, @valueType, @buffer, @dataBytes)
     RegCloseKey_(hKey)
 
-    If result <> #ERROR_SUCCESS Or dataBytes <= 0
+    If result <> #ERROR_SUCCESS
       ProcedureReturn ""
     EndIf
 
-    Protected charsUsed.l = dataBytes / SizeOf(Character)
-    If charsUsed > 0
-      charsUsed - 1 ; drop trailing null
-    EndIf
-    If charsUsed < 0
-      charsUsed = 0
-    EndIf
-
-    ProcedureReturn Left(buffer, charsUsed)
+    ; String might contain trailing null(s)
+    Protected actualValue.s = PeekS(@buffer, -1, #PB_Unicode)
+    ProcedureReturn actualValue
   EndProcedure
 
   Procedure.i WriteVar(name.s, value.s, type.l, scope.i = #ScopeSystem)
@@ -153,7 +149,7 @@ Module EnvSys
     Protected hKey.i, index.l = 0
     Protected nameBuf.s, valueBuf.s
     Protected sizeName.l, dataBytes.l, type.l
-    Protected valueChars.l, charsUsed.l, result.l
+    Protected result.l
     Protected maxValueNameLen.l, maxValueDataLen.l, valueCount.l
     Protected bufNameChars.l, bufValueBytes.l
 
@@ -163,25 +159,22 @@ Module EnvSys
       ProcedureReturn #False
     EndIf
 
-    ; Pre-size buffers using key metadata (faster than per-iteration allocations)
-    maxValueNameLen = 512
-    maxValueDataLen = 4096 * SizeOf(Character)
-    If RegQueryInfoKey_(hKey, 0, 0, 0, 0, 0, 0, @valueCount, @maxValueNameLen, @maxValueDataLen, 0, 0) = #ERROR_SUCCESS
-      maxValueNameLen + 1 ; include null terminator
-      maxValueDataLen + SizeOf(Character)
-    Else
+    ; Get maximum name and value lengths to size buffers efficiently
+    If RegQueryInfoKey_(hKey, 0, 0, 0, 0, 0, 0, @valueCount, @maxValueNameLen, @maxValueDataLen, 0, 0) <> #ERROR_SUCCESS
       maxValueNameLen = 512
       maxValueDataLen = 4096 * SizeOf(Character)
     EndIf
+    
+    maxValueNameLen + 1 ; null terminator
+    maxValueDataLen + SizeOf(Character) ; null terminator
 
     bufNameChars  = maxValueNameLen
     bufValueBytes = maxValueDataLen
-    If bufNameChars < 2 : bufNameChars = 512 : EndIf
-    If bufValueBytes < (2 * SizeOf(Character)) : bufValueBytes = 4096 * SizeOf(Character) : EndIf
+    If bufNameChars < 256 : bufNameChars = 256 : EndIf
+    If bufValueBytes < (256 * SizeOf(Character)) : bufValueBytes = 256 * SizeOf(Character) : EndIf
 
     nameBuf = Space(bufNameChars)
-    valueChars = bufValueBytes / SizeOf(Character)
-    valueBuf = Space(valueChars)
+    valueBuf = Space(bufValueBytes / SizeOf(Character))
 
     While #True
       sizeName  = bufNameChars
@@ -189,18 +182,16 @@ Module EnvSys
 
       result = RegEnumValue_(hKey, index, @nameBuf, @sizeName, 0, @type, @valueBuf, @dataBytes)
 
-      ; Grow buffers if needed (e.g. long Path)
+      ; Grow buffers if needed (unlikely if RegQueryInfoKey was accurate)
       If result = #ERROR_MORE_DATA
-        If sizeName >= 1 And sizeName + 1 > bufNameChars
+        If sizeName >= bufNameChars
           bufNameChars = sizeName + 1
           nameBuf = Space(bufNameChars)
         EndIf
 
-        If dataBytes > bufValueBytes
+        If dataBytes >= bufValueBytes
           bufValueBytes = dataBytes + SizeOf(Character)
-          valueChars = bufValueBytes / SizeOf(Character)
-          If valueChars < 2 : valueChars = 4096 : EndIf
-          valueBuf = Space(valueChars)
+          valueBuf = Space(bufValueBytes / SizeOf(Character))
         EndIf
 
         sizeName  = bufNameChars
@@ -212,17 +203,9 @@ Module EnvSys
         Break
       EndIf
 
-      charsUsed = dataBytes / SizeOf(Character)
-      If charsUsed > 0
-        charsUsed - 1 ; drop trailing null
-      EndIf
-      If charsUsed < 0
-        charsUsed = 0
-      EndIf
-
       AddElement(vars())
       vars()\Name  = Left(nameBuf, sizeName)
-      vars()\Value = Left(valueBuf, charsUsed)
+      vars()\Value = PeekS(@valueBuf, -1, #PB_Unicode) ; Safely get string content
       vars()\Type  = type
 
       index + 1
@@ -339,7 +322,7 @@ Module EnvSys
 
   Procedure.i ImportFromFile(filePath.s, overwrite.i = #True, scope.i = #ScopeSystem)
  
-    Protected line.s, pos.l
+    Protected line.s, pos.l, key.s, val.s
     Protected NewList vars.VarEntry()
  
     If ReadFile(0, filePath) = 0
@@ -354,15 +337,23 @@ Module EnvSys
   
       pos = FindString(line, "=", 1)
       If pos > 0
+        key = Trim(Left(line, pos - 1))
+        val = Trim(Mid(line, pos + 1))
+        
+        ; Remove surrounding quotes if present
+        If Left(val, 1) = #DQUOTE$ And Right(val, 1) = #DQUOTE$ And Len(val) >= 2
+          val = Mid(val, 2, Len(val) - 2)
+        EndIf
+        
         AddElement(vars())
-        vars()\Name  = Trim(Left(line, pos - 1))
-        vars()\Value = Trim(Mid(line, pos + 1))
+        vars()\Name  = key
+        vars()\Value = val
         vars()\Type  = #REG_EXPAND_SZ
       Else
         ; Continuation line support for long values (commonly PATH)
-        ; If a line doesn't contain '=', append it to the previous variable.
         If LastElement(vars())
-          If vars()\Value <> "" And Right(vars()\Value, 1) <> ";" And Left(line, 1) <> ";"
+          ; Only append if not a comment and not empty
+          If vars()\Value <> "" And Right(vars()\Value, 1) <> ";"
             vars()\Value + ";"
           EndIf
           vars()\Value + line
@@ -373,6 +364,86 @@ Module EnvSys
     CloseFile(0)
   
     ProcedureReturn ApplyAll(vars(), overwrite, #False, scope)
+  EndProcedure
+
+  Procedure.i ImportBoth(filePath.s, overwrite.i = #True, defaultScope.i = #ScopeSystem)
+    Protected line.s, pos.l, key.s, val.s
+    Protected currentScope.i = defaultScope
+    Protected NewList sysVars.VarEntry()
+    Protected NewList userVars.VarEntry()
+
+    If ReadFile(0, filePath) = 0
+      ProcedureReturn #False
+    EndIf
+
+    While Eof(0) = 0
+      line = Trim(ReadString(0))
+
+      If line = "" : Continue : EndIf
+      If Left(line, 1) = ";" Or Left(line, 1) = "#" : Continue : EndIf
+
+      If LCase(line) = "[system]"
+        currentScope = #ScopeSystem
+        Continue
+      ElseIf LCase(line) = "[user]"
+        currentScope = #ScopeUser
+        Continue
+      EndIf
+
+      pos = FindString(line, "=", 1)
+      If pos > 0
+        key = Trim(Left(line, pos - 1))
+        val = Trim(Mid(line, pos + 1))
+        
+        ; Remove surrounding quotes
+        If Left(val, 1) = #DQUOTE$ And Right(val, 1) = #DQUOTE$ And Len(val) >= 2
+          val = Mid(val, 2, Len(val) - 2)
+        EndIf
+
+        If currentScope = #ScopeUser
+          AddElement(userVars())
+          userVars()\Name  = key
+          userVars()\Value = val
+          userVars()\Type  = #REG_EXPAND_SZ
+        Else
+          AddElement(sysVars())
+          sysVars()\Name  = key
+          sysVars()\Value = val
+          sysVars()\Type  = #REG_EXPAND_SZ
+        EndIf
+      Else
+        ; Continuation support
+        If currentScope = #ScopeUser
+          If LastElement(userVars())
+            If userVars()\Value <> "" And Right(userVars()\Value, 1) <> ";"
+              userVars()\Value + ";"
+            EndIf
+            userVars()\Value + line
+          EndIf
+        Else
+          If LastElement(sysVars())
+            If sysVars()\Value <> "" And Right(sysVars()\Value, 1) <> ";"
+              sysVars()\Value + ";"
+            EndIf
+            sysVars()\Value + line
+          EndIf
+        EndIf
+      EndIf
+    Wend
+
+    CloseFile(0)
+
+    Protected okSys.i = #True
+    Protected okUser.i = #True
+
+    If ListSize(sysVars()) > 0
+      okSys = ApplyAll(sysVars(), overwrite, #False, #ScopeSystem)
+    EndIf
+    If ListSize(userVars()) > 0
+      okUser = ApplyAll(userVars(), overwrite, #False, #ScopeUser)
+    EndIf
+
+    ProcedureReturn Bool(okSys And okUser)
   EndProcedure
 
   Procedure.i BackupBoth(filePath.s)
@@ -406,78 +477,6 @@ Module EnvSys
 
     CloseFile(0)
     ProcedureReturn #True
-  EndProcedure
-
-  Procedure.i ImportBoth(filePath.s, overwrite.i = #True, defaultScope.i = #ScopeSystem)
-    Protected line.s, pos.l
-    Protected currentScope.i = defaultScope
-    Protected NewList sysVars.VarEntry()
-    Protected NewList userVars.VarEntry()
-
-    If ReadFile(0, filePath) = 0
-      ProcedureReturn #False
-    EndIf
-
-    While Eof(0) = 0
-      line = Trim(ReadString(0))
-
-      If line = "" : Continue : EndIf
-      If Left(line, 1) = ";" Or Left(line, 1) = "#" : Continue : EndIf
-
-      If LCase(line) = "[system]"
-        currentScope = #ScopeSystem
-        Continue
-      ElseIf LCase(line) = "[user]"
-        currentScope = #ScopeUser
-        Continue
-      EndIf
-
-      pos = FindString(line, "=", 1)
-      If pos > 0
-        If currentScope = #ScopeUser
-          AddElement(userVars())
-          userVars()\Name  = Trim(Left(line, pos - 1))
-          userVars()\Value = Trim(Mid(line, pos + 1))
-          userVars()\Type  = #REG_EXPAND_SZ
-        Else
-          AddElement(sysVars())
-          sysVars()\Name  = Trim(Left(line, pos - 1))
-          sysVars()\Value = Trim(Mid(line, pos + 1))
-          sysVars()\Type  = #REG_EXPAND_SZ
-        EndIf
-      Else
-        ; Continuation support: append to last var in current section.
-        If currentScope = #ScopeUser
-          If LastElement(userVars())
-            If userVars()\Value <> "" And Right(userVars()\Value, 1) <> ";" And Left(line, 1) <> ";"
-              userVars()\Value + ";"
-            EndIf
-            userVars()\Value + line
-          EndIf
-        Else
-          If LastElement(sysVars())
-            If sysVars()\Value <> "" And Right(sysVars()\Value, 1) <> ";" And Left(line, 1) <> ";"
-              sysVars()\Value + ";"
-            EndIf
-            sysVars()\Value + line
-          EndIf
-        EndIf
-      EndIf
-    Wend
-
-    CloseFile(0)
-
-    Protected okSys.i = #True
-    Protected okUser.i = #True
-
-    If ListSize(sysVars()) > 0
-      okSys = ApplyAll(sysVars(), overwrite, #False, #ScopeSystem)
-    EndIf
-    If ListSize(userVars()) > 0
-      okUser = ApplyAll(userVars(), overwrite, #False, #ScopeUser)
-    EndIf
-
-    ProcedureReturn Bool(okSys And okUser)
   EndProcedure
 
   Procedure.i RestoreExact(filePath.s, strict.i = #True, scope.i = #ScopeSystem)
@@ -1397,7 +1396,8 @@ EndProcedure
 ; ============================================================
 
 Repeat
-  Select WaitWindowEvent()
+  Define event.i = WaitWindowEvent()
+  Select event
     Case #PB_Event_Gadget
       Select EventGadget()
         Case #BtnScan
@@ -1408,16 +1408,16 @@ Repeat
           DoExport()
         Case #BtnImport
           DoImport()
-    Case #BtnAbout
-      MessageRequester("Info", #APP_NAME + " - " + version + #CRLF$+ 
-                               "Thank you for using this free tool!" + #CRLF$ +
-                               "Contact: " + #EMAIL_NAME + #CRLF$ +
-                               "Website: https://github.com/zonemaster60", #PB_MessageRequester_Info)
-    Case #BtnFixRefs
-      FixReferencedMissingVars()
-    Case #BtnExit
-      Exit()
-  EndSelect
+        Case #BtnAbout
+          MessageRequester("Info", #APP_NAME + " - " + version + #CRLF$+ 
+                                   "Thank you for using this free tool!" + #CRLF$ +
+                                   "Contact: " + #EMAIL_NAME + #CRLF$ +
+                                   "Website: https://github.com/zonemaster60", #PB_MessageRequester_Info)
+        Case #BtnFixRefs
+          FixReferencedMissingVars()
+        Case #BtnExit
+          Exit()
+      EndSelect
 
     Case #PB_Event_CloseWindow
       Exit()
@@ -1438,12 +1438,12 @@ ForEver
 ; UseIcon = HandyWSERTool.ico
 ; Executable = ..\HandyWSERTool.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,5
-; VersionField1 = 1,0,0,5
+; VersionField0 = 1,0,0,6
+; VersionField1 = 1,0,0,6
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyWSERTool
-; VersionField4 = 1.0.0.5
-; VersionField5 = 1.0.0.5
+; VersionField4 = 1.0.0.6
+; VersionField5 = 1.0.0.6
 ; VersionField6 = Windows System Environment Repair Tool
 ; VersionField7 = HandyWSERTool
 ; VersionField8 = HandyWSERTool.exe
