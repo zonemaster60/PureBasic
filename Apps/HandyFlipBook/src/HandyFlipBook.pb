@@ -3,6 +3,7 @@
 #APP_NAME = "HandyFlipBook"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
+Global version.s = "v1.0.0.8"
 Global AppPath.s        = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -14,6 +15,16 @@ If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
   CloseHandle_(hMutex)
   End
 EndIf
+
+; Exit procedure
+Procedure Exit()
+  Protected Req.i
+  Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
+  If Req = #PB_MessageRequester_Yes
+    CloseHandle_(hMutex)
+    End
+  EndIf
+EndProcedure
 
 DeclareModule FlipBook
    Structure FlipBook
@@ -32,6 +43,7 @@ DeclareModule FlipBook
    
    Declare New(canvasID, x, y, width, height, backgroundColor)
    Declare AddPage(*book.FlipBook, makeImage, color, borderColor, borderWidth.d)
+   Declare Free(*book.FlipBook)
    Declare DrawBook(*book.FlipBook, x, y, doAnimation = #True)
    Declare HandleEvent(*book.FlipBook, event)
 EndDeclareModule
@@ -64,6 +76,18 @@ Module FlipBook
       ProcedureReturn *book
    EndProcedure
    
+   Procedure Free(*book.FlipBook)
+      Protected i
+      If *book
+         For i = 0 To *book\nrPages
+            If IsImage(*book\page(i))
+               FreeImage(*book\page(i))
+            EndIf
+         Next
+         FreeStructure(*book)
+      EndIf
+   EndProcedure
+   
    Procedure AddPage(*book.FlipBook, makeImage, color, borderColor, borderWidth.d)
       If *book
          Protected pageNr = *book\nrPages
@@ -86,19 +110,27 @@ Module FlipBook
    EndProcedure
    
    Procedure Mirror(x1,y1.d,x2.d,y2.d,x3.d,y3.d, *resultX.Double, *resultY.Double)
-      Protected m.d = (y3 - y2) / (x3 - x2 + #epsilon)
-      Protected c.d = (x3 * y2 - x2 * y3) / (x3 - x2 + #epsilon)
-      Protected d.d = (x1 + (y1 - c) * m) / (1 + m * m + #epsilon)
-      *resultX\d = 2 * d - x1
-      *resultY\d = 2 * d * m - y1 + 2 * c
+      Protected.d m, c, d
+      If Abs(x3 - x2) < #epsilon
+         *resultX\d = 2 * x3 - x1
+         *resultY\d = y1
+      Else
+         m = (y3 - y2) / (x3 - x2)
+         c = y2 - m * x2
+         d = (x1 + (y1 - c) * m) / (1 + m * m)
+         *resultX\d = 2 * d - x1
+         *resultY\d = 2 * d * m - y1 + 2 * c
+      EndIf
    EndProcedure
    
    Procedure DrawHighlight(x1, y1, x2, y2, x3, y3, x4, y4, width, flags = #PB_Path_Default)
       Protected nx.d = y1 - y2
       Protected ny.d = x2 - x1
-      Protected di.d = Sqr(nx * nx + ny * ny) + #epsilon
-      Protected di1.d = Sqr(Pow(x1 - x3,2) + Pow(y1 - y3, 2))
-      Protected di2.d = Sqr(Pow(x2 - x4,2) + Pow(y2 - y4, 2))
+      Protected di.d = Sqr(nx * nx + ny * ny)
+      Protected di1.d, di2.d
+      If di < #epsilon : ProcedureReturn : EndIf
+      di1 = Sqr(Pow(x1 - x3,2) + Pow(y1 - y3, 2))
+      di2 = Sqr(Pow(x2 - x4,2) + Pow(y2 - y4, 2))
       If di1 > di2
          VectorSourceLinearGradient(x1, y1, x1 - (nx / di) * di1 * width, y1 - (ny / di) * di1 * width)
       Else
@@ -115,12 +147,14 @@ Module FlipBook
    Procedure DrawShadow(x1.d, y1.d, x2.d, y2.d, x3.d, y3.d, x4.d, y4.d, width.d, pos.d, alpha)
       Protected nx.d = y1 - y2
       Protected ny.d = x2 - x1
-      Protected di.d = Sqr(nx * nx + ny * ny) + #epsilon    
-      Protected dx.d = (x1 + x2) * 0.5 - (x3 + x4) * 0.5
-      Protected dy.d = (y1 + y2) * 0.5 - (y3 + y4) * 0.5
-      Protected di2.d = Sqr(dx*dx+dy*dy)    
+      Protected di.d = Sqr(nx * nx + ny * ny)
+      Protected dx.d, dy.d, di2.d
+      If di < #epsilon : ProcedureReturn : EndIf
+      dx = (x1 + x2) * 0.5 - (x3 + x4) * 0.5
+      dy = (y1 + y2) * 0.5 - (y3 + y4) * 0.5
+      di2 = Sqr(dx*dx+dy*dy)    
       VectorSourceLinearGradient(x1, y1, x1 + (nx / di) * width, y1 + (ny / di) * width)
-      VectorSourceGradientColor(RGBA(0,0,0,alpha * (1 - Abs(di2 / width))), 1)     
+      VectorSourceGradientColor(RGBA(0,0,0,alpha * Clamp(1 - Abs(di2 / width), 0, 1)), 1)     
       VectorSourceGradientColor(RGBA(255,255,255,0), pos)
       VectorSourceGradientColor(RGBA(255,255,255,0), 0)
       FillPath()
@@ -138,11 +172,17 @@ Module FlipBook
       Protected.d nx, ny, di
       Protected.d px1, py1, px2, py2
       Protected.d midX, midY, midX1, midY1, midX2, midY2
+      Protected.d canvasW = GadgetWidth(*book\canvasID)
+      Protected.d canvasH = GadgetHeight(*book\canvasID)
+      
       If StartVectorDrawing(CanvasVectorOutput(*book\canvasID)) = 0
          ProcedureReturn
       EndIf
+      
+      ; Clear background
       VectorSourceColor(*book\backgroundColor)
       FillVectorOutput()      
+      
       TranslateCoordinates(*book\x, *book\y)     
       If *book\cornerX > 0
          nextPageNr = *book\currentPage
@@ -151,6 +191,7 @@ Module FlipBook
          nextPageNr = *book\currentPage - 1
          x = Clamp(x, -*book\width * 0.5 - 1 , *book\width * 1.5 + 1)
       EndIf     
+      
       ; draw left page if this is not the first page
       If *book\currentPage > 0 And *book\currentPage <= *book\nrPages + 1
          If *book\currentPage > *book\nrPages
@@ -158,23 +199,42 @@ Module FlipBook
          Else
             DrawPage(*book, *book\currentPage - 1, -*book\width * 1.5, -*book\height * 0.5)
          EndIf
+         SaveVectorState()
          AddPathBox(-*book\width * 1.5, -*book\height * 0.5, *book\width, *book\height)
+         ClipPath()
          DrawHighlight(-*book\width * 1.5, -*book\height * 0.5, -*book\width * 1.5, *book\height * 0.5,
                        -*book\width * 0.5, -*book\height * 0.5, -*book\width * 0.5, *book\height * 0.5, -1)
+         RestoreVectorState()
       EndIf
+      
       ; draw right page if this is not the last page
       If (*book\currentPage + 1) >= 0 And (*book\currentPage + 1) <= *book\nrPages
          DrawPage(*book, *book\currentPage, -*book\width * 0.5, -*book\height * 0.5)
+         SaveVectorState()
          AddPathBox(-*book\width * 0.5, -*book\height * 0.5, *book\width, *book\height)
+         ClipPath()
          DrawHighlight(-*book\width * 0.5, -*book\height * 0.5, -*book\width * 0.5, *book\height * 0.5,
                        *book\width * 0.5, -*book\height * 0.5, *book\width * 0.5, *book\height * 0.5,  1)
+         RestoreVectorState()
       EndIf    
+      
       If doAnimation
          ; calculate mirror axis
          midX = (x + *book\cornerX) * 0.5
          midY = (y + *book\cornerY) * 0.5         
-         nx = Pow(*book\cornerY - midY, 2) / (*book\cornerX - midX + #epsilon)
-         ny = Pow(*book\cornerX - midX, 2) / (*book\cornerY - midY + #epsilon)         
+         
+         If Abs(*book\cornerX - midX) < #epsilon
+            nx = 1000000 ; Large value
+         Else
+            nx = Pow(*book\cornerY - midY, 2) / (*book\cornerX - midX)
+         EndIf
+         
+         If Abs(*book\cornerY - midY) < #epsilon
+            ny = 1000000
+         Else
+            ny = Pow(*book\cornerX - midX, 2) / (*book\cornerY - midY)
+         EndIf
+         
          midX1 = Clamp(midX - nx, -Abs(*book\cornerX), Abs(*book\cornerX))
          midY1 = *book\cornerY        
          If ((*book\cornerY < 0) And ((midY - ny) < -*book\cornerY) And (y > *book\cornerY)) Or
@@ -184,9 +244,14 @@ Module FlipBook
             midY2 = midY - ny
          Else
             ; mirror axis crosses horizontal edge
-            midX2 = Clamp(MidX1 + (*book\height * (midX - midX1) / (midY1 - midY - #epsilon)) * Sign(*book\cornerY), -Abs(*book\cornerX), Abs(*book\cornerX))
+            If Abs(midY1 - midY) < #epsilon
+               midX2 = midX1
+            Else
+               midX2 = Clamp(MidX1 + (*book\height * (midX - midX1) / (midY1 - midY)) * Sign(*book\cornerY), -Abs(*book\cornerX), Abs(*book\cornerX))
+            EndIf
             midY2 = -*book\cornerY
          EndIf       
+         
          ; mirror the page corners
          Mirror(*book\cornerX, *book\cornerY, midX1,midY1,midX2,midY2,@px1,@py1)
          Mirror(*book\cornerX, -*book\cornerY,midX1,midY1,midX2,midY2,@px2,@py2)        
@@ -194,9 +259,12 @@ Module FlipBook
             px2 = midX2
             py2 = midY2
          EndIf       
+         
+         SaveVectorState()
          If *book\cornerX < 0
             TranslateCoordinates(-*book\width, 0)
          EndIf        
+         
          ; rotate and draw image
          If nextPageNr + Sign(*book\cornerX) >= 0 And nextPageNr + Sign(*book\cornerX) <= *book\nrPages
             MovePathCursor(midX1, midY1)
@@ -206,14 +274,15 @@ Module FlipBook
             DrawShadow(midX1, midY1, midX2, midY2,
                        -*book\cornerX, *book\cornerY, *book\cornerX, -*book\cornerY,
                        *book\width * Sign(*book\cornerY * *book\cornerX), 0, 128)           
+            
             MovePathCursor(midX1, midY1)
             AddPathLine(midX2, midY2)
             AddPathLine(px2,py2)
             AddPathLine(px1,py1)
             ClosePath()         
+            
             SaveVectorState()
             ClipPath(#PB_Path_Preserve)          
-            SaveVectorState()          
             If *book\cornerY < 0
                If *book\cornerX > 0
                   RotateCoordinates(px1, py1, Degree(-ATan2(py2 - py1, px2 - px1)))
@@ -231,23 +300,25 @@ Module FlipBook
                EndIf
             EndIf           
             RestoreVectorState()
+            
             DrawHighlight(midX1, midY1, midX2, midY2, px1, py1, px2, py2, Sign(*book\cornerY * *book\cornerX))
-            RestoreVectorState()
          EndIf        
+         
          MovePathCursor(midX1, midY1)
          AddPathLine(midX2,midY2)
          AddPathLine(*book\cornerX + Sign(*book\cornerX), -*book\cornerY - Sign(*book\cornerY))
          AddPathLine(*book\cornerX + Sign(*book\cornerX),  *book\cornerY + Sign(*book\cornerY))
          ClosePath()
+         
          If nextPageNr + Sign(*book\cornerX) * 2 < 0 Or nextPageNr + Sign(*book\cornerX) * 2 >= *book\nrPages
             VectorSourceColor(*book\backgroundColor)
             FillPath()
          Else
+            SaveVectorState()
             ClipPath()
             DrawPage(*book, nextPageNr + Sign(*book\cornerX) * 2, -*book\width * 0.5, -*book\height * 0.5)
             
             AddPathBox(-*book\width * 0.5, -*book\height * 0.5, *book\width, *book\height)
-            
             DrawHighlight(-*book\width * 0.5, -*book\height * 0.5, -*book\width * 0.5, *book\height * 0.5,
                           *book\width * 0.5, -*book\height * 0.5, *book\width * 0.5, *book\height * 0.5,
                           Sign(*book\cornerX), #PB_Path_Preserve)
@@ -255,8 +326,9 @@ Module FlipBook
             DrawShadow(midX1, midY1, midX2, midY2,
                        *book\cornerX, *book\cornerY, *book\cornerX, -*book\cornerY,
                        *book\width * Sign(-*book\cornerY * *book\cornerX), 0.95, 200)
-            
+            RestoreVectorState()
          EndIf
+         RestoreVectorState()
       EndIf    
       StopVectorDrawing()
    EndProcedure
@@ -281,57 +353,59 @@ Module FlipBook
                EndIf
             EndIf
          Case #PB_Event_Gadget
-            mx = GetGadgetAttribute(*book\canvasID, #PB_Canvas_MouseX)
-            my = GetGadgetAttribute(*book\canvasID, #PB_Canvas_MouseY)
-            
-            If EventType() = #PB_EventType_LeftButtonDown
-               If Abs(mx - (*book\x - *book\width * 0.5)) > *book\width * 0.65
-                  *book\cornerX = *book\width * Sign(mx - *book\x) * 0.5
-                  *book\cornerY = *book\height * Sign(my - *book\y) * 0.5
-                  If (*book\currentPage + Sign(*book\cornerX)) >= 0 And (*book\currentPage + Sign(*book\cornerX)) <= *book\nrPages
-                     lButton = 1
-                  EndIf
-               EndIf
-            ElseIf EventType() = #PB_EventType_LeftButtonUp
-               If lButton
-                  lButton = 0
-                  If ((*book\cornerX > 0) And ((mx - *book\x) < *book\width * 0.25)) Or
-                     ((*book\cornerX < 0) And ((mx - *book\x) > -*book\width * 1.25))
-                     nextPage = *book\currentPage + 2 * Sign(*book\cornerX)
-                     targetX = *book\width * 1.5 * Sign(-*book\cornerX)
-                     targetY = *book\cornerY
-                  Else
-                     targetX = *book\cornerX
-                     targetY = *book\cornerY
-                  EndIf
-                  AddWindowTimer(0, #flipTimer, 25)
-                  autoFlip = 1
-               EndIf
-            ElseIf EventType() = #PB_EventType_MouseMove
-               If autoFlip = 0 And lButton
-                  If *book\cornerX < 0
-                     mx + *book\width
-                  EndIf
-                  grabX = (mx - *book\x)
-                  grabY = (my - *book\y)
-                  DrawBook(*book, grabX, grabY)
-                  Delay(25)
-               EndIf
+            If EventGadget() = *book\canvasID
+               mx = GetGadgetAttribute(*book\canvasID, #PB_Canvas_MouseX)
+               my = GetGadgetAttribute(*book\canvasID, #PB_Canvas_MouseY)
+               
+               Select EventType()
+                  Case #PB_EventType_LeftButtonDown
+                     If autoFlip = 0
+                        If Abs(mx - (*book\x - *book\width * 0.5)) > *book\width * 0.65
+                           *book\cornerX = *book\width * Sign(mx - *book\x) * 0.5
+                           *book\cornerY = *book\height * Sign(my - *book\y) * 0.5
+                           If (*book\currentPage + Sign(*book\cornerX)) >= 0 And (*book\currentPage + Sign(*book\cornerX)) <= *book\nrPages
+                              lButton = 1
+                           EndIf
+                        EndIf
+                     EndIf
+                  Case #PB_EventType_LeftButtonUp
+                     If lButton
+                        lButton = 0
+                        If ((*book\cornerX > 0) And ((mx - *book\x) < *book\width * 0.25)) Or
+                           ((*book\cornerX < 0) And ((mx - *book\x) > -*book\width * 1.25))
+                           nextPage = *book\currentPage + 2 * Sign(*book\cornerX)
+                           targetX = *book\width * 1.5 * Sign(-*book\cornerX)
+                           targetY = *book\cornerY
+                        Else
+                           targetX = *book\cornerX
+                           targetY = *book\cornerY
+                        EndIf
+                        AddWindowTimer(0, #flipTimer, 25)
+                        autoFlip = 1
+                     EndIf
+                  Case #PB_EventType_MouseMove
+                     If autoFlip = 0 And lButton
+                        If *book\cornerX < 0
+                           mx + *book\width
+                        EndIf
+                        grabX = (mx - *book\x)
+                        grabY = (my - *book\y)
+                        DrawBook(*book, grabX, grabY)
+                     EndIf
+               EndSelect
             EndIf
       EndSelect
-      
    EndProcedure  
    DisableExplicit
 EndModule
 
 CompilerIf #PB_Compiler_IsMainFile
   ; enter the name of the file here
-  Define vers.s = "v1.0.0.7 (20252312)"
   Define filename.s = OpenFileRequester("Open a file", "",
                                       "All Files|*.*|Script Files|*.bat;*.cmd|Source Files|*.pb;*.pbi|Text Files|*.txt",0)
   Define filename2.s = GetFilePart(filename)
   
-   OpenWindow(0,0,0,800,600,#APP_NAME+ " " + vers+ " - Viewing file: '"+filename2+"'",#PB_Window_ScreenCentered | #PB_Window_SystemMenu)
+   OpenWindow(0,0,0,800,600,#APP_NAME+ " " + version + " - Viewing file: '"+filename2+"'",#PB_Window_ScreenCentered | #PB_Window_SystemMenu)
    CanvasGadget(0,0,0,WindowWidth(0),WindowHeight(0))
    SetGadgetAttribute(0, #PB_Canvas_Cursor, #PB_Cursor_Hand) ; <= add this line
    
@@ -390,14 +464,14 @@ CompilerIf #PB_Compiler_IsMainFile
       event = WaitWindowEvent()
       HandleEvent(*book, event)
     Until event = #PB_Event_CloseWindow
-    Req=MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
-      If Req = #PB_MessageRequester_Yes
-        End
-      EndIf
+    
+   Exit()
+   
 CompilerEndIf
 
-; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 16
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 466
+; FirstLine = 397
 ; Folding = ---
 ; Optimizer
 ; EnableThread
@@ -407,12 +481,12 @@ CompilerEndIf
 ; UseIcon = HandyFlipBook.ico
 ; Executable = ..\HandyFlipBook.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,6
-; VersionField1 = 1,0,0,6
+; VersionField0 = 1,0,0,8
+; VersionField1 = 1,0,0,8
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyFlipBook
-; VersionField4 = 1.0.0.6
-; VersionField5 = 1.0.0.6
+; VersionField4 = 1.0.0.8
+; VersionField5 = 1.0.0.8
 ; VersionField6 = Handy Flip Book for viewing text files
 ; VersionField7 = HandyFlipBook
 ; VersionField8 = HandyFlipBook.exe
