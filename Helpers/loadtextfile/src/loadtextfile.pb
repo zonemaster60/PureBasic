@@ -1,9 +1,28 @@
 ﻿EnableExplicit
 
+; Constants and Enumerations
 #APP_NAME   = "LoadTextFile"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
-Global version.s = "v1.0.0.2"
+Enumeration Windows
+  #WinMain
+EndEnumeration
+
+Enumeration Gadgets
+  #EditorMain
+EndEnumeration
+
+Enumeration Menus
+  #MenuMain
+EndEnumeration
+
+Enumeration MenuItems
+  #MenuOpen
+  #MenuAbout
+  #MenuExit
+EndEnumeration
+
+Global version.s = "v1.0.0.1"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -16,99 +35,108 @@ If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
   End
 EndIf
 
-; Variable definitions
-Define filename.s, content.s, line.s
+; --- Procedures ---
 
-Procedure Exit()
+Procedure Shutdown()
+  If hMutex
+    CloseHandle_(hMutex)
+  EndIf
+  End
+EndProcedure
+
+Procedure ExitApp()
   Protected Req.i
   Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
   If Req = #PB_MessageRequester_Yes
-    CloseHandle_(hMutex)
-    End
+    Shutdown()
   EndIf
 EndProcedure
 
-; Create the main window
-If OpenWindow(0, 100, 100, 720, 540, #APP_NAME, #PB_Window_SystemMenu | #PB_Window_MinimizeGadget | 
-                                                #PB_Window_ScreenCentered)
+Procedure LoadFileToEditor(Filename.s)
+  Protected FileID.i, Content.s, Format.i
+  
+  FileID = ReadFile(#PB_Any, Filename)
+  If FileID
+    Format = ReadStringFormat(FileID) ; Automatically detect BOM (UTF-8, UTF-16, etc.)
+    Content = ReadString(FileID, #PB_File_IgnoreEOL | Format)
+    CloseFile(FileID)
+    
+    SetGadgetText(#EditorMain, Content)
+    SetWindowTitle(#WinMain, #APP_NAME + " - " + GetFilePart(Filename))
+    ProcedureReturn #True
+  Else
+    MessageRequester("Error", "Unable to open file:" + #CRLF$ + Filename, #PB_MessageRequester_Error)
+    ProcedureReturn #False
+  EndIf
+EndProcedure
+
+Procedure OnResize()
+  ResizeGadget(#EditorMain, 10, 10, WindowWidth(#WinMain) - 20, WindowHeight(#WinMain) - 20)
+EndProcedure
+
+; --- Main Execution ---
+
+If OpenWindow(#WinMain, 100, 100, 720, 540, #APP_NAME, #PB_Window_SystemMenu | #PB_Window_MinimizeGadget | 
+                                                     #PB_Window_MaximizeGadget | #PB_Window_SizeGadget | #PB_Window_ScreenCentered)
 
   ; Build File menu
-  CreateMenu(0, WindowID(0))
+  CreateMenu(#MenuMain, WindowID(#WinMain))
   MenuTitle("File")
-  MenuItem(1, "Open")
+  MenuItem(#MenuOpen, "Open" + #TAB$ + "Ctrl+O")
   MenuBar()
-  MenuItem(2, "About")
-  MenuItem(3, "Exit")
+  MenuItem(#MenuAbout, "About")
+  MenuItem(#MenuExit, "Exit")
+  
+  ; Shortcuts
+  AddKeyboardShortcut(#WinMain, #PB_Shortcut_Control | #PB_Shortcut_O, #MenuOpen)
 
   ; Editor gadget with scrollbars and read-only mode
-  EditorGadget(0, 10, 10, 700, 500, #PB_Editor_WordWrap | #PB_Editor_ReadOnly)
+  EditorGadget(#EditorMain, 10, 10, 700, 500, #PB_Editor_WordWrap | #PB_Editor_ReadOnly)
+  
+  ; Bind resize event
+  BindEvent(#PB_Event_SizeWindow, @OnResize(), #WinMain)
 
   ; Load file if provided via command-line argument
   If ProgramParameter(0)
-    filename = ProgramParameter(0)
-    If ReadFile(1, filename, #PB_UTF8)
-      content = ""
-      While Not Eof(1)
-        line = ReadString(1, #PB_File_IgnoreEOL)
-        content + line + #CRLF$
-      Wend
-      CloseFile(1)
-      SetGadgetText(0, content)
-      SetWindowTitle(0, #APP_NAME + " - " + filename)
-    Else
-      MessageRequester("Error", "Unable to open file from argument.", #PB_MessageRequester_Error)
-      CloseHandle_(hMutex)
-      End
-    EndIf
+    LoadFileToEditor(ProgramParameter(0))
   EndIf
 
   Repeat
     Define Event = WaitWindowEvent()
     Select Event
 
+      Case #PB_Event_CloseWindow
+        ExitApp()
+
       Case #PB_Event_Menu
         Select EventMenu()
         
-          Case 1  ; Open file
-            filename = OpenFileRequester("Open text file", "", "Text files|*.txt|All files|*.*", 0)
-            If filename
-              If ReadFile(1, filename, #PB_UTF8)
-                content = ""
-                While Not Eof(1)
-                  line = ReadString(1, #PB_File_IgnoreEOL)
-                  content + line + #CRLF$
-                Wend
-                CloseFile(1)
-                SetGadgetText(0, content)
-                SetWindowTitle(0, #APP_NAME + " - " + filename)
-              Else
-                MessageRequester("Error", "Unable to open the file.", #PB_MessageRequester_Error)
-                CloseHandle_(hMutex)
-                End
-              EndIf
+          Case #MenuOpen  ; Open file
+            Define Filename.s = OpenFileRequester("Open text file", "", "Text files|*.txt;*.log;*.json|All files|*.*", 0)
+            If Filename
+              LoadFileToEditor(Filename)
             EndIf
-          Case 2
-            MessageRequester("Info", #APP_NAME + " - " + version + #CRLF$ + 
+
+          Case #MenuAbout
+            MessageRequester("About", #APP_NAME + " - " + version + #CRLF$ + 
                                      "Thank you for using this free tool!" + #CRLF$ +
                                      "Contact: " + #EMAIL_NAME + #CRLF$ +
                                      "Website: https://github.com/zonemaster60", #PB_MessageRequester_Info)
             
-          Case 3  ; Exit
-            Exit()
+          Case #MenuExit  ; Exit
+            ExitApp()
 
         EndSelect
-
-      Case #PB_Event_CloseWindow
-        Exit()
 
     EndSelect
   ForEver
 
 EndIf
 
+Shutdown()
+
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 29
-; FirstLine = 6
+; CursorPosition = 24
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -118,12 +146,12 @@ EndIf
 ; UseIcon = loadtextfile.ico
 ; Executable = ..\loadtextfile.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = loadtextfile
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = Loads and displays text files
 ; VersionField7 = loadtextfile
 ; VersionField8 = loadtextfile.exe

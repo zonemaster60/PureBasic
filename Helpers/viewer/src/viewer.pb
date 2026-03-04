@@ -1,10 +1,11 @@
-﻿; viewer.pb - PureBasic 6.30 console file viewer (Windows)
+; viewer.pb - PureBasic 6.30 console file viewer (Windows/Cross-platform)
 EnableExplicit
 
 #CHUNK_LINES = 1024
 #APP_NAME = "Viewer"
+Global version.s = "1.0.0.1"
 
-; Windows Virtual-Key codes (RawKey() typically matches these on Windows)
+; Windows Virtual-Key codes
 #VK_UP     = 38
 #VK_DOWN   = 40
 #VK_PRIOR  = 33 ; PageUp
@@ -16,17 +17,11 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   #STD_INPUT_HANDLE  = -10
   #STD_OUTPUT_HANDLE = -11
 
-  #ENABLE_PROCESSED_INPUT   = $0001
-  #ENABLE_LINE_INPUT        = $0002
-  #ENABLE_ECHO_INPUT        = $0004
-  #ENABLE_WINDOW_INPUT      = $0008
-  #ENABLE_MOUSE_INPUT       = $0010
-  #ENABLE_INSERT_MODE       = $0020
-  #ENABLE_QUICK_EDIT_MODE   = $0040
   #ENABLE_EXTENDED_FLAGS    = $0080
-CompilerEndIf
+  #ENABLE_QUICK_EDIT_MODE   = $0040
+  #ENABLE_INSERT_MODE       = $0020
+  #ENABLE_MOUSE_INPUT       = $0010
 
-CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   CompilerIf Defined(COORD, #PB_Structure) = 0
     Structure COORD
       x.w
@@ -62,6 +57,8 @@ EndProcedure
 
 Procedure.s ClipToWidth(text.s, cols.i)
   If cols <= 0 : ProcedureReturn "" : EndIf
+  ; Replace tabs with spaces for consistent viewing
+  text = ReplaceString(text, #TAB$, "    ")
   If Len(text) > cols : ProcedureReturn Left(text, cols) : EndIf
   ProcedureReturn text
 EndProcedure
@@ -90,10 +87,8 @@ EndProcedure
 
 CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   Procedure DisableConsoleMouseAndQuickEdit()
-    ; Best effort to avoid accidental mouse-driven scrolling/selection.
     Protected hIn.i = GetStdHandle_(#STD_INPUT_HANDLE)
     Protected mode.l
-
     If hIn And GetConsoleMode_(hIn, @mode)
       mode | #ENABLE_EXTENDED_FLAGS
       mode & ~#ENABLE_QUICK_EDIT_MODE
@@ -104,7 +99,6 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   EndProcedure
 
   Procedure EnsureNoConsoleScrollback()
-    ; Clamp screen buffer to visible window size (prevents scrollback).
     Protected hOut.i = GetStdHandle_(#STD_OUTPUT_HANDLE)
     Protected csbi.CONSOLE_SCREEN_BUFFER_INFO
     If hOut = 0 : ProcedureReturn : EndIf
@@ -117,37 +111,32 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     Protected buf.COORD
     buf\x = winW
     buf\y = winH
-
     SetConsoleScreenBufferSize_(hOut, buf)
   EndProcedure
 CompilerEndIf
 
 Procedure.i LoadFileIntoArray(fileName.s, Array lines.s(1))
-  Protected f.i, count.i, cap.i
-
+  Protected f.i, count.i, cap.i, format.i
   f = ReadFile(#PB_Any, fileName)
   If f = 0 : ProcedureReturn -1 : EndIf
-
+  
+  format = ReadStringFormat(f) ; Detect UTF-8/UTF-16/Ascii
   cap = #CHUNK_LINES
   Dim lines(cap - 1)
   count = 0
-
   While Eof(f) = 0
     If count >= cap
       cap + #CHUNK_LINES
       ReDim lines(cap - 1)
     EndIf
-    lines(count) = ReadString(f)
+    lines(count) = ReadString(f, format)
     count + 1
   Wend
-
   CloseFile(f)
-
   If count = 0
     Dim lines(0)
     ProcedureReturn 0
   EndIf
-
   ReDim lines(count - 1)
   ProcedureReturn count
 EndProcedure
@@ -160,36 +149,45 @@ Procedure DrawScreen(Array lines.s(1), lineCount.i, topLine.i, fileName.s)
   Protected cols.i = ConsoleCols()
   Protected rowsTotal.i = ConsoleRows()
   Protected viewRows.i = rowsTotal - 1
-  Protected i.i, idx.i, maxTop.i
+  Protected i.i, idx.i
   Protected status.s
 
   If viewRows < 1 : viewRows = 1 : EndIf
-  maxTop = lineCount - viewRows
-  If maxTop < 0 : maxTop = 0 : EndIf
-  topLine = ClampI(topLine, 0, maxTop)
-
-  ClearConsole()
+  
   ConsoleLocate(0, 0)
-
+  ; Draw file content
   For i = 0 To viewRows - 1
     idx = topLine + i
     If idx < lineCount
-      PrintN(ClipToWidth(lines(idx), cols))
-    Else
-      PrintN("")
+      Print(ClipToWidth(lines(idx), cols))
+    EndIf
+    ; Clear to end of line to avoid artifacts from previous draws
+    Protected currentLineLen.i = 0
+    If idx < lineCount
+      currentLineLen = Len(ClipToWidth(lines(idx), cols))
+    EndIf
+    
+    If cols - currentLineLen > 0
+      Print(Space(cols - currentLineLen))
+    EndIf
+    
+    If i < viewRows - 1
+        PrintN("")
     EndIf
   Next
 
-  status = fileName + "  |  Lines: " + Str(lineCount) + "  |  " + Str(topLine + 1) + "-" + Str(ClampI(topLine + viewRows, 0, lineCount)) + #CRLF$ +
-           "  |  Up/Down PgUp/PgDn Home/End  |  W/S also work  |  Q/Esc quits"
-  If Len(status) > cols : status = Left(status, cols) : EndIf
-
+  ; Status line
+  status = " " + GetFilePart(fileName) + " | " + Str(lineCount) + " lines | " + Str(topLine + 1) + "-" + Str(ClampI(topLine + viewRows, 0, lineCount)) + " | Q: Quit"
+  status = ClipToWidth(status, cols)
+  
   ConsoleLocate(0, viewRows)
-  Print(status)
+  ConsoleColor(0, 7)
+  Print(status + Space(cols - Len(status)))
+  ConsoleColor(7, 0)
 EndProcedure
 
 ; ---- Main ----
-OpenConsole()
+If OpenConsole() = 0 : End : EndIf
 EnableGraphicalConsole(1)
 
 CompilerIf #PB_Compiler_OS = #PB_OS_Windows
@@ -200,7 +198,9 @@ CompilerEndIf
 If CountProgramParameters() < 1
   PrintN("Usage: " + #APP_NAME + " <file>")
   PrintN("Keys: Up/Down, PgUp/PgDn, Home/End, W/S, Q or Esc")
+  Print("Press Enter to exit...")
   Input()
+  CloseConsole()
   End
 EndIf
 
@@ -209,26 +209,38 @@ Define Dim lines.s(0)
 Define lineCount.i = LoadFileIntoArray(fileName, lines())
 
 If lineCount < 0
-  PrintN("Error: can't open file: " + fileName)
+  PrintN("Error: Could not open file: " + fileName)
+  Print("Press Enter to exit...")
   Input()
+  CloseConsole()
   End
 EndIf
 
 Define topLine.i = 0
 Define k.s, rk.i
 Define rowsTotal.i, viewRows.i, maxTop.i
-
-DrawScreen(lines(), lineCount, topLine, fileName)
+Define lastTop.i = -1
+Define lastCols.i = -1
+Define lastRows.i = -1
 
 Repeat
-  k = Inkey()
-  rk = RawKey()
-
   rowsTotal = ConsoleRows()
   viewRows = rowsTotal - 1
   If viewRows < 1 : viewRows = 1 : EndIf
   maxTop = lineCount - viewRows
   If maxTop < 0 : maxTop = 0 : EndIf
+  topLine = ClampI(topLine, 0, maxTop)
+
+  ; Only redraw if something changed
+  If topLine <> lastTop Or rowsTotal <> lastRows Or ConsoleCols() <> lastCols
+    DrawScreen(lines(), lineCount, topLine, fileName)
+    lastTop = topLine
+    lastRows = rowsTotal
+    lastCols = ConsoleCols()
+  EndIf
+
+  k = Inkey()
+  rk = RawKey()
 
   If k <> ""
     Select k
@@ -241,35 +253,24 @@ Repeat
     EndSelect
   ElseIf rk
     Select rk
-      Case #VK_UP
-        topLine - 1
-      Case #VK_DOWN
-        topLine + 1
-      Case #VK_PRIOR
-        topLine - viewRows
-      Case #VK_NEXT
-        topLine + viewRows
-      Case #VK_HOME
-        topLine = 0
-      Case #VK_END
-        topLine = maxTop
+      Case #VK_UP : topLine - 1
+      Case #VK_DOWN : topLine + 1
+      Case #VK_PRIOR : topLine - viewRows
+      Case #VK_NEXT : topLine + viewRows
+      Case #VK_HOME : topLine = 0
+      Case #VK_END : topLine = maxTop
     EndSelect
-  Else
-    Delay(10)
-    Continue
   EndIf
-
-  topLine = ClampI(topLine, 0, maxTop)
-  DrawScreen(lines(), lineCount, topLine, fileName)
-  Delay(10)
+  
+  Delay(16) ; ~60fps response
 ForEver
 
 CloseConsole()
 End
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 4
-; Folding = ----
+; CursorPosition = 6
+; Folding = ---
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -278,12 +279,12 @@ End
 ; UseIcon = viewer.ico
 ; Executable = ..\Viewer.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = viewer
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = Console text viewer
 ; VersionField7 = viewer
 ; VersionField8 = viewer.exe

@@ -15,7 +15,7 @@ EnableExplicit
 #APP_NAME   = "Hash_Tool"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
-Global version.s = "v1.0.0.1"
+Global version.s = "v1.0.0.2"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -47,32 +47,39 @@ Procedure Exit()
 EndProcedure
 
 Procedure.s QuoteCSV(Field.s)
-  ; Minimal CSV escaping
-  If FindString(Field, "\", 1) Or FindString(Field, ",", 1) Or FindString(Field, #CRLF$, 1)
-    Field = ReplaceString(Field, "\", "\")
-    ProcedureReturn "\" + Field + "\"
-  EndIf
-  ProcedureReturn Field
+  ; CSV escaping: escape double quotes by doubling them and wrap in quotes
+  Field = ReplaceString(Field, #DQUOTE$, #DQUOTE$ + #DQUOTE$)
+  ProcedureReturn #DQUOTE$ + Field + #DQUOTE$
 EndProcedure
 
 Procedure.s GetFileName(FilePath.s)
   ProcedureReturn GetFilePart(FilePath)
 EndProcedure
 
-Procedure.s DefaultOutputPath(InputPath.s, Format.s)
+Procedure.s DefaultOutputPath(List Files.s(), Format.s)
   Protected suffix.s
+  Protected firstFile.s
+  
+  If FirstElement(Files())
+    firstFile = Files()
+  Else
+    firstFile = "hashes"
+  EndIf
+  
   If LCase(Format) = "txt"
     suffix = ".txt"
   Else
     suffix = ".csv"
   EndIf
-  ProcedureReturn InputPath + suffix
+  ProcedureReturn firstFile + suffix
 EndProcedure
 
-Procedure.i WriteCSV(OutputPath.s, InputPath.s, FileSize.q, Map Hashes.s(), Array Keys.s(1))
+Procedure.i WriteCSV(OutputPath.s, List FilesToHash.s(), List Algos.HashAlgo(), Map AllHashes.s())
   Protected fileId.i
-  Protected idx.i
   Protected key.s
+  Protected header.s
+  Protected values.s
+  Protected hashKey.s
 
   fileId = CreateFile(#PB_Any, OutputPath)
   If fileId = 0
@@ -80,55 +87,68 @@ Procedure.i WriteCSV(OutputPath.s, InputPath.s, FileSize.q, Map Hashes.s(), Arra
     ProcedureReturn #False
   EndIf
 
-  WriteStringN(fileId, "Input_file: " + QuoteCSV(InputPath))
-  WriteStringN(fileId, "File_size_bytes: " + Str(FileSize))
-  WriteStringN(fileId, "")
-  WriteStringN(fileId, "Algorithm: hash_hex")
+  ; Header
+  header = "Filename,Size_Bytes"
+  ForEach Algos()
+    header + "," + QuoteCSV(Algos()\name)
+  Next
+  WriteStringN(fileId, header)
 
-  For idx = 0 To ArraySize(Keys())
-    key = Keys(idx)
-    If FindMapElement(Hashes(), key)
-      WriteStringN(fileId, QuoteCSV(key) + ": " + QuoteCSV(Hashes()))
-    EndIf
+  ; Data rows
+  ForEach FilesToHash()
+    values = QuoteCSV(FilesToHash()) + "," + Str(FileSize(FilesToHash()))
+    ForEach Algos()
+      hashKey = FilesToHash() + "|" + Algos()\name
+      If FindMapElement(AllHashes(), hashKey)
+        values + "," + QuoteCSV(AllHashes())
+      Else
+        values + ","
+      EndIf
+    Next
+    WriteStringN(fileId, values)
   Next
 
   CloseFile(fileId)
   ProcedureReturn #True
 EndProcedure
 
-Procedure.i WriteTXT(OutputPath.s, InputPath.s, FileSize.q, Map Hashes.s(), Array Keys.s(1))
+Procedure.i WriteTXT(OutputPath.s, List FilesToHash.s(), List Algos.HashAlgo(), Map AllHashes.s())
   Protected fileId.i
-  Protected idx.i
-  Protected key.s
+  Protected hashKey.s
 
   fileId = CreateFile(#PB_Any, OutputPath)
   If fileId = 0
     PrintN("ERROR: Unable to write output: " + OutputPath)
     ProcedureReturn #False
-    Exit()
   EndIf
 
-  WriteStringN(fileId, "Input: " + InputPath)
-  WriteStringN(fileId, "Size: " + Str(FileSize) + " bytes")
-  WriteStringN(fileId, "")
-
-  For idx = 0 To ArraySize(Keys())
-    key = Keys(idx)
-    If FindMapElement(Hashes(), key)
-      WriteStringN(fileId, key + ": " + Hashes())
-    EndIf
+  ForEach FilesToHash()
+    WriteStringN(fileId, "File: " + FilesToHash())
+    WriteStringN(fileId, "Size: " + Str(FileSize(FilesToHash())) + " bytes")
+    ForEach Algos()
+      hashKey = FilesToHash() + "|" + Algos()\name
+      If FindMapElement(AllHashes(), hashKey)
+        WriteStringN(fileId, "  " + Algos()\name + ": " + AllHashes())
+      EndIf
+    Next
+    WriteStringN(fileId, "")
   Next
 
   CloseFile(fileId)
   ProcedureReturn #True
 EndProcedure
 
-Procedure.i ComputeHashesStreaming(FilePath.s, ChunkSize.i, List Algos.HashAlgo(), Map Hashes.s())
+Procedure.i ComputeHashesStreaming(FilePath.s, ChunkSize.i, List Algos.HashAlgo(), Map Hashes.s(), Silent.i = #False)
   Protected fileId.i
   Protected *buffer
   Protected bytesRead.i
+  Protected hashKey.s
+  Protected totalSize.q = FileSize(FilePath)
+  Protected currentRead.q = 0
+  Protected lastPercent.i = -1
+  Protected currentPercent.i
 
-  If FileSize(FilePath) < 0
+  If totalSize < 0
     ProcedureReturn #False
   EndIf
 
@@ -176,8 +196,21 @@ Procedure.i ComputeHashesStreaming(FilePath.s, ChunkSize.i, List Algos.HashAlgo(
 
   While Eof(fileId) = 0
     bytesRead = ReadData(fileId, *buffer, ChunkSize)
-    If bytesRead <= 0
+    If bytesRead < 0
       Break
+    EndIf
+    If bytesRead = 0
+      Continue
+    EndIf
+
+    currentRead + bytesRead
+    
+    If Not Silent And totalSize > 0
+      currentPercent = (currentRead * 100) / totalSize
+      If currentPercent <> lastPercent
+        Print(Chr(13) + "Hashing: " + GetFilePart(FilePath) + " [" + Str(currentPercent) + "%]    ")
+        lastPercent = currentPercent
+      EndIf
     EndIf
 
     ForEach Algos()
@@ -192,9 +225,13 @@ Procedure.i ComputeHashesStreaming(FilePath.s, ChunkSize.i, List Algos.HashAlgo(
 
   ; Finish and collect results.
   ForEach Algos()
+    hashKey = FilePath + "|" + Algos()\name
     If Algos()\fp
-      Hashes(Algos()\name) = LCase(FinishFingerprint(Algos()\fp))
+      Hashes(hashKey) = LCase(FinishFingerprint(Algos()\fp))
       Algos()\fp = 0
+    Else
+      ; Explicitly note failed/skipped algorithms
+      Hashes(hashKey) = "ERR"
     EndIf
   Next
 
@@ -240,11 +277,18 @@ EndProcedure
 
 Procedure PrintUsage(ExeName.s)
   PrintN("Usage:")
-  PrintN(" " + ExeName + " <input_file> [--out <output_file>] [--format csv|txt] [--chunk-size <bytes>]")
+  PrintN(" " + ExeName + " <input_file|wildcard> [--out <output_file>] [--format csv|txt] [--chunk-size <bytes>] [--silent]")
+  PrintN("")
+  PrintN("Options:")
+  PrintN(" --out <file>       Specify output path (default: first_input.csv/txt)")
+  PrintN(" --format <fmt>     Set output format: csv (default) or txt")
+  PrintN(" --chunk-size <n>   Set read buffer size in bytes (default: 1MB)")
+  PrintN(" --silent, -s       Suppress all console output except critical errors")
+  PrintN(" --help, -h         Show this help message")
   PrintN("")
   PrintN("Notes:")
-  PrintN(" - Hashes use PureBasic Cipher fingerprint plugins.")
-  PrintN(" - Uses streaming hashing (chunked reads).")
+  PrintN(" - Supports multiple input files and wildcards (*.exe, data\*.bin)")
+  PrintN(" - CSV output is row-based (Filename, Size, Hashes...)")
   Exit()
 EndProcedure
 
@@ -261,76 +305,105 @@ If CountProgramParameters() < 1
   Exit()
 EndIf
 
-Define inputPath.s = ProgramParameter(0)
+Define i.i
+Define param.s
+For i = 0 To CountProgramParameters() - 1
+  param = LCase(ProgramParameter(i))
+  If param = "--help" Or param = "/?" Or param = "-h"
+    PrintUsage(GetFileName(ProgramFilename()))
+    Exit()
+  EndIf
+Next
+
+NewList filesToHash.s()
 Define outputPath.s = ""
 Define format.s = "csv"
 Define chunkSize.i = #DefaultChunkSize
+Define silent.i = #False
 
-Define i.i
-For i = 1 To CountProgramParameters() - 1
-  Select LCase(ProgramParameter(i))
-    Case "--out"
-      If i + 1 <= CountProgramParameters() - 1
-        i + 1
-        outputPath = ProgramParameter(i)
+; First pass: identify input files (supports multiple) and options
+For i = 0 To CountProgramParameters() - 1
+  param = ProgramParameter(i)
+  If Left(param, 1) = "-"
+    Select LCase(param)
+      Case "--out"
+        If i + 1 < CountProgramParameters()
+          i + 1
+          outputPath = ProgramParameter(i)
+        EndIf
+      Case "--format"
+        If i + 1 < CountProgramParameters()
+          i + 1
+          format = LCase(ProgramParameter(i))
+        EndIf
+      Case "--chunk-size"
+        If i + 1 < CountProgramParameters()
+          i + 1
+          chunkSize = Val(ProgramParameter(i))
+        EndIf
+      Case "--silent", "--quiet", "-s"
+        silent = #True
+    EndSelect
+  Else
+    ; Handle wildcards manually if needed, or just add the file
+    If FindString(param, "*") Or FindString(param, "?")
+      Define dir.s = GetPathPart(param)
+      If dir = "" : dir = "." : EndIf
+      Define pattern.s = GetFilePart(param)
+      Define hDir.i = ExamineDirectory(#PB_Any, dir, pattern)
+      If hDir
+        While NextDirectoryEntry(hDir)
+          If DirectoryEntryType(hDir) = #PB_DirectoryEntry_File
+            AddElement(filesToHash())
+            filesToHash() = dir + DirectoryEntryName(hDir)
+          EndIf
+        Wend
+        FinishDirectory(hDir)
       EndIf
-    Case "--format"
-      If i + 1 <= CountProgramParameters() - 1
-        i + 1
-        format = LCase(ProgramParameter(i))
-      EndIf
-    Case "--chunk-size"
-      If i + 1 <= CountProgramParameters() - 1
-        i + 1
-        chunkSize = Val(ProgramParameter(i))
-      EndIf
-  EndSelect
+    Else
+      AddElement(filesToHash())
+      filesToHash() = param
+    EndIf
+  EndIf
 Next
 
+If ListSize(filesToHash()) = 0
+  PrintUsage(GetFileName(ProgramFilename()))
+  Exit()
+EndIf
+
 If format <> "csv" And format <> "txt"
-  PrintN("ERROR: Unsupported format: " + format)
+  If Not silent : PrintN("ERROR: Unsupported format: " + format) : EndIf
   Exit()
 EndIf
 
 If outputPath = ""
-  outputPath = DefaultOutputPath(inputPath, format)
-EndIf
-
-Define size.q = FileSize(inputPath)
-If size < 0
-  PrintN("ERROR: Unable to read input file: " + inputPath)
-  Exit()
+  outputPath = DefaultOutputPath(filesToHash(), format)
 EndIf
 
 NewList algos.HashAlgo()
 BuildAlgorithmList(algos())
 
 NewMap hashes.s()
-If ComputeHashesStreaming(inputPath, chunkSize, algos(), hashes()) = #False
-  PrintN("ERROR: Hashing failed for input file: " + inputPath)
-  Exit()
-EndIf
-
-; Stable output ordering: copy keys to array and sort
-Define count.i = MapSize(hashes())
-If count <= 0
-  PrintN("ERROR: No hashes generated (unsupported algorithms?)")
-  Exit()
-EndIf
-
-Dim keys.s(count - 1)
-Define idx.i = 0
-ForEach hashes()
-  keys(idx) = MapKey(hashes())
-  idx + 1
+ForEach filesToHash()
+  If Not silent : Print("Hashing: " + GetFilePart(filesToHash()) + "... ") : EndIf
+  If ComputeHashesStreaming(filesToHash(), chunkSize, algos(), hashes(), silent)
+    If Not silent : PrintN(Chr(13) + "Hashing: " + GetFilePart(filesToHash()) + " ... Done.    ") : EndIf
+  Else
+    If Not silent : PrintN(Chr(13) + "Hashing: " + GetFilePart(filesToHash()) + " ... FAILED.    ") : EndIf
+  EndIf
 Next
-SortArray(keys(), #PB_Sort_Ascending)
+
+If MapSize(hashes()) <= 0
+  If Not silent : PrintN("ERROR: No hashes generated.") : EndIf
+  Exit()
+EndIf
 
 Define ok.i
 If format = "csv"
-  ok = WriteCSV(outputPath, inputPath, size, hashes(), keys())
+  ok = WriteCSV(outputPath, filesToHash(), algos(), hashes())
 Else
-  ok = WriteTXT(outputPath, inputPath, size, hashes(), keys())
+  ok = WriteTXT(outputPath, filesToHash(), algos(), hashes())
 EndIf
 
 If ok = #False
@@ -338,15 +411,16 @@ If ok = #False
   End 1
 EndIf
 
-PrintN("Input:  " + inputPath)
-PrintN("Output: " + outputPath)
-PrintN("Hashes: " + Str(MapSize(hashes())))
+If Not silent
+  PrintN("")
+  PrintN("Output saved to: " + outputPath)
+  PrintN("Total files: " + Str(ListSize(filesToHash())))
+EndIf
 
 Exit()
 
-; IDE Options = PureBasic 6.30 beta 7 (Windows - x64)
-; CursorPosition = 336
-; FirstLine = 194
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 17
 ; Folding = --
 ; Optimizer
 ; EnableThread
@@ -354,14 +428,14 @@ Exit()
 ; EnableAdmin
 ; DPIAware
 ; UseIcon = hash_tool.ico
-; Executable = hash_tool.exe
+; Executable = ..\hash_tool.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = hash_tool
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
 ; VersionField6 = Create hash tables for executable files.
 ; VersionField7 = hash_tool
 ; VersionField8 = hash_tool.exe
