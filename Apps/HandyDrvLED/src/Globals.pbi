@@ -1,7 +1,7 @@
 ; HandyDrvLED Globals & Constants
 
 #APP_NAME = "HandyDrvLED"
-Global version.s = "v1.0.3.2"
+Global version.s = "v1.0.3.3"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
 #IOCTL_DISK_PERFORMANCE = $70020
@@ -290,10 +290,11 @@ Procedure.i LoadIconSet(iconSetNumber.i)
   If IdIcon2 : DestroyIcon_(IdIcon2) : EndIf
   If IdIcon3 : DestroyIcon_(IdIcon3) : EndIf
   If IdIcon4 : DestroyIcon_(IdIcon4) : EndIf
-  IdIcon1 = ExtractIcon_(0, iconlib, 0)
-  IdIcon2 = ExtractIcon_(0, iconlib, 1)
-  IdIcon3 = ExtractIcon_(0, iconlib, 2)
-  IdIcon4 = ExtractIcon_(0, iconlib, 3)
+  ; Icon Index mapping: 0=Write (Red), 1=Read (Green), 2=Both (Blue), 3=Idle (Yellow)
+  IdIcon1 = ExtractIcon_(0, iconlib, 0) ; Write
+  IdIcon2 = ExtractIcon_(0, iconlib, 1) ; Read
+  IdIcon3 = ExtractIcon_(0, iconlib, 2) ; Both
+  IdIcon4 = ExtractIcon_(0, iconlib, 3) ; Idle
   ProcedureReturn Bool(IdIcon1 And IdIcon2 And IdIcon3 And IdIcon4)
 EndProcedure
 
@@ -524,6 +525,7 @@ EndProcedure
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 3
-; Folding = ---
+; Folding = -----
 ; EnableXP
 ; DPIAware
+; Executable = ..\HandyDrvLED.exe

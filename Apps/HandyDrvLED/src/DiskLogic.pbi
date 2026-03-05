@@ -117,6 +117,8 @@ Procedure MonitorThread(unused.i)
       OldBytesRead = dp\BytesRead : OldBytesWritten = dp\BytesWritten
       
       LockMutex(Mutex_DiskData)
+      ; RED=Write, GREEN=Read, BLUE=Both, YELLOW=Idle
+      ; IdIcon1=Write (RED), IdIcon2=Read (GREEN), IdIcon3=Both (BLUE), IdIcon4=Idle (YELLOW)
       If ReadDetected And WriteDetected : CurrentIconID = IdIcon3 : ElseIf WriteDetected : CurrentIconID = IdIcon1 : ElseIf ReadDetected : CurrentIconID = IdIcon2 : Else : CurrentIconID = IdIcon4 : EndIf
       CurrentTooltip = "RC/s: " + Str((dp\ReadCount - Count_Read)*10) + " | WC/s: " + Str((dp\WriteCount - Count_Write)*10)
       Count_Read = dp\ReadCount : Count_Write = dp\WriteCount

@@ -165,12 +165,12 @@ End
 ; UseIcon = HandyDrvLED.ico
 ; Executable = ..\HandyDrvLED.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,2
-; VersionField1 = 1,0,3,2
+; VersionField0 = 1,0,3,3
+; VersionField1 = 1,0,3,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyDrvLED
-; VersionField4 = 1.0.3.2
-; VersionField5 = 1.0.3.2
+; VersionField4 = 1.0.3.3
+; VersionField5 = 1.0.3.3
 ; VersionField6 = A handy drive monitor - with tons of features
 ; VersionField7 = HandyDrvLED
 ; VersionField8 = HandyDrvLED.exe
