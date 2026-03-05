@@ -1,7 +1,8 @@
 ﻿; HandyLNKMaker - PB 6.30 beta 5
 ; - GUI-based Shortcut Wizard
-; - Select EXE, check existence, and choose shortcut type/platform
-; - Handles elevation for Program Files folder creation
+; - Select EXE and choose shortcut type
+; - Points shortcuts directly to the selected EXE path
+; - Duplicate name protection (auto-increment suffix)
 
 EnableExplicit
 
@@ -12,11 +13,6 @@ EnableExplicit
 #LOG_FILE_NAME            = "HandyLNKMaker.log"
 
 #CSIDL_DESKTOPDIRECTORY   = $10
-#CSIDL_PROGRAM_FILES      = $26
-#CSIDL_PROGRAM_FILESX86   = $2A
-
-#TOKEN_QUERY              = $0008
-#TokenElevation           = 20
 
 Enumeration Windows
   #MainWindow
@@ -30,20 +26,13 @@ Enumeration Gadgets
   #Txt_Options
   #Chk_Desktop
   #Chk_Startup
-  #Frame_Platform
-  #Opt_x64
-  #Opt_x86
   #Btn_Finish
   #Btn_Exit
 EndEnumeration
 
-Global version.s = "v1.0.0.5 Wizard"
+Global version.s = "v1.0.0.8 Wizard"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-
-Structure TOKEN_ELEVATION
-  TokenIsElevated.l
-EndStructure
 
 ; Prevent multiple instances (don't rely on window title text)
 Global hMutex.i
@@ -153,42 +142,22 @@ Procedure.s GetSystemErrorMessage(ErrorCode.l)
   EndIf
 EndProcedure
 
-Procedure.b IsProcessElevated()
-  Protected hToken.i, elevation.TOKEN_ELEVATION, size.l
-  If OpenProcessToken_(GetCurrentProcess_(), #TOKEN_QUERY, @hToken)
-    If GetTokenInformation_(hToken, #TokenElevation, @elevation, SizeOf(TOKEN_ELEVATION), @size)
-      CloseHandle_(hToken)
-      ProcedureReturn Bool(elevation\TokenIsElevated)
-    EndIf
-    CloseHandle_(hToken)
-  EndIf
-  ProcedureReturn #False
-EndProcedure
-
-Procedure.b EnsureDirectory(path.s)
-  Protected res.i = FileSize(path)
-  If res = -1
-    If CreateDirectory(path)
-      LogMessage("CREATED DIRECTORY: " + path)
-      ProcedureReturn #True
-    Else
-      Protected err.l = GetLastError_()
-      LogMessage("FAILED TO CREATE DIRECTORY: " + path + " - ERROR: " + GetSystemErrorMessage(err))
-      ProcedureReturn #False
-    EndIf
-  ElseIf res = -2
-    LogMessage("DIRECTORY ALREADY EXISTS: " + path)
-    ProcedureReturn #True
-  Else
-    LogMessage("FILE CONFLICT: Path exists as a file, not a directory: " + path)
-    ProcedureReturn #False
-  EndIf
+Procedure.s GetUniqueShortcutPath(BaseDir.s, AppName.s)
+  Protected Counter.l = 0
+  Protected FinalPath.s = BaseDir + AppName + ".lnk"
+  
+  While FileSize(FinalPath) >= 0
+    Counter + 1
+    FinalPath = BaseDir + AppName + " (" + Str(Counter) + ").lnk"
+  Wend
+  
+  ProcedureReturn FinalPath
 EndProcedure
 
 ; ====== Main UI ======
 
 Procedure OpenWizard()
-  If OpenWindow(#MainWindow, 0, 0, 450, 350, #APP_NAME + " " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  If OpenWindow(#MainWindow, 0, 0, 450, 280, #APP_NAME + " " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
     TextGadget(#Txt_Intro, 20, 20, 410, 40, "Welcome to the Shortcut Wizard. Please select your program and choose where you want to create the shortcuts.")
     
     TextGadget(#Txt_Path, 20, 80, 410, 20, "1. Path to Program (EXE):")
@@ -199,22 +168,17 @@ Procedure OpenWizard()
     CheckBoxGadget(#Chk_Desktop, 40, 175, 150, 20, "Desktop Shortcut")
     CheckBoxGadget(#Chk_Startup, 40, 200, 150, 20, "Startup Shortcut")
     
-    FrameGadget(#Frame_Platform, 240, 150, 180, 80, " Platform ")
-    OptionGadget(#Opt_x64, 260, 175, 140, 20, "64-bit (Program Files)")
-    OptionGadget(#Opt_x86, 260, 200, 140, 20, "32-bit (x86)")
-    SetGadgetState(#Opt_x64, 1)
+    ButtonGadget(#Btn_Finish, 115, 230, 100, 30, "Finish")
+    ButtonGadget(#Btn_Exit, 235, 230, 100, 30, "Exit")
     
-    ButtonGadget(#Btn_Finish, 115, 290, 100, 30, "Finish")
-    ButtonGadget(#Btn_Exit, 235, 290, 100, 30, "Exit")
-    
-    GadgetToolTip(#Btn_Finish, "Create the selected shortcuts")
+    GadgetToolTip(#Btn_Finish, "Create shortcuts for the selected EXE")
   EndIf
 EndProcedure
 
 Procedure HandleFinish()
   Protected exePath.s = GetGadgetText(#String_Path)
   Protected lnkName.s = GetFilePart(exePath, #PB_FileSystem_NoExtension)
-  Protected targetDir.s, specialDir.s, desktopDir.s, startupDir.s
+  Protected desktopDir.s, startupDir.s
   Protected res.l, success.b = #True
   
   If exePath = "" Or FileSize(exePath) < 0
@@ -227,35 +191,15 @@ Procedure HandleFinish()
     ProcedureReturn
   EndIf
   
-  ; Resolve base folders
-  If GetGadgetState(#Opt_x64)
-    specialDir = SpecialFolders::GetSpecialFolder(#CSIDL_PROGRAM_FILES)
-  Else
-    specialDir = SpecialFolders::GetSpecialFolder(#CSIDL_PROGRAM_FILESX86)
-  EndIf
-  
   desktopDir = SpecialFolders::GetSpecialFolder(#CSIDL_DESKTOPDIRECTORY)
   startupDir = SpecialFolders::GetSpecialFolder(#CSIDL_ALTSTARTUP)
   
-  targetDir = specialDir + lnkName
-  
-  ; Elevation Check
-  If Not IsProcessElevated()
-    MessageRequester("Admin Required", "Administrator rights are needed to create folders in Program Files.", #PB_MessageRequester_Warning)
-    ProcedureReturn
-  EndIf
-  
-  If Not EnsureDirectory(targetDir)
-    MessageRequester("Error", "Could not create target directory:" + #CRLF$ + targetDir, #PB_MessageRequester_Error)
-    ProcedureReturn
-  EndIf
-  
-  ; Create the links
+  ; Create the links pointing directly to the entered path with unique naming protection
   If GetGadgetState(#Chk_Desktop)
-    Protected deskLnk.s = desktopDir + lnkName + ".lnk"
+    Protected deskLnk.s = GetUniqueShortcutPath(desktopDir, lnkName)
     res = ShellLink::CreateShellLink(exePath, deskLnk, "", "Start " + lnkName, GetPathPart(exePath), exePath, 0)
     If res = #S_OK
-      LogMessage("SUCCESS: Desktop shortcut created: " + deskLnk)
+      LogMessage("SUCCESS: Desktop shortcut created: " + deskLnk + " pointing to " + exePath)
     Else
       LogMessage("FAILURE: Desktop shortcut creation failed (0x" + Hex(res) + "): " + GetSystemErrorMessage(res))
       success = #False
@@ -263,10 +207,10 @@ Procedure HandleFinish()
   EndIf
   
   If GetGadgetState(#Chk_Startup)
-    Protected startLnk.s = startupDir + lnkName + ".lnk"
+    Protected startLnk.s = GetUniqueShortcutPath(startupDir, lnkName)
     res = ShellLink::CreateShellLink(exePath, startLnk, "", "Start " + lnkName, GetPathPart(exePath), exePath, 0)
     If res = #S_OK
-      LogMessage("SUCCESS: Startup shortcut created: " + startLnk)
+      LogMessage("SUCCESS: Startup shortcut created: " + startLnk + " pointing to " + exePath)
     Else
       LogMessage("FAILURE: Startup shortcut creation failed (0x" + Hex(res) + "): " + GetSystemErrorMessage(res))
       success = #False
@@ -312,8 +256,8 @@ Repeat
 Until Event = #PB_Event_CloseWindow
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 309
-; FirstLine = 279
+; CursorPosition = 1
+; FirstLine = 1
 ; Folding = ---
 ; Optimizer
 ; EnableThread
@@ -323,12 +267,12 @@ Until Event = #PB_Event_CloseWindow
 ; UseIcon = HandyLNKMaker.ico
 ; Executable = ..\HandyLNKMaker.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,5
-; VersionField1 = 1,0,0,5
+; VersionField0 = 1,0,0,8
+; VersionField1 = 1,0,0,8
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyLNKMaker
-; VersionField4 = 1.0.0.5
-; VersionField5 = 1.0.0.5
+; VersionField4 = 1.0.0.8
+; VersionField5 = 1.0.0.8
 ; VersionField6 = HandyLNKMaker - Shortcut Creation Wizard
 ; VersionField7 = HandyLNKMaker
 ; VersionField8 = HandyLNKMaker.exe
