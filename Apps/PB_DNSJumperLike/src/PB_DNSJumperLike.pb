@@ -55,10 +55,12 @@ SetCurrentDirectory(AppPath)
 Global hMutex.i
   hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
   If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
-    MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+    ; If already running, just exit silently instead of showing a message box
+    ; This is better for startup/background apps
     CloseHandle_(hMutex)
     End
   EndIf
+
 
 Structure DNSJ_WSAData
   wVersion.w
@@ -98,11 +100,68 @@ EndImport
 Import "kernel32.lib"
   QueryPerformanceCounter(*lpPerformanceCount.Quad)
   QueryPerformanceFrequency(*lpFrequency.Quad)
+  GetEnvironmentVariableW(*lpName, *lpBuffer, nSize.l)
 EndImport
 
 ; ----------------------------
 ; Helper Procedures
 ; ----------------------------
+
+Procedure.s GetEnvVar(name.s)
+  Protected buf.s = Space(1024)
+  Protected rc.l = GetEnvironmentVariableW(@name, @buf, 1024)
+  If rc > 0 : ProcedureReturn Left(buf, rc) : EndIf
+  ProcedureReturn ""
+EndProcedure
+
+Procedure.s CurrentUserSam()
+  Protected user.s = Trim(GetEnvVar("USERNAME"))
+  Protected domain.s = Trim(GetEnvVar("USERDOMAIN"))
+  If user = "" : ProcedureReturn "" : EndIf
+  If domain <> "" : ProcedureReturn domain + "\\" + user : EndIf
+  ProcedureReturn user
+EndProcedure
+
+Procedure.i RunAndCapture(exe.s, args.s)
+  Protected program.i, exitCode.i = -1
+  program = RunProgram(exe, args, "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Hide)
+  If program = 0 : ProcedureReturn -1 : EndIf
+  While ProgramRunning(program)
+    While AvailableProgramOutput(program) : ReadProgramString(program) : Wend
+    Delay(5)
+  Wend
+  exitCode = ProgramExitCode(program)
+  CloseProgram(program)
+  ProcedureReturn exitCode
+EndProcedure
+
+Procedure.i IsInStartup()
+  Protected args.s = "/Query /TN " + #DQUOTE$ + #APP_NAME + #DQUOTE$
+  ProcedureReturn Bool(RunAndCapture("schtasks.exe", args) = 0)
+EndProcedure
+
+Procedure.i SetRunAtStartup(state.b)
+  Protected taskName.s = #APP_NAME
+  Protected exePath.s = ProgramFilename()
+  Protected workDir.s = GetPathPart(exePath)
+  Protected userSam.s = CurrentUserSam()
+  
+  If state
+    ; Register-ScheduledTask via PowerShell for maximum reliability (bypass registry hurdles)
+    Protected psCmd.s = "Register-ScheduledTask -TaskName '" + ReplaceString(taskName, "'", "''") + "' " +
+                        "-Action (New-ScheduledTaskAction -Execute '" + ReplaceString(exePath, "'", "''") + "' -WorkingDirectory '" + ReplaceString(workDir, "'", "''") + "' -Argument '/TRAY') " +
+                        "-Trigger (New-ScheduledTaskTrigger -AtLogOn -User '" + ReplaceString(userSam, "'", "''") + "') " +
+                        "-Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries) " +
+                        "-Principal (New-ScheduledTaskPrincipal -UserId '" + ReplaceString(userSam, "'", "''") + "' -LogonType Interactive -RunLevel Highest) -Force"
+    
+    Protected args.s = "-NoProfile -ExecutionPolicy Bypass -Command " + #DQUOTE$ + psCmd + #DQUOTE$
+    ProcedureReturn Bool(RunAndCapture("powershell.exe", args) = 0)
+  Else
+    Protected delArgs.s = "/Delete /F /TN " + #DQUOTE$ + taskName + #DQUOTE$
+    ProcedureReturn Bool(RunAndCapture("schtasks.exe", delArgs) = 0)
+  EndIf
+EndProcedure
+
 
 ; Exit procedure
 Procedure Exit()
@@ -642,31 +701,7 @@ Procedure ApplyProviderByName(name.s, adapter.s)
 EndProcedure
 
 Procedure.b IsRunAtStartup()
-  Protected hKey.i, type.l, res.l, size.l = 1024
-  Protected regData.s = Space(1024)
-  res = RegOpenKeyEx_(#HKEY_CURRENT_USER, "Software\Microsoft\Windows\CurrentVersion\Run", 0, #KEY_READ, @hKey)
-  If res = #ERROR_SUCCESS
-    res = RegQueryValueEx_(hKey, #APP_NAME, 0, @type, @regData, @size)
-    RegCloseKey_(hKey)
-    If res = #ERROR_SUCCESS
-      ProcedureReturn #True
-    EndIf
-  EndIf
-  ProcedureReturn #False
-EndProcedure
-
-Procedure SetRunAtStartup(state.b)
-  Protected hKey.i, res.l
-  res = RegOpenKeyEx_(#HKEY_CURRENT_USER, "Software\Microsoft\Windows\CurrentVersion\Run", 0, #KEY_WRITE, @hKey)
-  If res = #ERROR_SUCCESS
-    If state
-      Protected path.s = ProgramFilename()
-      RegSetValueEx_(hKey, #APP_NAME, 0, #REG_SZ, @path, (Len(path) + 1) * SizeOf(Character))
-    Else
-      RegDeleteValue_(hKey, #APP_NAME)
-    EndIf
-    RegCloseKey_(hKey)
-  EndIf
+  ProcedureReturn IsInStartup()
 EndProcedure
 
 Procedure UpdateTrayMenu()
@@ -681,13 +716,14 @@ Procedure UpdateTrayMenu()
     MenuBar()
 
     LockMutex(gMutex)
-    If gWorkerRunning
+    Protected isRunning = gWorkerRunning
+    If isRunning
       MenuItem(#G_Stop, "Stop Testing")
     Else
       MenuItem(#Tray_StartTest, "Start Benchmark")
     EndIf
     
-    If ListSize(Results()) > 0
+    If ListSize(Results()) > 0 And isRunning = #False
       FirstElement(Results())
       MenuItem(#Tray_ApplyBest, "Apply Best: " + Results()\provider)
     EndIf
@@ -695,6 +731,7 @@ Procedure UpdateTrayMenu()
     
     MenuBar()
     OpenSubMenu("DNS Providers")
+
     LockMutex(gMutex)
     Protected i = 0
     ForEach Providers()
@@ -824,8 +861,9 @@ If gLoadedProviders = 0
 EndIf
 
 
-If OpenWindow(#WinMain, 0, 0, 920, 560, #APP_NAME + version + " - Windows 11", #PB_Window_SystemMenu | #PB_Window_ScreenCentered |
-                                                                                       #PB_Window_MinimizeGadget)
+  If OpenWindow(#WinMain, 0, 0, 920, 560, #APP_NAME + version + " - Windows 11", #PB_Window_SystemMenu | #PB_Window_ScreenCentered |
+                                                                                         #PB_Window_MinimizeGadget | #PB_Window_Invisible)
+
   TextGadget(#PB_Any, 14, 14, 70, 20, "Adapter:")
   ComboBoxGadget(#G_AdapterCombo, 80, 10, 280, 26)
   ButtonGadget(#G_ReloadAdapters, 370, 10, 90, 26, "Reload")
@@ -882,7 +920,24 @@ If OpenWindow(#WinMain, 0, 0, 920, 560, #APP_NAME + version + " - Windows 11", #
   AddWindowTimer(#WinMain, 1, 100)
   DisableGadget(#G_Stop, #True)
   
+  ; Handle command line parameters (e.g., from startup shortcut)
+  Define startToTray.b = #False
+  Define cmdIdx.l = 1
+  While cmdIdx <= CountProgramParameters()
+    If UCase(ProgramParameter(cmdIdx-1)) = "/TRAY"
+      startToTray = #True
+    EndIf
+    cmdIdx + 1
+  Wend
+
+  If startToTray
+    HideWindow(#WinMain, #True)
+  Else
+    HideWindow(#WinMain, #False)
+  EndIf
+  
   Define quitApp = #False
+
   Repeat
     Define ev = WaitWindowEvent(20)
     
@@ -920,6 +975,8 @@ If OpenWindow(#WinMain, 0, 0, 920, 560, #APP_NAME + version + " - Windows 11", #
           
         Case #Tray_RunAtStartup
           SetRunAtStartup(Bool(Not IsRunAtStartup()))
+          UpdateTrayMenu() ; Refresh menu state immediately
+
           
         Case #Tray_Exit
           If MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info) = #PB_MessageRequester_Yes
@@ -995,6 +1052,7 @@ If OpenWindow(#WinMain, 0, 0, 920, 560, #APP_NAME + version + " - Windows 11", #
           DisableGadget(#G_AdapterCombo, #True)
           DisableGadget(#G_TriesSpin, #True)
           DisableGadget(#G_TimeoutSpin, #True)
+          DisableGadget(#G_Exit, #True)
           SetGadgetState(#G_Progress, 0)
 
           CreateThread(@WorkerThread(), 0)
@@ -1049,7 +1107,11 @@ If OpenWindow(#WinMain, 0, 0, 920, 560, #APP_NAME + version + " - Windows 11", #
       EndIf
 
       If totalSteps > 0
-        SetGadgetState(#G_Progress, Int((stepsDone * 100.0) / totalSteps))
+        Define pct = Int((stepsDone * 100.0) / totalSteps)
+        SetGadgetState(#G_Progress, pct)
+        If running
+          SysTrayIconToolTip(#SysTray, #APP_NAME + " - Testing... " + Str(pct) + "%")
+        EndIf
       Else
         SetGadgetState(#G_Progress, 0)
       EndIf
@@ -1062,7 +1124,12 @@ If OpenWindow(#WinMain, 0, 0, 920, 560, #APP_NAME + version + " - Windows 11", #
         DisableGadget(#G_AdapterCombo, #False)
         DisableGadget(#G_TriesSpin, #False)
         DisableGadget(#G_TimeoutSpin, #False)
+        DisableGadget(#G_Exit, #False)
         SetGadgetText(#G_Status, "Done. (Apply requires Administrator)")
+        
+        ; Show notification when benchmark finishes
+        SysTrayIconToolTip(#SysTray, #APP_NAME + " - Benchmark Complete")
+        
         LockMutex(gMutex)
         gWorkerDone = 0
         UnlockMutex(gMutex)
