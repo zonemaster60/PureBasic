@@ -16,7 +16,7 @@ LogPath = DataDir + #APP_NAME + ".log"
 
 Global FontUI.i, FontTitle.i, FontSmall.i
 Global MainStatusBar.i
-Global version.s = "v1.0.0.1"
+Global version.s = "v1.0.0.2"
 
 Declare ViewLog()
 
@@ -194,14 +194,61 @@ Procedure ViewLog()
   If FileSize(LogPath) < 0
     LogLine("Log created")
   EndIf
-  RunProgram("notepad.exe", #DQUOTE$ + LogPath + #DQUOTE$, "", #PB_Program_Open)
+  ; Use RunProgram to open the file with the default editor
+  RunProgram(LogPath, "", "", #PB_Program_Open)
+EndProcedure
+
+Procedure.i IsSafePath(p.s)
+  Protected d.s = LCase(GetPathPart(ProgramFilename()))
+  p = LCase(p)
+  If Left(p, Len(d)) = d
+    ProcedureReturn 1
+  EndIf
+  ProcedureReturn 0
+EndProcedure
+
+; ---------- High DPI Helpers ----------
+Procedure.i ScaleX(x.i)
+  ProcedureReturn DesktopScaledX(x)
+EndProcedure
+
+Procedure.i ScaleY(y.i)
+  ProcedureReturn DesktopScaledY(y)
 EndProcedure
 
 Procedure InitFonts()
-  ; Use Windows UI fonts for a more modern look.
-  FontUI = LoadFont(#PB_Any, "Segoe UI", 10)
-  FontSmall = LoadFont(#PB_Any, "Segoe UI", 9)
-  FontTitle = LoadFont(#PB_Any, "Segoe UI", 15, #PB_Font_Bold)
+  ; Use Windows UI fonts scaled for DPI
+  Protected baseSize.i = 10
+  FontUI = LoadFont(#PB_Any, "Segoe UI", ScaleY(baseSize))
+  FontSmall = LoadFont(#PB_Any, "Segoe UI", ScaleY(baseSize - 1))
+  FontTitle = LoadFont(#PB_Any, "Segoe UI", ScaleY(baseSize + 5), #PB_Font_Bold)
+EndProcedure
+
+; ---------- Data Section (Embedded Assets) ----------
+DataSection
+  AppIcon:
+  IncludeBinary "SafeGameBooster.ico"
+EndDataSection
+
+Procedure.i GetAppIcon()
+  Static hIcon.i = 0
+  If hIcon = 0
+    ; We use CatchImage for standard images, but for icons as resources 
+    ; or if we want to use them for the window, we'll just refer to the ICO file in the IDE options
+    ; or extract it to a temporary file. Since PureBasic IDE handles the EXE icon, 
+    ; this section is mostly for internal asset management.
+  EndIf
+  ProcedureReturn hIcon
+EndProcedure
+
+Procedure.s ResolvePath(p.s)
+  ; Resolves relative paths to absolute paths based on application directory
+  Protected PathLabel.s = GetPathPart(ProgramFilename())
+  If Left(p, 2) = ".\" : p = Mid(p, 3) : EndIf
+  If Not (Mid(p, 2, 2) = ":\" Or Left(p, 2) = "\\")
+    ProcedureReturn PathLabel + p
+  EndIf
+  ProcedureReturn p
 EndProcedure
 
 ; ---------- Elevation / Services (requires admin) ----------
@@ -329,7 +376,7 @@ EndProcedure
 
 Procedure.s VdfUnescape(s.s)
   ; Minimal unescape for VDF-style strings
-  s = ReplaceString(s, "\\\\", "\\")
+  s = ReplaceString(s, "\\", "\")
   s = ReplaceString(s, "\\" + Chr(34), Chr(34))
   ProcedureReturn s
 EndProcedure
@@ -1198,31 +1245,39 @@ Procedure.q ScoreExeCandidate(baseFolder.s, fullExePath.s)
   Protected key.s = TopFolderKey(baseFolder, fullExePath)
 
   ; Prefer big executables, but penalize common non-game binaries
-  If FindString(file, "launcher", 1) : score / 3 : EndIf
-  If FindString(file, "crash", 1)    : score / 4 : EndIf
-  If FindString(file, "report", 1)   : score / 4 : EndIf
-  If FindString(file, "updater", 1)  : score / 4 : EndIf
-  If FindString(file, "helper", 1)   : score / 4 : EndIf
-  If FindString(file, "server", 1)   : score / 6 : EndIf
-  If FindString(file, "editor", 1)   : score / 6 : EndIf
-  If FindString(file, "dedicated", 1): score / 6 : EndIf
+  If FindString(file, "launcher", 1) : score / 10 : EndIf
+  If FindString(file, "crash", 1)    : score / 20 : EndIf
+  If FindString(file, "report", 1)   : score / 20 : EndIf
+  If FindString(file, "updater", 1)  : score / 20 : EndIf
+  If FindString(file, "helper", 1)   : score / 10 : EndIf
+  If FindString(file, "server", 1)   : score / 15 : EndIf
+  If FindString(file, "editor", 1)   : score / 15 : EndIf
+  If FindString(file, "dedicated", 1): score / 15 : EndIf
+  If FindString(file, "unitycrashhandler", 1) : score / 50 : EndIf
+  If FindString(file, "jabswitch", 1) : score / 100 : EndIf
 
-  ; Bonus if EXE name matches top-level folder
+  ; Heavy bonus if EXE name matches top-level folder name (likely the main game)
   If Left(key, 8) <> "__root__"
     If NormalizeName(baseName) = NormalizeName(key)
-      score + (size / 2)
+      score * 50 ; Increased bonus for matching folder name
     EndIf
   EndIf
 
-  ; Slightly prefer shallower paths
+  ; Extra bonus if the EXE is located directly in the game's root folder
+  Protected exeDir.s = GetPathPart(fullExePath)
+  If LCase(exeDir) = LCase(EnsureTrailingSlash(baseFolder + key)) Or LCase(exeDir) = LCase(EnsureTrailingSlash(baseFolder))
+    score * 2
+  EndIf
+
+  ; Prefer shallow paths (main EXEs usually in root or 'bin')
   Protected base.s = EnsureTrailingSlash(baseFolder)
   Protected relDir.s = ""
   If LCase(Left(GetPathPart(fullExePath), Len(base))) = LCase(base)
     relDir = Mid(GetPathPart(fullExePath), Len(base) + 1)
   EndIf
   Protected depth.i = CountString(relDir, "\\")
-  score - (depth * 10 * 1024 * 1024)
-  If score < 0 : score = 0 : EndIf
+  ; Heavily penalize deep paths
+  score / (depth + 1)
 
   ProcedureReturn score
 EndProcedure
@@ -1643,20 +1698,22 @@ Procedure SaveGames()
     ForEach Games()
       PreferenceGroup("game_" + Str(i))
       WritePreferenceString("name", Games()\Name)
-      WritePreferenceString("exe", Games()\ExePath)
+      ; Clean path before saving
+      Protected cleanedExe.s = CollapseBackslashes(Games()\ExePath)
+      WritePreferenceString("exe", cleanedExe)
       WritePreferenceString("args", Games()\Args)
-      WritePreferenceString("workdir", Games()\WorkDir)
+      WritePreferenceString("workdir", CollapseBackslashes(Games()\WorkDir))
       WritePreferenceInteger("priority", Games()\Priority)
       WritePreferenceQuad("affinity", Games()\Affinity)
       WritePreferenceString("services", Games()\Services)
       WritePreferenceInteger("launchMode", Games()\LaunchMode)
       WritePreferenceInteger("steamAppId", Games()\SteamAppId)
-      WritePreferenceString("steamExe", Games()\SteamExe)
+      WritePreferenceString("steamExe", CollapseBackslashes(Games()\SteamExe))
       WritePreferenceString("steamClientArgs", Games()\SteamClientArgs)
       WritePreferenceString("steamGameArgs", Games()\SteamGameArgs)
       WritePreferenceInteger("steamTimeoutMs", Games()\SteamDetectTimeoutMs)
       ; gameRoot kept for backward compatibility; no longer user-editable.
-      WritePreferenceString("gameRoot", Games()\GameRoot)
+      WritePreferenceString("gameRoot", CollapseBackslashes(Games()\GameRoot))
       WritePreferenceString("powerGuid", Games()\PowerGuid)
       i + 1
     Next
@@ -1712,13 +1769,14 @@ Procedure.i LaunchBoosted(*g.GameEntry)
   EndIf
   PokeS(*cmdMem, cmd, -1)
 
-  If CreateProcess_(0, *cmdMem, 0, 0, #False, 0, 0, workdir, @si, @pi) = 0
-    FreeMemory(*cmdMem)
+  Protected cpResult.i = CreateProcess_(0, *cmdMem, 0, 0, #False, 0, 0, workdir, @si, @pi)
+  FreeMemory(*cmdMem)
+  
+  If cpResult = 0
     CleanupAfterLaunch(prevPowerGuid, didSwitchPower, stoppedServices)
     MessageRequester(#APP_NAME, "Failed to launch:" + #LF$ + *g\ExePath)
     ProcedureReturn 0
   EndIf
-  FreeMemory(*cmdMem)
 
   ; Record originals
   origPriority = GetPriorityClass_(pi\hProcess)
@@ -1822,13 +1880,14 @@ Procedure.i LaunchSteamBoosted(*g.GameEntry)
   EndIf
   PokeS(*cmdMem, cmd, -1)
 
-  If CreateProcess_(0, *cmdMem, 0, 0, #False, 0, 0, workdir, @si, @pi) = 0
-    FreeMemory(*cmdMem)
+  Protected cpResult.i = CreateProcess_(0, *cmdMem, 0, 0, #False, 0, 0, workdir, @si, @pi)
+  FreeMemory(*cmdMem)
+
+  If cpResult = 0
     CleanupAfterLaunch(prevPowerGuid, didSwitchPower, stoppedServices)
     MessageRequester(#APP_NAME, "Failed to start Steam.")
     ProcedureReturn 0
   EndIf
-  FreeMemory(*cmdMem)
   CloseHandle_(pi\hThread)
   CloseHandle_(pi\hProcess)
 
@@ -2054,7 +2113,7 @@ LoadGames()
 
 InitFonts()
 
-If OpenWindow(0, 0, 0, 980, 510, "SafeGameBooster" + " - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget)
+If OpenWindow(0, 0, 0, ScaleX(980), ScaleY(510), "SafeGameBooster" + " - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget)
   If CreateMenu(#Menu_Main, WindowID(0))
     MenuTitle("File")
     MenuItem(#MI_File_Add, "Add...")
@@ -2079,14 +2138,14 @@ If OpenWindow(0, 0, 0, 980, 510, "SafeGameBooster" + " - " + version, #PB_Window
     MenuItem(#MI_Help_About, "About")
   EndIf
 
-  TextGadget(#G_Title, 10, 10, 960, 28, #APP_NAME)
-  TextGadget(#G_Subtitle, 10, 38, 960, 18, "Safe, temporary boosts: power plan + priority/affinity + optional service stop/start")
+  TextGadget(#G_Title, ScaleX(10), ScaleY(10), ScaleX(960), ScaleY(28), #APP_NAME)
+  TextGadget(#G_Subtitle, ScaleX(10), ScaleY(38), ScaleX(960), ScaleY(18), "Safe, temporary boosts: power plan + priority/affinity + optional service stop/start")
 
   ; Leave space for bottom buttons + status bar.
-  ListIconGadget(#G_List, 10, 70, 960, 340, "Game", 260, #PB_ListIcon_FullRowSelect | #PB_ListIcon_GridLines)
-  AddGadgetColumn(#G_List, 1, "Type", 70)
-  AddGadgetColumn(#G_List, 2, "Path / AppID", 460)
-  AddGadgetColumn(#G_List, 3, "Services", 150)
+  ListIconGadget(#G_List, ScaleX(10), ScaleY(70), ScaleX(960), ScaleY(340), "Game", ScaleX(260), #PB_ListIcon_FullRowSelect | #PB_ListIcon_GridLines)
+  AddGadgetColumn(#G_List, 1, "Type", ScaleX(70))
+  AddGadgetColumn(#G_List, 2, "Path / AppID", ScaleX(460))
+  AddGadgetColumn(#G_List, 3, "Services", ScaleX(150))
 
   If FontTitle : SetGadgetFont(#G_Title, FontID(FontTitle)) : EndIf
   If FontSmall : SetGadgetFont(#G_Subtitle, FontID(FontSmall)) : EndIf
@@ -2094,8 +2153,8 @@ If OpenWindow(0, 0, 0, 980, 510, "SafeGameBooster" + " - " + version, #PB_Window
     SetGadgetFont(#G_List, FontID(FontUI))
   EndIf
 
-  ButtonGadget(#G_Edit, 740, 420, 110, 34, "Edit")
-  ButtonGadget(#G_Launch, 860, 420, 110, 34, "Run")
+  ButtonGadget(#G_Edit, ScaleX(740), ScaleY(420), ScaleX(110), ScaleY(34), "Edit")
+  ButtonGadget(#G_Launch, ScaleX(860), ScaleY(420), ScaleX(110), ScaleY(34), "Run")
 
   If FontUI
     SetGadgetFont(#G_Edit, FontID(FontUI))
@@ -2104,7 +2163,7 @@ If OpenWindow(0, 0, 0, 980, 510, "SafeGameBooster" + " - " + version, #PB_Window
 
   MainStatusBar = CreateStatusBar(#PB_Any, WindowID(0))
   If MainStatusBar
-    AddStatusBarField(980)
+    AddStatusBarField(ScaleX(980))
     StatusBarText(MainStatusBar, 0, "Ready")
   EndIf
 
@@ -2200,8 +2259,9 @@ If OpenWindow(0, 0, 0, 980, 510, "SafeGameBooster" + " - " + version, #PB_Window
 EndIf
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 18
-; Folding = --------------
+; CursorPosition = 247
+; FirstLine = 99
+; Folding = ---------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -2209,14 +2269,14 @@ EndIf
 ; DPIAware
 ; DllProtection
 ; UseIcon = SafeGameBooster.ico
-; Executable = SafeGameBooster.exe
+; Executable = ..\SafeGameBooster.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = SafeGameBooster
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
 ; VersionField6 = A Safe Game Booster made with PureBasic
 ; VersionField7 = SafeGameBooster
 ; VersionField8 = SafeGameBooster.exe
