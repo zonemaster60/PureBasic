@@ -144,12 +144,11 @@ Module Registry
   #KEY_WOW64_32KEY = $200
 
   Macro OpenKey()
+    hKey = 0
     If WOW64
-      CompilerIf #PB_Compiler_Processor = #PB_Processor_x86
-        samDesired | #KEY_WOW64_64KEY
-      CompilerElse
-        samDesired | #KEY_WOW64_32KEY
-      CompilerEndIf
+      samDesired | #KEY_WOW64_64KEY
+    Else
+      samDesired | #KEY_WOW64_64KEY
     EndIf
 
     If Left(KeyName, 1) = "\" : KeyName = Right(KeyName, Len(KeyName) - 1) : EndIf
@@ -165,21 +164,21 @@ Module Registry
         *Ret\ERROR = error
         *Ret\ERRORSTR = GetLastErrorStr(error)
       EndIf
-      Debug GetLastErrorStr(error)
-      If hKey
+      Debug "RegOpenKeyEx Error " + Str(error) + " for TopKey " + Hex(topKey) + " Path: " + KeyName
+      If hKey <> 0
         RegCloseKey_(hKey)
+        hKey = 0
       EndIf
       ProcedureReturn #False
     EndIf
   EndMacro
 
   Macro OpenKeyS()
+    hKey = 0
     If WOW64
-      CompilerIf #PB_Compiler_Processor = #PB_Processor_x86
-        samDesired | #KEY_WOW64_64KEY
-      CompilerElse
-        samDesired | #KEY_WOW64_32KEY
-      CompilerEndIf
+      samDesired | #KEY_WOW64_64KEY
+    Else
+      samDesired | #KEY_WOW64_64KEY
     EndIf
 
     If Left(KeyName, 1) = "\" : KeyName = Right(KeyName, Len(KeyName) - 1) : EndIf
@@ -195,9 +194,10 @@ Module Registry
         *Ret\ERROR = error
         *Ret\ERRORSTR = GetLastErrorStr(error)
       EndIf
-      Debug GetLastErrorStr(error)
-      If hKey
+      Debug "RegOpenKeyEx Error " + Str(error) + " for TopKey " + Hex(topKey) + " Path: " + KeyName
+      If hKey <> 0
         RegCloseKey_(hKey)
+        hKey = 0
       EndIf
       ProcedureReturn ""
     EndIf

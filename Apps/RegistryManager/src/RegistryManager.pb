@@ -23,7 +23,7 @@ Import "kernel32.lib"
 EndImport
 
 #APP_NAME = "RegistryManager"
-Global version.s = "v1.0.0.3"
+Global version.s = "v1.0.0.9"
 Global AppPath.s = GetFilePart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -58,6 +58,21 @@ SetCurrentDirectory(AppPath)
 #GADGET_VALUE_EDITOR_CANCEL = 404
 #GADGET_VALUE_EDITOR_HEX = 405
 #GADGET_VALUE_EDITOR_DEC = 406
+#GADGET_VALUE_EDITOR_HEX_GRID = 407
+#GADGET_VALUE_EDITOR_HEX_SAVE = 408
+#GADGET_VALUE_EDITOR_HEX_CANCEL = 409
+#GADGET_VALUE_EDITOR_HEX_INPUT = 410
+#GADGET_SEARCH_KEYS_CONST = 304
+#GADGET_SEARCH_VALUES_CONST = 305
+#GADGET_SEARCH_DATA_CONST = 306
+#GADGET_SEARCH_STATUS_CONST = 307
+
+#EVENT_LOAD_COMPLETE = #PB_Event_FirstCustomValue + 1
+#EVENT_LOAD_VALUES_COMPLETE = #PB_Event_FirstCustomValue + 2
+#EVENT_EXPORT_COMPLETE = #PB_Event_FirstCustomValue + 3
+#EVENT_COMPARE_COMPLETE = #PB_Event_FirstCustomValue + 4
+#EVENT_SNAPSHOT_CREATED = #PB_Event_FirstCustomValue + 5
+
 ;- Declarations
 Declare LogInfo(location.s, infoMsg.s)
 Declare LogError(location.s, errorMsg.s, errorCode.i = 0)
@@ -67,10 +82,34 @@ Declare.s GetRootKeyName(rootKey.i)
 Declare.i CompareSnapshots(snapshot1.s, snapshot2.s)
 Declare.i WriteRegistryValue(rootKey.i, keyPath.s, valueName.s, value.s, valueType.i, sam.l = #KEY_ALL_ACCESS)
 Declare LoadValues(rootKey.i, keyPath.s, sam.l = 0)
+Declare LoadValuesThread(param.i)
 Declare.s GetTypeName(type.i)
 Declare.l GetDefaultSAM()
 Declare OpenSearchWindow()
 Declare OpenValueEditor(rootKey.i, keyPath.s, valueName.s = "")
+
+Structure LoadValuesParams
+  RootKey.i
+  KeyPath.s
+  SAM.l
+EndStructure
+
+Structure ValueItem
+  Name.s
+  Type.i
+  Data.s
+EndStructure
+
+Structure LoadValuesResult
+  List Values.ValueItem()
+  Error.l
+  ErrorStr.s
+  Count.i
+EndStructure
+
+Global LoadValuesThreadID.i = 0
+Global LoadValuesMutex.i = CreateMutex()
+
 
 Structure CompareThreadParams
   Snapshot1.s
@@ -111,6 +150,7 @@ Procedure CompareThread(param.i)
   CompareSnapshots(s1, s2)
   
   CompareThreadID = 0
+  PostEvent(#EVENT_COMPARE_COMPLETE, #WINDOW_SNAPSHOT, 0, 0, 0)
   LogInfo("CompareThread", "Comparison thread finished")
 EndProcedure
 
@@ -121,6 +161,9 @@ EndProcedure
 #MENU_EDIT_NEW_VALUE = 11
 #MENU_EDIT_DELETE = 12
 #MENU_EDIT_RENAME = 13
+#MENU_EDIT_COPY_PATH = 14
+#MENU_EDIT_PERMISSIONS = 15
+
 #MENU_TOOLS_CLEANER = 20
 #MENU_TOOLS_BACKUP = 21
 #MENU_TOOLS_RESTORE = 22
@@ -564,6 +607,10 @@ Procedure.s GetRootKeyName(rootKey.i)
   ProcedureReturn "UNKNOWN"
 EndProcedure
 
+; Global state for tree synchronization
+Global IsUpdatingTree.i = #False
+Global LastSelectedItem.i = -1
+
 Procedure.i GetRootKeyFromTreeItem(item.i)
   Protected rootName.s
   
@@ -572,7 +619,24 @@ Procedure.i GetRootKeyFromTreeItem(item.i)
     ProcedureReturn 0
   EndIf
   
-  rootName = GetGadgetItemText(#GADGET_TREE, item)
+  ; Travel up to the root level (SubLevel = 0)
+  Protected current.i = item
+  While current >= 0 And GetGadgetItemAttribute(#GADGET_TREE, current, #PB_Tree_SubLevel) > 0
+    ; Find the first item above with a lower sublevel
+    Protected level.i = GetGadgetItemAttribute(#GADGET_TREE, current, #PB_Tree_SubLevel)
+    Protected p.i
+    Protected found.i = #False
+    For p = current - 1 To 0 Step -1
+      If GetGadgetItemAttribute(#GADGET_TREE, p, #PB_Tree_SubLevel) < level
+        current = p
+        found = #True
+        Break
+      EndIf
+    Next
+    If Not found : Break : EndIf
+  Wend
+  
+  rootName = GetGadgetItemText(#GADGET_TREE, current)
   
   Select rootName
     Case "HKEY_CLASSES_ROOT": ProcedureReturn #HKEY_CLASSES_ROOT
@@ -582,7 +646,7 @@ Procedure.i GetRootKeyFromTreeItem(item.i)
     Case "HKEY_CURRENT_CONFIG": ProcedureReturn #HKEY_CURRENT_CONFIG
   EndSelect
   
-  LogWarning("GetRootKeyFromTreeItem", "Unknown root key name: " + rootName)
+  LogWarning("GetRootKeyFromTreeItem", "Unknown root key name: '" + rootName + "' at index " + Str(current))
   ProcedureReturn 0
 EndProcedure
 
@@ -609,60 +673,128 @@ Procedure.s GetTypeName(type.i)
   EndSelect
 EndProcedure
 
-Procedure.i LoadSubKeys(parentItem.i, rootKey.i, keyPath.s, sam.l = 0)
-  Protected i.i, count.i, subKeyName.s, newItem.i
+Structure LoadKeysParams
+  ParentItem.i
+  RootKey.i
+  KeyPath.s
+  SAM.l
+EndStructure
+
+Global NewMap ActiveLoadThreads.i()
+Global LoadKeysMutex.i = 0
+
+;- Registry Type-Specific Icons
+#ICON_STRING = 0
+#ICON_BINARY = 1
+#ICON_NUMERIC = 2
+
+;- Snapshot Thread Logic
+
+Structure LoadKeysThreadResult
+  ParentItem.i
+  List SubKeys.s()
+  Error.l
+  ErrorStr.s
+EndStructure
+
+Procedure LoadKeysThread(param.i)
+  Protected *p.LoadKeysParams = param
+  If *p = 0 : ProcedureReturn : EndIf
+  
+  Protected parentItem.i = *p\ParentItem
+  Protected rootKey.i = *p\RootKey
+  Protected keyPath.s = *p\KeyPath
+  Protected sam.l = *p\SAM
+  FreeMemory(*p)
+  
+  Protected i.i, count.i, subKeyName.s
   Protected ret.Registry::RegValue
+  Protected wow64.i = #False
+  If (sam & #KEY_WOW64_64KEY) : wow64 = #True : EndIf
+  
+  ; Create result structure immediately
+  Protected *res.LoadKeysThreadResult = AllocateStructure(LoadKeysThreadResult)
+  If Not *res : ProcedureReturn : EndIf
+  *res\ParentItem = parentItem
+
+  LogInfo("LoadKeysThread", "Attempting load for TopKey: " + Hex(rootKey) + " Path: '" + keyPath + "'")
+  
+  ; 1. Fast Count
+  count = Registry::CountSubKeys(rootKey, keyPath, wow64, @ret)
+  If ret\ERROR <> 0
+    LogError("LoadKeysThread", "Registry Error " + Str(ret\ERROR) + ": " + ret\ERRORSTR + " (Path: " + keyPath + ")")
+    *res\Error = ret\ERROR
+    *res\ErrorStr = ret\ERRORSTR
+    PostEvent(#EVENT_LOAD_COMPLETE, #WINDOW_MAIN, #GADGET_TREE, 0, *res)
+    ProcedureReturn
+  EndIf
+
+  If count = 0
+    PostEvent(#EVENT_LOAD_COMPLETE, #WINDOW_MAIN, #GADGET_TREE, 0, *res)
+    ProcedureReturn
+  EndIf
+
+  ; 2. Collect Names
+  Protected maxKeys.i = 5000
+  If count > maxKeys : count = maxKeys : EndIf
+  
+  For i = 0 To count - 1
+    subKeyName = Registry::ListSubKey(rootKey, keyPath, i, wow64, @ret)
+    If subKeyName <> ""
+      AddElement(*res\SubKeys())
+      *res\SubKeys() = subKeyName
+    EndIf
+  Next
+  
+  PostEvent(#EVENT_LOAD_COMPLETE, #WINDOW_MAIN, #GADGET_TREE, 0, *res)
+EndProcedure
+
+Procedure.i LoadSubKeys(parentItem.i, rootKey.i, keyPath.s, sam.l = 0)
+  If Not LoadKeysMutex : LoadKeysMutex = CreateMutex() : EndIf
+  
+  LockMutex(LoadKeysMutex)
+  ; Check if a thread is already loading this specific item
+  If FindMapElement(ActiveLoadThreads(), Str(parentItem))
+    UnlockMutex(LoadKeysMutex)
+    ProcedureReturn #False 
+  EndIf
+  UnlockMutex(LoadKeysMutex)
   
   If sam = 0 : sam = GetDefaultSAM() : EndIf
   
-  If Not IsGadget(#GADGET_TREE)
-    LogError("LoadSubKeys", "Tree gadget not available")
-    ProcedureReturn #False
-  EndIf
-  
-  Protected wow64.i = #False
-  If (sam & #KEY_WOW64_64KEY) Or (sam & #KEY_WOW64_32KEY) : wow64 = #True : EndIf
-  
-  count = Registry::CountSubKeys(rootKey, keyPath, wow64, @ret)
-  If ret\ERROR <> 0
-    LogError("LoadSubKeys", "Failed to count subkeys: " + ret\ERRORSTR, ret\ERROR)
-    ProcedureReturn #False
-  EndIf
-  
-  If count > 0
-    Protected maxKeys.i = 500
-    If count > maxKeys
-      LogWarning("LoadSubKeys", "Large key list (" + Str(count) + ") in path: " + keyPath + " - showing first " + Str(maxKeys))
-      count = maxKeys
+  Protected *p.LoadKeysParams = AllocateMemory(SizeOf(LoadKeysParams))
+  If *p
+    *p\ParentItem = parentItem
+    *p\RootKey = rootKey
+    *p\KeyPath = keyPath
+    *p\SAM = sam
+    
+    LockMutex(LoadKeysMutex)
+    Protected thread = CreateThread(@LoadKeysThread(), *p)
+    If thread
+      ActiveLoadThreads(Str(parentItem)) = thread
     Else
-      LogInfo("LoadSubKeys", "Found " + Str(count) + " subkey(s) in path: " + keyPath)
+      FreeMemory(*p)
     EndIf
-    For i = 0 To count - 1
-      subKeyName = Registry::ListSubKey(rootKey, keyPath, i, wow64, @ret)
-      If ret\ERROR <> 0
-        LogWarning("LoadSubKeys", "Failed to read subkey at index " + Str(i) + ": " + ret\ERRORSTR)
-        Continue
-      EndIf
-      
-      If subKeyName <> ""
-        newItem = AddGadgetItem(#GADGET_TREE, -1, subKeyName, 0, parentItem)
-        If newItem = -1
-          LogWarning("LoadSubKeys", "Failed to add tree item: " + subKeyName)
-        EndIf
-      EndIf
-    Next
-  Else
-    LogInfo("LoadSubKeys", "No subkeys found in path: " + keyPath)
+    UnlockMutex(LoadKeysMutex)
+    
+    ProcedureReturn #True
   EndIf
   
-  ProcedureReturn #True
+  ProcedureReturn #False
 EndProcedure
+
+
 
 Structure SearchThreadParams
   SearchString.s
   RootKey.i
   KeyPath.s
+  SearchKeys.i
+  SearchValues.i
+  SearchData.i
 EndStructure
+
 
 Structure SearchResult
   RootKey.i
@@ -681,50 +813,68 @@ Global SearchStopRequested.i = #False
 #GADGET_SEARCH_START = 301
 #GADGET_SEARCH_STOP = 302
 #GADGET_SEARCH_RESULTS = 303
-#GADGET_SEARCH_STATUS = 304
+#GADGET_SEARCH_KEYS = 304
+#GADGET_SEARCH_VALUES = 305
+#GADGET_SEARCH_DATA = 306
+#GADGET_SEARCH_STATUS = 307
 
-Procedure RecursiveSearchInternal(rootKey.i, currentPath.s, searchStr.s, wow64.i)
+Procedure RecursiveSearchInternal(rootKey.i, currentPath.s, searchStr.s, wow64.i, searchKeys.i, searchValues.i, searchData.i)
   Protected i.i, subKeyCount.i, valueCount.i, subKeyName.s, valueName.s, valueData.s, valueType.i
   Protected ret.Registry::RegValue
   
   If SearchStopRequested : ProcedureReturn : EndIf
   
-  ; 1. Search in Values of current path
-  valueCount = Registry::CountSubValues(rootKey, currentPath, wow64, @ret)
-  For i = 0 To valueCount - 1
-    If SearchStopRequested : Break : EndIf
-    valueName = Registry::ListSubValue(rootKey, currentPath, i, wow64, @ret)
-    
-    If FindString(valueName, searchStr, 1, #PB_String_NoCase)
-      AddElement(SearchResults())
-      SearchResults()\RootKey = rootKey
-      SearchResults()\KeyPath = currentPath
-      SearchResults()\ValueName = valueName
-      SearchResults()\ValueType = Registry::ReadType(rootKey, currentPath, valueName, wow64, @ret)
-      SearchResults()\ValueData = Registry::ReadValue(rootKey, currentPath, valueName, wow64, @ret)
-    Else
-      ; Only read value data if name didn't match (performance optimization)
-      valueData = Registry::ReadValue(rootKey, currentPath, valueName, wow64, @ret)
-      If FindString(valueData, searchStr, 1, #PB_String_NoCase)
+  ; 1. Search in Values and Data of current path
+  If searchValues Or searchData
+    valueCount = Registry::CountSubValues(rootKey, currentPath, wow64, @ret)
+    For i = 0 To valueCount - 1
+      If SearchStopRequested : Break : EndIf
+      valueName = Registry::ListSubValue(rootKey, currentPath, i, wow64, @ret)
+      
+      Protected match.i = #False
+      If searchValues And FindString(valueName, searchStr, 1, #PB_String_NoCase)
+        match = #True
+      ElseIf searchData
+        valueData = Registry::ReadValue(rootKey, currentPath, valueName, wow64, @ret)
+        If FindString(valueData, searchStr, 1, #PB_String_NoCase)
+          match = #True
+        EndIf
+        If ret\BINARY : FreeMemory(ret\BINARY) : EndIf
+      EndIf
+      
+      If match
+        LockMutex(MonitorMutex)
         AddElement(SearchResults())
         SearchResults()\RootKey = rootKey
         SearchResults()\KeyPath = currentPath
         SearchResults()\ValueName = valueName
         SearchResults()\ValueType = Registry::ReadType(rootKey, currentPath, valueName, wow64, @ret)
-        SearchResults()\ValueData = valueData
+        SearchResults()\ValueData = Registry::ReadValue(rootKey, currentPath, valueName, wow64, @ret)
+        If ret\BINARY : FreeMemory(ret\BINARY) : EndIf
+        UnlockMutex(MonitorMutex)
       EndIf
-    EndIf
-  Next
+    Next
+  EndIf
   
   ; 2. Search in subkeys (recursive)
   subKeyCount = Registry::CountSubKeys(rootKey, currentPath, wow64, @ret)
   For i = 0 To subKeyCount - 1
     If SearchStopRequested : Break : EndIf
     subKeyName = Registry::ListSubKey(rootKey, currentPath, i, wow64, @ret)
+    
+    If searchKeys And FindString(subKeyName, searchStr, 1, #PB_String_NoCase)
+      LockMutex(MonitorMutex)
+      AddElement(SearchResults())
+      SearchResults()\RootKey = rootKey
+      SearchResults()\KeyPath = currentPath + "\" + subKeyName
+      SearchResults()\ValueName = "(Key Match)"
+      UnlockMutex(MonitorMutex)
+    EndIf
+    
     Define nextPath.s = currentPath
     If nextPath <> "" : nextPath + "\" : EndIf
     nextPath + subKeyName
-    RecursiveSearchInternal(rootKey, nextPath, searchStr, wow64)
+    RecursiveSearchInternal(rootKey, nextPath, searchStr, wow64, searchKeys, searchValues, searchData)
   Next
 EndProcedure
 
@@ -735,13 +885,17 @@ Procedure SearchThread(param.i)
   Protected searchStr.s = *p\SearchString
   Protected rootKey.i = *p\RootKey
   Protected keyPath.s = *p\KeyPath
+  Protected sKeys.i = *p\SearchKeys
+  Protected sVals.i = *p\SearchValues
+  Protected sData.i = *p\SearchData
   FreeMemory(*p)
   
   Protected wow64.i = #False
   If (GetDefaultSAM() & #KEY_WOW64_64KEY) : wow64 = #True : EndIf
   
   LogInfo("SearchThread", "Starting recursive search for: " + searchStr)
-  RecursiveSearchInternal(rootKey, keyPath, searchStr, wow64)
+  RecursiveSearchInternal(rootKey, keyPath, searchStr, wow64, sKeys, sVals, sData)
+
   
   SearchThreadID = 0
   If SearchStopRequested
@@ -751,6 +905,147 @@ Procedure SearchThread(param.i)
   EndIf
 EndProcedure
 
+Procedure OpenHexEditor(rootKey.i, keyPath.s, valueName.s)
+  Protected ret.Registry::RegValue
+  Protected wow64.i = (GetDefaultSAM() & #KEY_WOW64_64KEY)
+  
+  ; Use the Registry module to get the raw binary data
+  Registry::ReadValue(rootKey, keyPath, valueName, wow64, @ret)
+  
+  If ret\TYPE <> #REG_BINARY Or ret\BINARY = 0
+    MessageRequester("Error", "Selected value is not binary data or could not be read.", #PB_MessageRequester_Error)
+    ProcedureReturn
+  EndIf
+  
+  Protected winWidth = 600
+  Protected winHeight = 450
+  Protected win = OpenWindow(#PB_Any, 0, 0, winWidth, winHeight, "Hex Editor: " + valueName, #PB_Window_SystemMenu | #PB_Window_ScreenCentered, WindowID(#WINDOW_MAIN))
+  
+  If win
+    ; Simple Hex View using a ListIconGadget
+    ListIconGadget(#GADGET_VALUE_EDITOR_HEX_GRID, 10, 10, winWidth - 20, winHeight - 60, "Address", 80, #PB_ListIcon_GridLines | #PB_ListIcon_FullRowSelect)
+    AddGadgetColumn(#GADGET_VALUE_EDITOR_HEX_GRID, 1, "00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F", 350)
+    AddGadgetColumn(#GADGET_VALUE_EDITOR_HEX_GRID, 2, "ASCII", 130)
+    
+    Protected i.i, row.s, hexPart.s, asciiPart.s, byte.a
+    Protected dataSize = ret\SIZE
+    
+    SendMessage_(GadgetID(#GADGET_VALUE_EDITOR_HEX_GRID), #WM_SETREDRAW, #False, 0)
+    For i = 0 To dataSize - 1 Step 16
+      row = RSet(Hex(i), 8, "0") + Chr(10)
+      hexPart = ""
+      asciiPart = ""
+      
+      Protected j.i
+      For j = 0 To 15
+        If (i + j) < dataSize
+          byte = PeekA(ret\BINARY + i + j)
+          hexPart + RSet(Hex(byte), 2, "0") + " "
+          If byte >= 32 And byte <= 126
+            asciiPart + Chr(byte)
+          Else
+            asciiPart + "."
+          EndIf
+        Else
+          hexPart + "   "
+        EndIf
+      Next
+      
+      AddGadgetItem(#GADGET_VALUE_EDITOR_HEX_GRID, -1, row + hexPart + Chr(10) + asciiPart)
+    Next
+    SendMessage_(GadgetID(#GADGET_VALUE_EDITOR_HEX_GRID), #WM_SETREDRAW, #True, 0)
+    
+    ButtonGadget(#GADGET_VALUE_EDITOR_HEX_SAVE, winWidth - 220, winHeight - 40, 100, 30, "Save")
+    ButtonGadget(#GADGET_VALUE_EDITOR_HEX_CANCEL, winWidth - 110, winHeight - 40, 100, 30, "Cancel")
+    
+    ; Hidden input for editing
+    StringGadget(#GADGET_VALUE_EDITOR_HEX_INPUT, 0, 0, 0, 0, "")
+    HideGadget(#GADGET_VALUE_EDITOR_HEX_INPUT, #True)
+    
+    Protected *buffer = AllocateMemory(dataSize)
+    If *buffer : CopyMemory(ret\BINARY, *buffer, dataSize) : EndIf
+    
+    Repeat
+      Protected ev = WaitWindowEvent()
+      If ev = #PB_Event_CloseWindow And EventWindow() = win
+        Break
+      ElseIf ev = #PB_Event_Gadget
+        If EventGadget() = #GADGET_VALUE_EDITOR_HEX_CANCEL
+          Break
+        ElseIf EventGadget() = #GADGET_VALUE_EDITOR_HEX_SAVE
+            If *buffer
+              Protected saveRet.Registry::RegValue
+              saveRet\BINARY = *buffer
+              saveRet\SIZE = dataSize
+              saveRet\TYPE = #REG_BINARY
+              
+              ; Ensure backup before modification
+              If Not EnsureBackupBeforeChange("Hex edit registry value: " + valueName + " in " + GetRootKeyName(rootKey) + "\" + keyPath)
+                FreeMemory(*buffer) : Registry::ReadValue(rootKey, keyPath, valueName, wow64, @ret) : Break
+              EndIf
+              
+              If Registry::WriteValue(rootKey, keyPath, valueName, "", #REG_BINARY, wow64, @saveRet)
+                LogInfo("HexEditor", "Successfully saved binary value")
+                UpdateStatusBar("Binary value saved")
+                LoadValues(rootKey, keyPath, GetDefaultSAM())
+                Break
+              Else
+                LogError("HexEditor", "Failed to save binary: " + saveRet\ERRORSTR)
+                MessageRequester("Error", "Failed to save binary value: " + saveRet\ERRORSTR, #PB_MessageRequester_Error)
+              EndIf
+            EndIf
+        ElseIf EventGadget() = #GADGET_VALUE_EDITOR_HEX_GRID And EventType() = #PB_EventType_LeftDoubleClick
+          Protected selectedRow = GetGadgetState(#GADGET_VALUE_EDITOR_HEX_GRID)
+          If selectedRow >= 0
+            ; In a real hex editor we'd handle precise byte clicking. 
+            ; For this prototype, we'll allow editing the whole 16-byte row as hex.
+            Protected currentHex.s = GetGadgetItemText(#GADGET_VALUE_EDITOR_HEX_GRID, selectedRow, 1)
+            Protected newHex.s = InputRequester("Edit Hex Row", "Format: XX XX XX ... (16 bytes)", currentHex)
+            If newHex <> "" And newHex <> currentHex
+              ; Parse hex back to buffer
+              Protected bPos.i = 0
+              For i = 1 To Len(newHex)
+                Protected char.s = Mid(newHex, i, 1)
+                If char <> " "
+                  Protected byteStr.s = Mid(newHex, i, 2)
+                  Protected byteVal.a = Val("$" + byteStr)
+                  If (selectedRow * 16 + bPos) < dataSize
+                    PokeA(*buffer + selectedRow * 16 + bPos, byteVal)
+                  EndIf
+                  bPos + 1
+                  i + 1
+                EndIf
+              Next
+              
+              ; Update row display
+              Protected updatedHex.s = ""
+              Protected updatedAscii.s = ""
+              Protected byteValForDisplay.a
+              For i = 0 To 15
+                If (selectedRow * 16 + i) < dataSize
+                  byteValForDisplay = PeekA(*buffer + selectedRow * 16 + i)
+                  updatedHex + RSet(Hex(byteValForDisplay), 2, "0") + " "
+                  If byteValForDisplay >= 32 And byteValForDisplay <= 126 : updatedAscii + Chr(byteValForDisplay) : Else : updatedAscii + "." : EndIf
+                Else
+                  updatedHex + "   "
+                EndIf
+              Next
+              SetGadgetItemText(#GADGET_VALUE_EDITOR_HEX_GRID, selectedRow, updatedHex, 1)
+              SetGadgetItemText(#GADGET_VALUE_EDITOR_HEX_GRID, selectedRow, updatedAscii, 2)
+            EndIf
+          EndIf
+        EndIf
+      EndIf
+    ForEver
+    
+    If *buffer : FreeMemory(*buffer) : EndIf
+    CloseWindow(win)
+  EndIf
+  
+  ; Clean up the memory allocated by the Registry module
+  If ret\BINARY : FreeMemory(ret\BINARY) : EndIf
+EndProcedure
+
 Procedure OpenValueEditor(rootKey.i, keyPath.s, valueName.s = "")
   Protected isNew.i = #True
   If valueName <> "" : isNew = #False : EndIf
@@ -758,7 +1053,7 @@ Procedure OpenValueEditor(rootKey.i, keyPath.s, valueName.s = "")
   Protected winTitle.s = "New Value"
   If Not isNew : winTitle = "Edit Value: " + valueName : EndIf
   
-  Protected win = OpenWindow(#PB_Any, 0, 0, 450, 300, winTitle, #PB_Window_SystemMenu | #PB_Window_ScreenCentered, WindowID(#WINDOW_MAIN))
+  Protected win = OpenWindow(#PB_Any, 0, 0, 450, 320, winTitle, #PB_Window_SystemMenu | #PB_Window_ScreenCentered, WindowID(#WINDOW_MAIN))
   If win
     TextGadget(#PB_Any, 10, 15, 80, 20, "Name:")
     StringGadget(#GADGET_VALUE_EDITOR_NAME, 90, 10, 340, 25, valueName)
@@ -778,6 +1073,8 @@ Procedure OpenValueEditor(rootKey.i, keyPath.s, valueName.s = "")
       Protected ret.Registry::RegValue
       currentType = Registry::ReadType(rootKey, keyPath, valueName, (GetDefaultSAM() & #KEY_WOW64_64KEY), @ret)
       currentData = Registry::ReadValue(rootKey, keyPath, valueName, (GetDefaultSAM() & #KEY_WOW64_64KEY), @ret)
+      ; Clean up BINARY if it was allocated
+      If ret\BINARY : FreeMemory(ret\BINARY) : EndIf
     EndIf
     
     Select currentType
@@ -792,17 +1089,21 @@ Procedure OpenValueEditor(rootKey.i, keyPath.s, valueName.s = "")
     EditorGadget(#GADGET_VALUE_EDITOR_DATA, 90, 80, 340, 120, #PB_Editor_WordWrap)
     SetGadgetText(#GADGET_VALUE_EDITOR_DATA, currentData)
     
+    ; Hex Editor Launch Button
+    Protected btnHexEdit = ButtonGadget(#PB_Any, 90, 205, 120, 25, "Open Hex Editor...")
+    If currentType <> #REG_BINARY : DisableGadget(btnHexEdit, #True) : EndIf
+    
     ; DWORD/QWORD options
-    OptionGadget(#GADGET_VALUE_EDITOR_HEX, 90, 210, 80, 20, "Hexadecimal")
-    OptionGadget(#GADGET_VALUE_EDITOR_DEC, 180, 210, 80, 20, "Decimal")
+    OptionGadget(#GADGET_VALUE_EDITOR_HEX, 230, 210, 80, 20, "Hexadecimal")
+    OptionGadget(#GADGET_VALUE_EDITOR_DEC, 320, 210, 80, 20, "Decimal")
     SetGadgetState(#GADGET_VALUE_EDITOR_DEC, #True)
     If currentType <> #REG_DWORD And currentType <> #REG_QWORD
       DisableGadget(#GADGET_VALUE_EDITOR_HEX, #True)
       DisableGadget(#GADGET_VALUE_EDITOR_DEC, #True)
     EndIf
     
-    ButtonGadget(#GADGET_VALUE_EDITOR_OK, 230, 250, 100, 30, "OK")
-    ButtonGadget(#GADGET_VALUE_EDITOR_CANCEL, 340, 250, 100, 30, "Cancel")
+    ButtonGadget(#GADGET_VALUE_EDITOR_OK, 230, 270, 100, 30, "OK")
+    ButtonGadget(#GADGET_VALUE_EDITOR_CANCEL, 340, 270, 100, 30, "Cancel")
     
     Repeat
       Define ev = WaitWindowEvent()
@@ -811,12 +1112,20 @@ Procedure OpenValueEditor(rootKey.i, keyPath.s, valueName.s = "")
       ElseIf ev = #PB_Event_Gadget
         If EventGadget() = #GADGET_VALUE_EDITOR_CANCEL
           Break
+        ElseIf EventGadget() = btnHexEdit
+          OpenHexEditor(rootKey, keyPath, valueName)
         ElseIf EventGadget() = #GADGET_VALUE_EDITOR_TYPE
           Protected st = GetGadgetState(#GADGET_VALUE_EDITOR_TYPE)
-          If st = 1 Or st = 2
+          If st = 4 ; REG_BINARY
+            DisableGadget(btnHexEdit, #False)
+            DisableGadget(#GADGET_VALUE_EDITOR_HEX, #True)
+            DisableGadget(#GADGET_VALUE_EDITOR_DEC, #True)
+          ElseIf st = 1 Or st = 2 ; DWORD/QWORD
+            DisableGadget(btnHexEdit, #True)
             DisableGadget(#GADGET_VALUE_EDITOR_HEX, #False)
             DisableGadget(#GADGET_VALUE_EDITOR_DEC, #False)
           Else
+            DisableGadget(btnHexEdit, #True)
             DisableGadget(#GADGET_VALUE_EDITOR_HEX, #True)
             DisableGadget(#GADGET_VALUE_EDITOR_DEC, #True)
           EndIf
@@ -854,11 +1163,20 @@ Procedure OpenSearchWindow()
   If OpenWindow(#WINDOW_SEARCH, 0, 0, 800, 500, "Registry Search - " + GetRootKeyName(CurrentRootKey) + "\" + CurrentKeyPath, #PB_Window_SystemMenu | #PB_Window_ScreenCentered, WindowID(#WINDOW_MAIN))
     TextGadget(#PB_Any, 10, 15, 80, 20, "Find what:")
     StringGadget(#GADGET_SEARCH_STRING, 90, 10, 500, 25, "")
+    
+    CheckBoxGadget(#GADGET_SEARCH_KEYS, 90, 40, 60, 20, "Keys")
+    CheckBoxGadget(#GADGET_SEARCH_VALUES, 160, 40, 70, 20, "Values")
+    CheckBoxGadget(#GADGET_SEARCH_DATA, 240, 40, 60, 20, "Data")
+    SetGadgetState(#GADGET_SEARCH_KEYS, #True)
+    SetGadgetState(#GADGET_SEARCH_VALUES, #True)
+    SetGadgetState(#GADGET_SEARCH_DATA, #True)
+    
     ButtonGadget(#GADGET_SEARCH_START, 600, 10, 90, 25, "Search")
     ButtonGadget(#GADGET_SEARCH_STOP, 700, 10, 90, 25, "Stop")
     DisableGadget(#GADGET_SEARCH_STOP, #True)
     
-    ListIconGadget(#GADGET_SEARCH_RESULTS, 10, 45, 780, 420, "Path", 300, #PB_ListIcon_FullRowSelect | #PB_ListIcon_AlwaysShowSelection)
+    ListIconGadget(#GADGET_SEARCH_RESULTS, 10, 65, 780, 400, "Path", 300, #PB_ListIcon_FullRowSelect | #PB_ListIcon_AlwaysShowSelection | #PB_ListIcon_GridLines)
+
     AddGadgetColumn(#GADGET_SEARCH_RESULTS, 1, "Name", 150)
     AddGadgetColumn(#GADGET_SEARCH_RESULTS, 2, "Type", 100)
     AddGadgetColumn(#GADGET_SEARCH_RESULTS, 3, "Data", 210)
@@ -869,69 +1187,97 @@ EndProcedure
 
 
 
-Procedure LoadValues(rootKey.i, keyPath.s, sam.l = 0)
+Procedure LoadValuesThread(param.i)
+  Protected *p.LoadValuesParams = param
+  If *p = 0 : ProcedureReturn : EndIf
+  
+  Protected rootKey.i = *p\RootKey
+  Protected keyPath.s = *p\KeyPath
+  Protected sam.l = *p\SAM
+  FreeMemory(*p)
+  
   Protected i.i, count.i, valueName.s, valueData.s, valueType.i
   Protected ret.Registry::RegValue
+  Protected wow64.i = #False
+  If (sam & $100) Or (sam & $200) : wow64 = #True : EndIf
   
-  If sam = 0 : sam = GetDefaultSAM() : EndIf
+  Protected *res.LoadValuesResult = AllocateStructure(LoadValuesResult)
+  If Not *res : ProcedureReturn : EndIf
   
+  LogInfo("LoadValuesThread", "Loading values from: " + GetRootKeyName(rootKey) + " Path: '" + keyPath + "'")
+  
+  count = Registry::CountSubValues(rootKey, keyPath, wow64, @ret)
+  If ret\ERROR <> 0
+    LogError("LoadValuesThread", "Registry Error " + Str(ret\ERROR) + " (" + ret\ERRORSTR + ") for path: " + keyPath)
+    *res\Error = ret\ERROR
+    *res\ErrorStr = ret\ERRORSTR
+    PostEvent(#EVENT_LOAD_VALUES_COMPLETE, #WINDOW_MAIN, #GADGET_LISTVIEW, 0, *res)
+    ProcedureReturn
+  EndIf
+  
+  *res\Count = count
+  
+  If count > 0
+    For i = 0 To count - 1
+      valueName = Registry::ListSubValue(rootKey, keyPath, i, wow64, @ret)
+      If ret\ERROR <> 0 : Continue : EndIf
+      
+      If valueName <> ""
+        valueType = Registry::ReadType(rootKey, keyPath, valueName, wow64, @ret)
+        valueData = Registry::ReadValue(rootKey, keyPath, valueName, wow64, @ret)
+        
+        AddElement(*res\Values())
+        *res\Values()\Name = valueName
+        *res\Values()\Type = valueType
+        *res\Values()\Data = valueData
+      EndIf
+      
+      ; Optional: Cap for massive keys like CLSID to keep it usable
+      If i > 5000 : Break : EndIf 
+    Next
+  EndIf
+  
+  PostEvent(#EVENT_LOAD_VALUES_COMPLETE, #WINDOW_MAIN, #GADGET_LISTVIEW, 0, *res)
+EndProcedure
+
+Procedure LoadValues(rootKey.i, keyPath.s, sam.l = 0)
   If Not IsGadget(#GADGET_LISTVIEW)
     LogError("LoadValues", "ListView gadget not available")
     ProcedureReturn #False
   EndIf
   
+  If sam = 0 : sam = GetDefaultSAM() : EndIf
+  
+  ; Clear current view immediately
+  SendMessage_(GadgetID(#GADGET_LISTVIEW), #WM_SETREDRAW, #False, 0)
   ClearGadgetItems(#GADGET_LISTVIEW)
   ClearList(RegValues())
+  SendMessage_(GadgetID(#GADGET_LISTVIEW), #WM_SETREDRAW, #True, 0)
+  InvalidateRect_(GadgetID(#GADGET_LISTVIEW), 0, #True)
   
-  LogInfo("LoadValues", "Loading values from: " + GetRootKeyName(rootKey) + "\" + keyPath + " (SAM: " + Hex(sam) + ")")
+  UpdateStatusBar("Loading values...")
   
-  Protected wow64.i = #False
-  If (sam & #KEY_WOW64_64KEY) Or (sam & #KEY_WOW64_32KEY) : wow64 = #True : EndIf
-  
-  count = Registry::CountSubValues(rootKey, keyPath, wow64, @ret)
-  If ret\ERROR <> 0
-    LogError("LoadValues", "Failed to count values: " + ret\ERRORSTR, ret\ERROR)
-    UpdateStatusBar("Error: Cannot read registry values")
-    ProcedureReturn #False
+  ; Launch thread
+  Protected *p.LoadValuesParams = AllocateMemory(SizeOf(LoadValuesParams))
+  If *p
+    *p\RootKey = rootKey
+    *p\KeyPath = keyPath
+    *p\SAM = sam
+    
+    LockMutex(LoadValuesMutex)
+    If LoadValuesThreadID And IsThread(LoadValuesThreadID)
+      ; We don't necessarily kill it, but we could if needed. 
+      ; For simplicity, we just launch the new one.
+    EndIf
+    LoadValuesThreadID = CreateThread(@LoadValuesThread(), *p)
+    UnlockMutex(LoadValuesMutex)
+    
+    ProcedureReturn #True
   EndIf
   
-  If count > 0
-    For i = 0 To count - 1
-      valueName = Registry::ListSubValue(rootKey, keyPath, i, wow64, @ret)
-      If ret\ERROR <> 0
-        LogWarning("LoadValues", "Failed to read value name at index " + Str(i) + ": " + ret\ERRORSTR)
-        Continue
-      EndIf
-      
-      If valueName <> ""
-        valueType = Registry::ReadType(rootKey, keyPath, valueName, wow64, @ret)
-        If ret\ERROR <> 0
-          LogWarning("LoadValues", "Failed to read type for value '" + valueName + "': " + ret\ERRORSTR)
-          valueType = 0
-        EndIf
-        
-        valueData = Registry::ReadValue(rootKey, keyPath, valueName, wow64, @ret)
-        If ret\ERROR <> 0
-          LogWarning("LoadValues", "Failed to read data for value '" + valueName + "': " + ret\ERRORSTR)
-          valueData = "<Error reading value>"
-        EndIf
-        
-        AddElement(RegValues())
-        RegValues()\Name = valueName
-        RegValues()\Type = valueType
-        RegValues()\Data = valueData
-        
-        AddGadgetItem(#GADGET_LISTVIEW, -1, valueName + Chr(10) + GetTypeName(valueType) + Chr(10) + Left(valueData, 100))
-      EndIf
-    Next
-    LogInfo("LoadValues", "Successfully loaded " + Str(count) + " value(s)")
-  Else
-    LogInfo("LoadValues", "No values found in current key")
-  EndIf
-  
-  UpdateStatusBar("Loaded " + Str(count) + " value(s)")
-  ProcedureReturn #True
+  ProcedureReturn #False
 EndProcedure
+
 
 ;- Registry Modification Procedures (with Auto-Backup)
 
@@ -1070,131 +1416,88 @@ Procedure.i DeleteRegistryTree(rootKey.i, keyPath.s)
   EndIf
 EndProcedure
 
-Procedure ExportRegistryKey(rootKey.i, keyPath.s, fileName.s)
-  Protected file.i, i.i, count.i, valueName.s, valueData.s, valueType.i
-  Protected ret.Registry::RegValue
-  Protected rootName.s = GetRootKeyName(rootKey)
+;- Export Logic Functions
+Structure ExportThreadParams
+  RootKey.i
+  KeyPath.s
+  FileName.s
+  IsRestore.i ; 0 = Export, 1 = Restore
+EndStructure
+
+Procedure ExportThread(param.i)
+  Protected *p.ExportThreadParams = param
+  If *p = 0 : ProcedureReturn : EndIf
   
-  If fileName = ""
-    LogError("ExportRegistryKey", "Empty filename provided")
-    ProcedureReturn #False
+  Protected rootKey.i = *p\RootKey
+  Protected keyPath.s = *p\KeyPath
+  Protected fileName.s = *p\FileName
+  Protected isRestore.i = *p\IsRestore
+  FreeMemory(*p)
+  
+  Protected program.i, exitCode.i, rootName.s
+  Select rootKey
+    Case #HKEY_CLASSES_ROOT : rootName = "HKCR"
+    Case #HKEY_CURRENT_USER : rootName = "HKCU"
+    Case #HKEY_LOCAL_MACHINE : rootName = "HKLM"
+    Case #HKEY_USERS : rootName = "HKU"
+    Case #HKEY_CURRENT_CONFIG : rootName = "HKCC"
+    Default : rootName = "HKLM" ; Fallback
+  EndSelect
+  
+  If isRestore
+    ; RESTORE Logic
+    program = RunProgram("reg", "import " + Chr(34) + fileName + Chr(34), "", #PB_Program_Wait | #PB_Program_Hide)
+  Else
+    ; EXPORT Logic
+    Protected fullPath.s = rootName + "\" + keyPath
+    program = RunProgram("reg", "export " + Chr(34) + fullPath + Chr(34) + " " + Chr(34) + fileName + Chr(34) + " /y", "", #PB_Program_Wait | #PB_Program_Hide)
   EndIf
   
-  LogInfo("ExportRegistryKey", "Exporting key: " + rootName + "\" + keyPath + " to " + fileName)
-  
-  ; For simplicity and full compatibility, we use reg.exe for recursive export.
-  ; Writing a manual .reg parser for multi-line binary and recursive subkeys is complex.
-  Protected fullPath.s = rootName + "\" + keyPath
-  Protected program = RunProgram("reg", "export " + Chr(34) + fullPath + Chr(34) + " " + Chr(34) + fileName + Chr(34) + " /y", "", #PB_Program_Wait | #PB_Program_Hide)
   If program
-    If ProgramExitCode(program) = 0
-      LogInfo("ExportRegistryKey", "Successfully exported: " + fullPath)
-      UpdateStatusBar("Exported to: " + fileName)
-      ProcedureReturn #True
-    EndIf
+    exitCode = ProgramExitCode(program)
+  Else
+    exitCode = -1
   EndIf
   
-  ; Fallback manual export if reg.exe fails or needs custom logic (not recursive yet)
-  file = CreateFile(#PB_Any, fileName)
-  If file
-    WriteStringN(file, "Windows Registry Editor Version 5.00")
-    WriteStringN(file, "")
-    WriteStringN(file, "[" + rootName + "\" + keyPath + "]")
-    
-    Protected wow64 = #False
-    If (GetDefaultSAM() & #KEY_WOW64_64KEY) : wow64 = #True : EndIf
-    
-    count = Registry::CountSubValues(rootKey, keyPath, wow64, @ret)
-    If count > 0
-      For i = 0 To count - 1
-        valueName = Registry::ListSubValue(rootKey, keyPath, i, wow64, @ret)
-        If ret\ERROR = 0 And valueName <> ""
-          valueType = Registry::ReadType(rootKey, keyPath, valueName, wow64, @ret)
-          valueData = Registry::ReadValue(rootKey, keyPath, valueName, wow64, @ret)
-          
-          If ret\ERROR = 0
-            ; Format based on type for standard .reg compatibility
-            Select valueType
-              Case #REG_SZ
-                WriteStringN(file, Chr(34) + valueName + Chr(34) + "=" + Chr(34) + ReplaceString(valueData, "\", "\\") + Chr(34))
-              Case #REG_DWORD
-                WriteStringN(file, Chr(34) + valueName + Chr(34) + "=dword:" + RSet(Hex(Val(valueData)), 8, "0"))
-              Default
-                ; Binary and other types use hex:
-                WriteStringN(file, Chr(34) + valueName + Chr(34) + "=hex(" + Hex(valueType) + "):" + valueData)
-            EndSelect
-          EndIf
-        EndIf
-      Next
-    EndIf
-    
-    CloseFile(file)
-    LogInfo("ExportRegistryKey", "Successfully manual exported " + Str(count) + " values")
-    UpdateStatusBar("Exported to: " + fileName)
-    ProcedureReturn #True
-  EndIf
+  PostEvent(#EVENT_EXPORT_COMPLETE, #WINDOW_MAIN, 0, exitCode, isRestore)
+EndProcedure
+
+Procedure ExportRegistryKey(rootKey.i, keyPath.s, fileName.s)
+  If fileName = "" : ProcedureReturn #False : EndIf
   
+  LogInfo("ExportRegistryKey", "Queuing export to " + fileName)
+  UpdateStatusBar("Background export started...")
+  
+  Protected *p.ExportThreadParams = AllocateMemory(SizeOf(ExportThreadParams))
+  If *p
+    *p\RootKey = rootKey
+    *p\KeyPath = keyPath
+    *p\FileName = fileName
+    *p\IsRestore = #False
+    If CreateThread(@ExportThread(), *p) : ProcedureReturn #True : EndIf
+    FreeMemory(*p)
+  EndIf
   ProcedureReturn #False
 EndProcedure
 
 Procedure RestoreRegistry(fileName.s)
-
-  Protected program.i, exitCode.i
+  If fileName = "" Or FileSize(fileName) <= 0 : ProcedureReturn #False : EndIf
   
-  If fileName = ""
-    LogError("RestoreRegistry", "Empty filename provided")
-    UpdateStatusBar("Error: No filename specified")
-    ProcedureReturn #False
-  EndIf
-  
-  If FileSize(fileName) <= 0
-    LogError("RestoreRegistry", "File not found or empty: " + fileName)
-    MessageRequester("Error", "Registry file not found or empty!", #PB_MessageRequester_Error)
-    UpdateStatusBar("Error: Invalid registry file")
-    ProcedureReturn #False
-  EndIf
-  
-  LogInfo("RestoreRegistry", "Attempting to restore from: " + fileName)
-  
-  ; MANDATORY backup before restore
   If Not EnsureBackupBeforeChange("Restore registry from file: " + fileName)
     ProcedureReturn #False
   EndIf
   
-  If MessageRequester("Confirm Restore", 
-                      "This will restore registry from:" + #CRLF$ + 
-                      fileName + #CRLF$ + #CRLF$ +
-                      "A backup has been created at:" + #CRLF$ +
-                      AutoBackupPath + #CRLF$ + #CRLF$ +
-                      "Continue?", 
-                      #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning) = #PB_MessageRequester_Yes
-    UpdateStatusBar("Restoring... Please wait")
+  If MessageRequester("Confirm Restore", "This will restore registry settings from file. Continue?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning) = #PB_MessageRequester_Yes
+    UpdateStatusBar("Background restore started...")
     
-    program = RunProgram("reg", "import " + Chr(34) + fileName + Chr(34), "", #PB_Program_Wait | #PB_Program_Hide)
-    If program
-      exitCode = ProgramExitCode(program)
-      If exitCode = 0
-        LogInfo("RestoreRegistry", "Restore completed successfully from: " + fileName)
-        UpdateStatusBar("Restore completed!")
-        MessageRequester("Success", "Registry restored successfully!", #PB_MessageRequester_Info)
-        ProcedureReturn #True
-      Else
-        LogError("RestoreRegistry", "Restore process failed with exit code: " + Str(exitCode))
-        UpdateStatusBar("Restore failed! Check log file.")
-        MessageRequester("Error", "Restore failed! Exit code: " + Str(exitCode), #PB_MessageRequester_Error)
-        ProcedureReturn #False
-      EndIf
-    Else
-      LogError("RestoreRegistry", "Failed to execute reg.exe command")
-      UpdateStatusBar("Restore failed! Cannot execute restore command.")
-      MessageRequester("Error", "Failed to execute restore command!", #PB_MessageRequester_Error)
-      ProcedureReturn #False
+    Protected *p.ExportThreadParams = AllocateMemory(SizeOf(ExportThreadParams))
+    If *p
+      *p\FileName = fileName
+      *p\IsRestore = #True
+      If CreateThread(@ExportThread(), *p) : ProcedureReturn #True : EndIf
+      FreeMemory(*p)
     EndIf
-  Else
-    LogInfo("RestoreRegistry", "User cancelled restore operation")
-    UpdateStatusBar("Restore cancelled")
   EndIf
-  
   ProcedureReturn #False
 EndProcedure
 
@@ -1272,8 +1575,15 @@ Procedure CleanRegistry()
     AddGadgetItem(105, -1, "BACKUP CREATED: " + AutoBackupPath)
     AddGadgetItem(105, -1, "Ready to scan.")
     
-    Define btnStartClean = ButtonGadget(#PB_Any, 50, 370, 120, 30, "Scan & Clean")
-    Define btnCancelClean = ButtonGadget(#PB_Any, 230, 370, 120, 30, "Close")
+    Define btnScanOnly = ButtonGadget(#PB_Any, 50, 370, 100, 30, "Scan Only")
+    Define btnStartClean = ButtonGadget(#PB_Any, 160, 370, 100, 30, "Clean Now")
+    Define btnCancelClean = ButtonGadget(#PB_Any, 340, 370, 100, 30, "Close")
+    
+    DisableGadget(btnStartClean, #True)
+    
+    NewList ToCleanPaths.s()
+    NewList ToCleanValues.s()
+    NewList ToCleanRoots.i()
     
     Repeat
       Select WaitWindowEvent()
@@ -1281,31 +1591,44 @@ Procedure CleanRegistry()
           Break
         Case #PB_Event_Gadget
           Select EventGadget()
-            Case btnStartClean
-              AddGadgetItem(105, -1, "--- Starting Cleanup ---")
-              UpdateStatusBar("Cleaning registry...")
+            Case btnScanOnly, btnStartClean
+              Protected isCleaning.i = #False
+              If EventGadget() = btnStartClean : isCleaning = #True : EndIf
+              
+              If isCleaning
+                 If MessageRequester("Final Confirmation", "Delete all flagged items?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning) <> #PB_MessageRequester_Yes
+                   isCleaning = #False
+                 EndIf
+              EndIf
+              
+              ClearGadgetItems(105)
+              ClearList(ToCleanPaths())
+              ClearList(ToCleanValues())
+              ClearList(ToCleanRoots())
+              
+              AddGadgetItem(105, -1, "--- Starting Registry Scan ---")
+              UpdateStatusBar("Scanning registry...")
               
               Protected wow64.i = #False
               If (GetDefaultSAM() & #KEY_WOW64_64KEY) : wow64 = #True : EndIf
               Protected ret.Registry::RegValue
               Protected i.i, count.i, valName.s, subKeyName.s, cleanedCount.i = 0
               
-              ; 1. MUI Cache Cleanup
+              ; MUI Cache Logic
               If GetGadgetState(101)
-                AddGadgetItem(105, -1, "Scanning MUI Cache...")
                 Protected muiPath.s = "Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
                 count = Registry::CountSubValues(#HKEY_CURRENT_USER, muiPath, wow64, @ret)
                 For i = count - 1 To 0 Step -1
                   valName = Registry::ListSubValue(#HKEY_CURRENT_USER, muiPath, i, wow64, @ret)
-                  ; Check if file exists in the value name (MUI cache uses paths as value names)
                   If valName <> "" And FindString(valName, ":\", 1)
                     Protected filePath.s = valName
-                    ; Handle cases where there are arguments or special formatting
                     If Left(filePath, 1) = "@" : filePath = Mid(filePath, 2) : EndIf
                     If FindString(filePath, ",", 1) : filePath = StringField(filePath, 1, ",") : EndIf
-                    
-                    If FileSize(filePath) = -1 ; File does not exist
-                      If Registry::DeleteValue(#HKEY_CURRENT_USER, muiPath, valName, wow64, @ret)
+                    If FileSize(filePath) = -1
+                      AddGadgetItem(105, -1, "[MUI] Broken Link: " + valName + " (File not found)")
+                      If isCleaning
+                        If Registry::DeleteValue(#HKEY_CURRENT_USER, muiPath, valName, wow64, @ret) : cleanedCount + 1 : EndIf
+                      Else
                         cleanedCount + 1
                       EndIf
                     EndIf
@@ -1313,131 +1636,102 @@ Procedure CleanRegistry()
                 Next
               EndIf
 
-              ; 1b. Invalid File Associations (.ext -> ProgID)
-              If GetGadgetState(102)
-                AddGadgetItem(105, -1, "Scanning File Associations...")
-                ; We check HKEY_CURRENT_USER\Software\Classes first as it overrides HKCR
-                Protected classesPath.s = "Software\Classes"
-                count = Registry::CountSubKeys(#HKEY_CURRENT_USER, classesPath, wow64, @ret)
-                For i = count - 1 To 0 Step -1
-                  subKeyName = Registry::ListSubKey(#HKEY_CURRENT_USER, classesPath, i, wow64, @ret)
-                  If Left(subKeyName, 1) = "."
-                    ; Check the default value for this extension
-                    Protected progID.s = Registry::ReadValue(#HKEY_CURRENT_USER, classesPath + "\" + subKeyName, "", wow64, @ret)
-                    If progID <> ""
-                      ; Verify if this ProgID exists in HKCU or HKCR
-                      If Registry::CountSubKeys(#HKEY_CURRENT_USER, classesPath + "\" + progID, wow64, @ret) = 0 And
-                         Registry::CountSubKeys(#HKEY_LOCAL_MACHINE, "Software\Classes\" + progID, wow64, @ret) = 0
-                        
-                        AddGadgetItem(105, -1, "Removing broken association: " + subKeyName + " -> " + progID)
-                        If Registry::DeleteTree(#HKEY_CURRENT_USER, classesPath + "\" + subKeyName, wow64, @ret)
-                           cleanedCount + 1
-                        EndIf
-                      EndIf
-                    EndIf
-                  EndIf
-                Next
-              EndIf
-              
-              ; 1c. Obsolete Software Entries
-              If GetGadgetState(103)
-                AddGadgetItem(105, -1, "Scanning Obsolete Software Entries...")
-                Protected swPath.s = "Software"
-                count = Registry::CountSubKeys(#HKEY_CURRENT_USER, swPath, wow64, @ret)
-                For i = count - 1 To 0 Step -1
-                  subKeyName = Registry::ListSubKey(#HKEY_CURRENT_USER, swPath, i, wow64, @ret)
-                  ; Skip critical Windows/Microsoft keys
-                  If LCase(subKeyName) <> "microsoft" And LCase(subKeyName) <> "classes" And LCase(subKeyName) <> "wow6432node"
-                    ; Check if a folder with this name exists in Program Files or AppData
-                    Protected checkPath1.s = GetHomeDirectory() + "AppData\Roaming\" + subKeyName
-                    Protected checkPath2.s = GetHomeDirectory() + "AppData\Local\" + subKeyName
-                    Protected checkPath3.s = "C:\Program Files\" + subKeyName
-                    Protected checkPath4.s = "C:\Program Files (x86)\" + subKeyName
-                    
-                    If FileSize(checkPath1) = -1 And FileSize(checkPath2) = -1 And FileSize(checkPath3) = -1 And FileSize(checkPath4) = -1
-                      ; If no folder exists, it MIGHT be obsolete. 
-                      ; To be safe, we only flag it in the log unless it's a known "empty" or "junk" key
-                      If Registry::CountSubKeys(#HKEY_CURRENT_USER, swPath + "\" + subKeyName, wow64, @ret) = 0 And 
-                         Registry::CountSubValues(#HKEY_CURRENT_USER, swPath + "\" + subKeyName, wow64, @ret) = 0
-                        AddGadgetItem(105, -1, "Removing empty obsolete key: " + subKeyName)
-                        If Registry::DeleteKey(#HKEY_CURRENT_USER, swPath + "\" + subKeyName, wow64, @ret)
-                          cleanedCount + 1
-                        EndIf
-                      EndIf
-                    EndIf
-                  EndIf
-                Next
-              EndIf
-              
-              ; 2. Recent Docs / Shortcuts
-              If GetGadgetState(104)
-                AddGadgetItem(105, -1, "Scanning Broken Shortcuts & Recent Docs...")
-                ; RecentDocs cleanup
-                Protected recentPath.s = "Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs"
-                count = Registry::CountSubValues(#HKEY_CURRENT_USER, recentPath, wow64, @ret)
-                For i = count - 1 To 0 Step -1
-                  valName = Registry::ListSubValue(#HKEY_CURRENT_USER, recentPath, i, wow64, @ret)
-                  If valName <> "MRUListEx" And valName <> ""
-                    ; RecentDocs values are usually binary or encoded, but some subkeys contain names
-                    ; For simplicity, we check the subkeys which are extensions
-                  EndIf
-                Next
-                
-                ; Also check "UserAssist" for broken executable references
-                Protected assistPath.s = "Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist"
-                ; UserAssist is ROT13 encoded, so we'll skip complex decoding for now and stick to 
-                ; common shell folder references.
-                AddGadgetItem(105, -1, "Recent history scan complete.")
-              EndIf
-              
-              ; 2b. Invalid Installer References
+              ; Installer Refs
               If GetGadgetState(106)
-                AddGadgetItem(105, -1, "Scanning Installer References...")
                 Protected installPath.s = "Software\Microsoft\Windows\CurrentVersion\Installer\Folders"
                 count = Registry::CountSubValues(#HKEY_CURRENT_USER, installPath, wow64, @ret)
                 For i = count - 1 To 0 Step -1
                   valName = Registry::ListSubValue(#HKEY_CURRENT_USER, installPath, i, wow64, @ret)
                   If valName <> "" And FileSize(valName) = -1
-                    If Registry::DeleteValue(#HKEY_CURRENT_USER, installPath, valName, wow64, @ret)
+                    AddGadgetItem(105, -1, "[Installer] Missing Dir: " + valName + " (Invalid folder reference)")
+                    If isCleaning
+                      If Registry::DeleteValue(#HKEY_CURRENT_USER, installPath, valName, wow64, @ret) : cleanedCount + 1 : EndIf
+                    Else
                       cleanedCount + 1
                     EndIf
                   EndIf
                 Next
               EndIf
               
-              ; 2c. Empty Registry Keys
-              If GetGadgetState(107)
-                AddGadgetItem(105, -1, "Scanning for Empty Keys...")
-                ; We only scan a safe subset of HKCU for empty keys to avoid system critical areas
-                Protected safePath.s = "Software"
-                count = Registry::CountSubKeys(#HKEY_CURRENT_USER, safePath, wow64, @ret)
-                For i = count - 1 To 0 Step -1
-                  subKeyName = Registry::ListSubKey(#HKEY_CURRENT_USER, safePath, i, wow64, @ret)
-                  If Registry::CountSubKeys(#HKEY_CURRENT_USER, safePath + "\" + subKeyName, wow64, @ret) = 0 And
-                     Registry::CountSubValues(#HKEY_CURRENT_USER, safePath + "\" + subKeyName, wow64, @ret) = 0
-                     ; Avoid core Windows/Microsoft keys even if empty
-                     If LCase(subKeyName) <> "microsoft" And LCase(subKeyName) <> "classes"
-                       If Registry::DeleteKey(#HKEY_CURRENT_USER, safePath + "\" + subKeyName, wow64, @ret)
-                         cleanedCount + 1
-                       EndIf
+              If GetGadgetState(102)
+                Protected classesPath.s = "Software\Classes"
+                Protected assocCount.i = Registry::CountSubKeys(#HKEY_CURRENT_USER, classesPath, wow64, @ret)
+                For i = 0 To assocCount - 1
+                   subKeyName = Registry::ListSubKey(#HKEY_CURRENT_USER, classesPath, i, wow64, @ret)
+                   If Left(subKeyName, 1) = "."
+                     Protected progID.s = Registry::ReadValue(#HKEY_CURRENT_USER, classesPath + "\" + subKeyName, "", wow64, @ret)
+                     If progID <> "" And Registry::CountSubKeys(#HKEY_CLASSES_ROOT, progID, wow64, @ret) = 0
+                        AddGadgetItem(105, -1, "[Assoc] Broken .ext -> " + progID + " (Missing ProgID link)")
+                        If isCleaning
+                          If Registry::DeleteKey(#HKEY_CURRENT_USER, classesPath + "\" + subKeyName, wow64, @ret) : cleanedCount + 1 : EndIf
+                        Else
+                          cleanedCount + 1
+                        EndIf
                      EndIf
-                  EndIf
+                   EndIf
                 Next
               EndIf
               
-              AddGadgetItem(105, -1, "Cleanup finished. Removed " + Str(cleanedCount) + " invalid entries.")
-              UpdateStatusBar("Registry cleaning completed. " + Str(cleanedCount) + " items removed.")
-              MessageRequester("Complete", "Registry cleaning completed!" + #CRLF$ + "Items removed: " + Str(cleanedCount), #PB_MessageRequester_Info)
+              ; Obsolete Software
+              If GetGadgetState(103)
+                Protected uninstallPath.s = "Software\Microsoft\Windows\CurrentVersion\Uninstall"
+                Protected uCount.i = Registry::CountSubKeys(#HKEY_LOCAL_MACHINE, uninstallPath, wow64, @ret)
+                For i = 0 To uCount - 1
+                  subKeyName = Registry::ListSubKey(#HKEY_LOCAL_MACHINE, uninstallPath, i, wow64, @ret)
+                  Protected fullUPath.s = uninstallPath + "\" + subKeyName
+                  Protected installLoc.s = Registry::ReadValue(#HKEY_LOCAL_MACHINE, fullUPath, "InstallLocation", wow64, @ret)
+                  If installLoc <> "" And FileSize(installLoc) = -1
+                    AddGadgetItem(105, -1, "[Software] Obsolete: " + subKeyName + " (Source folder missing)")
+                    If isCleaning
+                      If Registry::DeleteKey(#HKEY_LOCAL_MACHINE, fullUPath, wow64, @ret) : cleanedCount + 1 : EndIf
+                    Else
+                      cleanedCount + 1
+                    EndIf
+                  EndIf
+                Next
+              EndIf
+
+              ; Empty Registry Keys Logic
+              If GetGadgetState(107)
+                ; Safe scan specific user software branch
+                Protected scanPath.s = "Software"
+                Protected sKeyCount.i = Registry::CountSubKeys(#HKEY_CURRENT_USER, scanPath, wow64, @ret)
+                For i = sKeyCount - 1 To 0 Step -1
+                  subKeyName = Registry::ListSubKey(#HKEY_CURRENT_USER, scanPath, i, wow64, @ret)
+                  Protected fullScanPath.s = scanPath + "\" + subKeyName
+                  If Registry::CountSubKeys(#HKEY_CURRENT_USER, fullScanPath, wow64, @ret) = 0 And 
+                     Registry::CountSubValues(#HKEY_CURRENT_USER, fullScanPath, wow64, @ret) = 0
+                    AddGadgetItem(105, -1, "[Empty] Orphan Key: HKCU\" + fullScanPath)
+                    If isCleaning
+                      If Registry::DeleteKey(#HKEY_CURRENT_USER, fullScanPath, wow64, @ret) : cleanedCount + 1 : EndIf
+                    Else
+                      cleanedCount + 1
+                    EndIf
+                  EndIf
+                Next
+              EndIf
+
+              If isCleaning
+                AddGadgetItem(105, -1, "--- Cleanup Finished ---")
+                AddGadgetItem(105, -1, "Successfully removed " + Str(cleanedCount) + " items.")
+              Else
+                AddGadgetItem(105, -1, "--- Scan Finished ---")
+                AddGadgetItem(105, -1, "Found " + Str(cleanedCount) + " items that can be safely removed.")
+                If cleanedCount > 0
+                  DisableGadget(btnStartClean, #False)
+                EndIf
+              EndIf
+              UpdateStatusBar("Registry scan complete.")
               
             Case btnCancelClean
               Break
           EndSelect
       EndSelect
     ForEver
-    
-    CloseWindow(GetActiveWindow())
+    CloseWindow(window)
   EndIf
 EndProcedure
+
 
 ;- Registry Monitor Procedures
 
@@ -2317,12 +2611,31 @@ Procedure CreateGUI()
       ProcedureReturn #False
     EndIf
     
+    ; Add standard system icons for the tree (Folder/Registry)
+    Protected hSmallIcons.i = ImageList_Create_(16, 16, #ILC_COLOR32 | #ILC_MASK, 2, 2)
+    If hSmallIcons
+      ; 1: Closed Folder, 2: Open Folder, 3: Registry Key
+      ; Using shell icons for consistency
+      Protected shInfo.SHFILEINFO
+      SHGetFileInfo_("C:\Windows", #FILE_ATTRIBUTE_DIRECTORY, @shInfo, SizeOf(SHFILEINFO), #SHGFI_ICON | #SHGFI_SMALLICON | #SHGFI_USEFILEATTRIBUTES)
+      ImageList_AddIcon_(hSmallIcons, shInfo\hIcon)
+      DestroyIcon_(shInfo\hIcon)
+      
+      ; Registry icon (usually index 16 in shell32.dll)
+      ExtractIconEx_("shell32.dll", 16, 0, @shInfo\hIcon, 1)
+      ImageList_AddIcon_(hSmallIcons, shInfo\hIcon)
+      DestroyIcon_(shInfo\hIcon)
+      
+      SendMessage_(GadgetID(#GADGET_TREE), #TVM_SETIMAGELIST, #TVSIL_NORMAL, hSmallIcons)
+    EndIf
+    
      ; Add root keys to tree
-     Define rootCR.i = AddGadgetItem(#GADGET_TREE, -1, "HKEY_CLASSES_ROOT")
-     Define rootCU.i = AddGadgetItem(#GADGET_TREE, -1, "HKEY_CURRENT_USER")
-     Define rootLM.i = AddGadgetItem(#GADGET_TREE, -1, "HKEY_LOCAL_MACHINE")
-     Define rootUS.i = AddGadgetItem(#GADGET_TREE, -1, "HKEY_USERS")
-     Define rootCC.i = AddGadgetItem(#GADGET_TREE, -1, "HKEY_CURRENT_CONFIG")
+     Define rootCR.i = AddGadgetItem(#GADGET_TREE, -1, "HKEY_CLASSES_ROOT", 0, 0)
+     Define rootCU.i = AddGadgetItem(#GADGET_TREE, -1, "HKEY_CURRENT_USER", 0, 0)
+     Define rootLM.i = AddGadgetItem(#GADGET_TREE, -1, "HKEY_LOCAL_MACHINE", 0, 0)
+     Define rootUS.i = AddGadgetItem(#GADGET_TREE, -1, "HKEY_USERS", 0, 0)
+     Define rootCC.i = AddGadgetItem(#GADGET_TREE, -1, "HKEY_CURRENT_CONFIG", 0, 0)
+
      
       ; Lazy load subkeys on double-click (avoid freezing on startup).
       ClearMap(TreeChildrenLoaded())
@@ -2333,10 +2646,35 @@ Procedure CreateGUI()
       TreeChildrenLoaded(Str(rootCC)) = #False
     
     ; Create ListView for Values
-    If Not ListViewGadget(#GADGET_LISTVIEW, 300, 0, WindowWidth(#WINDOW_MAIN) - 300, WindowHeight(#WINDOW_MAIN) - 20)
+    If Not ListIconGadget(#GADGET_LISTVIEW, 300, 0, WindowWidth(#WINDOW_MAIN) - 300, WindowHeight(#WINDOW_MAIN) - 20, "Name", 250, #PB_ListIcon_FullRowSelect | #PB_ListIcon_GridLines)
       LogError("CreateGUI", "Failed to create listview gadget")
       ProcedureReturn #False
     EndIf
+    AddGadgetColumn(#GADGET_LISTVIEW, 1, "Type", 120)
+    AddGadgetColumn(#GADGET_LISTVIEW, 2, "Data", 500)
+
+    ; Add value type icons
+    Protected hListIcons.i = ImageList_Create_(16, 16, #ILC_COLOR32 | #ILC_MASK, 4, 4)
+    If hListIcons
+      Protected iconInfo.SHFILEINFO
+      ; 0: Default Registry/String (ID 16 in shell32)
+      ExtractIconEx_("shell32.dll", 16, 0, @iconInfo\hIcon, 1)
+      ImageList_AddIcon_(hListIcons, iconInfo\hIcon)
+      DestroyIcon_(iconInfo\hIcon)
+      
+      ; 1: Binary (ID 254 in shell32 - Binary file icon)
+      ExtractIconEx_("shell32.dll", 254, 0, @iconInfo\hIcon, 1)
+      ImageList_AddIcon_(hListIcons, iconInfo\hIcon)
+      DestroyIcon_(iconInfo\hIcon)
+      
+      ; 2: Numeric/DWORD (ID 12 in shell32 - Calculator or similar)
+      ExtractIconEx_("shell32.dll", 12, 0, @iconInfo\hIcon, 1)
+      ImageList_AddIcon_(hListIcons, iconInfo\hIcon)
+      DestroyIcon_(iconInfo\hIcon)
+      
+      SendMessage_(GadgetID(#GADGET_LISTVIEW), #LVM_SETIMAGELIST, #LVSIL_SMALL, hListIcons)
+    EndIf
+
     
     ; Create Splitter with existing Tree and ListView
     If Not SplitterGadget(#GADGET_SPLITTER, 0, 35, WindowWidth(#WINDOW_MAIN), WindowHeight(#WINDOW_MAIN) - 55, #GADGET_TREE, #GADGET_LISTVIEW)
@@ -2356,8 +2694,12 @@ Procedure CreateGUI()
       MenuItem(#MENU_EDIT_RENAME, "Rename Key")
       MenuItem(#MENU_EDIT_DELETE, "Delete Key")
       MenuBar()
+      MenuItem(#MENU_EDIT_COPY_PATH, "Copy Key Path")
+      MenuItem(#MENU_EDIT_PERMISSIONS, "Permissions...")
+      MenuBar()
       MenuItem(#MENU_FILE_EXPORT, "Export Key...")
     EndIf
+
     
     If CreatePopupMenu(#GADGET_POPUP_LIST)
       MenuItem(#MENU_EDIT_NEW_VALUE, "New Value")
@@ -2413,17 +2755,28 @@ Procedure UpdateFavoritesMenu()
   LogInfo("UpdateFavoritesMenu", "Refreshing favorites list")
   LoadFavorites()
   
-  ; We'll assume Favorites is the 5th title (File, Edit, Tools, View, Help)
-  ; Let's insert it before Help or just at the end.
-  ; To make it robust, we'll use a fixed position if we can't find it.
+  Protected hMenu = MenuID(#GADGET_MENU)
+  ; Favorites is the 5th title (File=0, Edit=1, Tools=2, View=3, Favorites=4, Help=5)
+  Protected hFavMenu = GetSubMenu_(hMenu, 4)
   
-  ; Actually, it's better to just use a dedicated Favorites menu title
-  ; that we clear and rebuild if PB supported it easily. 
-  ; Since we are on Windows, we can use some API to clean up if needed, 
-  ; but let's stick to PB's way: rebuilding the whole menu or just appending.
-  
-  ; For now, let's just make sure the menu is updated when the app starts 
-  ; and when a favorite is added.
+  If hFavMenu
+    ; Remove items from the end up to the separator (which is at position 2)
+    ; 0: Add Favorite
+    ; 1: Manage Favorites
+    ; 2: Separator
+    ; 3+: Dynamic items
+    Protected i.i
+    For i = GetMenuItemCount_(hFavMenu) - 1 To 3 Step -1
+      DeleteMenu_(hFavMenu, i, #MF_BYPOSITION)
+    Next
+    
+    ; Re-add from list
+    ForEach Favorites()
+      MenuItem(#MENU_FAV_START + ListIndex(Favorites()), Favorites())
+    Next
+    
+    DrawMenuBar_(WindowID(#WINDOW_MAIN))
+  EndIf
 EndProcedure
 
 Procedure OpenFavoritesManager()
@@ -2566,82 +2919,101 @@ Procedure JumpToPath(fullPath.s)
   
   If fullPath = "" : ProcedureReturn : EndIf
   
-  rootPart = StringField(fullPath, 1, "\")
-  keyPath = Mid(fullPath, Len(rootPart) + 2)
-  
-  Select rootPart
-    Case "HKEY_CLASSES_ROOT": rootKey = #HKEY_CLASSES_ROOT
-    Case "HKEY_CURRENT_USER": rootKey = #HKEY_CURRENT_USER
-    Case "HKEY_LOCAL_MACHINE": rootKey = #HKEY_LOCAL_MACHINE
-    Case "HKEY_USERS": rootKey = #HKEY_USERS
-    Case "HKEY_CURRENT_CONFIG": rootKey = #HKEY_CURRENT_CONFIG
-    Default: ProcedureReturn
-  EndSelect
-  
-  LogInfo("JumpToPath", "Navigating to: " + fullPath)
-  
-  ; Find root item
-  Protected count.i = CountGadgetItems(#GADGET_TREE)
-  Protected currentItem.i = -1
-  Protected i.i
-  For i = 0 To count - 1
-    If GetGadgetItemText(#GADGET_TREE, i) = rootPart And GetGadgetItemAttribute(#GADGET_TREE, i, #PB_Tree_SubLevel) = 0
-      currentItem = i
-      Break
-    EndIf
-  Next
-  
-  If currentItem = -1 : ProcedureReturn : EndIf
-  
-  ; Traverse segments
-  Protected remaining.s = keyPath
-  Protected currentPath.s = ""
-  
-  While remaining <> ""
-    Protected segment.s = StringField(remaining, 1, "\")
-    remaining = Mid(remaining, Len(segment) + 2)
+    ; Standardize Path (Remove leading/trailing backslashes)
+    fullPath = Trim(fullPath, "\")
     
-    ; Expand current item if needed
-    If FindMapElement(TreeChildrenLoaded(), Str(currentItem)) = 0 Or TreeChildrenLoaded(Str(currentItem)) = #False
-      LoadSubKeys(currentItem, rootKey, currentPath, GetDefaultSAM())
-      TreeChildrenLoaded(Str(currentItem)) = #True
-    EndIf
-    SetGadgetItemState(#GADGET_TREE, currentItem, #PB_Tree_Expanded)
+    rootPart = StringField(fullPath, 1, "\")
+    keyPath = Mid(fullPath, Len(rootPart) + 2)
     
-    ; Find the child segment
-    Protected found.i = -1
-    Protected parentLevel.i = GetGadgetItemAttribute(#GADGET_TREE, currentItem, #PB_Tree_SubLevel)
-    count = CountGadgetItems(#GADGET_TREE)
-    For i = currentItem + 1 To count - 1
-      Protected level.i = GetGadgetItemAttribute(#GADGET_TREE, i, #PB_Tree_SubLevel)
-      If level <= parentLevel : Break : EndIf
-      If level = parentLevel + 1
-        If GetGadgetItemText(#GADGET_TREE, i) = segment
-          found = i
-          Break
-        EndIf
+    Select rootPart
+      Case "HKEY_CLASSES_ROOT", "HKCR": rootKey = #HKEY_CLASSES_ROOT : rootPart = "HKEY_CLASSES_ROOT"
+      Case "HKEY_CURRENT_USER", "HKCU": rootKey = #HKEY_CURRENT_USER : rootPart = "HKEY_CURRENT_USER"
+      Case "HKEY_LOCAL_MACHINE", "HKLM": rootKey = #HKEY_LOCAL_MACHINE : rootPart = "HKEY_LOCAL_MACHINE"
+      Case "HKEY_USERS", "HKU": rootKey = #HKEY_USERS : rootPart = "HKEY_USERS"
+      Case "HKEY_CURRENT_CONFIG", "HKCC": rootKey = #HKEY_CURRENT_CONFIG : rootPart = "HKEY_CURRENT_CONFIG"
+      Default: ProcedureReturn
+    EndSelect
+    
+    LogInfo("JumpToPath", "Navigating to: " + fullPath)
+    
+    ; Clear Status
+    UpdateStatusBar("Navigating to: " + rootPart + "\" + keyPath)
+    
+    ; Find root item
+    Protected count.i = CountGadgetItems(#GADGET_TREE)
+    Protected currentItem.i = -1
+    Protected i.i
+    For i = 0 To count - 1
+      If GetGadgetItemText(#GADGET_TREE, i) = rootPart And GetGadgetItemAttribute(#GADGET_TREE, i, #PB_Tree_SubLevel) = 0
+        currentItem = i
+        Break
       EndIf
     Next
     
-    If found = -1
-      LogWarning("JumpToPath", "Segment not found: " + segment)
-      Break
-    EndIf
+    If currentItem = -1 : ProcedureReturn : EndIf
     
-    currentItem = found
-    If currentPath <> "" : currentPath + "\" : EndIf
-    currentPath + segment
-  Wend
-  
-  ; Select final item
-  SetGadgetState(#GADGET_TREE, currentItem)
-  ; Force a selection event update
-  CurrentRootKey = rootKey
-  CurrentKeyPath = keyPath
-  LoadValues(CurrentRootKey, CurrentKeyPath, GetDefaultSAM())
-  
-  ; Scroll into view
-  SendMessage_(GadgetID(#GADGET_TREE), #TVM_ENSUREVISIBLE, 0, GadgetItemID(#GADGET_TREE, currentItem))
+    ; Traverse segments
+    Protected remaining.s = keyPath
+    Protected currentPath.s = ""
+    
+    While remaining <> ""
+      Protected segment.s = StringField(remaining, 1, "\")
+      remaining = Mid(remaining, Len(segment) + 2)
+      
+      ; Expand current item if needed
+      If FindMapElement(TreeChildrenLoaded(), Str(currentItem)) = 0 Or TreeChildrenLoaded(Str(currentItem)) = #False
+        LoadSubKeys(currentItem, rootKey, currentPath, GetDefaultSAM())
+        ; WAIT for the thread to finish loading since we need the child items to be added to the tree
+        ; before we can find the next segment. In a GUI app, we'd normally use a state machine,
+        ; but for a "Jump" we can wait briefly or process events.
+        Protected timeout = 50 ; 5 seconds
+        While FindMapElement(ActiveLoadThreads(), Str(currentItem)) And timeout > 0
+          WindowEvent() : Delay(100)
+          timeout - 1
+        Wend
+        TreeChildrenLoaded(Str(currentItem)) = #True
+      EndIf
+      SetGadgetItemState(#GADGET_TREE, currentItem, #PB_Tree_Expanded)
+      
+      ; Find the child segment
+      Protected found.i = -1
+      Protected parentLevel.i = GetGadgetItemAttribute(#GADGET_TREE, currentItem, #PB_Tree_SubLevel)
+      count = CountGadgetItems(#GADGET_TREE)
+      For i = currentItem + 1 To count - 1
+        Protected level.i = GetGadgetItemAttribute(#GADGET_TREE, i, #PB_Tree_SubLevel)
+        If level <= parentLevel : Break : EndIf
+        If level = parentLevel + 1
+          If GetGadgetItemText(#GADGET_TREE, i) = segment
+            found = i
+            Break
+          EndIf
+        EndIf
+      Next
+      
+      If found = -1
+        LogWarning("JumpToPath", "Segment not found: " + segment)
+        Break
+      EndIf
+      
+      currentItem = found
+      If currentPath <> "" : currentPath + "\" : EndIf
+      currentPath + segment
+    Wend
+    
+    ; Select final item
+    SetGadgetState(#GADGET_TREE, currentItem)
+    ; Force a selection event update
+    CurrentRootKey = rootKey
+    CurrentKeyPath = keyPath
+    LoadValues(CurrentRootKey, CurrentKeyPath, GetDefaultSAM())
+    SetGadgetText(#GADGET_ADDRESS_BAR, GetRootKeyName(rootKey) + "\" + CurrentKeyPath)
+    
+    ; Scroll into view
+    Define hItem = GadgetItemID(#GADGET_TREE, currentItem)
+    SendMessage_(GadgetID(#GADGET_TREE), #TVM_ENSUREVISIBLE, 0, hItem)
+    SendMessage_(GadgetID(#GADGET_TREE), #TVM_SELECTITEM, #TVGN_CARET, hItem)
+    
+    UpdateStatusBar("Ready")
 EndProcedure
 
 
@@ -2768,31 +3140,123 @@ If CreateGUI()
             SetGadgetText(#GADGET_SEARCH_STATUS, "Searching... Found " + Str(currentResults) + " matches.")
           EndIf
         ElseIf EventWindow() = #WINDOW_SNAPSHOT And EventTimer() = 4002
-          If CompareThreadID = 0
-            RemoveWindowTimer(#WINDOW_SNAPSHOT, 4002)
-            DisableGadget(#GADGET_SNAPSHOT_COMPARE, #False)
-            DisableGadget(#GADGET_SNAPSHOT_CREATE, #False)
-            DisableGadget(#GADGET_SNAPSHOT_DELETE, #False)
-            DisableGadget(#GADGET_SNAPSHOT_EXPORT, #False)
-            UpdateStatusBar("Comparison complete.")
-            
-            ; Display differences
-            ClearGadgetItems(#GADGET_SNAPSHOT_DIFF)
-            ForEach DiffResults()
-              Define displayDetails.s = DiffResults()\ValueName
-              If displayDetails <> "" : displayDetails + " -> " : EndIf
-              displayDetails + DiffResults()\NewData + " " + DiffResults()\OldData
-              AddGadgetItem(#GADGET_SNAPSHOT_DIFF, -1, DiffResults()\ChangeType + Chr(9) +
-                                                       DiffResults()\KeyPath + Chr(9) +
-                                                       displayDetails)
-            Next
-          Else
+          If CompareThreadID <> 0
             UpdateStatusBar("Comparing snapshots in background... Found " + Str(ListSize(DiffResults())) + " diffs")
           EndIf
         EndIf
 
         
+      Case #EVENT_EXPORT_COMPLETE
+        Define exitCodeExport.i = EventGadget()
+        Define isRestoreExport.i = EventData()
+        
+        If exitCodeExport = 0
+          If isRestoreExport
+            UpdateStatusBar("Registry restoration successful")
+            MessageRequester("Success", "Registry restored successfully. You should restart your computer for changes to take full effect.", #PB_MessageRequester_Info)
+          Else
+            UpdateStatusBar("Registry export successful")
+          EndIf
+        Else
+          If isRestoreExport
+            UpdateStatusBar("Registry restoration failed")
+            MessageRequester("Error", "Registry restoration failed with exit code " + Str(exitCodeExport), #PB_MessageRequester_Error)
+          Else
+            UpdateStatusBar("Registry export failed")
+            MessageRequester("Error", "Registry export failed with exit code " + Str(exitCodeExport), #PB_MessageRequester_Error)
+          EndIf
+        EndIf
+
+      Case #EVENT_COMPARE_COMPLETE
+        RemoveWindowTimer(#WINDOW_SNAPSHOT, 4002)
+        UpdateStatusBar("Comparison complete.")
+        DisableGadget(#GADGET_SNAPSHOT_COMPARE, #False)
+        DisableGadget(#GADGET_SNAPSHOT_CREATE, #False)
+        DisableGadget(#GADGET_SNAPSHOT_DELETE, #False)
+        DisableGadget(#GADGET_SNAPSHOT_EXPORT, #False)
+        
+        ; Display differences
+        ClearGadgetItems(#GADGET_SNAPSHOT_DIFF)
+        ForEach DiffResults()
+          Define displayDetails.s = DiffResults()\ValueName
+          If displayDetails <> "" : displayDetails + " -> " : EndIf
+          displayDetails + DiffResults()\NewData + " " + DiffResults()\OldData
+          AddGadgetItem(#GADGET_SNAPSHOT_DIFF, -1, DiffResults()\ChangeType + Chr(9) +
+                                                   DiffResults()\KeyPath + Chr(9) +
+                                                   displayDetails)
+        Next
+
+      Case #EVENT_LOAD_VALUES_COMPLETE
+        Define *vres.LoadValuesResult = EventData()
+        If *vres
+          If *vres\Error <> 0
+            UpdateStatusBar("Error: " + *vres\ErrorStr)
+          EndIf
+          
+          SendMessage_(GadgetID(#GADGET_LISTVIEW), #WM_SETREDRAW, #False, 0)
+          ClearGadgetItems(#GADGET_LISTVIEW)
+          ClearList(RegValues())
+          
+          ForEach *vres\Values()
+            AddElement(RegValues())
+            RegValues()\Name = *vres\Values()\Name
+            RegValues()\Type = *vres\Values()\Type
+            RegValues()\Data = *vres\Values()\Data
+            
+            Define vIconIdx.i = 0
+            Select *vres\Values()\Type
+              Case #REG_BINARY : vIconIdx = 1
+              Case #REG_DWORD, #REG_QWORD : vIconIdx = 2
+            EndSelect
+            
+            AddGadgetItem(#GADGET_LISTVIEW, -1, *vres\Values()\Name + Chr(10) + GetTypeName(*vres\Values()\Type) + Chr(10) + Left(*vres\Values()\Data, 200), vIconIdx)
+          Next
+          
+          SendMessage_(GadgetID(#GADGET_LISTVIEW), #WM_SETREDRAW, #True, 0)
+          InvalidateRect_(GadgetID(#GADGET_LISTVIEW), 0, #True)
+          UpdateStatusBar("Loaded " + Str(*vres\Count) + " value(s)")
+          
+          FreeStructure(*vres)
+        EndIf
+
+      Case #EVENT_LOAD_COMPLETE
+
+        Define *res.LoadKeysThreadResult = EventData()
+        If *res
+          Define parentItem.i = *res\ParentItem
+          
+          If *res\Error <> 0
+            UpdateStatusBar("Error loading subkeys: " + *res\ErrorStr)
+          EndIf
+          
+          ; --- CRITICAL FIX: Block events while updating tree ---
+          IsUpdatingTree = #True
+          SendMessage_(GadgetID(#GADGET_TREE), #WM_SETREDRAW, #False, 0)
+          
+          ; Calculate correct insertion index
+          Define insertPos.i = parentItem + 1
+          Define parentLevel.i = GetGadgetItemAttribute(#GADGET_TREE, parentItem, #PB_Tree_SubLevel)
+          Define childLevel.i = parentLevel + 1
+          
+          ForEach *res\SubKeys()
+            AddGadgetItem(#GADGET_TREE, insertPos, *res\SubKeys(), 0, childLevel)
+            insertPos + 1
+          Next
+          
+          SendMessage_(GadgetID(#GADGET_TREE), #WM_SETREDRAW, #True, 0)
+          IsUpdatingTree = #False
+          ; --- END FIX ---
+          
+          LockMutex(LoadKeysMutex)
+          DeleteMapElement(ActiveLoadThreads(), Str(parentItem))
+          UnlockMutex(LoadKeysMutex)
+          
+          FreeStructure(*res)
+        EndIf
+
+
       Case #PB_Event_Menu
+
         Select EventMenu()
           Case #MENU_FILE_EXPORT
             fileName = SaveFileRequester("Export Registry Key", "", "Registry Files (*.reg)|*.reg|All Files (*.*)|*.*", 0)
@@ -2879,7 +3343,26 @@ If CreateGUI()
               MessageRequester("Error", "Please select a registry key first!", #PB_MessageRequester_Error)
             EndIf
 
+          Case #MENU_EDIT_COPY_PATH
+            If CurrentRootKey <> 0
+              SetClipboardText(GetRootKeyName(CurrentRootKey) + "\" + CurrentKeyPath)
+              UpdateStatusBar("Key path copied to clipboard")
+            EndIf
+            
+          Case #MENU_EDIT_PERMISSIONS
+            If CurrentRootKey <> 0
+              ; WinAPI for Registry Key Permissions Dialog
+              ; We need to use ShellExecute or direct Advapi32 call
+              ; The standard way is using RegKeyEditPermissions (undocumented in some headers)
+              ; or more commonly, calling "regedt32.exe" with specific flags if possible,
+              ; but the most professional way is calling the Security Editor ACL UI.
+              ; For this prototype, we'll use a message as a placeholder or attempt a basic shell call.
+              RunProgram("powershell.exe", "-Command " + Chr(34) + "Start-Process regedit.exe" + Chr(34), "", #PB_Program_Wait | #PB_Program_Hide)
+              MessageRequester("Permissions", "Registry Permissions are best managed via the native Security Editor." + #CRLF$ + "Native Regedit has been launched to assist.", #PB_MessageRequester_Info)
+            EndIf
+
           Case #MENU_EDIT_RENAME
+
             If CurrentRootKey <> 0
               ; Check if a value is selected in the listview or if we're renaming a key
               Define selectedVal.i = GetGadgetState(#GADGET_LISTVIEW)
@@ -2965,7 +3448,7 @@ If CreateGUI()
             LogInfo("Main", "Opening snapshot manager")
             OpenSnapshotWindow()
             
-          Case #MENU_VIEW_64BIT
+Case #MENU_VIEW_64BIT
             View64Bit = 1 - View64Bit
             SetMenuItemState(#GADGET_MENU, #MENU_VIEW_64BIT, View64Bit)
             If View64Bit
@@ -2973,20 +3456,54 @@ If CreateGUI()
             Else
               UpdateStatusBar("View mode: 32-bit Registry (WOW64)")
             EndIf
-            ; Refresh current view
-            If CurrentRootKey <> 0
-              LoadValues(CurrentRootKey, CurrentKeyPath, GetDefaultSAM())
-            EndIf
             
-          Case #MENU_VIEW_REFRESH
+            ; --- FULL REFRESH FOR VIEW TOGGLE ---
+            SendMessage_(GadgetID(#GADGET_TREE), #WM_SETREDRAW, #False, 0)
+            ClearGadgetItems(#GADGET_TREE)
+            ClearMap(TreeChildrenLoaded())
+            
+            ; Re-add root keys
+            Define rootCR.i = AddGadgetItem(#GADGET_TREE, -1, "HKEY_CLASSES_ROOT", 0, 0)
+            Define rootCU.i = AddGadgetItem(#GADGET_TREE, -1, "HKEY_CURRENT_USER", 0, 0)
+            Define rootLM.i = AddGadgetItem(#GADGET_TREE, -1, "HKEY_LOCAL_MACHINE", 0, 0)
+            Define rootUS.i = AddGadgetItem(#GADGET_TREE, -1, "HKEY_USERS", 0, 0)
+            Define rootCC.i = AddGadgetItem(#GADGET_TREE, -1, "HKEY_CURRENT_CONFIG", 0, 0)
+            
+            ; Reset lazy load flags
+            TreeChildrenLoaded(Str(rootCR)) = #False
+            TreeChildrenLoaded(Str(rootCU)) = #False
+            TreeChildrenLoaded(Str(rootLM)) = #False
+            TreeChildrenLoaded(Str(rootUS)) = #False
+            TreeChildrenLoaded(Str(rootCC)) = #False
+            
+            SendMessage_(GadgetID(#GADGET_TREE), #WM_SETREDRAW, #True, 0)
+            InvalidateRect_(GadgetID(#GADGET_TREE), 0, #True)
+            
+            ; Clear ListView
+            ClearGadgetItems(#GADGET_LISTVIEW)
+            CurrentRootKey = 0
+            CurrentKeyPath = ""
+            SetGadgetText(#GADGET_ADDRESS_BAR, "")
+            
+            LogInfo("Main", "Registry view toggled. View64Bit=" + Str(View64Bit))
+            
+              Case #MENU_VIEW_REFRESH
             If CurrentRootKey <> 0
               LoadValues(CurrentRootKey, CurrentKeyPath, GetDefaultSAM())
               ; Force reload children for selected item if possible
               Define sel = GetGadgetState(#GADGET_TREE)
               If sel <> -1
+                ; Clear children from tree first
+                Define nextItem = sel + 1
+                Define parentLevel = GetGadgetItemAttribute(#GADGET_TREE, sel, #PB_Tree_SubLevel)
+                While nextItem < CountGadgetItems(#GADGET_TREE) And GetGadgetItemAttribute(#GADGET_TREE, nextItem, #PB_Tree_SubLevel) > parentLevel
+                  RemoveGadgetItem(#GADGET_TREE, nextItem)
+                Wend
                 LoadSubKeys(sel, CurrentRootKey, CurrentKeyPath, GetDefaultSAM())
+                TreeChildrenLoaded(Str(sel)) = #True
               EndIf
             EndIf
+
             
           Case #MENU_HELP_ONLINE
             LogInfo("Main", "Opening help system")
@@ -3047,48 +3564,105 @@ If CreateGUI()
         
       Case #PB_Event_Gadget
         Select EventGadget()
-           Case #GADGET_TREE
-             If EventWindow() = #WINDOW_MAIN
-               Define item.i = GetGadgetState(#GADGET_TREE)
-               If item <> -1
-                 Define tempPath.s = GetGadgetItemText(#GADGET_TREE, item, 0)
-                 
-                 ; Determine root hive and key path.
-                 CurrentRootKey = GetRootKeyFromTreeItem(item)
-                 If CurrentRootKey <> 0
-                   Define isHiveRoot.i = #False
-                   If tempPath = "HKEY_CLASSES_ROOT" Or tempPath = "HKEY_CURRENT_USER" Or tempPath = "HKEY_LOCAL_MACHINE" Or tempPath = "HKEY_USERS" Or tempPath = "HKEY_CURRENT_CONFIG"
-                     isHiveRoot = #True
-                   EndIf
-                   
-                    If isHiveRoot
-                      CurrentKeyPath = ""
-                      SetGadgetText(#GADGET_ADDRESS_BAR, tempPath)
-                    Else
-                      CurrentKeyPath = tempPath
-                      SetGadgetText(#GADGET_ADDRESS_BAR, GetRootKeyName(CurrentRootKey) + "\" + CurrentKeyPath)
-                    EndIf
-                   
-                    LogInfo("Main", "Tree item selected: " + tempPath)
-                    LoadValues(CurrentRootKey, CurrentKeyPath, GetDefaultSAM())
-                    
-                    ; Load children only on double-click, and only once.
-                    If EventType() = #PB_EventType_LeftDoubleClick
-                      ; Load children once per node.
-                      If FindMapElement(TreeChildrenLoaded(), Str(item)) = 0 Or TreeChildrenLoaded(Str(item)) = #False
-                        LoadSubKeys(item, CurrentRootKey, CurrentKeyPath, GetDefaultSAM())
-                        TreeChildrenLoaded(Str(item)) = #True
-                      EndIf
-                    ElseIf EventType() = #PB_EventType_RightClick
-                      DisplayPopupMenu(#GADGET_POPUP_TREE, WindowID(#WINDOW_MAIN))
-                    EndIf
-                  Else
-                    LogWarning("Main", "Could not determine root key for selected item")
-                  EndIf
-                EndIf
-              EndIf
+    Case #GADGET_TREE
+      If EventWindow() = #WINDOW_MAIN
+        ; --- CRITICAL FIX: Reentry Guard ---
+        If Not IsUpdatingTree 
+          Define item.i = GetGadgetState(#GADGET_TREE)
+          If item <> -1
+            Define tempPath.s = GetGadgetItemText(#GADGET_TREE, item, 0)
             
-            Case #GADGET_ADDRESS_GO
+            ; Determine root hive and key path.
+            CurrentRootKey = GetRootKeyFromTreeItem(item)
+            If CurrentRootKey <> 0
+              Define isHiveRoot.i = #False
+              If tempPath = "HKEY_CLASSES_ROOT" Or tempPath = "HKEY_CURRENT_USER" Or tempPath = "HKEY_LOCAL_MACHINE" Or tempPath = "HKEY_USERS" Or tempPath = "HKEY_CURRENT_CONFIG"
+                isHiveRoot = #True
+                CurrentKeyPath = ""
+              Else
+                ; Build full path for non-root items
+                CurrentKeyPath = ""
+                Define level.i = GetGadgetItemAttribute(#GADGET_TREE, item, #PB_Tree_SubLevel)
+                
+                ; Travel up the tree to build the path
+                NewList RegPathSegments.s()
+                InsertElement(RegPathSegments())
+                RegPathSegments() = tempPath
+                
+                Define currentLevel.i = level
+                Define pIdx.i
+                For pIdx = item - 1 To 0 Step -1
+                  Define pLevel.i = GetGadgetItemAttribute(#GADGET_TREE, pIdx, #PB_Tree_SubLevel)
+                  If pLevel < currentLevel
+                    InsertElement(RegPathSegments())
+                    RegPathSegments() = GetGadgetItemText(#GADGET_TREE, pIdx)
+                    currentLevel = pLevel
+                  EndIf
+                  If pLevel = 0 : Break : EndIf
+                Next
+                
+                ; Remove the root hive name from path segments
+                SelectElement(RegPathSegments(), 0)
+                Define firstSeg.s = RegPathSegments()
+                If firstSeg = "HKEY_CLASSES_ROOT" Or firstSeg = "HKEY_CURRENT_USER" Or firstSeg = "HKEY_LOCAL_MACHINE" Or firstSeg = "HKEY_USERS" Or firstSeg = "HKEY_CURRENT_CONFIG"
+                  DeleteElement(RegPathSegments())
+                EndIf
+                
+                CurrentKeyPath = ""
+                ForEach RegPathSegments()
+                  If CurrentKeyPath <> "" : CurrentKeyPath + "\" : EndIf
+                  CurrentKeyPath + RegPathSegments()
+                Next
+              EndIf
+              
+              If isHiveRoot
+                SetGadgetText(#GADGET_ADDRESS_BAR, tempPath)
+                CurrentKeyPath = "" ; Explicitly clear for root hives
+              Else
+                SetGadgetText(#GADGET_ADDRESS_BAR, GetRootKeyName(CurrentRootKey) + "\" + CurrentKeyPath)
+              EndIf
+             
+              ; Only reload values if selection changed or deliberate click
+              If item <> LastSelectedItem Or EventType() = #PB_EventType_LeftClick
+                LogInfo("Main", "Tree item selected: " + tempPath + " (Root: " + Hex(CurrentRootKey) + ", Path: '" + CurrentKeyPath + "')")
+                LoadValues(CurrentRootKey, CurrentKeyPath, GetDefaultSAM())
+                LastSelectedItem = item
+              EndIf
+              
+            ; Load children on double-click or when expanded
+            If EventType() = #PB_EventType_LeftDoubleClick Or (GetGadgetItemState(#GADGET_TREE, item) & #PB_Tree_Expanded)
+              If FindMapElement(TreeChildrenLoaded(), Str(item)) = 0 Or TreeChildrenLoaded(Str(item)) = #False
+                UpdateStatusBar("Loading subkeys for: " + tempPath)
+                SetCursor_(LoadCursor_(LoadLibrary_("user32.dll"), #IDC_WAIT))
+                
+                ; --- FIX: Remove any existing children before loading to prevent duplicates ---
+                IsUpdatingTree = #True
+                Define nextCheck.i = item + 1
+                Define pLevelCheck.i = GetGadgetItemAttribute(#GADGET_TREE, item, #PB_Tree_SubLevel)
+                While nextCheck < CountGadgetItems(#GADGET_TREE) And GetGadgetItemAttribute(#GADGET_TREE, nextCheck, #PB_Tree_SubLevel) > pLevelCheck
+                  RemoveGadgetItem(#GADGET_TREE, nextCheck)
+                Wend
+                IsUpdatingTree = #False
+                
+                LoadSubKeys(item, CurrentRootKey, CurrentKeyPath, GetDefaultSAM())
+                TreeChildrenLoaded(Str(item)) = #True
+                UpdateStatusBar("Ready")
+                SetCursor_(LoadCursor_(0, #IDC_ARROW))
+              EndIf
+            EndIf
+              
+              If EventType() = #PB_EventType_RightClick
+                DisplayPopupMenu(#GADGET_POPUP_TREE, WindowID(#WINDOW_MAIN))
+              EndIf
+            Else
+              LogWarning("Main", "Could not determine root key for selected item")
+            EndIf
+          EndIf
+        EndIf
+      EndIf
+
+    Case #GADGET_ADDRESS_GO
+
               If EventWindow() = #WINDOW_MAIN
                 JumpToPath(GetGadgetText(#GADGET_ADDRESS_BAR))
               EndIf
@@ -3313,7 +3887,11 @@ If CreateGUI()
                   *sp\SearchString = searchStr
                   *sp\RootKey = CurrentRootKey
                   *sp\KeyPath = CurrentKeyPath
+                  *sp\SearchKeys = GetGadgetState(#GADGET_SEARCH_KEYS)
+                  *sp\SearchValues = GetGadgetState(#GADGET_SEARCH_VALUES)
+                  *sp\SearchData = GetGadgetState(#GADGET_SEARCH_DATA)
                   SearchThreadID = CreateThread(@SearchThread(), *sp)
+
                   AddWindowTimer(#WINDOW_SEARCH, 4001, 200) ; Refresh timer
                 EndIf
               EndIf
@@ -3325,13 +3903,36 @@ If CreateGUI()
             EndIf
             
           Case #GADGET_SEARCH_RESULTS
-            If EventWindow() = #WINDOW_SEARCH And EventType() = #PB_EventType_LeftDoubleClick
-              Define selectedResult.i = GetGadgetState(#GADGET_SEARCH_RESULTS)
-              If selectedResult <> -1
-                SelectElement(SearchResults(), selectedResult)
-                JumpToPath(GetRootKeyName(SearchResults()\RootKey) + "\" + SearchResults()\KeyPath)
+            If EventWindow() = #WINDOW_SEARCH 
+              If EventType() = #PB_EventType_LeftDoubleClick Or (EventType() = #PB_EventType_Change And GetGadgetState(#GADGET_SEARCH_RESULTS) <> -1)
+                Define selectedResult.i = GetGadgetState(#GADGET_SEARCH_RESULTS)
+                If selectedResult <> -1
+                  LockMutex(MonitorMutex)
+                  SelectElement(SearchResults(), selectedResult)
+                  Define sRoot.i = SearchResults()\RootKey
+                  Define sPath.s = SearchResults()\KeyPath
+                  Define sValue.s = SearchResults()\ValueName
+                  UnlockMutex(MonitorMutex)
+                  
+                  ; Combine root and path for JumpToPath
+                  JumpToPath(GetRootKeyName(sRoot) + "\" + sPath)
+                  
+                  ; Highlight the specific value in the ListIconGadget
+                  Define vIdx.i, vCount.i = CountGadgetItems(#GADGET_LISTVIEW)
+                  For vIdx = 0 To vCount - 1
+                    If GetGadgetItemText(#GADGET_LISTVIEW, vIdx, 0) = sValue
+                      SetGadgetState(#GADGET_LISTVIEW, vIdx)
+                      ; Scroll into view
+                      SendMessage_(GadgetID(#GADGET_LISTVIEW), #LVM_ENSUREVISIBLE, vIdx, #False)
+                      ; Ensure it's selected as the focused item
+                      SendMessage_(GadgetID(#GADGET_LISTVIEW), #LVM_SETITEMSTATE, vIdx, #LVIS_SELECTED | #LVIS_FOCUSED)
+                      Break
+                    EndIf
+                  Next
+                EndIf
               EndIf
             EndIf
+
 
         EndSelect
         
@@ -3343,10 +3944,14 @@ If CreateGUI()
             ResizeGadget(#GADGET_SPLITTER, 0, 35, WindowWidth(#WINDOW_MAIN), WindowHeight(#WINDOW_MAIN) - 55)
           Case #WINDOW_SEARCH
             ResizeGadget(#GADGET_SEARCH_STRING, 90, 10, WindowWidth(#WINDOW_SEARCH) - 300, 25)
+            ResizeGadget(#GADGET_SEARCH_KEYS, 90, 40, 60, 20)
+            ResizeGadget(#GADGET_SEARCH_VALUES, 160, 40, 70, 20)
+            ResizeGadget(#GADGET_SEARCH_DATA, 240, 40, 60, 20)
             ResizeGadget(#GADGET_SEARCH_START, WindowWidth(#WINDOW_SEARCH) - 200, 10, 90, 25)
             ResizeGadget(#GADGET_SEARCH_STOP, WindowWidth(#WINDOW_SEARCH) - 100, 10, 90, 25)
-            ResizeGadget(#GADGET_SEARCH_RESULTS, 10, 45, WindowWidth(#WINDOW_SEARCH) - 20, WindowHeight(#WINDOW_SEARCH) - 80)
+            ResizeGadget(#GADGET_SEARCH_RESULTS, 10, 65, WindowWidth(#WINDOW_SEARCH) - 20, WindowHeight(#WINDOW_SEARCH) - 100)
             ResizeGadget(#GADGET_SEARCH_STATUS, 10, WindowHeight(#WINDOW_SEARCH) - 25, WindowWidth(#WINDOW_SEARCH) - 20, 20)
+
           Case #WINDOW_MONITOR
             ResizeGadget(#GADGET_MONITOR_LIST, 10, 10, WindowWidth(#WINDOW_MONITOR) - 20, WindowHeight(#WINDOW_MONITOR) - 100)
             ResizeGadget(#GADGET_MONITOR_START, 10, WindowHeight(#WINDOW_MONITOR) - 80, #PB_Ignore, #PB_Ignore)
@@ -3393,9 +3998,8 @@ CloseErrorLog()
 
 Exit()
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 3314
-; FirstLine = 3282
-; Folding = ----------
+; CursorPosition = 25
+; Folding = -----------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -3404,12 +4008,12 @@ Exit()
 ; UseIcon = RegistryManager.ico
 ; Executable = ..\RegistryManager.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,9
+; VersionField1 = 1,0,0,9
 ; VersionField2 = ZoneSoft
 ; VersionField3 = RegistryManager
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField4 = 1.0.0.9
+; VersionField5 = 1.0.0.9
 ; VersionField6 = A full featured Registry Manager
 ; VersionField7 = RegistryManager
 ; VersionField8 = RegistryManager.exe
