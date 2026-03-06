@@ -15,6 +15,11 @@ EnableExplicit
 
 #APP_NAME        = "PB_DNSJumperLike"
 #EMAIL_NAME      = "zonemaster60@gmail.com"
+Global version.s = "v1.0.0.1"
+
+Global AppPath.s = GetPathPart(ProgramFilename())
+If AppPath = "" : AppPath = GetCurrentDirectory() : EndIf
+SetCurrentDirectory(AppPath)
 
 Enumeration SysTray
   #SysTray
@@ -43,12 +48,6 @@ Enumeration Gadgets
   #G_Status
   #G_Exit
 EndEnumeration
-
-Global version.s = "v1.0.0.0"
-
-Global AppPath.s = GetPathPart(ProgramFilename())
-If AppPath = "" : AppPath = GetCurrentDirectory() : EndIf
-SetCurrentDirectory(AppPath)
 
 ; Prevent multiple instances (don't rely on window title text)
 ; Allow helper modes to run even if the tray app is running.
@@ -431,6 +430,10 @@ Global gProvidersFile.s = "dns_servers.json"
 Global gLoadedProviders.i
 Global gProvidersFromFile.l
 Global gCurrentTest.s
+Global gAutoStartDone.b = #False
+Global gQueueApplied.b = #False
+Global gStartTime.q = ElapsedMilliseconds()
+Global gStartToTray.b = #False
 
 Procedure AddProvider(name.s, ip1.s, ip2.s)
   AddElement(Providers())
@@ -921,16 +924,15 @@ EndIf
   DisableGadget(#G_Stop, #True)
   
   ; Handle command line parameters (e.g., from startup shortcut)
-  Define startToTray.b = #False
   Define cmdIdx.l = 1
   While cmdIdx <= CountProgramParameters()
     If UCase(ProgramParameter(cmdIdx-1)) = "/TRAY"
-      startToTray = #True
+      gStartToTray = #True
     EndIf
     cmdIdx + 1
   Wend
 
-  If startToTray
+  If gStartToTray
     HideWindow(#WinMain, #True)
   Else
     HideWindow(#WinMain, #False)
@@ -940,6 +942,19 @@ EndIf
 
   Repeat
     Define ev = WaitWindowEvent(20)
+    
+    ; Auto-Start Benchmark logic (2 minutes after app start)
+    If gAutoStartDone = #False And gWorkerRunning = 0
+      If ElapsedMilliseconds() - gStartTime > 90000 ; 90,000ms = 1.5 minutes
+        ; Check if we have an adapter
+        If GetGadgetText(#G_AdapterCombo) <> ""
+          ; Mark as done immediately so we don't re-trigger
+          gAutoStartDone = #True
+          PostEvent(#PB_Event_Gadget, #WinMain, #G_Start)
+          SetGadgetText(#G_Status, "Automatic benchmark triggered (2m timer)...")
+        EndIf
+      EndIf
+    EndIf
     
     If ev = #PB_Event_SysTray
       If EventType() = #PB_EventType_LeftDoubleClick
@@ -1133,6 +1148,18 @@ EndIf
         LockMutex(gMutex)
         gWorkerDone = 0
         UnlockMutex(gMutex)
+
+        ; If this was an automatic benchmark (timer), apply the best DNS now
+        If gAutoStartDone = #True And gQueueApplied = #False
+          gQueueApplied = #True
+          Define adapter.s = GetGadgetText(#G_AdapterCombo)
+          If adapter <> ""
+            SetGadgetText(#G_Status, "Auto-Applying best DNS...")
+            ApplyBest(adapter)
+            SetGadgetText(#G_Status, "Auto-Apply complete.")
+            SysTrayIconToolTip(#SysTray, #APP_NAME + " - Auto-Apply Complete")
+          EndIf
+        EndIf
       EndIf
     EndIf
 
@@ -1144,8 +1171,9 @@ EndIf
 
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 15
-; Folding = -----
+; CursorPosition = 947
+; FirstLine = 1127
+; Folding = ------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1154,12 +1182,12 @@ EndIf
 ; UseIcon = PB_DNSJumperLike.ico
 ; Executable = ..\PB_DNSJumperLike.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_DNSJumperLike
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = An automatic DNS changer similar to DNSJumper
 ; VersionField7 = PB_DNSJumperLike
 ; VersionField8 = PB_DNSJumperLike.exe
