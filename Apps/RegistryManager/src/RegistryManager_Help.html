@@ -1,0 +1,1133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registry Manager v1.3 - Complete Help System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        
+        .content-wrapper {
+            display: flex;
+        }
+        
+        .sidebar {
+            width: 280px;
+            background: #f8f9fa;
+            border-right: 1px solid #dee2e6;
+            padding: 20px;
+            overflow-y: auto;
+            max-height: calc(100vh - 200px);
+        }
+        
+        .sidebar h3 {
+            color: #1e3c72;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+        
+        .sidebar ul {
+            list-style: none;
+        }
+        
+        .sidebar li {
+            margin-bottom: 8px;
+        }
+        
+        .sidebar a {
+            color: #495057;
+            text-decoration: none;
+            display: block;
+            padding: 8px 12px;
+            border-radius: 5px;
+            transition: all 0.3s;
+        }
+        
+        .sidebar a:hover {
+            background: #667eea;
+            color: white;
+            transform: translateX(5px);
+        }
+        
+        .main-content {
+            flex: 1;
+            padding: 40px;
+            overflow-y: auto;
+            max-height: calc(100vh - 200px);
+        }
+        
+        .section {
+            margin-bottom: 40px;
+            padding: 30px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border-left: 5px solid #667eea;
+        }
+        
+        .section h2 {
+            color: #1e3c72;
+            margin-bottom: 20px;
+            font-size: 2em;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        
+        .section h3 {
+            color: #2a5298;
+            margin: 25px 0 15px 0;
+            font-size: 1.5em;
+        }
+        
+        .section h4 {
+            color: #495057;
+            margin: 20px 0 10px 0;
+            font-size: 1.2em;
+        }
+        
+        .section p {
+            line-height: 1.8;
+            color: #495057;
+            margin-bottom: 15px;
+        }
+        
+        .section ul, .section ol {
+            margin-left: 30px;
+            margin-bottom: 15px;
+            line-height: 1.8;
+            color: #495057;
+        }
+        
+        .feature-box {
+            background: white;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 8px;
+            border-left: 4px solid #28a745;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .warning-box {
+            background: #fff3cd;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 8px;
+            border-left: 4px solid #ffc107;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .error-box {
+            background: #f8d7da;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 8px;
+            border-left: 4px solid #dc3545;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .info-box {
+            background: #d1ecf1;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 8px;
+            border-left: 4px solid #17a2b8;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        code {
+            background: #e9ecef;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            color: #d63384;
+        }
+        
+        .button-demo {
+            background: #667eea;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            display: inline-block;
+            margin: 5px;
+            font-weight: bold;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        th {
+            background: #1e3c72;
+            color: white;
+            padding: 15px;
+            text-align: left;
+        }
+        
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .screenshot {
+            max-width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            margin: 20px 0;
+        }
+        
+        .quick-start {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        
+        .quick-start h3 {
+            color: white;
+            margin-bottom: 15px;
+        }
+        
+        .step {
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border-left: 4px solid white;
+        }
+        
+        .footer {
+            background: #343a40;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .keyboard-key {
+            background: #f8f9fa;
+            border: 2px solid #dee2e6;
+            border-radius: 5px;
+            padding: 5px 10px;
+            display: inline-block;
+            margin: 0 3px;
+            font-family: 'Consolas', monospace;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛠️ Registry Manager v1.5</h1>
+            <p>Complete Help & Documentation System</p>
+        </div>
+
+        
+        <div class="content-wrapper">
+            <div class="sidebar">
+                <h3>📚 Table of Contents</h3>
+                <ul>
+                    <li><a href="#overview">Overview</a></li>
+                    <li><a href="#quick-start">Quick Start Guide</a></li>
+                    <li><a href="#features">Features</a></li>
+                    <li><a href="#navigation">Navigation & Favorites</a></li>
+                    <li><a href="#search">Advanced Search</a></li>
+                    <li><a href="#registry-editor">Registry Editor & Value Editor</a></li>
+
+                    <li><a href="#auto-backup">Auto-Backup System</a></li>
+                    <li><a href="#monitor">Registry Monitor</a></li>
+                    <li><a href="#snapshots">Snapshot Manager</a></li>
+                    <li><a href="#cleaner">Registry Cleaner</a></li>
+                    <li><a href="#backup-restore">Backup & Restore</a></li>
+                    <li><a href="#compactor">Registry Compactor</a></li>
+                    <li><a href="#troubleshooting">Troubleshooting</a></li>
+                    <li><a href="#faq">FAQ</a></li>
+                    <li><a href="#keyboard">Keyboard Shortcuts</a></li>
+                    <li><a href="#technical">Technical Details</a></li>
+                    <li><a href="#support">Support</a></li>
+                </ul>
+            </div>
+            
+            <div class="main-content">
+                <!-- OVERVIEW -->
+                <section id="overview" class="section">
+                    <h2>📖 Overview</h2>
+                    <p>Registry Manager is a comprehensive, professional-grade Windows Registry management tool designed for system administrators, power users, developers, and security professionals.</p>
+                    
+                    <div class="feature-box">
+                        <h4>✨ Key Highlights</h4>
+                        <ul>
+                            <li><strong>Mandatory Auto-Backup:</strong> Automatic full registry backup before ANY modifications</li>
+                            <li><strong>Real-Time Monitoring:</strong> Track all registry changes across all hives instantly</li>
+                            <li><strong>Advanced Value Editor:</strong> Dedicated interface for String, DWORD, QWORD, and Binary data</li>
+                            <li><strong>Threaded Search:</strong> Recursive, non-blocking background search for values and data</li>
+                            <li><strong>Smart Navigation:</strong> Address bar for manual jumps and a persistent Favorites system</li>
+                            <li><strong>Smart Snapshot Comparison:</strong> Value-level detection for added, removed, and modified data</li>
+                        </ul>
+                    </div>
+
+
+                    
+                    <div class="warning-box">
+                        <h4>⚠️ Important Safety Notice</h4>
+                        <p>Modifying the Windows Registry can cause system instability or failure. Always ensure you understand the changes you're making. Registry Manager provides automatic backups, but maintaining separate system backups is recommended.</p>
+                    </div>
+                    
+                    <h3>System Requirements</h3>
+                    <table>
+                        <tr>
+                            <th>Component</th>
+                            <th>Requirement</th>
+                        </tr>
+                        <tr>
+                            <td>Operating System</td>
+                            <td>Windows Vista or later (Windows 10/11 recommended)</td>
+                        </tr>
+                        <tr>
+                            <td>Privileges</td>
+                            <td>Administrator rights REQUIRED</td>
+                        </tr>
+                        <tr>
+                            <td>Disk Space</td>
+                            <td>~500 MB free (for backups and snapshots)</td>
+                        </tr>
+                        <tr>
+                            <td>RAM</td>
+                            <td>Minimum 2 GB, 4 GB recommended</td>
+                        </tr>
+                        <tr>
+                            <td>Architecture</td>
+                            <td>x64 (64-bit Windows)</td>
+                        </tr>
+                    </table>
+                </section>
+                
+                <!-- QUICK START -->
+                <section id="quick-start" class="section">
+                    <h2>🚀 Quick Start Guide</h2>
+                    
+                    <div class="quick-start">
+                        <h3>Getting Started in 5 Minutes</h3>
+                        
+                        <div class="step">
+                            <h4>Step 1: Launch Application</h4>
+                            <p>Right-click <strong>RegistryManager.exe</strong> and select <strong>"Run as Administrator"</strong></p>
+                        </div>
+                        
+                        <div class="step">
+                            <h4>Step 2: Explore the Interface</h4>
+                            <p>The main window shows a tree view of registry hives on the left and values on the right.</p>
+                        </div>
+                        
+                        <div class="step">
+                            <h4>Step 3: Create Your First Snapshot</h4>
+                            <p>Click <strong>Tools → Snapshot Manager</strong> and create a baseline snapshot of your system.</p>
+                        </div>
+                        
+                        <div class="step">
+                            <h4>Step 4: Start Monitoring (Optional)</h4>
+                            <p>Click <strong>Tools → Registry Monitor</strong> to see real-time registry changes.</p>
+                        </div>
+                        
+                        <div class="step">
+                            <h4>Step 5: You're Ready!</h4>
+                            <p>All features are now available. The application will automatically back up before any changes.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="info-box">
+                        <h4>💡 First Run Tips</h4>
+                        <ul>
+                            <li>Check the status bar for important information</li>
+                            <li>Log files are created in <code>%TEMP%</code></li>
+                            <li>Backups are stored in <code>%USERPROFILE%\RegistryManager_Backups\</code></li>
+                            <li>Snapshots are stored in <code>%USERPROFILE%\RegistryManager_Snapshots\</code></li>
+                        </ul>
+                    </div>
+                </section>
+                
+                <!-- FEATURES -->
+                <section id="features" class="section">
+                    <h2>✨ Complete Feature List</h2>
+                    
+                    <h3>1. Registry Editor</h3>
+                    <div class="feature-box">
+                        <ul>
+                            <li>Browse all registry hives (HKCR, HKCU, HKLM, HKU, HKCC)</li>
+                            <li>View registry keys and values</li>
+                            <li>Export keys to .reg files</li>
+                            <li>Import .reg files with safety backup</li>
+                            <li>Tree navigation interface</li>
+                        </ul>
+                    </div>
+                    
+                    <h3>2. Auto-Backup Protection</h3>
+                    <div class="feature-box">
+                        <ul>
+                            <li>Mandatory full HKLM backup before ANY modification</li>
+                            <li>Timestamped backup files</li>
+                            <li>1-hour backup interval (prevents excessive backups)</li>
+                            <li>User confirmation dialogs</li>
+                            <li>Backup validation (exit code + file size)</li>
+                            <li>Automatic cleanup after 7 days</li>
+                        </ul>
+                    </div>
+                    
+                    <h3>3. Real-Time Registry Monitor</h3>
+                    <div class="feature-box">
+                        <ul>
+                            <li>Multi-threaded monitoring (5 threads, one per hive)</li>
+                            <li>Instant change detection</li>
+                            <li>Event logging with timestamps</li>
+                            <li>Interactive monitor window</li>
+                            <li>Export monitor log to file</li>
+                            <li>Thread-safe operation</li>
+                        </ul>
+                    </div>
+                    
+                    <h3>4. Snapshot Manager</h3>
+                    <div class="feature-box">
+                        <ul>
+                            <li>Create full registry snapshots</li>
+                            <li>Compare any 2 snapshots</li>
+                            <li>Detect added, removed, and <strong>MODIFIED</strong> keys (value-level comparison)</li>
+                            <li>Export comparison reports in tab-delimited format</li>
+                            <li>Manage snapshot library with automated naming</li>
+                            <li>Standard .reg file format</li>
+                        </ul>
+                    </div>
+
+                    
+                    <h3>5. Additional Tools</h3>
+                    <div class="feature-box">
+                        <ul>
+                            <li>Registry Cleaner (remove invalid entries)</li>
+                            <li>Manual Backup & Restore</li>
+                            <li>Registry Compactor (schedule compression)</li>
+                            <li>Comprehensive error logging</li>
+                            <li>Built-in help system (this page!)</li>
+                        </ul>
+                    </div>
+                </section>
+                
+                <!-- NAVIGATION -->
+                <section id="navigation" class="section">
+                    <h2>🗺️ Navigation & Favorites</h2>
+                    <p>Moving through the registry is faster than ever with multiple navigation methods.</p>
+                    
+                    <h3>Address Bar</h3>
+                    <div class="feature-box">
+                        <p>Located at the top of the main window, the <strong>Address Bar</strong> allows you to jump directly to any registry path. </p>
+                        <ul>
+                            <li>Paste a path and click <span class="button-demo">Go</span> or press <span class="keyboard-key">Enter</span>.</li>
+                            <li>Automatically updates as you browse the tree view.</li>
+                        </ul>
+                    </div>
+                    
+                    <h3>Favorites System</h3>
+                    <div class="feature-box">
+                        <p>Store frequently accessed paths for instant access.</p>
+                        <ul>
+                            <li><strong>Add Favorite:</strong> Click <code>Favorites → Add to Favorites</code> or press <span class="keyboard-key">Ctrl</span> + <span class="keyboard-key">D</span>.</li>
+                            <li><strong>Jump:</strong> Select a saved path from the <code>Favorites</code> menu to instantly expand the tree and navigate to that key.</li>
+                        </ul>
+                    </div>
+                </section>
+
+                <!-- SEARCH -->
+                <section id="search" class="section">
+                    <h2>🔍 Advanced Recursive Search</h2>
+                    <p>The new threaded search engine allows you to find keys, values, and data deep within the registry without slowing down the application.</p>
+                    
+                    <div class="info-box">
+                        <h4>💡 Threaded Search</h4>
+                        <p>Registry Manager uses a background thread for searching. This means you can keep using the main window while the search progresses.</p>
+                    </div>
+                    
+                    <div class="step">
+                        <ol>
+                            <li>Select a starting key in the tree (the search will be recursive from here).</li>
+                            <li>Press <span class="keyboard-key">Ctrl</span> + <span class="keyboard-key">F</span> or use the <code>Search</code> menu.</li>
+                            <li>Enter your search term and click <span class="button-demo">Search</span>.</li>
+                            <li>Watch results populate in real-time.</li>
+                            <li>Double-click any result to "Jump" to that location in the main tree.</li>
+                        </ol>
+                    </div>
+                </section>
+
+                <!-- REGISTRY EDITOR -->
+                <section id="registry-editor" class="section">
+                    <h2>📝 Registry Editor & Value Editor</h2>
+                    
+                    <p>The Registry Editor has been enhanced with a robust, context-aware <strong>Advanced Value Editor</strong>.</p>
+                    
+                    <h3>Value Editing Features</h3>
+                    <div class="feature-box">
+                        <ul>
+                            <li><strong>String Editor:</strong> For `REG_SZ` and `REG_EXPAND_SZ` types.</li>
+                            <li><strong>Numeric Editor:</strong> Edit `REG_DWORD` (32-bit) and `REG_QWORD` (64-bit) with a Hexadecimal/Decimal toggle.</li>
+                            <li><strong>Binary Editor:</strong> Multi-line data entry for `REG_BINARY` values.</li>
+                            <li><strong>Context-Aware:</strong> The UI automatically enables or disables controls based on the data type.</li>
+                        </ul>
+                    </div>
+                    
+                    <h3>Editing Keys & Values</h3>
+                    <div class="step">
+                        <ol>
+                            <li>Right-click a value and select <code>Rename</code> or <code>New Value</code>.</li>
+                            <li>The Advanced Editor window opens.</li>
+                            <li>Enter the new name and data.</li>
+                            <li>Click <span class="button-demo">OK</span> to apply changes (Auto-Backup triggered).</li>
+                        </ol>
+                    </div>
+
+                    <h3>Navigating the Registry</h3>
+
+                    <p>The registry is organized in a hierarchical tree structure with five main root hives:</p>
+                    
+                    <table>
+                        <tr>
+                            <th>Hive</th>
+                            <th>Abbreviation</th>
+                            <th>Description</th>
+                        </tr>
+                        <tr>
+                            <td>HKEY_CLASSES_ROOT</td>
+                            <td>HKCR</td>
+                            <td>File associations and COM object registrations</td>
+                        </tr>
+                        <tr>
+                            <td>HKEY_CURRENT_USER</td>
+                            <td>HKCU</td>
+                            <td>Current user's preferences and settings</td>
+                        </tr>
+                        <tr>
+                            <td>HKEY_LOCAL_MACHINE</td>
+                            <td>HKLM</td>
+                            <td>System-wide settings and configurations</td>
+                        </tr>
+                        <tr>
+                            <td>HKEY_USERS</td>
+                            <td>HKU</td>
+                            <td>All user profiles on the system</td>
+                        </tr>
+                        <tr>
+                            <td>HKEY_CURRENT_CONFIG</td>
+                            <td>HKCC</td>
+                            <td>Current hardware profile settings</td>
+                        </tr>
+                    </table>
+                    
+                    <h3>Exporting Registry Keys</h3>
+                    <div class="step">
+                        <ol>
+                            <li>Navigate to the desired key in the tree view</li>
+                            <li>Click <strong>File → Export Key...</strong></li>
+                            <li>Choose filename and location</li>
+                            <li>Click Save</li>
+                            <li>The key is exported as a .reg file</li>
+                        </ol>
+                    </div>
+                    
+                    <h3>Importing Registry Files</h3>
+                    <div class="warning-box">
+                        <h4>⚠️ Automatic Backup Created</h4>
+                        <p>Before importing, Registry Manager will automatically create a full backup of your registry. This ensures you can restore if anything goes wrong.</p>
+                    </div>
+                    
+                    <div class="step">
+                        <ol>
+                            <li>Click <strong>File → Import .reg File...</strong></li>
+                            <li>A backup confirmation dialog appears</li>
+                            <li>Click "Yes" to create safety backup</li>
+                            <li>Wait for backup to complete (30-60 seconds)</li>
+                            <li>Select the .reg file to import</li>
+                            <li>Confirm the import operation</li>
+                            <li>Registry is updated</li>
+                        </ol>
+                    </div>
+                </section>
+                
+                <!-- AUTO-BACKUP -->
+                <section id="auto-backup" class="section">
+                    <h2>🛡️ Auto-Backup Protection System</h2>
+                    
+                    <div class="info-box">
+                        <h4>💡 How It Works</h4>
+                        <p>Every time you attempt to modify the registry (delete key, import file, clean registry, etc.), Registry Manager automatically creates a complete backup of your HKLM registry hive. This backup can be used to restore your system if anything goes wrong.</p>
+                    </div>
+                    
+                    <h3>Backup Features</h3>
+                    <ul>
+                        <li><strong>Mandatory:</strong> Cannot modify registry without creating backup first (unless explicitly bypassed with warning)</li>
+                        <li><strong>Smart Interval:</strong> If you made a backup within the last hour, that backup is reused</li>
+                        <li><strong>Validated:</strong> Each backup is verified (exit code check + file size validation)</li>
+                        <li><strong>Organized:</strong> All auto-backups stored in dedicated directory</li>
+                        <li><strong>Auto-Cleanup:</strong> Backups older than 7 days are automatically deleted on startup</li>
+                    </ul>
+                    
+                    <h3>Backup Location</h3>
+                    <code>%USERPROFILE%\RegistryManager_Backups\</code>
+                    <p>Example: <code>C:\Users\YourName\RegistryManager_Backups\</code></p>
+                    
+                    <h3>Backup Filename Format</h3>
+                    <code>AutoBackup_YYYYMMDD_HHMMSS.reg</code>
+                    <p>Example: <code>AutoBackup_20260101_143022.reg</code></p>
+                    
+                    <h3>Restoring from Auto-Backup</h3>
+                    <div class="step">
+                        <ol>
+                            <li>Click <strong>Tools → Restore Registry...</strong></li>
+                            <li>Navigate to <code>%USERPROFILE%\RegistryManager_Backups\</code></li>
+                            <li>Select the appropriate AutoBackup_*.reg file</li>
+                            <li>Confirm restore (NOTE: A NEW backup is created before restore!)</li>
+                            <li>Wait for completion</li>
+                            <li>Restart computer if prompted</li>
+                        </ol>
+                    </div>
+                    
+                    <div class="warning-box">
+                        <h4>⚠️ Manual Deletion Only</h4>
+                        <p>Auto-backups are only deleted by the automatic 7-day cleanup or manual deletion. Manual backups you create via the Backup menu are NEVER auto-deleted.</p>
+                    </div>
+                </section>
+                
+                <!-- REGISTRY MONITOR -->
+                <section id="monitor" class="section">
+                    <h2>📡 Real-Time Registry Monitor</h2>
+                    
+                    <p>The Registry Monitor is a powerful tool that tracks ALL changes to the Windows Registry in real-time across all five major registry hives.</p>
+                    
+                    <h3>How to Use</h3>
+                    <div class="step">
+                        <ol>
+                            <li>Click <strong>Tools → Registry Monitor...</strong></li>
+                            <li>Monitor window opens (900x600 pixels)</li>
+                            <li>Click <span class="button-demo">Start Monitor</span></li>
+                            <li>Changes appear instantly in the event list</li>
+                            <li>Click <span class="button-demo">Stop Monitor</span> when done</li>
+                            <li>Click <span class="button-demo">Save Log</span> to export events</li>
+                            <li>Click <span class="button-demo">Clear Log</span> to reset</li>
+                        </ol>
+                    </div>
+                    
+                    <h3>What's Monitored</h3>
+                    <ul>
+                        <li>Registry key creation</li>
+                        <li>Registry key deletion</li>
+                        <li>Registry value changes</li>
+                        <li>Attribute modifications</li>
+                        <li>Security descriptor changes</li>
+                        <li>Last write time updates</li>
+                    </ul>
+                    
+                    <h3>Event List Columns</h3>
+                    <table>
+                        <tr>
+                            <th>Column</th>
+                            <th>Description</th>
+                        </tr>
+                        <tr>
+                            <td>Timestamp</td>
+                            <td>When the change occurred (YYYY-MM-DD HH:MM:SS)</td>
+                        </tr>
+                        <tr>
+                            <td>Root Key</td>
+                            <td>Which registry hive was modified (HKLM, HKCU, etc.)</td>
+                        </tr>
+                        <tr>
+                            <td>Key Path</td>
+                            <td>Path within the hive (if available)</td>
+                        </tr>
+                        <tr>
+                            <td>Change Type</td>
+                            <td>Type of modification detected</td>
+                        </tr>
+                        <tr>
+                            <td>Details</td>
+                            <td>Additional information about the change</td>
+                        </tr>
+                    </table>
+                    
+                    <h3>Use Cases</h3>
+                    <div class="feature-box">
+                        <ul>
+                            <li><strong>Security Auditing:</strong> Detect malware registry modifications</li>
+                            <li><strong>Troubleshooting:</strong> Identify what changed before system issues</li>
+                            <li><strong>Software Testing:</strong> Monitor application registry usage</li>
+                            <li><strong>System Administration:</strong> Track Group Policy changes</li>
+                            <li><strong>Forensics:</strong> Create audit trails for compliance</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="info-box">
+                        <h4>💡 Pro Tip</h4>
+                        <p>The monitor can run in the background! You can close the monitor window and it will continue capturing events. Reopen the window anytime to see accumulated events.</p>
+                    </div>
+                </section>
+                
+                <!-- SNAPSHOT MANAGER -->
+                <section id="snapshots" class="section">
+                    <h2>📸 Snapshot Manager & Comparison</h2>
+                    
+                    <p>Snapshots allow you to capture the complete state of your registry at any point in time and compare different snapshots to see exactly what changed.</p>
+                    
+                    <h3>Creating a Snapshot</h3>
+                    <div class="step">
+                        <ol>
+                            <li>Click <strong>Tools → Snapshot Manager...</strong></li>
+                            <li>Click <span class="button-demo">Create Snapshot</span></li>
+                            <li>Enter a descriptive name (e.g., "BeforeUpdate")</li>
+                            <li>Enter optional description</li>
+                            <li>Wait 30-60 seconds for snapshot creation</li>
+                            <li>Snapshot appears in the list</li>
+                        </ol>
+                    </div>
+                    
+                    <h3>Comparing Snapshots</h3>
+                    <div class="step">
+                        <ol>
+                            <li>Check the box next to first snapshot (baseline)</li>
+                            <li>Check the box next to second snapshot (current state)</li>
+                            <li>Click <span class="button-demo">Compare (2)</span></li>
+                            <li>Wait 5-30 seconds for comparison</li>
+                            <li>Results appear in lower panel</li>
+                            <li>Statistics dialog shows summary</li>
+                        </ol>
+                    </div>
+                    
+                    <h3>Comparison Results</h3>
+                    <p>The comparison engine detects three types of changes:</p>
+                    <ul>
+                        <li><strong>ADDED:</strong> Keys that exist in the second snapshot but not in the first</li>
+                        <li><strong>REMOVED:</strong> Keys that exist in the first snapshot but not in the second</li>
+                        <li><strong>MODIFIED:</strong> Keys where the values or data have changed between snapshots (deep content comparison)</li>
+                    </ul>
+
+                    
+                    <h3>Exporting Comparison Reports</h3>
+                    <div class="step">
+                        <ol>
+                            <li>After comparing snapshots, click <span class="button-demo">Export Diff</span></li>
+                            <li>Choose filename and location</li>
+                            <li>Report saved as tab-delimited text file</li>
+                            <li>Open in Excel, Notepad, or any text editor</li>
+                        </ol>
+                    </div>
+                    
+                    <h3>Example Workflow</h3>
+                    <div class="quick-start">
+                        <h4>Tracking Software Installation Changes</h4>
+                        <div class="step">
+                            <strong>Before:</strong> Create snapshot "Clean_System"
+                        </div>
+                        <div class="step">
+                            <strong>Action:</strong> Install software
+                        </div>
+                        <div class="step">
+                            <strong>After:</strong> Create snapshot "After_SoftwareXYZ"
+                        </div>
+                        <div class="step">
+                            <strong>Compare:</strong> See exactly what the installer changed
+                        </div>
+                        <div class="step">
+                            <strong>Export:</strong> Document all registry modifications
+                        </div>
+                    </div>
+                    
+                    <h3>Snapshot Storage</h3>
+                    <code>%USERPROFILE%\RegistryManager_Snapshots\</code>
+                    <p>Snapshots are stored as standard .reg files and kept indefinitely (no auto-deletion).</p>
+                </section>
+                
+                <!-- TROUBLESHOOTING -->
+                <section id="troubleshooting" class="section">
+                    <h2>🔧 Troubleshooting Guide</h2>
+                    
+                    <h3>Application Won't Start</h3>
+                    <div class="error-box">
+                        <h4>Problem: "Access Denied" or similar error</h4>
+                        <p><strong>Solution:</strong> Right-click RegistryManager.exe and select "Run as Administrator". The application requires elevated privileges to access the registry.</p>
+                    </div>
+                    
+                    <h3>Backup Creation Fails</h3>
+                    <div class="error-box">
+                        <h4>Problem: "Failed to create backup"</h4>
+                        <p><strong>Solutions:</strong></p>
+                        <ul>
+                            <li>Check available disk space (need 500+ MB free)</li>
+                            <li>Verify you're running as Administrator</li>
+                            <li>Check antivirus isn't blocking reg.exe</li>
+                            <li>Try a different backup location</li>
+                            <li>Check log file in %TEMP% for details</li>
+                        </ul>
+                    </div>
+                    
+                    <h3>Monitor Not Detecting Changes</h3>
+                    <div class="error-box">
+                        <h4>Problem: No events appear in monitor</h4>
+                        <p><strong>Solutions:</strong></p>
+                        <ul>
+                            <li>Wait a few moments - events are asynchronous</li>
+                            <li>Make a test change with regedit.exe</li>
+                            <li>Check if running as Administrator</li>
+                            <li>Stop and restart monitoring</li>
+                            <li>Check main log file for thread errors</li>
+                        </ul>
+                    </div>
+                    
+                    <h3>Snapshot Comparison Takes Too Long</h3>
+                    <div class="warning-box">
+                        <h4>Problem: Comparison seems stuck</h4>
+                        <p><strong>Solutions:</strong></p>
+                        <ul>
+                            <li>Large snapshots (>500 MB) take 1-2 minutes</li>
+                            <li>Close other applications to free memory</li>
+                            <li>Check Task Manager - CPU should be active</li>
+                            <li>Wait patiently - operation will complete</li>
+                        </ul>
+                    </div>
+                    
+                    <h3>Getting Help</h3>
+                    <div class="info-box">
+                        <h4>📋 Diagnostic Information</h4>
+                        <p>When reporting issues, include:</p>
+                        <ul>
+                            <li>Log file from <code>%TEMP%\RegistryManager_*.log</code></li>
+                            <li>Windows version and edition</li>
+                            <li>Exact steps to reproduce the problem</li>
+                            <li>Error messages (full text)</li>
+                            <li>Screenshots if applicable</li>
+                        </ul>
+                    </div>
+                </section>
+                
+                <!-- FAQ -->
+                <section id="faq" class="section">
+                    <h2>❓ Frequently Asked Questions</h2>
+                    
+                    <h3>Is Registry Manager safe to use?</h3>
+                    <p>Yes! Registry Manager includes multiple safety features:</p>
+                    <ul>
+                        <li>Mandatory automatic backups before any changes</li>
+                        <li>User confirmation dialogs for destructive operations</li>
+                        <li>Comprehensive error checking and validation</li>
+                        <li>All operations logged for audit trail</li>
+                    </ul>
+                    
+                    <h3>How much disk space do I need?</h3>
+                    <p>Approximately 500 MB free space is recommended. Each backup/snapshot is 50-500 MB depending on registry size. Auto-backups are deleted after 7 days to free space.</p>
+                    
+                    <h3>Can I use this on Windows 7?</h3>
+                    <p>Windows Vista and later are supported. However, Windows 10 or 11 is recommended for best compatibility and performance.</p>
+                    
+                    <h3>Does monitoring affect performance?</h3>
+                    <p>No! The monitor uses <1% CPU when idle and has minimal memory footprint (~50 MB). Event capture latency is less than 1 millisecond.</p>
+                    
+                    <h3>How do I restore from a backup?</h3>
+                    <p>Click <strong>Tools → Restore Registry</strong>, navigate to the backup directory, select the AutoBackup_*.reg file, and confirm. A NEW backup is created before restore for extra safety!</p>
+                    
+                    <h3>Can I schedule automatic snapshots?</h3>
+                    <p>Not currently, but this is a planned feature for future versions. For now, create snapshots manually before important operations.</p>
+                    
+                    <h3>What's the difference between backups and snapshots?</h3>
+                    <table>
+                        <tr>
+                            <th>Feature</th>
+                            <th>Auto-Backups</th>
+                            <th>Snapshots</th>
+                        </tr>
+                        <tr>
+                            <td>Purpose</td>
+                            <td>Safety before changes</td>
+                            <td>Comparison and analysis</td>
+                        </tr>
+                        <tr>
+                            <td>Creation</td>
+                            <td>Automatic</td>
+                            <td>Manual</td>
+                        </tr>
+                        <tr>
+                            <td>Retention</td>
+                            <td>7 days (auto-deleted)</td>
+                            <td>Indefinite (manual deletion)</td>
+                        </tr>
+                        <tr>
+                            <td>Location</td>
+                            <td>RegistryManager_Backups\</td>
+                            <td>RegistryManager_Snapshots\</td>
+                        </tr>
+                        <tr>
+                            <td>Naming</td>
+                            <td>AutoBackup_timestamp.reg</td>
+                            <td>User-defined.reg</td>
+                        </tr>
+                    </table>
+                    
+                    <h3>Is internet connection required?</h3>
+                    <p>No! Registry Manager is completely offline and makes no network connections whatsoever.</p>
+                </section>
+                
+                <!-- KEYBOARD SHORTCUTS -->
+                <section id="keyboard" class="section">
+                    <h2>⌨️ Keyboard Shortcuts</h2>
+                    
+                    <h3>Main Window</h3>
+                    <table>
+                        <tr>
+                            <th>Shortcut</th>
+                            <th>Action</th>
+                        </tr>
+                        <tr>
+                            <td><span class="keyboard-key">Ctrl</span> + <span class="keyboard-key">F</span></td>
+                            <td>Open Recursive Search</td>
+                        </tr>
+                        <tr>
+                            <td><span class="keyboard-key">Ctrl</span> + <span class="keyboard-key">D</span></td>
+                            <td>Add to Favorites</td>
+                        </tr>
+                        <tr>
+                            <td><span class="keyboard-key">Enter</span> (in Address Bar)</td>
+                            <td>Jump to Path</td>
+                        </tr>
+                        <tr>
+                            <td><span class="keyboard-key">Ctrl</span> + <span class="keyboard-key">E</span></td>
+                            <td>Export Current Key</td>
+                        </tr>
+                        <tr>
+                            <td><span class="keyboard-key">Ctrl</span> + <span class="keyboard-key">I</span></td>
+                            <td>Import .reg File</td>
+                        </tr>
+                        <tr>
+                            <td><span class="keyboard-key">F5</span></td>
+                            <td>Refresh View</td>
+                        </tr>
+                        <tr>
+                            <td><span class="keyboard-key">Delete</span></td>
+                            <td>Delete Selected Key/Value</td>
+                        </tr>
+                        <tr>
+                            <td><span class="keyboard-key">F1</span></td>
+                            <td>Open Help (this page)</td>
+                        </tr>
+                    </table>
+
+                    
+                    <h3>Monitor Window</h3>
+                    <table>
+                        <tr>
+                            <th>Shortcut</th>
+                            <th>Action</th>
+                        </tr>
+                        <tr>
+                            <td><span class="keyboard-key">Ctrl</span> + <span class="keyboard-key">S</span></td>
+                            <td>Save Monitor Log</td>
+                        </tr>
+                        <tr>
+                            <td><span class="keyboard-key">Ctrl</span> + <span class="keyboard-key">L</span></td>
+                            <td>Clear Log</td>
+                        </tr>
+                        <tr>
+                            <td><span class="keyboard-key">Ctrl</span> + <span class="keyboard-key">M</span></td>
+                            <td>Start/Stop Monitor</td>
+                        </tr>
+                    </table>
+                </section>
+                
+                <!-- TECHNICAL DETAILS -->
+                <section id="technical" class="section">
+                    <h2>⚙️ Technical Details</h2>
+                    
+                    <h3>Architecture</h3>
+                    <ul>
+                        <li><strong>Language:</strong> PureBasic 6.30 beta 6</li>
+                        <li><strong>Platform:</strong> Windows x64</li>
+                        <li><strong>Lines of Code:</strong> 2,547</li>
+                        <li><strong>Executable Size:</strong> 401.5 KB</li>
+                        <li><strong>Threading:</strong> Multi-threaded (5 monitor threads)</li>
+                    </ul>
+                    
+                    <h3>File Locations</h3>
+                    <table>
+                        <tr>
+                            <th>Item</th>
+                            <th>Location</th>
+                        </tr>
+                        <tr>
+                            <td>Application</td>
+                            <td>RegistryManager.exe (portable)</td>
+                        </tr>
+                        <tr>
+                            <td>Log Files</td>
+                            <td>%TEMP%\RegistryManager_*.log</td>
+                        </tr>
+                        <tr>
+                            <td>Auto-Backups</td>
+                            <td>%USERPROFILE%\RegistryManager_Backups\</td>
+                        </tr>
+                        <tr>
+                            <td>Snapshots</td>
+                            <td>%USERPROFILE%\RegistryManager_Snapshots\</td>
+                        </tr>
+                        <tr>
+                            <td>Help File</td>
+                            <td>RegistryManager_Help.html (this file)</td>
+                        </tr>
+                    </table>
+                    
+                    <h3>Performance Metrics</h3>
+                    <table>
+                        <tr>
+                            <th>Operation</th>
+                            <th>Typical Time</th>
+                        </tr>
+                        <tr>
+                            <td>Application Startup</td>
+                            <td>&lt;1 second</td>
+                        </tr>
+                        <tr>
+                            <td>Create Backup</td>
+                            <td>30-60 seconds</td>
+                        </tr>
+                        <tr>
+                            <td>Create Snapshot</td>
+                            <td>30-60 seconds</td>
+                        </tr>
+                        <tr>
+                            <td>Compare Snapshots</td>
+                            <td>5-30 seconds</td>
+                        </tr>
+                        <tr>
+                            <td>Monitor Event Capture</td>
+                            <td>&lt;1 millisecond</td>
+                        </tr>
+                    </table>
+                    
+                    <h3>Windows API Used</h3>
+                    <ul>
+                        <li>RegOpenKeyEx - Open registry keys</li>
+                        <li>RegCloseKey - Close registry keys</li>
+                        <li>RegQueryValueEx - Read registry values</li>
+                        <li>RegSetValueEx - Write registry values</li>
+                        <li>RegDeleteKey - Delete registry keys</li>
+                        <li>RegNotifyChangeKeyValue - Monitor registry changes</li>
+                        <li>CreateEvent / WaitForSingleObject - Thread synchronization</li>
+                    </ul>
+                </section>
+                
+                <!-- SUPPORT -->
+                <section id="support" class="section">
+                    <h2>📞 Support & Resources</h2>
+                    
+                    <h3>Documentation Files</h3>
+                    <ul>
+                        <li><strong>RegistryManager_Help.html</strong> - This comprehensive help file</li>
+                        <li><strong>RegistryManager_README.txt</strong> - Quick start guide</li>
+                        <li><strong>RegistryManager_BugFixes.txt</strong> - Bug fixes and error handling</li>
+                        <li><strong>RegistryManager_Monitor.txt</strong> - Monitor feature documentation</li>
+                        <li><strong>RegistryManager_Snapshots.txt</strong> - Snapshot feature documentation</li>
+                        <li><strong>RegistryManager_COMPLETE.txt</strong> - Complete feature summary</li>
+                    </ul>
+                    
+                    <h3>Reporting Issues</h3>
+                    <div class="info-box">
+                        <h4>Before Reporting:</h4>
+                        <ol>
+                            <li>Check this help file for solutions</li>
+                            <li>Review the log file in %TEMP%</li>
+                            <li>Try restarting the application</li>
+                            <li>Verify you're running as Administrator</li>
+                        </ol>
+                    </div>
+                    
+                    <div class="info-box">
+                        <h4>When Reporting:</h4>
+                        <ol>
+                            <li>Include the log file</li>
+                            <li>Describe exact steps to reproduce</li>
+                            <li>Include Windows version</li>
+                            <li>Attach screenshots if relevant</li>
+                            <li>Note any error messages verbatim</li>
+                        </ol>
+                    </div>
+                    
+                    <h3>Version Information</h3>
+                    <p><strong>Current Version:</strong> 1.5</p>
+                    <p><strong>Release Date:</strong> March 3, 2026</p>
+                    <p><strong>Build:</strong> 2,836 lines, PureBasic 6.30+</p>
+                    
+                    <div class="quick-start">
+                        <h3>About Registry Manager</h3>
+                        <p>Registry Manager is a professional-grade Windows Registry management tool designed for system administrators, power users, developers, and security professionals.</p>
+                        <p><strong>Key Features:</strong></p>
+                        <ul>
+                            <li>✅ Mandatory Auto-Backup Protection</li>
+                            <li>✅ Real-Time Registry Monitoring</li>
+                            <li>✅ Advanced Threaded Search</li>
+                            <li>✅ Persistent Favorites System</li>
+                            <li>✅ Advanced Value Editor (SZ, DWORD, QWORD, BINARY)</li>
+                            <li>✅ Snapshot Manager & Comparison</li>
+                            <li>✅ Enterprise Error Handling & Logging</li>
+                        </ul>
+                        <p style="margin-top: 20px;"><strong>Built with PureBasic 6.30+</strong></p>
+                    </div>
+                </section>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>&copy; 2026 Registry Manager v1.5 | Professional Registry Management Tool</p>
+            <p>Press <span class="keyboard-key">F1</span> in the application to view this help file</p>
+        </div>
+
+    </div>
+</body>
+</html>
