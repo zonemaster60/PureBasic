@@ -69,15 +69,38 @@ EndStructure
 
 #APP_NAME   = "EXE-PE_Viewer"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-Global version.s = "v1.0.0.3"
+Global version.s = "v1.0.0.4"
 
 Global CurrentFile.s
 Global NewList LogLines.s()
 Global AppPath.s        = GetPathPart(ProgramFilename())
-Global CurrentView.i = 0  ; 0=Headers, 1=Sections, 2=Hex Viewer
+Global CurrentView.i = 0
 Global NewList Sections.IMAGE_SECTION_HEADER()
+Global NewList DataDirs.IMAGE_DATA_DIRECTORY()
+Global NewList ImportRows.s()
+Global NewList ExportRows.s()
+Global NewList ResourceRows.s()
 Global *FileBuffer
 Global FileBufferSize.q
+Global ImageHeadersSize.q
+Global CurrentHexOffset.q
+Global Gad_Search.i
+Global Gad_GoAddr.i
+Global Gad_GoBtn.i
+Global ImportCacheReady.b
+Global ExportCacheReady.b
+Global ResourceCacheReady.b
+Global ImportStatus.s
+Global ExportStatus.s
+Global ResourceStatus.s
+
+#MaxDataDirectories   = 16
+#MaxSectionHeaders    = 96
+#MaxImportDescriptors = 500
+#MaxImportEntries     = 4096
+#MaxExportEntries     = 16384
+#MaxResourceEntries   = 4096
+
 SetCurrentDirectory(AppPath)
 
 ; Prevent multiple instances
@@ -186,6 +209,120 @@ Procedure.s SectionCharacteristicsToString(chars.l)
   EndIf
 EndProcedure
 
+Procedure.q MaxQ(a.q, b.q)
+  If a > b
+    ProcedureReturn a
+  EndIf
+  ProcedureReturn b
+EndProcedure
+
+Procedure.s GetSectionName(*section.IMAGE_SECTION_HEADER)
+  Protected name.s = ""
+  Protected i.i, value.a
+
+  If *section = 0
+    ProcedureReturn ""
+  EndIf
+
+  For i = 0 To 7
+    value = PeekA(*section + i)
+    If value = 0
+      Break
+    EndIf
+    name + Chr(value)
+  Next
+
+  ProcedureReturn name
+EndProcedure
+
+Procedure.b IsFileRangeValid(offset.q, size.q)
+  If *FileBuffer = 0 Or FileBufferSize <= 0
+    ProcedureReturn #False
+  EndIf
+
+  If offset < 0 Or size < 0
+    ProcedureReturn #False
+  EndIf
+
+  If offset > FileBufferSize
+    ProcedureReturn #False
+  EndIf
+
+  If size > FileBufferSize - offset
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure.s PeekAsciiZ(offset.q)
+  Protected length.q = 0
+
+  If Not IsFileRangeValid(offset, 1)
+    ProcedureReturn ""
+  EndIf
+
+  While offset + length < FileBufferSize
+    If PeekA(*FileBuffer + offset + length) = 0
+      Break
+    EndIf
+    length + 1
+  Wend
+
+  ProcedureReturn PeekS(*FileBuffer + offset, length, #PB_Ascii)
+EndProcedure
+
+Procedure.q ReadThunkValue(*thunk, is64.b)
+  If is64
+    ProcedureReturn PeekQ(*thunk)
+  EndIf
+
+  ProcedureReturn PeekL(*thunk) & $FFFFFFFF
+EndProcedure
+
+Procedure.i GetThunkEntrySize(is64.b)
+  If is64
+    ProcedureReturn 8
+  EndIf
+
+  ProcedureReturn 4
+EndProcedure
+
+Procedure.s EscapeJson(value.s)
+  value = ReplaceString(value, "\\", "\\\\")
+  value = ReplaceString(value, #DQUOTE$, "\\" + #DQUOTE$)
+  value = ReplaceString(value, #CRLF$, "\\r\\n")
+  value = ReplaceString(value, Chr(13), "\\r")
+  value = ReplaceString(value, Chr(10), "\\n")
+  value = ReplaceString(value, Chr(9), "\\t")
+  ProcedureReturn value
+EndProcedure
+
+Procedure.s EscapeCsv(value.s)
+  value = ReplaceString(value, #DQUOTE$, #DQUOTE$ + #DQUOTE$)
+  ProcedureReturn #DQUOTE$ + value + #DQUOTE$
+EndProcedure
+
+Procedure LoadDataDirectoriesFromHeader(*optionalHeader, headerSize.i, numDataDirs.i)
+  Protected *dataDir.IMAGE_DATA_DIRECTORY
+  Protected i.i
+
+  If *optionalHeader = 0 Or headerSize < #MaxDataDirectories * SizeOf(IMAGE_DATA_DIRECTORY)
+    ProcedureReturn
+  EndIf
+
+  If numDataDirs > #MaxDataDirectories
+    numDataDirs = #MaxDataDirectories
+  EndIf
+
+  *dataDir = *optionalHeader + headerSize - (#MaxDataDirectories * SizeOf(IMAGE_DATA_DIRECTORY))
+
+  For i = 0 To numDataDirs - 1
+    AddElement(DataDirs())
+    CopyMemory(*dataDir + (i * SizeOf(IMAGE_DATA_DIRECTORY)), @DataDirs(), SizeOf(IMAGE_DATA_DIRECTORY))
+  Next
+EndProcedure
+
 ;-----------------------------------------------------------
 ; GUI globals
 ;-----------------------------------------------------------
@@ -198,17 +335,16 @@ EndProcedure
 #Gad_About      = 5
 #Gad_Exit       = 6
 #Gad_Tabs       = 7
-#Gad_List       = 3
-#Gad_SaveLog    = 4
-#Gad_About      = 5
-#Gad_Export      = 13
-#Gad_Browse     = 1
-#Gad_File       = 2
-#Gad_SectionList = 10
-#Gad_HexEditor   = 11
+#Gad_Export     = 13
 #StatusBar_Main = 0
 
-Global NewList DataDirs.IMAGE_DATA_DIRECTORY()
+#View_Headers    = 0
+#View_Sections   = 1
+#View_DataDirs   = 2
+#View_Imports    = 3
+#View_Exports    = 4
+#View_Resources  = 5
+#View_Hex        = 6
 
 ;-----------------------------------------------------------
 ; Entropy calculation (Shannon Entropy)
@@ -242,8 +378,15 @@ EndProcedure
 ;-----------------------------------------------------------
 
 Procedure.q RvaToOffset(rva.l)
+  Protected span.q
+
+  If rva >= 0 And rva < ImageHeadersSize
+    ProcedureReturn rva
+  EndIf
+
   ForEach Sections()
-    If rva >= Sections()\VirtualAddress And rva < Sections()\VirtualAddress + Sections()\VirtualSize
+    span = MaxQ(Sections()\VirtualSize, Sections()\SizeOfRawData)
+    If span > 0 And rva >= Sections()\VirtualAddress And rva < Sections()\VirtualAddress + span
       ProcedureReturn Sections()\PointerToRawData + (rva - Sections()\VirtualAddress)
     EndIf
   Next
@@ -283,6 +426,39 @@ Procedure SetStatus(msg.s)
   StatusBarText(#StatusBar_Main, 0, msg)
 EndProcedure
 
+Procedure ShowListMessage(title.s, detail.s)
+  ClearGadgetItems(#Gad_List)
+  AddGadgetItem(#Gad_List, -1, title + Chr(10) + detail)
+  UpdateWindow_(GadgetID(#Gad_List))
+EndProcedure
+
+Procedure AddCachedRow(List rows.s(), title.s, detail.s)
+  AddElement(rows())
+  rows() = title + Chr(10) + detail
+EndProcedure
+
+Procedure RenderCachedRows(List rows.s())
+  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #False, 0)
+  ClearGadgetItems(#Gad_List)
+  ForEach rows()
+    AddGadgetItem(#Gad_List, -1, rows())
+  Next
+  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #True, 0)
+  UpdateWindow_(GadgetID(#Gad_List))
+EndProcedure
+
+Procedure InvalidateDerivedCaches()
+  ClearList(ImportRows())
+  ClearList(ExportRows())
+  ClearList(ResourceRows())
+  ImportCacheReady = #False
+  ExportCacheReady = #False
+  ResourceCacheReady = #False
+  ImportStatus = ""
+  ExportStatus = ""
+  ResourceStatus = ""
+EndProcedure
+
 ;-----------------------------------------------------------
 ; Core: parse PE file and populate list
 ;-----------------------------------------------------------
@@ -292,22 +468,25 @@ Procedure ClearInfo()
   ClearList(LogLines())
   ClearList(Sections())
   ClearList(DataDirs())
+  InvalidateDerivedCaches()
   If *FileBuffer
     FreeMemory(*FileBuffer)
     *FileBuffer = 0
   EndIf
   FileBufferSize = 0
+  ImageHeadersSize = 0
+  CurrentHexOffset = 0
 EndProcedure
 
 Global is64Bit.b = #False
 
 Procedure AddInfo(key.s, value.s)
-  AddGadgetItem(#Gad_List, -1, key + Chr(10) + value)
   AddElement(LogLines())
   LogLines() = key + " " + value
 EndProcedure
 
 Procedure ShowHeaders()
+  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #False, 0)
   ClearGadgetItems(#Gad_List)
   ForEach LogLines()
     Protected line.s = LogLines()
@@ -316,9 +495,12 @@ Procedure ShowHeaders()
       AddGadgetItem(#Gad_List, -1, Left(line, pos-1) + Chr(10) + Mid(line, pos+1))
     EndIf
   Next
+  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #True, 0)
+  UpdateWindow_(GadgetID(#Gad_List))
 EndProcedure
 
 Procedure ShowDataDirs()
+  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #False, 0)
   ClearGadgetItems(#Gad_List)
   Protected i = 0
   ForEach DataDirs()
@@ -337,6 +519,8 @@ Procedure ShowDataDirs()
     AddGadgetItem(#Gad_List, -1, name + Chr(10) + info)
     i + 1
   Next
+  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #True, 0)
+  UpdateWindow_(GadgetID(#Gad_List))
   SetStatus("Showing " + Str(ListSize(DataDirs())) + " data directories")
 EndProcedure
 
@@ -351,35 +535,42 @@ Procedure ExportData()
   
   Protected ext.s = LCase(GetExtensionPart(outFile))
   Protected headerLine.s, csvLine.s, name.s
-  Protected pos, i, b.a
+  Protected pos.i, i.i
+  Protected isFirstJsonHeader.b = #True
+  Protected isFirstJsonSection.b = #True
   
   If ext = "json"
     WriteStringN(fileID, "{")
-    WriteStringN(fileID, "  " + #DQUOTE$ + "filename" + #DQUOTE$ + ": " + #DQUOTE$ + EscapeString(CurrentFile) + #DQUOTE$ + ",")
+    WriteStringN(fileID, "  " + #DQUOTE$ + "filename" + #DQUOTE$ + ": " + #DQUOTE$ + EscapeJson(CurrentFile) + #DQUOTE$ + ",")
     WriteStringN(fileID, "  " + #DQUOTE$ + "headers" + #DQUOTE$ + ": [")
     ForEach LogLines()
       headerLine = LogLines()
       pos = FindString(headerLine, " ")
       If pos
-        WriteString(fileID, "    {" + #DQUOTE$ + "key" + #DQUOTE$ + ": " + #DQUOTE$ + Left(headerLine, pos-1) + #DQUOTE$ + ", " + #DQUOTE$ + "value" + #DQUOTE$ + ": " + #DQUOTE$ + EscapeString(Mid(headerLine, pos+1)) + #DQUOTE$ + "}")
-        If NextElement(LogLines()) : WriteStringN(fileID, ",") : Else : WriteStringN(fileID, "") : EndIf
-        PushListPosition(LogLines())
+        If Not isFirstJsonHeader
+          WriteStringN(fileID, ",")
+        EndIf
+        WriteString(fileID, "    {" + #DQUOTE$ + "key" + #DQUOTE$ + ": " + #DQUOTE$ + EscapeJson(Left(headerLine, pos-1)) + #DQUOTE$ + ", " + #DQUOTE$ + "value" + #DQUOTE$ + ": " + #DQUOTE$ + EscapeJson(Mid(headerLine, pos+1)) + #DQUOTE$ + "}")
+        isFirstJsonHeader = #False
       EndIf
     Next
+    If Not isFirstJsonHeader
+      WriteStringN(fileID, "")
+    EndIf
     WriteStringN(fileID, "  ],")
     
     WriteStringN(fileID, "  " + #DQUOTE$ + "sections" + #DQUOTE$ + ": [")
     ForEach Sections()
-      name = ""
-      For i = 0 To 7
-        b = PeekA(@Sections() + i)
-        If b = 0 : Break : EndIf
-        name + Chr(b)
-      Next
-      WriteString(fileID, "    {" + #DQUOTE$ + "name" + #DQUOTE$ + ": " + #DQUOTE$ + name + #DQUOTE$ + ", " + #DQUOTE$ + "raw_size" + #DQUOTE$ + ": " + Str(Sections()\SizeOfRawData) + "}")
-      If NextElement(Sections()) : WriteStringN(fileID, ",") : Else : WriteStringN(fileID, "") : EndIf
-      PushListPosition(Sections())
+      name = GetSectionName(@Sections())
+      If Not isFirstJsonSection
+        WriteStringN(fileID, ",")
+      EndIf
+      WriteString(fileID, "    {" + #DQUOTE$ + "name" + #DQUOTE$ + ": " + #DQUOTE$ + EscapeJson(name) + #DQUOTE$ + ", " + #DQUOTE$ + "raw_size" + #DQUOTE$ + ": " + Str(Sections()\SizeOfRawData) + "}")
+      isFirstJsonSection = #False
     Next
+    If Not isFirstJsonSection
+      WriteStringN(fileID, "")
+    EndIf
     WriteStringN(fileID, "  ]")
     WriteStringN(fileID, "}")
   Else ; CSV
@@ -388,7 +579,7 @@ Procedure ExportData()
       csvLine = LogLines()
       pos = FindString(csvLine, " ")
       If pos
-        WriteStringN(fileID, #DQUOTE$ + Left(csvLine, pos-1) + #DQUOTE$ + "," + #DQUOTE$ + Mid(csvLine, pos+1) + #DQUOTE$)
+        WriteStringN(fileID, EscapeCsv(Left(csvLine, pos-1)) + "," + EscapeCsv(Mid(csvLine, pos+1)))
       EndIf
     Next
   EndIf
@@ -397,7 +588,7 @@ Procedure ExportData()
   SetStatus("Exported to: " + outFile)
 EndProcedure
 
-Procedure ParsePEFile(file.s)
+Procedure.b ParsePEFile(file.s)
   Protected fileID, fileSize.q
   Protected dosHeader.IMAGE_DOS_HEADER
   Protected peSignature.l
@@ -406,7 +597,7 @@ Procedure ParsePEFile(file.s)
   Protected opt32.IMAGE_OPTIONAL_HEADER32
   Protected opt64.IMAGE_OPTIONAL_HEADER64
   Protected numDataDirs.l
-  Protected offset.q
+  Protected offset.q, sectionHeadersOffset.q, sectionHeadersSize.q
   Protected i
   
   ClearInfo()
@@ -415,14 +606,14 @@ Procedure ParsePEFile(file.s)
   fileID = ReadFile(#PB_Any, file)
   If fileID = 0
     SetStatus("Failed to open file!")
-    ProcedureReturn
+    ProcedureReturn #False
   EndIf
   
   fileSize = Lof(fileID)
   If fileSize < SizeOf(IMAGE_DOS_HEADER)
     CloseFile(fileID)
     SetStatus("File too small to be a valid PE!")
-    ProcedureReturn
+    ProcedureReturn #False
   EndIf
   
   ;--- Read DOS header
@@ -431,7 +622,7 @@ Procedure ParsePEFile(file.s)
   If dosHeader\e_magic <> $5A4D ; "MZ"
     CloseFile(fileID)
     SetStatus("Not a valid MZ (DOS) header!")
-    ProcedureReturn
+    ProcedureReturn #False
   EndIf
   
   AddInfo("DOS_e_magic:", "MZ (0x" + Hex(dosHeader\e_magic) + ")")
@@ -441,7 +632,7 @@ Procedure ParsePEFile(file.s)
   If dosHeader\e_lfanew <= 0 Or dosHeader\e_lfanew > fileSize - 256
     CloseFile(fileID)
     SetStatus("Invalid e_lfanew, PE header out of range!")
-    ProcedureReturn
+    ProcedureReturn #False
   EndIf
   
     ;--- Seek to PE signature
@@ -450,7 +641,7 @@ Procedure ParsePEFile(file.s)
   If peSignature <> $00004550 ; "PE\0\0"
     CloseFile(fileID)
     SetStatus("No valid PE signature found!")
-    ProcedureReturn
+    ProcedureReturn #False
   EndIf
   
   AddInfo("PE_Signature:", "PE (0x" + Hex(peSignature) + ")")
@@ -463,6 +654,12 @@ Procedure ParsePEFile(file.s)
   AddInfo("TimeDateStamp:", TimestampToString(fileHeader\TimeDateStamp) + " (" + Str(fileHeader\TimeDateStamp) + ")")
   AddInfo("SizeOfOptionalHeader:", Str(fileHeader\SizeOfOptionalHeader))
   AddInfo("Characteristics:", CharacteristicsToString(fileHeader\Characteristics) + " (0x" + Hex(fileHeader\Characteristics) + ")")
+
+  If fileHeader\NumberOfSections = 0 Or fileHeader\NumberOfSections > #MaxSectionHeaders
+    CloseFile(fileID)
+    SetStatus("Unsupported or invalid section count!")
+    ProcedureReturn #False
+  EndIf
   
   ;--- Read Optional Header magic
   optionalMagic = ReadWord(fileID)
@@ -487,7 +684,9 @@ Procedure ParsePEFile(file.s)
         AddInfo("SizeOfHeaders:", Str(opt32\SizeOfHeaders))
         AddInfo("Subsystem:", SubsystemToString(opt32\Subsystem) + " (0x" + Hex(opt32\Subsystem) + ")")
         AddInfo("NumberOfRvaAndSizes:", Str(opt32\NumberOfRvaAndSizes))
+        ImageHeadersSize = opt32\SizeOfHeaders
         numDataDirs = opt32\NumberOfRvaAndSizes
+        LoadDataDirectoriesFromHeader(@opt32, SizeOf(IMAGE_OPTIONAL_HEADER32), numDataDirs)
       EndIf
         
     Case $20B  ; PE32+
@@ -504,7 +703,9 @@ Procedure ParsePEFile(file.s)
         AddInfo("SizeOfHeaders:", Str(opt64\SizeOfHeaders))
         AddInfo("Subsystem:", SubsystemToString(opt64\Subsystem) + " (0x" + Hex(opt64\Subsystem) + ")")
         AddInfo("NumberOfRvaAndSizes:", Str(opt64\NumberOfRvaAndSizes))
+        ImageHeadersSize = opt64\SizeOfHeaders
         numDataDirs = opt64\NumberOfRvaAndSizes
+        LoadDataDirectoriesFromHeader(@opt64, SizeOf(IMAGE_OPTIONAL_HEADER64), numDataDirs)
       EndIf
       
     Default
@@ -512,15 +713,16 @@ Procedure ParsePEFile(file.s)
       SetStatus("Unknown optional header magic; basic header info only.")
   EndSelect
   
-  ;--- Read Data Directories
-  If numDataDirs > 16 : numDataDirs = 16 : EndIf ; Sanity limit
-  For i = 0 To numDataDirs - 1
-    AddElement(DataDirs())
-    ReadData(fileID, @DataDirs(), SizeOf(IMAGE_DATA_DIRECTORY))
-  Next
-  
   ;--- Read section headers
-  FileSeek(fileID, dosHeader\e_lfanew + 4 + SizeOf(IMAGE_FILE_HEADER) + fileHeader\SizeOfOptionalHeader)
+  sectionHeadersOffset = dosHeader\e_lfanew + 4 + SizeOf(IMAGE_FILE_HEADER) + fileHeader\SizeOfOptionalHeader
+  sectionHeadersSize = fileHeader\NumberOfSections * SizeOf(IMAGE_SECTION_HEADER)
+  If sectionHeadersOffset < 0 Or sectionHeadersOffset > fileSize Or sectionHeadersSize > fileSize - sectionHeadersOffset
+    CloseFile(fileID)
+    SetStatus("Section headers are out of range!")
+    ProcedureReturn #False
+  EndIf
+
+  FileSeek(fileID, sectionHeadersOffset)
 
   For i = 0 To fileHeader\NumberOfSections - 1
     AddElement(Sections())
@@ -534,13 +736,7 @@ Procedure ParsePEFile(file.s)
   LogLines() = "SECTIONS (" + Str(fileHeader\NumberOfSections) + "):"
   
   ForEach Sections()
-    Protected secName.s = ""
-    Protected j
-    For j = 0 To 7
-      Protected secByte.a = PeekA(@Sections() + j)
-      If secByte = 0 : Break : EndIf
-      secName + Chr(secByte)
-    Next
+    Protected secName.s = GetSectionName(@Sections())
     
     AddElement(LogLines())
     LogLines() = "Section: " + secName + 
@@ -561,6 +757,7 @@ Procedure ParsePEFile(file.s)
   
   CloseFile(fileID)
   SetStatus("Parsed successfully: " + GetFilePart(file))
+  ProcedureReturn #True
 EndProcedure
 
 ; Exit procedure
@@ -568,7 +765,11 @@ Procedure Exit()
   Protected Req.i
   Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
   If Req = #PB_MessageRequester_Yes
-    CloseHandle_(hMutex)
+    ClearInfo()
+    If hMutex
+      CloseHandle_(hMutex)
+      hMutex = 0
+    EndIf
     End
   EndIf
 EndProcedure
@@ -602,21 +803,18 @@ Procedure ShowAbout()
 EndProcedure
 
 Procedure ShowSections()
+  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #False, 0)
   ClearGadgetItems(#Gad_List)
   
   If ListSize(Sections()) = 0
+    SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #True, 0)
+    UpdateWindow_(GadgetID(#Gad_List))
     SetStatus("No sections available.")
     ProcedureReturn
   EndIf
   
   ForEach Sections()
-    Protected name.s = ""
-    Protected i
-    For i = 0 To 7
-      Protected b.a = PeekA(@Sections() + i)
-      If b = 0 : Break : EndIf
-      name + Chr(b)
-    Next
+    Protected name.s = GetSectionName(@Sections())
     
     ; Calculate Entropy
     Protected entropy.f = 0
@@ -638,6 +836,8 @@ Procedure ShowSections()
     AddGadgetItem(#Gad_List, -1, name + Chr(10) + info)
   Next
   
+  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #True, 0)
+  UpdateWindow_(GadgetID(#Gad_List))
   SetStatus("Showing " + Str(ListSize(Sections())) + " sections")
 EndProcedure
 
@@ -665,6 +865,7 @@ Procedure ShowHexDump(startOffset.q = 0)
   offset = (startOffset / 16) * 16
   If offset < 0 : offset = 0 : EndIf
   If offset >= size : offset = (size / 16) * 16 : EndIf
+  CurrentHexOffset = offset
   
   endOffset = offset + chunkSize
   If endOffset > size : endOffset = size : EndIf
@@ -707,7 +908,7 @@ Procedure GoToAddress(hexAddr.s)
   Protected addr.q = Val("$" + hexAddr)
   Protected i, count, lineAddr.q
   
-  If CurrentView <> 6 ; Hex View is now index 6
+  If CurrentView <> #View_Hex
     SetStatus("Go to Address only works in Hex View.")
     ProcedureReturn
   EndIf
@@ -744,10 +945,29 @@ Procedure GoToAddress(hexAddr.s)
 EndProcedure
 
 Procedure ShowImports()
-  ClearGadgetItems(#Gad_List)
+  Protected importCount.i = 0
+  Protected descriptorCount.i = 0
+  Protected dllCount.i = 0
+  Protected invalidNameCount.i = 0
+  Protected invalidThunkCount.i = 0
+  Protected thunkLimitHit.b = #False
+
+  If ImportCacheReady
+    RenderCachedRows(ImportRows())
+    SetStatus(ImportStatus)
+    ProcedureReturn
+  EndIf
+
+  ShowListMessage("Loading imports...", "Scanning import descriptors and thunk tables")
+  SetStatus("Loading imports...")
+  ClearList(ImportRows())
   
   If ListSize(DataDirs()) < 2
-    SetStatus("No data directories found.")
+    AddCachedRow(ImportRows(), "No imports", "Import directory entry is not available")
+    ImportCacheReady = #True
+    ImportStatus = "No data directories found."
+    RenderCachedRows(ImportRows())
+    SetStatus(ImportStatus)
     ProcedureReturn
   EndIf
   
@@ -756,81 +976,158 @@ Procedure ShowImports()
   Protected importSize = DataDirs()\Size
   
   If importRVA = 0 Or importSize = 0
-    SetStatus("No Import Table found in this file.")
+    AddCachedRow(ImportRows(), "No imports", "This file does not contain an import table")
+    ImportCacheReady = #True
+    ImportStatus = "No Import Table found in this file."
+    RenderCachedRows(ImportRows())
+    SetStatus(ImportStatus)
     ProcedureReturn
   EndIf
   
   Protected offset.q = RvaToOffset(importRVA)
-  If offset = -1 Or *FileBuffer = 0
-    SetStatus("Import Table offset out of range.")
+  If offset = -1 Or *FileBuffer = 0 Or Not IsFileRangeValid(offset, SizeOf(My_IMAGE_IMPORT_DESCRIPTOR))
+    AddCachedRow(ImportRows(), "Invalid import table", "The import directory RVA does not map to readable file data")
+    AddCachedRow(ImportRows(), "Directory", "RVA: 0x" + Hex(importRVA) + " | Size: " + Str(importSize))
+    ImportCacheReady = #True
+    ImportStatus = "Import Table offset out of range."
+    RenderCachedRows(ImportRows())
+    SetStatus(ImportStatus)
     ProcedureReturn
   EndIf
   
-  Protected *importDesc.My_IMAGE_IMPORT_DESCRIPTOR = *FileBuffer + offset
+  Protected descriptorOffset.q = offset
+  Protected importEndOffset.q = offset + importSize
   Protected dllName.s, funcName.s
-  Protected *thunk.Integer
-  Protected importCount = 0
+  Protected thunkOffset.q, nameOffset.q, nameDataOffset.q
+  Protected thunkValue.q, ordinalMask.q
+  Protected thunkEntrySize.i
+  Protected is64.b = is64Bit
   
-  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #False, 0)
-  
-  While *importDesc\Name <> 0
-    Protected nameOffset.q = RvaToOffset(*importDesc\Name)
+  While descriptorOffset + SizeOf(My_IMAGE_IMPORT_DESCRIPTOR) <= importEndOffset And IsFileRangeValid(descriptorOffset, SizeOf(My_IMAGE_IMPORT_DESCRIPTOR))
+    Protected *importDesc.My_IMAGE_IMPORT_DESCRIPTOR = *FileBuffer + descriptorOffset
+
+    If *importDesc\OriginalFirstThunk = 0 And *importDesc\Name = 0 And *importDesc\FirstThunk = 0
+      Break
+    EndIf
+
+    nameOffset = RvaToOffset(*importDesc\Name)
     If nameOffset <> -1 And nameOffset < FileBufferSize
-      dllName = PeekS(*FileBuffer + nameOffset, -1, #PB_Ascii)
-      AddGadgetItem(#Gad_List, -1, dllName + Chr(10) + "--- DLL IMPORT ---")
+      dllName = PeekAsciiZ(nameOffset)
+      If dllName = ""
+        dllName = "<Unnamed DLL>"
+        invalidNameCount + 1
+      EndIf
+      AddCachedRow(ImportRows(), dllName, "Descriptor Offset: 0x" + Hex(descriptorOffset) + " | Name RVA: 0x" + Hex(*importDesc\Name))
+      dllCount + 1
       
       ; OriginalFirstThunk (ILT) is preferred, fallback to FirstThunk (IAT)
       Protected thunkRVA = *importDesc\OriginalFirstThunk
       If thunkRVA = 0 : thunkRVA = *importDesc\FirstThunk : EndIf
       
-      Protected thunkOffset.q = RvaToOffset(thunkRVA)
+      thunkOffset = RvaToOffset(thunkRVA)
       If thunkOffset <> -1
-        *thunk = *FileBuffer + thunkOffset
-        
-        ; Check if it's 64-bit based on global flag
-        Protected is64 = is64Bit
-        
-        While PeekI(*thunk) <> 0
-          Protected val.q = PeekI(*thunk)
-          
-          ; Check for Import by Ordinal
-          Protected ordinalMask.q = $80000000
-          If is64 : ordinalMask = $8000000000000000 : EndIf
-          
-          If val & ordinalMask
-            funcName = "Ordinal: " + Str(val & $FFFF)
-          Else
-            Protected nameDataOffset.q = RvaToOffset(val & $7FFFFFFF) ; Mask out bit 31
-            If is64 : nameDataOffset = RvaToOffset(val & $7FFFFFFFFFFFFFFF) : EndIf
-            
-            If nameDataOffset <> -1 And nameDataOffset + 2 < FileBufferSize
-              funcName = PeekS(*FileBuffer + nameDataOffset + 2, -1, #PB_Ascii)
-            Else
-              funcName = "<Unknown>"
-            EndIf
+        thunkEntrySize = GetThunkEntrySize(is64)
+        While IsFileRangeValid(thunkOffset, thunkEntrySize)
+          thunkValue = ReadThunkValue(*FileBuffer + thunkOffset, is64)
+          If thunkValue = 0
+            Break
+          EndIf
+
+          If importCount >= #MaxImportEntries
+            thunkLimitHit = #True
+            Break
           EndIf
           
-          AddGadgetItem(#Gad_List, -1, "  " + funcName)
-          *thunk + SizeOf(Integer)
+          ; Check for Import by Ordinal
+          ordinalMask = $80000000
+          If is64 : ordinalMask = $8000000000000000 : EndIf
+          
+          If thunkValue & ordinalMask
+            funcName = "Ordinal: " + Str(thunkValue & $FFFF)
+            nameDataOffset = -1
+          Else
+            If is64
+              nameDataOffset = RvaToOffset(thunkValue & $7FFFFFFFFFFFFFFF)
+            Else
+              nameDataOffset = RvaToOffset(thunkValue & $7FFFFFFF)
+            EndIf
+            
+            If nameDataOffset <> -1 And IsFileRangeValid(nameDataOffset, 3)
+              funcName = PeekAsciiZ(nameDataOffset + 2)
+              If funcName = ""
+                funcName = "<Unnamed Import>"
+                invalidNameCount + 1
+              EndIf
+            Else
+              funcName = "<Unknown>"
+              invalidThunkCount + 1
+            EndIf
+          EndIf
+
+          Protected thunkInfo.s = "Thunk RVA: 0x" + Hex(thunkRVA) + " | File Offset: 0x" + Hex(thunkOffset)
+          If nameDataOffset <> -1
+            thunkInfo + " | Name Offset: 0x" + Hex(nameDataOffset)
+          EndIf
+          AddCachedRow(ImportRows(), "  " + funcName, thunkInfo)
+          importCount + 1
+          thunkOffset + thunkEntrySize
         Wend
+      Else
+        invalidThunkCount + 1
       EndIf
+    Else
+      invalidNameCount + 1
+      AddCachedRow(ImportRows(), "<Invalid DLL Name RVA>", "Descriptor Offset: 0x" + Hex(descriptorOffset) + " | Name RVA: 0x" + Hex(*importDesc\Name))
+    EndIf
+
+    If thunkLimitHit
+      Break
     EndIf
     
-    *importDesc + SizeOf(My_IMAGE_IMPORT_DESCRIPTOR)
-    importCount + 1
-    If importCount > 500 : Break : EndIf ; Sanity break
+    descriptorOffset + SizeOf(My_IMAGE_IMPORT_DESCRIPTOR)
+    descriptorCount + 1
+    If descriptorCount > #MaxImportDescriptors : Break : EndIf
   Wend
-  
-  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #True, 0)
-  UpdateWindow_(GadgetID(#Gad_List))
-  SetStatus("Finished parsing Import Table.")
+
+  If dllCount = 0 And importCount = 0
+    AddCachedRow(ImportRows(), "No imports", "No readable import descriptors were found")
+  Else
+    AddCachedRow(ImportRows(), "Summary", "DLLs: " + Str(dllCount) + " | Descriptors: " + Str(descriptorCount) + " | Imports: " + Str(importCount) + " | Name issues: " + Str(invalidNameCount) + " | Thunk issues: " + Str(invalidThunkCount))
+    If thunkLimitHit
+      AddCachedRow(ImportRows(), "Notice", "Import display was capped to keep the UI responsive")
+    EndIf
+  EndIf
+
+  ImportCacheReady = #True
+  ImportStatus = "Imports: " + Str(dllCount) + " DLLs, " + Str(importCount) + " entries"
+  RenderCachedRows(ImportRows())
+  SetStatus(ImportStatus)
 EndProcedure
 
 Procedure ShowExports()
-  ClearGadgetItems(#Gad_List)
+  Protected exportNamesShown.i = 0
+  Protected invalidExportNameCount.i = 0
+  Protected invalidExportOrdinalCount.i = 0
+  Protected exportLimitHit.b = #False
+  Protected exportName.s
+  Protected exportNameOffset.q
+
+  If ExportCacheReady
+    RenderCachedRows(ExportRows())
+    SetStatus(ExportStatus)
+    ProcedureReturn
+  EndIf
+
+  ShowListMessage("Loading exports...", "Scanning export directory and named exports")
+  SetStatus("Loading exports...")
+  ClearList(ExportRows())
   
   If ListSize(DataDirs()) = 0
-    SetStatus("No data directories found.")
+    AddCachedRow(ExportRows(), "No exports", "Export directory entry is not available")
+    ExportCacheReady = #True
+    ExportStatus = "No data directories found."
+    RenderCachedRows(ExportRows())
+    SetStatus(ExportStatus)
     ProcedureReturn
   EndIf
   
@@ -839,13 +1136,22 @@ Procedure ShowExports()
   Protected exportSize = DataDirs()\Size
   
   If exportRVA = 0 Or exportSize = 0
-    SetStatus("No Export Table found in this file.")
+    AddCachedRow(ExportRows(), "No exports", "This file does not contain an export table")
+    ExportCacheReady = #True
+    ExportStatus = "No Export Table found in this file."
+    RenderCachedRows(ExportRows())
+    SetStatus(ExportStatus)
     ProcedureReturn
   EndIf
   
   Protected offset.q = RvaToOffset(exportRVA)
-  If offset = -1 Or *FileBuffer = 0
-    SetStatus("Export Table offset out of range.")
+  If offset = -1 Or *FileBuffer = 0 Or Not IsFileRangeValid(offset, SizeOf(My_IMAGE_EXPORT_DIRECTORY))
+    AddCachedRow(ExportRows(), "Invalid export table", "The export directory RVA does not map to readable file data")
+    AddCachedRow(ExportRows(), "Directory", "RVA: 0x" + Hex(exportRVA) + " | Size: " + Str(exportSize))
+    ExportCacheReady = #True
+    ExportStatus = "Export Table offset out of range."
+    RenderCachedRows(ExportRows())
+    SetStatus(ExportStatus)
     ProcedureReturn
   EndIf
   
@@ -860,42 +1166,75 @@ Procedure ShowExports()
   
   If *exportDir\AddressOfNames > 0
     nameOffset = RvaToOffset(*exportDir\AddressOfNames)
-    If nameOffset <> -1 : *names = *FileBuffer + nameOffset : EndIf
+    If nameOffset <> -1 And IsFileRangeValid(nameOffset, *exportDir\NumberOfNames * 4)
+      *names = *FileBuffer + nameOffset
+    EndIf
   EndIf
   
   If *exportDir\AddressOfNameOrdinals > 0
     ordOffset = RvaToOffset(*exportDir\AddressOfNameOrdinals)
-    If ordOffset <> -1 : *ordinals = *FileBuffer + ordOffset : EndIf
+    If ordOffset <> -1 And IsFileRangeValid(ordOffset, *exportDir\NumberOfNames * 2)
+      *ordinals = *FileBuffer + ordOffset
+    EndIf
   EndIf
   
   If *exportDir\AddressOfFunctions > 0
     funcOffset = RvaToOffset(*exportDir\AddressOfFunctions)
-    If funcOffset <> -1 : *functions = *FileBuffer + funcOffset : EndIf
+    If funcOffset <> -1 And IsFileRangeValid(funcOffset, *exportDir\NumberOfFunctions * 4)
+      *functions = *FileBuffer + funcOffset
+    EndIf
   EndIf
   
-  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #False, 0)
+  exportNameOffset = RvaToOffset(*exportDir\Name)
+  If exportNameOffset <> -1 And IsFileRangeValid(exportNameOffset, 1)
+    exportName = PeekAsciiZ(exportNameOffset)
+  Else
+    exportName = "<Unnamed Export DLL>"
+  EndIf
+
+  AddCachedRow(ExportRows(), "Export Directory", "Name: " + exportName + " | RVA: 0x" + Hex(exportRVA) + " | File Offset: 0x" + Hex(offset))
   
   If *names And *ordinals
     For i = 0 To *exportDir\NumberOfNames - 1
+      If exportNamesShown >= #MaxExportEntries
+        exportLimitHit = #True
+        Break
+      EndIf
+
       Protected nRVA = PeekL(*names + (i * 4))
       Protected nOffset.q = RvaToOffset(nRVA)
-      If nOffset <> -1
-        Protected expName.s = PeekS(*FileBuffer + nOffset, -1, #PB_Ascii)
+      If nOffset <> -1 And IsFileRangeValid(nOffset, 1)
+        Protected expName.s = PeekAsciiZ(nOffset)
         Protected ordinal = PeekW(*ordinals + (i * 2))
         Protected funcRVA = 0
-        If *functions
+        If *functions And ordinal >= 0 And ordinal < *exportDir\NumberOfFunctions
           funcRVA = PeekL(*functions + (ordinal * 4))
+        Else
+          invalidExportOrdinalCount + 1
         EndIf
-        AddGadgetItem(#Gad_List, -1, expName + Chr(10) + "Ordinal: " + Str(ordinal + *exportDir\Base) + " | RVA: 0x" + Hex(funcRVA))
+        If expName = ""
+          expName = "<Unnamed Export>"
+          invalidExportNameCount + 1
+        EndIf
+        AddCachedRow(ExportRows(), expName, "Ordinal: " + Str(ordinal + *exportDir\Base) + " | RVA: 0x" + Hex(funcRVA) + " | Name Offset: 0x" + Hex(nOffset))
+        exportNamesShown + 1
+      Else
+        invalidExportNameCount + 1
       EndIf
     Next
   Else
-    SetStatus("Export Table has no names.")
+    AddCachedRow(ExportRows(), "Unnamed exports", "Export table exists but has no readable named export list")
   EndIf
-  
-  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #True, 0)
-  UpdateWindow_(GadgetID(#Gad_List))
-  SetStatus("Finished parsing Export Table (" + Str(*exportDir\NumberOfNames) + " names).")
+
+  AddCachedRow(ExportRows(), "Summary", "Named exports shown: " + Str(exportNamesShown) + " | Declared names: " + Str(*exportDir\NumberOfNames) + " | Functions: " + Str(*exportDir\NumberOfFunctions) + " | Name issues: " + Str(invalidExportNameCount) + " | Ordinal issues: " + Str(invalidExportOrdinalCount))
+  If exportLimitHit
+    AddCachedRow(ExportRows(), "Notice", "Export display was capped to keep the UI responsive")
+  EndIf
+
+  ExportCacheReady = #True
+  ExportStatus = "Exports: " + Str(exportNamesShown) + " shown, " + Str(*exportDir\NumberOfNames) + " declared"
+  RenderCachedRows(ExportRows())
+  SetStatus(ExportStatus)
 EndProcedure
 
 Procedure.s ResourceIdToString(id.l)
@@ -926,10 +1265,24 @@ Procedure.s ResourceIdToString(id.l)
 EndProcedure
 
 Procedure ShowResources()
-  ClearGadgetItems(#Gad_List)
+  Protected resourceCount.i = 0
+
+  If ResourceCacheReady
+    RenderCachedRows(ResourceRows())
+    SetStatus(ResourceStatus)
+    ProcedureReturn
+  EndIf
+
+  ShowListMessage("Loading resources...", "Scanning resource directory entries")
+  SetStatus("Loading resources...")
+  ClearList(ResourceRows())
   
   If ListSize(DataDirs()) < 3
-    SetStatus("No data directories found.")
+    AddCachedRow(ResourceRows(), "No resources", "Resource directory entry is not available")
+    ResourceCacheReady = #True
+    ResourceStatus = "No data directories found."
+    RenderCachedRows(ResourceRows())
+    SetStatus(ResourceStatus)
     ProcedureReturn
   EndIf
   
@@ -938,24 +1291,39 @@ Procedure ShowResources()
   Protected resSize = DataDirs()\Size
   
   If resRVA = 0 Or resSize = 0
-    SetStatus("No Resource Table found.")
+    AddCachedRow(ResourceRows(), "No resources", "This file does not contain a resource table")
+    ResourceCacheReady = #True
+    ResourceStatus = "No Resource Table found."
+    RenderCachedRows(ResourceRows())
+    SetStatus(ResourceStatus)
     ProcedureReturn
   EndIf
   
   Protected offset.q = RvaToOffset(resRVA)
-  If offset = -1 Or *FileBuffer = 0
-    SetStatus("Resource Table offset out of range.")
+  If offset = -1 Or *FileBuffer = 0 Or Not IsFileRangeValid(offset, SizeOf(My_IMAGE_RESOURCE_DIRECTORY))
+    AddCachedRow(ResourceRows(), "Invalid resource table", "The resource directory RVA does not map to readable file data")
+    AddCachedRow(ResourceRows(), "Directory", "RVA: 0x" + Hex(resRVA) + " | Size: " + Str(resSize))
+    ResourceCacheReady = #True
+    ResourceStatus = "Resource Table offset out of range."
+    RenderCachedRows(ResourceRows())
+    SetStatus(ResourceStatus)
     ProcedureReturn
   EndIf
   
   Protected *root.My_IMAGE_RESOURCE_DIRECTORY = *FileBuffer + offset
   Protected i, j, k
+  Protected rootEntries.i = *root\NumberOfNamedEntries + *root\NumberOfIdEntries
+  If rootEntries > #MaxResourceEntries : rootEntries = #MaxResourceEntries : EndIf
   
-  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #False, 0)
+  AddCachedRow(ResourceRows(), "Resource Directory", "RVA: 0x" + Hex(resRVA) + " | File Offset: 0x" + Hex(offset) + " | Size: " + Str(resSize))
   
   ; Root level: Types
   Protected *typeEntry.My_IMAGE_RESOURCE_DIRECTORY_ENTRY = *root + SizeOf(My_IMAGE_RESOURCE_DIRECTORY)
-  For i = 0 To *root\NumberOfNamedEntries + *root\NumberOfIdEntries - 1
+  For i = 0 To rootEntries - 1
+    If Not IsFileRangeValid(offset + SizeOf(My_IMAGE_RESOURCE_DIRECTORY) + (i * SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY)), SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY))
+      Break
+    EndIf
+
     Protected typeName.s = ""
     ; Check high bit of Name (NameIsString)
     If *typeEntry\Name & $80000000
@@ -966,64 +1334,93 @@ Procedure ShowResources()
     
     ; Check high bit of Offset (DataIsDirectory)
     If *typeEntry\OffsetToDirectory & $80000000
-      Protected *nameDir.My_IMAGE_RESOURCE_DIRECTORY = *FileBuffer + offset + (*typeEntry\OffsetToDirectory & $7FFFFFFF)
-      Protected *nameEntry.My_IMAGE_RESOURCE_DIRECTORY_ENTRY = *nameDir + SizeOf(My_IMAGE_RESOURCE_DIRECTORY)
-      
-      For j = 0 To *nameDir\NumberOfNamedEntries + *nameDir\NumberOfIdEntries - 1
-        ; Level 2: Names/IDs
-        If *nameEntry\OffsetToDirectory & $80000000
-          Protected *langDir.My_IMAGE_RESOURCE_DIRECTORY = *FileBuffer + offset + (*nameEntry\OffsetToDirectory & $7FFFFFFF)
-          Protected *langEntry.My_IMAGE_RESOURCE_DIRECTORY_ENTRY = *langDir + SizeOf(My_IMAGE_RESOURCE_DIRECTORY)
-          
-          For k = 0 To *langDir\NumberOfNamedEntries + *langDir\NumberOfIdEntries - 1
-            ; Level 3: Languages
-            If Not (*langEntry\OffsetToDirectory & $80000000)
-              Protected *dataEntry.My_IMAGE_RESOURCE_DATA_ENTRY = *FileBuffer + offset + *langEntry\OffsetToData
-              AddGadgetItem(#Gad_List, -1, typeName + Chr(10) + "RVA: 0x" + Hex(*dataEntry\OffsetToData) + " | Size: " + Str(*dataEntry\Size))
+      Protected nameDirOffset.q = offset + (*typeEntry\OffsetToDirectory & $7FFFFFFF)
+      If IsFileRangeValid(nameDirOffset, SizeOf(My_IMAGE_RESOURCE_DIRECTORY))
+        Protected *nameDir.My_IMAGE_RESOURCE_DIRECTORY = *FileBuffer + nameDirOffset
+        Protected *nameEntry.My_IMAGE_RESOURCE_DIRECTORY_ENTRY = *nameDir + SizeOf(My_IMAGE_RESOURCE_DIRECTORY)
+        Protected nameEntries.i = *nameDir\NumberOfNamedEntries + *nameDir\NumberOfIdEntries
+        If nameEntries > #MaxResourceEntries : nameEntries = #MaxResourceEntries : EndIf
+        
+        For j = 0 To nameEntries - 1
+          If Not IsFileRangeValid(nameDirOffset + SizeOf(My_IMAGE_RESOURCE_DIRECTORY) + (j * SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY)), SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY))
+            Break
+          EndIf
+
+          ; Level 2: Names/IDs
+          If *nameEntry\OffsetToDirectory & $80000000
+            Protected langDirOffset.q = offset + (*nameEntry\OffsetToDirectory & $7FFFFFFF)
+            If IsFileRangeValid(langDirOffset, SizeOf(My_IMAGE_RESOURCE_DIRECTORY))
+              Protected *langDir.My_IMAGE_RESOURCE_DIRECTORY = *FileBuffer + langDirOffset
+              Protected *langEntry.My_IMAGE_RESOURCE_DIRECTORY_ENTRY = *langDir + SizeOf(My_IMAGE_RESOURCE_DIRECTORY)
+              Protected langEntries.i = *langDir\NumberOfNamedEntries + *langDir\NumberOfIdEntries
+              If langEntries > #MaxResourceEntries : langEntries = #MaxResourceEntries : EndIf
+              
+              For k = 0 To langEntries - 1
+                If Not IsFileRangeValid(langDirOffset + SizeOf(My_IMAGE_RESOURCE_DIRECTORY) + (k * SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY)), SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY))
+                  Break
+                EndIf
+
+                ; Level 3: Languages
+                If Not (*langEntry\OffsetToDirectory & $80000000)
+                  Protected dataEntryOffset.q = offset + *langEntry\OffsetToData
+                  If IsFileRangeValid(dataEntryOffset, SizeOf(My_IMAGE_RESOURCE_DATA_ENTRY))
+                    Protected *dataEntry.My_IMAGE_RESOURCE_DATA_ENTRY = *FileBuffer + dataEntryOffset
+                    AddCachedRow(ResourceRows(), typeName, "RVA: 0x" + Hex(*dataEntry\OffsetToData) + " | File Offset: 0x" + Hex(RvaToOffset(*dataEntry\OffsetToData)) + " | Size: " + Str(*dataEntry\Size))
+                    resourceCount + 1
+                  EndIf
+                EndIf
+                *langEntry + SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY)
+              Next
             EndIf
-            *langEntry + SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY)
-          Next
-        EndIf
-        *nameEntry + SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY)
-      Next
+          EndIf
+          *nameEntry + SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY)
+        Next
+      EndIf
     EndIf
     *typeEntry + SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY)
   Next
-  
-  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #True, 0)
-  UpdateWindow_(GadgetID(#Gad_List))
-  SetStatus("Finished parsing Resource Table.")
+
+  If resourceCount = 0
+    AddCachedRow(ResourceRows(), "No resources", "No readable resource data entries were found")
+  Else
+    AddCachedRow(ResourceRows(), "Summary", "Readable resource entries: " + Str(resourceCount))
+  EndIf
+
+  ResourceCacheReady = #True
+  ResourceStatus = "Resources: " + Str(resourceCount) + " entries"
+  RenderCachedRows(ResourceRows())
+  SetStatus(ResourceStatus)
 EndProcedure
 
 Procedure SwitchView(view.i)
   CurrentView = view
   
-  If CurrentFile = ""
+  If CurrentFile = "" And ListSize(LogLines()) = 0 And ListSize(Sections()) = 0 And FileBufferSize = 0
     SetStatus("No file loaded.")
     ProcedureReturn
   EndIf
   
   Select view
-    Case 0  ; Headers
+    Case #View_Headers
       ShowHeaders()
       
-    Case 1  ; Sections
+    Case #View_Sections
       ShowSections()
       
-    Case 2  ; Data Dirs
+    Case #View_DataDirs
       ShowDataDirs()
       
-    Case 3  ; Imports
+    Case #View_Imports
       ShowImports()
       
-    Case 4  ; Exports
+    Case #View_Exports
       ShowExports()
       
-    Case 5  ; Resources
+    Case #View_Resources
       ShowResources()
       
-    Case 6  ; Hex Viewer
-      ShowHexDump()
+    Case #View_Hex
+      ShowHexDump(CurrentHexOffset)
   EndSelect
 EndProcedure
 
@@ -1034,13 +1431,13 @@ Procedure FilterList(pattern.s)
   ; We can't easily "hide" GadgetItems in a ListIcon, 
   ; so we refresh from the correct source based on CurrentView
   Select CurrentView
-    Case 0 : ShowHeaders()
-    Case 1 : ShowSections()
-    Case 2 : ShowDataDirs()
-    Case 3 : ShowImports()
-    Case 4 : ShowExports()
-    Case 5 : ShowResources()
-    Case 6 : ShowHexDump()
+    Case #View_Headers : ShowHeaders()
+    Case #View_Sections : ShowSections()
+    Case #View_DataDirs : ShowDataDirs()
+    Case #View_Imports : ShowImports()
+    Case #View_Exports : ShowExports()
+    Case #View_Resources : ShowResources()
+    Case #View_Hex : ShowHexDump(CurrentHexOffset)
   EndSelect
 
   
@@ -1069,8 +1466,9 @@ Procedure CreateMainWindow()
     ButtonGadget(#Gad_Exit, 300, 10, 60, 24, "Exit")
     StringGadget(#Gad_File, 370, 10, 440, 24, "", #PB_String_ReadOnly)
     
-    ; Tabs instead of buttons
-    PanelGadget(#Gad_Tabs, 10, 44, 800, 415)
+    ; Use the panel only as a tab selector and keep the shared list below it.
+    ; Placing the ListIcon inside the panel area can cause repaint/z-order issues.
+    PanelGadget(#Gad_Tabs, 10, 44, 800, 32)
       AddGadgetItem(#Gad_Tabs, -1, "Headers")
       AddGadgetItem(#Gad_Tabs, -1, "Sections")
       AddGadgetItem(#Gad_Tabs, -1, "Data Dirs")
@@ -1080,28 +1478,16 @@ Procedure CreateMainWindow()
       AddGadgetItem(#Gad_Tabs, -1, "Hex View")
     CloseGadgetList()
 
-    ListIconGadget(#Gad_List, 15, 75, 790, 375, "Field", 220, #PB_ListIcon_AlwaysShowSelection | #PB_ListIcon_FullRowSelect)
-    AddGadgetColumn(#Gad_List, 1, "Value", 550)
-    
-    ; Re-parent the ListIcon inside the Panel if needed, but it's easier to keep it global
-    ; and just refresh it when the tab changes. 
-    ; PureBasic note: Gadgets added after CloseGadgetList() are relative to the Window.
-    ; To make the ListIcon appear "over" the panel, we need to place it carefully.
-    
-    ; Actually, a better PureBasic pattern is to put the ListIcon INSIDE the panel, 
-    ; but since we share one ListIcon for all views, we will place it on top or 
-    ; handle the z-order. Alternatively, we move it to the window and adjust coordinates.
-    
-    ; Let's adjust coordinates to sit exactly inside the panel's client area
-    ResizeGadget(#Gad_List, 15, 75, 790, 378)
+    ListIconGadget(#Gad_List, 10, 82, 800, 370, "Field", 220, #PB_ListIcon_AlwaysShowSelection | #PB_ListIcon_FullRowSelect)
+    AddGadgetColumn(#Gad_List, 1, "Value", 555)
     
     ; Add a search field and Go to Address for the hex view/headers
     TextGadget(#PB_Any, 10, 465, 45, 20, "Search:")
-    Global Gad_Search = StringGadget(#PB_Any, 58, 462, 140, 22, "")
+    Gad_Search = StringGadget(#PB_Any, 58, 462, 140, 22, "")
     
     TextGadget(#PB_Any, 215, 465, 75, 20, "Go to (Hex):")
-    Global Gad_GoAddr = StringGadget(#PB_Any, 290, 462, 100, 22, "")
-    Global Gad_GoBtn = ButtonGadget(#PB_Any, 400, 462, 40, 22, "Go")
+    Gad_GoAddr = StringGadget(#PB_Any, 290, 462, 100, 22, "")
+    Gad_GoBtn = ButtonGadget(#PB_Any, 400, 462, 40, 22, "Go")
     
     ; Enable Drag and Drop
     EnableWindowDrop(#Win_Main, #PB_Drop_Files, #PB_Drag_Copy)
@@ -1125,10 +1511,14 @@ Procedure BrowseAndOpen(file.s = "")
   If file <> ""
     CurrentFile = file
     SetGadgetText(#Gad_File, file)
-    ParsePEFile(file)
-    SetGadgetState(#Gad_Tabs, 0)
-    CurrentView = 0  ; Reset to headers view
-    ShowHeaders()
+
+    If ParsePEFile(file)
+      SetGadgetState(#Gad_Tabs, 0)
+      SwitchView(#View_Headers)
+    Else
+      CurrentFile = ""
+      SetGadgetText(#Gad_File, "")
+    EndIf
   EndIf
 EndProcedure
 
@@ -1169,6 +1559,7 @@ Repeat
           EndIf
           
         Case #Gad_Browse
+          BrowseAndOpen()
           
         Case #Gad_SaveLog
           SaveLog()
@@ -1190,7 +1581,7 @@ ForEver
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 71
 ; FirstLine = 51
-; Folding = ------
+; Folding = -------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1199,12 +1590,12 @@ ForEver
 ; UseIcon = EXE-PE_Viewer.ico
 ; Executable = ..\EXE-PE_Viewer.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = EXE/PE-Viewer
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = View PE/EXE/DLL files and log info
 ; VersionField7 = EXE/PE-Viewer
 ; VersionField8 = EXE/PE-Viewer.exe
