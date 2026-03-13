@@ -13,7 +13,7 @@ EnableExplicit
 #SOL_SOCKET  = $FFFF
 #SO_RCVTIMEO = $1006
 
-#APP_NAME        = "PB_DNSJumperLike"
+#APP_NAME        = "PB_DNSJumper"
 #EMAIL_NAME      = "zonemaster60@gmail.com"
 Global version.s = "v1.0.0.1"
 
@@ -161,7 +161,6 @@ Procedure.i SetRunAtStartup(state.b)
   EndIf
 EndProcedure
 
-
 ; Exit procedure
 Procedure Exit()
   Protected Req.i
@@ -232,9 +231,9 @@ EndProcedure
 
 Procedure.s ResolveProvidersFile()
   ; Prefer dns_servers.json next to the EXE; fallback to current directory; then source directory (IDE/dev builds).
-  Protected pExe.s = GetPathPart(ProgramFilename()) + #APP_NAME + "_servers.json"
-  Protected pCwd.s = GetCurrentDirectory() + #APP_NAME + "_servers.json"
-  Protected pSrc.s = #PB_Compiler_FilePath + #APP_NAME + "_servers.json"
+  Protected pExe.s = GetPathPart(ProgramFilename()) + "files\" + #APP_NAME + "_servers.json"
+  Protected pCwd.s = GetCurrentDirectory() + "files\" + #APP_NAME + "_servers.json"
+  Protected pSrc.s = #PB_Compiler_FilePath + "files\" + #APP_NAME + "_servers.json"
 
   If FileSize(pExe) > 0 : ProcedureReturn pExe : EndIf
   If FileSize(pCwd) > 0 : ProcedureReturn pCwd : EndIf
@@ -749,7 +748,6 @@ Procedure UpdateTrayMenu()
   EndIf
 EndProcedure
 
-
 Procedure DrainQueueAndUpdateUI(listGadget.i, bestLabelGadget.i)
   Protected updated = 0
   LockMutex(gMutex)
@@ -837,9 +835,7 @@ Enumeration Windows
   #WinMain
 EndEnumeration
 
-
 gMutex = CreateMutex()
-
 
 ; Providers (IPv4)
 
@@ -863,7 +859,6 @@ If gLoadedProviders = 0
   AddProvider("Level3",        "4.2.2.1",         "4.2.2.2")
 EndIf
 
-
   If OpenWindow(#WinMain, 0, 0, 920, 560, #APP_NAME + version + " - Windows 11", #PB_Window_SystemMenu | #PB_Window_ScreenCentered |
                                                                                          #PB_Window_MinimizeGadget | #PB_Window_Invisible)
 
@@ -886,7 +881,6 @@ EndIf
   TextGadget(#G_BestLabel, 14, 70, 650, 22, "Best: (none)")
   ButtonGadget(#G_Apply, 780, 66, 75, 26, "Apply Best")
   ButtonGadget(#G_Exit, 865, 66, 40, 26, "Exit")
-
 
   ListIconGadget(#G_List, 14, 102, 891, 395, "Rank", 55, #PB_ListIcon_GridLines | #PB_ListIcon_FullRowSelect)
   AddGadgetColumn(#G_List, 1, "Provider", 150)
@@ -991,7 +985,6 @@ EndIf
         Case #Tray_RunAtStartup
           SetRunAtStartup(Bool(Not IsRunAtStartup()))
           UpdateTrayMenu() ; Refresh menu state immediately
-
           
         Case #Tray_Exit
           If MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info) = #PB_MessageRequester_Yes
@@ -1163,24 +1156,21 @@ EndIf
       EndIf
     EndIf
 
-
   Until quitApp = #True
-  CloseHandle_(hMutex)
-  End
+    CloseHandle_(hMutex)
+    End
 EndIf
-
-
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 947
-; FirstLine = 1127
+; CursorPosition = 235
+; FirstLine = 216
 ; Folding = ------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = PB_DNSJumperLike.ico
-; Executable = ..\PB_DNSJumperLike.exe
+; UseIcon = PB_DNSJumper.ico
+; Executable = ..\PB_DNSJumper.exe
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,1
 ; VersionField1 = 1,0,0,1

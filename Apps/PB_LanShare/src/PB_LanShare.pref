@@ -1,0 +1,7 @@
+﻿
+[LanShare]
+SharePath = C:\Users\zonem\Documents\PureBasic\Apps\PB_LanShare\LanShare
+DownloadPath = C:\Users\zonem\Documents\PureBasic\Apps\PB_LanShare\LanShareDownloads
+Port = 50505
+RemoteHost = 
+OverwriteMode = 0
