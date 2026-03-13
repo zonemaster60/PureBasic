@@ -987,7 +987,6 @@ EndProcedure
 
 Procedure OpenSettingsWindow()
   If IsWindow(#WindowSettings)
-    SetGadgetText(#GadgetSettingsShare, SharePath$)
     SetGadgetText(#GadgetSettingsDownload, DownloadPath$)
     SetGadgetText(#GadgetSettingsPort, GetGadgetText(#GadgetPort))
     HideWindow(#WindowSettings, #False)
@@ -995,17 +994,14 @@ Procedure OpenSettingsWindow()
     ProcedureReturn
   EndIf
 
-  OpenWindow(#WindowSettings, 0, 0, 520, 220, "Settings", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
-  TextGadget(#PB_Any, 16, 20, 100, 20, "Share Folder")
-  StringGadget(#GadgetSettingsShare, 120, 16, 300, 24, SharePath$)
-  ButtonGadget(#GadgetSettingsShareBrowse, 430, 16, 70, 24, "Browse")
-  TextGadget(#PB_Any, 16, 60, 100, 20, "Downloads")
-  StringGadget(#GadgetSettingsDownload, 120, 56, 300, 24, DownloadPath$)
-  ButtonGadget(#GadgetSettingsDownloadBrowse, 430, 56, 70, 24, "Browse")
-  TextGadget(#PB_Any, 16, 100, 100, 20, "TCP Port")
-  StringGadget(#GadgetSettingsPort, 120, 96, 120, 24, GetGadgetText(#GadgetPort), #PB_String_Numeric)
-  ButtonGadget(#GadgetSettingsSave, 300, 160, 90, 28, "Save")
-  ButtonGadget(#GadgetSettingsCancel, 400, 160, 90, 28, "Close")
+  OpenWindow(#WindowSettings, 0, 0, 520, 170, "Settings", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  TextGadget(#PB_Any, 16, 24, 100, 20, "Downloads")
+  StringGadget(#GadgetSettingsDownload, 120, 20, 300, 24, DownloadPath$)
+  ButtonGadget(#GadgetSettingsDownloadBrowse, 430, 20, 70, 24, "Browse")
+  TextGadget(#PB_Any, 16, 64, 100, 20, "TCP Port")
+  StringGadget(#GadgetSettingsPort, 120, 60, 120, 24, GetGadgetText(#GadgetPort), #PB_String_Numeric)
+  ButtonGadget(#GadgetSettingsSave, 300, 112, 90, 28, "Save")
+  ButtonGadget(#GadgetSettingsCancel, 400, 112, 90, 28, "Close")
 EndProcedure
 
 Procedure OpenReceiverWindow()
@@ -1386,7 +1382,6 @@ EndProcedure
 Procedure LoadSettings()
   If OpenPreferences(SettingsPath())
     PreferenceGroup("LanShare")
-    SharePath$ = TrimTrailingSlash(ReadPreferenceString("SharePath", SharePath$))
     DownloadPath$ = TrimTrailingSlash(ReadPreferenceString("DownloadPath", DownloadPath$))
     PreferenceGroup("RememberedPeers")
     ExaminePreferenceKeys()
@@ -1408,7 +1403,6 @@ Procedure SaveSettings()
 
   If CreatePreferences(SettingsPath())
     PreferenceGroup("LanShare")
-    WritePreferenceString("SharePath", SharePath$)
     WritePreferenceString("DownloadPath", DownloadPath$)
     WritePreferenceString("Port", GetGadgetText(#GadgetPort))
     WritePreferenceString("RemoteHost", GetGadgetText(#GadgetRemoteHost))
@@ -1539,13 +1533,7 @@ Procedure RefreshBrowserGadget()
 EndProcedure
 
 Procedure.s BuildShareName()
-  Protected Name$ = GetFilePart(TrimTrailingSlash(SharePath$))
-
-  If Name$ = ""
-    Name$ = HostName$ + " Share"
-  EndIf
-
-  ProcedureReturn Name$
+  ProcedureReturn HostName$
 EndProcedure
 
 Procedure.s BuildHelloPayload()
@@ -3142,9 +3130,8 @@ Procedure StartServer()
     ProcedureReturn
   EndIf
 
-  SharePath$ = TrimTrailingSlash(GetGadgetText(#GadgetSharePath))
   DownloadPath$ = TrimTrailingSlash(GetGadgetText(#GadgetDownloadPath))
-  EnsureDirectoryExists(SharePath$)
+  SharePath$ = DownloadPath$
   EnsureDirectoryExists(DownloadPath$)
 
   If IsPortBindable(Port) = 0
@@ -3591,11 +3578,6 @@ Procedure MainLoop()
             EndIf
 
           Case #GadgetSettingsShareBrowse
-            ChosenPath$ = PathRequester("Choose the shared folder", GetGadgetText(#GadgetSettingsShare))
-            If ChosenPath$
-              SetGadgetText(#GadgetSettingsShare, TrimTrailingSlash(ChosenPath$))
-            EndIf
-
           Case #GadgetSettingsDownloadBrowse
             ChosenPath$ = PathRequester("Choose the download folder", GetGadgetText(#GadgetSettingsDownload))
             If ChosenPath$
@@ -3603,9 +3585,7 @@ Procedure MainLoop()
             EndIf
 
           Case #GadgetSettingsSave
-            SharePath$ = TrimTrailingSlash(GetGadgetText(#GadgetSettingsShare))
             DownloadPath$ = TrimTrailingSlash(GetGadgetText(#GadgetSettingsDownload))
-            SetGadgetText(#GadgetSharePath, SharePath$)
             SetGadgetText(#GadgetDownloadPath, DownloadPath$)
             SetGadgetText(#GadgetPort, GetGadgetText(#GadgetSettingsPort))
             SaveSettings()
@@ -3666,10 +3646,10 @@ Procedure InitDefaults()
     HostName$ = "My_LAN_PC"
   EndIf
 
-  SharePath$ = TrimTrailingSlash(GetCurrentDirectory() + "LanShareShare")
-  DownloadPath$ = TrimTrailingSlash(GetCurrentDirectory() + "LanShareDownloads")
+  DownloadPath$ = TrimTrailingSlash(GetHomeDirectory() + "Downloads\\LANShareDownloads")
+  SharePath$ = DownloadPath$
   LoadSettings()
-  EnsureDirectoryExists(SharePath$)
+  SharePath$ = DownloadPath$
   EnsureDirectoryExists(DownloadPath$)
   TransfersPaused = #False
   ScanMutex = CreateMutex()
@@ -3678,7 +3658,7 @@ EndProcedure
 InitDefaults()
 OpenMainWindow()
 CreateTraySupport()
-SetGadgetText(#GadgetSharePath, SharePath$)
+SetGadgetText(#GadgetSharePath, DownloadPath$)
 SetGadgetText(#GadgetDownloadPath, DownloadPath$)
 ApplyLoadedSettingsToUI()
 ShowFirstRunHelp()
@@ -3687,7 +3667,6 @@ UpdateServerStatus()
 EnsureUsablePort(#True)
 StartServer()
 AddLog("LanShare is ready")
-AddLog("Share folder: " + SharePath$)
 AddLog("Download folder: " + DownloadPath$)
 MainLoop()
 SaveSettings()
