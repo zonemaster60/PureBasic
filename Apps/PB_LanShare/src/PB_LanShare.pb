@@ -14,7 +14,7 @@ EnableExplicit
 #PortSearchStart = 50505
 #PortSearchEnd = 50530
 
-Global version.s = "v1.0.0.1"
+Global version.s = "v1.0.0.2"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -280,6 +280,9 @@ Global AutoDisconnectAfterSend.i
 Global AutoScanNext.i
 Global CurrentQueuedTargetHost$
 Global CurrentQueuedTargetPort.i
+Global PreferredReceiverHost$
+Global PreferredReceiverPort.i
+Global PreferredReceiverIsLanShare.i
 
 Declare UpdateProgressUI()
 Declare DiscoveryScanThread(*Value)
@@ -812,6 +815,17 @@ Procedure RefreshDiscoveryList()
   Protected Index.i
   Protected TypeText$
   Protected PortText$
+  Protected SelectedHost$
+  Protected SelectedIndex.i = -1
+
+  If PreferredReceiverHost$ <> ""
+    SelectedHost$ = PreferredReceiverHost$
+  Else
+    SelectedIndex = GetGadgetState(#GadgetDiscovery)
+    If SelectedIndex >= 0 And SelectedIndex <= ArraySize(DiscoveryEntryHost$())
+      SelectedHost$ = DiscoveryEntryHost$(SelectedIndex)
+    EndIf
+  EndIf
 
   ClearGadgetItems(#GadgetDiscovery)
   If MapSize(Discovery()) <= 0
@@ -851,6 +865,9 @@ Procedure RefreshDiscoveryList()
     DiscoveryEntryHost$(Index) = Discovery()\Host
     DiscoveryEntryPort(Index) = Discovery()\Port
     DiscoveryEntryIsLanShare(Index) = Discovery()\IsLanShare
+    If SelectedHost$ <> "" And Discovery()\Host = SelectedHost$
+      SelectedIndex = Index
+    EndIf
     Index + 1
   Next
 
@@ -862,6 +879,9 @@ Procedure RefreshDiscoveryList()
     ReDim DiscoveryEntryHost$(Index - 1)
     ReDim DiscoveryEntryPort(Index - 1)
     ReDim DiscoveryEntryIsLanShare(Index - 1)
+    If SelectedIndex >= 0 And SelectedIndex <= ArraySize(DiscoveryEntryHost$())
+      SetGadgetState(#GadgetDiscovery, SelectedIndex)
+    EndIf
   EndIf
 EndProcedure
 
@@ -1007,6 +1027,8 @@ EndProcedure
 Procedure OpenReceiverWindow()
   Protected Text$
   Protected Count.i
+  Protected SelectedIndex.i = -1
+  Protected TargetHost$
 
   If IsWindow(#WindowReceiver) = 0
     OpenWindow(#WindowReceiver, 0, 0, 460, 340, "Choose Receiver", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
@@ -1020,6 +1042,11 @@ Procedure OpenReceiverWindow()
     HideWindow(#WindowReceiver, #False)
   EndIf
 
+  TargetHost$ = PreferredReceiverHost$
+  If TargetHost$ = ""
+    TargetHost$ = CurrentQueuedTargetHost$
+  EndIf
+
   ClearGadgetItems(#GadgetReceiverList)
   ForEach Discovery()
     If Discovery()\IsLanShare
@@ -1028,6 +1055,9 @@ Procedure OpenReceiverWindow()
         Text$ = Discovery()\Name + " (" + Discovery()\Host + ")"
       EndIf
       AddGadgetItem(#GadgetReceiverList, -1, Text$ + Chr(10) + Discovery()\State + Chr(10) + Str(Discovery()\Port))
+      If TargetHost$ <> "" And Discovery()\Host = TargetHost$
+        SelectedIndex = Count
+      EndIf
       Count + 1
     EndIf
   Next
@@ -1039,6 +1069,8 @@ Procedure OpenReceiverWindow()
 
   If Count = 1
     SetGadgetState(#GadgetReceiverList, 0)
+  ElseIf SelectedIndex >= 0
+    SetGadgetState(#GadgetReceiverList, SelectedIndex)
   EndIf
   SetActiveWindow(#WindowReceiver)
 EndProcedure
@@ -1046,20 +1078,31 @@ EndProcedure
 Procedure.i UseSelectedReceiverIfAvailable()
   Protected DiscoveryIndex.i = GetGadgetState(#GadgetDiscovery)
 
-  If DiscoveryIndex < 0 Or DiscoveryIndex > ArraySize(DiscoveryEntryHost$())
-    ProcedureReturn #False
+  If DiscoveryIndex >= 0 And DiscoveryIndex <= ArraySize(DiscoveryEntryHost$())
+    If DiscoveryEntryIsLanShare(DiscoveryIndex) = 0 Or DiscoveryEntryPort(DiscoveryIndex) <= 0
+      MessageRequester(#APP_NAME, "Select a receiver from the list first.")
+      ProcedureReturn #False
+    EndIf
+
+    PreferredReceiverHost$ = DiscoveryEntryHost$(DiscoveryIndex)
+    PreferredReceiverPort = DiscoveryEntryPort(DiscoveryIndex)
+    PreferredReceiverIsLanShare = DiscoveryEntryIsLanShare(DiscoveryIndex)
+    CurrentQueuedTargetHost$ = PreferredReceiverHost$
+    CurrentQueuedTargetPort = PreferredReceiverPort
+    SetGadgetText(#GadgetRemoteHost, CurrentQueuedTargetHost$)
+    SetGadgetText(#GadgetPort, Str(CurrentQueuedTargetPort))
+    ProcedureReturn #True
   EndIf
 
-  If DiscoveryEntryIsLanShare(DiscoveryIndex) = 0 Or DiscoveryEntryPort(DiscoveryIndex) <= 0
-    MessageRequester(#APP_NAME, "Select a receiver from the list first.")
-    ProcedureReturn #False
+  If PreferredReceiverHost$ <> "" And PreferredReceiverIsLanShare And PreferredReceiverPort > 0
+    CurrentQueuedTargetHost$ = PreferredReceiverHost$
+    CurrentQueuedTargetPort = PreferredReceiverPort
+    SetGadgetText(#GadgetRemoteHost, CurrentQueuedTargetHost$)
+    SetGadgetText(#GadgetPort, Str(CurrentQueuedTargetPort))
+    ProcedureReturn #True
   EndIf
 
-  CurrentQueuedTargetHost$ = DiscoveryEntryHost$(DiscoveryIndex)
-  CurrentQueuedTargetPort = DiscoveryEntryPort(DiscoveryIndex)
-  SetGadgetText(#GadgetRemoteHost, CurrentQueuedTargetHost$)
-  SetGadgetText(#GadgetPort, Str(CurrentQueuedTargetPort))
-  ProcedureReturn #True
+  ProcedureReturn #False
 EndProcedure
 
 Procedure OpenQuickSendFiles()
@@ -3535,8 +3578,13 @@ Procedure MainLoop()
 
           Case #GadgetDiscovery
             UpdateDiscoveryDetails()
+            DiscoveryIndex = GetGadgetState(#GadgetDiscovery)
+            If DiscoveryIndex >= 0 And DiscoveryIndex <= ArraySize(DiscoveryEntryHost$())
+              PreferredReceiverHost$ = DiscoveryEntryHost$(DiscoveryIndex)
+              PreferredReceiverPort = DiscoveryEntryPort(DiscoveryIndex)
+              PreferredReceiverIsLanShare = DiscoveryEntryIsLanShare(DiscoveryIndex)
+            EndIf
             If EventType() = #PB_EventType_LeftDoubleClick
-              DiscoveryIndex = GetGadgetState(#GadgetDiscovery)
               If DiscoveryIndex >= 0 And DiscoveryIndex <= ArraySize(DiscoveryEntryHost$())
                 SetGadgetText(#GadgetRemoteHost, DiscoveryEntryHost$(DiscoveryIndex))
                 If DiscoveryEntryPort(DiscoveryIndex) > 0 And DiscoveryEntryIsLanShare(DiscoveryIndex)
@@ -3561,6 +3609,9 @@ Procedure MainLoop()
                   If Discovery()\Name + " (" + Discovery()\Host + ")" = GetGadgetItemText(#GadgetReceiverList, DiscoveryIndex, 0) Or Discovery()\Host = GetGadgetItemText(#GadgetReceiverList, DiscoveryIndex, 0)
                     CurrentQueuedTargetHost$ = Discovery()\Host
                     CurrentQueuedTargetPort = Discovery()\Port
+                    PreferredReceiverHost$ = Discovery()\Host
+                    PreferredReceiverPort = Discovery()\Port
+                    PreferredReceiverIsLanShare = #True
                     Break
                   EndIf
                 EndIf
@@ -3682,8 +3733,7 @@ ForEach Peers()
 Next
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 1353
-; FirstLine = 1341
+; CursorPosition = 16
 ; Folding = ---------------------
 ; Optimizer
 ; EnableThread
@@ -3694,12 +3744,12 @@ Next
 ; UseIcon = PB_LanShare.ico
 ; Executable = ..\PB_LanShare.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_LanShare
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
 ; VersionField6 = A LAN file sharing / file transfer app.
 ; VersionField7 = PB_LanShare
 ; VersionField8 = PB_LanShare.exe

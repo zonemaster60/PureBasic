@@ -1,0 +1,7 @@
+﻿
+[LanShare]
+SharePath = C:\Users\zonem\Downloads\LANShare
+DownloadPath = C:\Users\zonem\Downloads\LANShareDownloads
+Port = 50507
+RemoteHost = 
+OverwriteMode = 0
