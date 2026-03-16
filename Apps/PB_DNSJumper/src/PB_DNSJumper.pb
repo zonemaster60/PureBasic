@@ -15,7 +15,7 @@ EnableExplicit
 
 #APP_NAME        = "PB_DNSJumper"
 #EMAIL_NAME      = "zonemaster60@gmail.com"
-Global version.s = "v1.0.0.1"
+Global version.s = "v1.0.0.2"
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 If AppPath = "" : AppPath = GetCurrentDirectory() : EndIf
@@ -1161,8 +1161,8 @@ EndIf
     End
 EndIf
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 235
-; FirstLine = 216
+; CursorPosition = 17
+; FirstLine = 5
 ; Folding = ------
 ; Optimizer
 ; EnableThread
@@ -1172,15 +1172,15 @@ EndIf
 ; UseIcon = PB_DNSJumper.ico
 ; Executable = ..\PB_DNSJumper.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
-; VersionField3 = PB_DNSJumperLike
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
+; VersionField3 = PB_DNSJumper
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
 ; VersionField6 = An automatic DNS changer similar to DNSJumper
-; VersionField7 = PB_DNSJumperLike
-; VersionField8 = PB_DNSJumperLike.exe
+; VersionField7 = PB_DNSJumper
+; VersionField8 = PB_DNSJumper.exe
 ; VersionField9 = David Scouten
 ; VersionField13 = zonemaster60@gmail.com
 ; VersionField14 = https://github.com/zonemaster60
