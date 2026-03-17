@@ -13,8 +13,9 @@ EnableExplicit
 #DefaultPort = 50505
 #PortSearchStart = 50505
 #PortSearchEnd = 50530
+#RememberedPeerMaxAge = 1209600
 
-Global version.s = "v1.0.0.2"
+Global version.s = "v1.0.0.3"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -257,6 +258,10 @@ Global Dim RemoteEntryIsDirectory.i(0)
 Global Dim DiscoveryEntryHost$(0)
 Global Dim DiscoveryEntryPort.i(0)
 Global Dim DiscoveryEntryIsLanShare.i(0)
+Global DiscoveryEntryCount.i
+Global Dim ReceiverEntryHost$(0)
+Global Dim ReceiverEntryPort.i(0)
+Global ReceiverEntryCount.i
 Global DiscoveryFilterPeersOnly.i
 Global NewMap Peers.PeerState()
 Global NewList BrowserEntries.BrowserEntry()
@@ -304,6 +309,22 @@ Declare StopServer()
 Declare EnsureUsablePort(ShowLog.i)
 
 UseSHA2Fingerprint()
+
+Procedure.i IsValidRememberedPeer(Host$, Port.i, LastSeen.q)
+  If Trim(Host$) = ""
+    ProcedureReturn #False
+  EndIf
+
+  If Port < 1 Or Port > 65535
+    ProcedureReturn #False
+  EndIf
+
+  If LastSeen > 0 And Date() - LastSeen > #RememberedPeerMaxAge
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn #True
+EndProcedure
 
 Procedure Exit()
   Define Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
@@ -832,6 +853,7 @@ Procedure RefreshDiscoveryList()
     ReDim DiscoveryEntryHost$(0)
     ReDim DiscoveryEntryPort(0)
     ReDim DiscoveryEntryIsLanShare(0)
+    DiscoveryEntryCount = 0
     ProcedureReturn
   EndIf
 
@@ -875,21 +897,89 @@ Procedure RefreshDiscoveryList()
     ReDim DiscoveryEntryHost$(0)
     ReDim DiscoveryEntryPort(0)
     ReDim DiscoveryEntryIsLanShare(0)
+    DiscoveryEntryCount = 0
   Else
     ReDim DiscoveryEntryHost$(Index - 1)
     ReDim DiscoveryEntryPort(Index - 1)
     ReDim DiscoveryEntryIsLanShare(Index - 1)
-    If SelectedIndex >= 0 And SelectedIndex <= ArraySize(DiscoveryEntryHost$())
+    DiscoveryEntryCount = Index
+    If SelectedIndex >= 0 And SelectedIndex < DiscoveryEntryCount
       SetGadgetState(#GadgetDiscovery, SelectedIndex)
     EndIf
   EndIf
+EndProcedure
+
+Procedure.i RefreshReceiverList()
+  Protected Text$
+  Protected Count.i
+  Protected SelectedIndex.i = -1
+  Protected TargetHost$
+  Protected PreviousIndex.i
+
+  If IsGadget(#GadgetReceiverList) = 0
+    ProcedureReturn 0
+  EndIf
+
+  PreviousIndex = GetGadgetState(#GadgetReceiverList)
+  If PreviousIndex >= 0 And PreviousIndex < ReceiverEntryCount
+    TargetHost$ = ReceiverEntryHost$(PreviousIndex)
+  EndIf
+  If TargetHost$ = ""
+    TargetHost$ = PreferredReceiverHost$
+  EndIf
+  If TargetHost$ = ""
+    TargetHost$ = CurrentQueuedTargetHost$
+  EndIf
+
+  ClearGadgetItems(#GadgetReceiverList)
+  If MapSize(Discovery()) <= 0
+    ReDim ReceiverEntryHost$(0)
+    ReDim ReceiverEntryPort(0)
+    ReceiverEntryCount = 0
+    ProcedureReturn 0
+  EndIf
+
+  ReDim ReceiverEntryHost$(MapSize(Discovery()) - 1)
+  ReDim ReceiverEntryPort(MapSize(Discovery()) - 1)
+  ForEach Discovery()
+    If Discovery()\IsLanShare
+      Text$ = Discovery()\Host
+      If Discovery()\Name <> ""
+        Text$ = Discovery()\Name + " (" + Discovery()\Host + ")"
+      EndIf
+      AddGadgetItem(#GadgetReceiverList, -1, Text$ + Chr(10) + Discovery()\State + Chr(10) + Str(Discovery()\Port))
+      ReceiverEntryHost$(Count) = Discovery()\Host
+      ReceiverEntryPort(Count) = Discovery()\Port
+      If TargetHost$ <> "" And Discovery()\Host = TargetHost$
+        SelectedIndex = Count
+      EndIf
+      Count + 1
+    EndIf
+  Next
+
+  If Count = 0
+    ReDim ReceiverEntryHost$(0)
+    ReDim ReceiverEntryPort(0)
+    ReceiverEntryCount = 0
+  Else
+    ReDim ReceiverEntryHost$(Count - 1)
+    ReDim ReceiverEntryPort(Count - 1)
+    ReceiverEntryCount = Count
+    If Count = 1
+      SetGadgetState(#GadgetReceiverList, 0)
+    ElseIf SelectedIndex >= 0 And SelectedIndex < ReceiverEntryCount
+      SetGadgetState(#GadgetReceiverList, SelectedIndex)
+    EndIf
+  EndIf
+
+  ProcedureReturn Count
 EndProcedure
 
 Procedure UpdateDiscoveryDetails()
   Protected Index.i = GetGadgetState(#GadgetDiscovery)
   Protected Host$
 
-  If Index < 0 Or Index > ArraySize(DiscoveryEntryHost$())
+  If Index < 0 Or Index >= DiscoveryEntryCount
     SetGadgetText(#GadgetDetailsTitle, "Device Details")
     SetGadgetText(#GadgetDetailsHost, "Host: -")
     SetGadgetText(#GadgetDetailsType, "Type: -")
@@ -932,7 +1022,7 @@ Procedure CopyConnectionInfo()
   Protected Index.i = GetGadgetState(#GadgetDiscovery)
   Protected Text$
 
-  If Index < 0 Or Index > ArraySize(DiscoveryEntryHost$())
+  If Index < 0 Or Index >= DiscoveryEntryCount
     Text$ = "Host=" + GetGadgetText(#GadgetRemoteHost) + "; Port=" + GetGadgetText(#GadgetPort)
   Else
     Text$ = "Host=" + DiscoveryEntryHost$(Index) + "; Port=" + Str(DiscoveryEntryPort(Index))
@@ -1025,10 +1115,7 @@ Procedure OpenSettingsWindow()
 EndProcedure
 
 Procedure OpenReceiverWindow()
-  Protected Text$
   Protected Count.i
-  Protected SelectedIndex.i = -1
-  Protected TargetHost$
 
   If IsWindow(#WindowReceiver) = 0
     OpenWindow(#WindowReceiver, 0, 0, 460, 340, "Choose Receiver", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
@@ -1042,35 +1129,15 @@ Procedure OpenReceiverWindow()
     HideWindow(#WindowReceiver, #False)
   EndIf
 
-  TargetHost$ = PreferredReceiverHost$
-  If TargetHost$ = ""
-    TargetHost$ = CurrentQueuedTargetHost$
-  EndIf
-
-  ClearGadgetItems(#GadgetReceiverList)
-  ForEach Discovery()
-    If Discovery()\IsLanShare
-      Text$ = Discovery()\Host
-      If Discovery()\Name <> ""
-        Text$ = Discovery()\Name + " (" + Discovery()\Host + ")"
-      EndIf
-      AddGadgetItem(#GadgetReceiverList, -1, Text$ + Chr(10) + Discovery()\State + Chr(10) + Str(Discovery()\Port))
-      If TargetHost$ <> "" And Discovery()\Host = TargetHost$
-        SelectedIndex = Count
-      EndIf
-      Count + 1
-    EndIf
-  Next
+  Count = RefreshReceiverList()
 
   If Count = 0
-    StartDiscoveryScan()
-    AddLog("No receivers in memory yet. Scanning now...")
-  EndIf
-
-  If Count = 1
-    SetGadgetState(#GadgetReceiverList, 0)
-  ElseIf SelectedIndex >= 0
-    SetGadgetState(#GadgetReceiverList, SelectedIndex)
+    If ScanActive = 0
+      StartDiscoveryScan()
+      AddLog("No receivers in memory yet. Scanning now...")
+    Else
+      AddLog("Receiver search already running...")
+    EndIf
   EndIf
   SetActiveWindow(#WindowReceiver)
 EndProcedure
@@ -1078,20 +1145,17 @@ EndProcedure
 Procedure.i UseSelectedReceiverIfAvailable()
   Protected DiscoveryIndex.i = GetGadgetState(#GadgetDiscovery)
 
-  If DiscoveryIndex >= 0 And DiscoveryIndex <= ArraySize(DiscoveryEntryHost$())
-    If DiscoveryEntryIsLanShare(DiscoveryIndex) = 0 Or DiscoveryEntryPort(DiscoveryIndex) <= 0
-      MessageRequester(#APP_NAME, "Select a receiver from the list first.")
-      ProcedureReturn #False
+  If DiscoveryIndex >= 0 And DiscoveryIndex < DiscoveryEntryCount
+    If DiscoveryEntryIsLanShare(DiscoveryIndex) And DiscoveryEntryPort(DiscoveryIndex) > 0
+      PreferredReceiverHost$ = DiscoveryEntryHost$(DiscoveryIndex)
+      PreferredReceiverPort = DiscoveryEntryPort(DiscoveryIndex)
+      PreferredReceiverIsLanShare = DiscoveryEntryIsLanShare(DiscoveryIndex)
+      CurrentQueuedTargetHost$ = PreferredReceiverHost$
+      CurrentQueuedTargetPort = PreferredReceiverPort
+      SetGadgetText(#GadgetRemoteHost, CurrentQueuedTargetHost$)
+      SetGadgetText(#GadgetPort, Str(CurrentQueuedTargetPort))
+      ProcedureReturn #True
     EndIf
-
-    PreferredReceiverHost$ = DiscoveryEntryHost$(DiscoveryIndex)
-    PreferredReceiverPort = DiscoveryEntryPort(DiscoveryIndex)
-    PreferredReceiverIsLanShare = DiscoveryEntryIsLanShare(DiscoveryIndex)
-    CurrentQueuedTargetHost$ = PreferredReceiverHost$
-    CurrentQueuedTargetPort = PreferredReceiverPort
-    SetGadgetText(#GadgetRemoteHost, CurrentQueuedTargetHost$)
-    SetGadgetText(#GadgetPort, Str(CurrentQueuedTargetPort))
-    ProcedureReturn #True
   EndIf
 
   If PreferredReceiverHost$ <> "" And PreferredReceiverIsLanShare And PreferredReceiverPort > 0
@@ -1423,19 +1487,33 @@ Procedure.s SettingsPath()
 EndProcedure
 
 Procedure LoadSettings()
+  Protected PeerValue$
+  Protected PeerHost$
+  Protected PeerPort.i
+  Protected PeerName$
+  Protected PeerLastSeen.q
+
   If OpenPreferences(SettingsPath())
     PreferenceGroup("LanShare")
-    DownloadPath$ = TrimTrailingSlash(ReadPreferenceString("DownloadPath", DownloadPath$))
+    DownloadPath$ = TrimTrailingSlash(ReadPreferenceString("DownloadPath", ReadPreferenceString("SharePath", DownloadPath$)))
     PreferenceGroup("RememberedPeers")
     ExaminePreferenceKeys()
     While NextPreferenceKey()
-      AddMapElement(Discovery(), PreferenceKeyName())
-      Discovery()\Host = PreferenceKeyName()
-      Discovery()\Port = Val(StringField(PreferenceKeyValue(), 1, "|"))
-      Discovery()\Name = StringField(PreferenceKeyValue(), 2, "|")
-      Discovery()\DeviceType = "Ready to receive"
-      Discovery()\IsLanShare = #True
-      Discovery()\State = "(remembered)"
+      PeerHost$ = Trim(PreferenceKeyName())
+      PeerValue$ = PreferenceKeyValue()
+      PeerPort = Val(StringField(PeerValue$, 1, "|"))
+      PeerName$ = StringField(PeerValue$, 2, "|")
+      PeerLastSeen = Val(StringField(PeerValue$, 3, "|"))
+      If IsValidRememberedPeer(PeerHost$, PeerPort, PeerLastSeen)
+        AddMapElement(Discovery(), PeerHost$)
+        Discovery()\Host = PeerHost$
+        Discovery()\Port = PeerPort
+        Discovery()\Name = PeerName$
+        Discovery()\LastSeen = PeerLastSeen
+        Discovery()\DeviceType = "Ready to receive"
+        Discovery()\IsLanShare = #True
+        Discovery()\State = "(remembered)"
+      EndIf
     Wend
     ClosePreferences()
   EndIf
@@ -1443,9 +1521,11 @@ EndProcedure
 
 Procedure SaveSettings()
   Protected PeerValue$
+  Protected PeerLastSeen.q
 
   If CreatePreferences(SettingsPath())
     PreferenceGroup("LanShare")
+    WritePreferenceString("SharePath", DownloadPath$)
     WritePreferenceString("DownloadPath", DownloadPath$)
     WritePreferenceString("Port", GetGadgetText(#GadgetPort))
     WritePreferenceString("RemoteHost", GetGadgetText(#GadgetRemoteHost))
@@ -1453,8 +1533,9 @@ Procedure SaveSettings()
 
     PreferenceGroup("RememberedPeers")
     ForEach Discovery()
-      If Discovery()\IsLanShare
-        PeerValue$ = Str(Discovery()\Port) + "|" + Discovery()\Name
+      PeerLastSeen = Discovery()\LastSeen
+      If Discovery()\IsLanShare And IsValidRememberedPeer(Discovery()\Host, Discovery()\Port, PeerLastSeen)
+        PeerValue$ = Str(Discovery()\Port) + "|" + Discovery()\Name + "|" + Str(PeerLastSeen)
         WritePreferenceString(Discovery()\Host, PeerValue$)
       EndIf
     Next
@@ -1468,11 +1549,15 @@ Procedure ApplyLoadedSettingsToUI()
   If OpenPreferences(SettingsPath())
     PreferenceGroup("LanShare")
     SavedPort$ = ReadPreferenceString("Port", Str(#DefaultPort))
+    SetGadgetText(#GadgetSharePath, DownloadPath$)
+    SetGadgetText(#GadgetDownloadPath, DownloadPath$)
     SetGadgetText(#GadgetPort, SavedPort$)
     SetGadgetText(#GadgetRemoteHost, ReadPreferenceString("RemoteHost", ""))
     SetGadgetState(#GadgetOverwrite, ReadPreferenceLong("OverwriteMode", #OverwriteKeepBoth))
     ClosePreferences()
   Else
+    SetGadgetText(#GadgetSharePath, DownloadPath$)
+    SetGadgetText(#GadgetDownloadPath, DownloadPath$)
     SetGadgetText(#GadgetPort, Str(#DefaultPort))
   EndIf
 
@@ -2121,6 +2206,9 @@ EndProcedure
 
 Procedure ContinueDiscoveryScan()
   FlushDiscoveryResults()
+  If IsWindow(#WindowReceiver)
+    RefreshReceiverList()
+  EndIf
 
   If ScanActive And ScanWorkerRunning = 0
     ScanActive = 0
@@ -2496,6 +2584,20 @@ Procedure TryStartNextUpload()
   EndIf
 
   FirstElement(UploadQueue())
+  If UploadQueue()\IsDirectory
+    If FileSize(UploadQueue()\LocalPath) <> -2
+      AddLog("Skipped missing folder: " + UploadQueue()\LocalPath)
+      DeleteElement(UploadQueue())
+      TryStartNextUpload()
+      ProcedureReturn
+    EndIf
+
+    *Peer\AwaitingTransferStatus = #True
+    SendTextFrame(*Peer\Connection, #FrameCreateDir, UploadQueue()\RemotePath)
+    AddLog("Creating remote folder: " + UploadQueue()\RemotePath)
+    ProcedureReturn
+  EndIf
+
   FileSizeValue = FileSize(UploadQueue()\LocalPath)
   If FileSizeValue < 0
     AddLog("Skipped missing file: " + UploadQueue()\LocalPath)
@@ -2504,21 +2606,13 @@ Procedure TryStartNextUpload()
     ProcedureReturn
   EndIf
 
-  If UploadQueue()\IsDirectory
-    SendTextFrame(*Peer\Connection, #FrameCreateDir, UploadQueue()\RemotePath)
-    AddLog("Creating remote folder: " + UploadQueue()\RemotePath)
-    DeleteElement(UploadQueue())
-    TryStartNextUpload()
-    ProcedureReturn
-  EndIf
-
   Modified = GetFileDate(UploadQueue()\LocalPath, #PB_Date_Modified)
+  *Peer\SendChecksum = FileSHA256(UploadQueue()\LocalPath)
   Payload$ = ParentRelativePath(UploadQueue()\RemotePath) + Chr(31) + GetFilePart(UploadQueue()\RemotePath) + Chr(31) + Str(FileSizeValue) + Chr(31) + Str(Modified) + Chr(31) + *Peer\SendChecksum
 
   *Peer\WaitingUploadReady = #True
   *Peer\PendingLocalUploadPath = UploadQueue()\LocalPath
   *Peer\PendingRemoteTargetDir = ParentRelativePath(UploadQueue()\RemotePath)
-  *Peer\SendChecksum = FileSHA256(UploadQueue()\LocalPath)
   SendTextFrame(*Peer\Connection, #FrameUploadBegin, Payload$)
   UpdateProgressUI()
 EndProcedure
@@ -2874,6 +2968,10 @@ Procedure HandleTextFrame(*Peer.PeerState, FrameType.i, Payload$)
         *Peer\WaitingUploadReady = #False
         *Peer\AwaitingTransferStatus = #True
         *Peer\AwaitingUploadVerify = #True
+        If ListSize(UploadQueue()) > 0
+          FirstElement(UploadQueue())
+          DeleteElement(UploadQueue())
+        EndIf
         AddLog("Uploading to remote share: " + *Peer\SendRelativePath)
       EndIf
 
@@ -2958,13 +3056,18 @@ Procedure HandleTextFrame(*Peer.PeerState, FrameType.i, Payload$)
       SavedRelative$ = StringField(Payload$, 2, Chr(31))
       If *Peer\AwaitingUploadVerify
         *Peer\AwaitingUploadVerify = #False
+        *Peer\AwaitingTransferStatus = #False
         If LCase(SavedRelative$) = LCase(*Peer\SendChecksum)
           AddLog("Upload verified by remote host: " + RelativePath$)
           AddHistory("OK", "Upload", RelativePath$, "End-to-end SHA-256 verified")
+          UpdateTransferRow(#TransferRowUpload, RelativePath$, *Peer\PeerHost, *Peer\PendingLocalUploadPath, *Peer\SendTotal, "Completed", 100)
         Else
           AddLog("Upload verification failed: " + RelativePath$)
           AddHistory("Failed", "Upload", RelativePath$, "End-to-end SHA-256 mismatch")
+          UpdateTransferRow(#TransferRowUpload, RelativePath$, *Peer\PeerHost, *Peer\PendingLocalUploadPath, *Peer\SendTotal, "Failed", 0)
         EndIf
+        RequestRemoteList(*Peer\CurrentRemotePath)
+        TryStartNextUpload()
       EndIf
 
     Case #FramePause
@@ -2998,15 +3101,27 @@ Procedure HandleTextFrame(*Peer.PeerState, FrameType.i, Payload$)
 
     Case #FrameStatus
       AddLog(Payload$)
+      If *Peer\IsOutgoing And *Peer\WaitingUploadReady
+        *Peer\WaitingUploadReady = #False
+        If ListSize(UploadQueue()) > 0
+          FirstElement(UploadQueue())
+          DeleteElement(UploadQueue())
+        EndIf
+        RequestRemoteList(*Peer\CurrentRemotePath)
+        TryStartNextUpload()
+      EndIf
       If *Peer\IsOutgoing And *Peer\AwaitingTransferStatus
         *Peer\AwaitingTransferStatus = #False
-        If *Peer\AwaitingUploadVerify = 0
-          RequestRemoteList(*Peer\CurrentRemotePath)
+        If Left(Payload$, 16) = "Created folder: "
           If ListSize(UploadQueue()) > 0
             FirstElement(UploadQueue())
             DeleteElement(UploadQueue())
-            TryStartNextUpload()
           EndIf
+          RequestRemoteList(*Peer\CurrentRemotePath)
+          TryStartNextUpload()
+        ElseIf *Peer\AwaitingUploadVerify = 0
+          RequestRemoteList(*Peer\CurrentRemotePath)
+          TryStartNextUpload()
         EndIf
       EndIf
       If ActiveRemoteConnection And ListSize(UploadQueue()) = 0 And CurrentQueuedTargetHost$ <> ""
@@ -3579,13 +3694,13 @@ Procedure MainLoop()
           Case #GadgetDiscovery
             UpdateDiscoveryDetails()
             DiscoveryIndex = GetGadgetState(#GadgetDiscovery)
-            If DiscoveryIndex >= 0 And DiscoveryIndex <= ArraySize(DiscoveryEntryHost$())
+            If DiscoveryIndex >= 0 And DiscoveryIndex < DiscoveryEntryCount And DiscoveryEntryIsLanShare(DiscoveryIndex)
               PreferredReceiverHost$ = DiscoveryEntryHost$(DiscoveryIndex)
               PreferredReceiverPort = DiscoveryEntryPort(DiscoveryIndex)
               PreferredReceiverIsLanShare = DiscoveryEntryIsLanShare(DiscoveryIndex)
             EndIf
             If EventType() = #PB_EventType_LeftDoubleClick
-              If DiscoveryIndex >= 0 And DiscoveryIndex <= ArraySize(DiscoveryEntryHost$())
+              If DiscoveryIndex >= 0 And DiscoveryIndex < DiscoveryEntryCount
                 SetGadgetText(#GadgetRemoteHost, DiscoveryEntryHost$(DiscoveryIndex))
                 If DiscoveryEntryPort(DiscoveryIndex) > 0 And DiscoveryEntryIsLanShare(DiscoveryIndex)
                   SetGadgetText(#GadgetPort, Str(DiscoveryEntryPort(DiscoveryIndex)))
@@ -3603,19 +3718,12 @@ Procedure MainLoop()
 
           Case #GadgetReceiverSend
             DiscoveryIndex = GetGadgetState(#GadgetReceiverList)
-            If DiscoveryIndex >= 0
-              ForEach Discovery()
-                If Discovery()\IsLanShare
-                  If Discovery()\Name + " (" + Discovery()\Host + ")" = GetGadgetItemText(#GadgetReceiverList, DiscoveryIndex, 0) Or Discovery()\Host = GetGadgetItemText(#GadgetReceiverList, DiscoveryIndex, 0)
-                    CurrentQueuedTargetHost$ = Discovery()\Host
-                    CurrentQueuedTargetPort = Discovery()\Port
-                    PreferredReceiverHost$ = Discovery()\Host
-                    PreferredReceiverPort = Discovery()\Port
-                    PreferredReceiverIsLanShare = #True
-                    Break
-                  EndIf
-                EndIf
-              Next
+            If DiscoveryIndex >= 0 And DiscoveryIndex < ReceiverEntryCount
+              CurrentQueuedTargetHost$ = ReceiverEntryHost$(DiscoveryIndex)
+              CurrentQueuedTargetPort = ReceiverEntryPort(DiscoveryIndex)
+              PreferredReceiverHost$ = CurrentQueuedTargetHost$
+              PreferredReceiverPort = CurrentQueuedTargetPort
+              PreferredReceiverIsLanShare = #True
               SetGadgetText(#GadgetRemoteHost, CurrentQueuedTargetHost$)
               SetGadgetText(#GadgetPort, Str(CurrentQueuedTargetPort))
               If IsWindow(#WindowReceiver)
@@ -3733,8 +3841,8 @@ ForEach Peers()
 Next
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 16
-; Folding = ---------------------
+; CursorPosition = 17
+; Folding = ----------------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -3744,12 +3852,12 @@ Next
 ; UseIcon = PB_LanShare.ico
 ; Executable = ..\PB_LanShare.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_LanShare
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = A LAN file sharing / file transfer app.
 ; VersionField7 = PB_LanShare
 ; VersionField8 = PB_LanShare.exe
