@@ -152,13 +152,14 @@ EndStructure
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
-Global AppVersion.s = "v1.0.1.3"
+Global AppVersion.s = "v1.0.1.4"
 Global MonitorActive.i = #False
 Global MonitorEventCount.i = 0
 Global MonitorMutex.i = 0
 Global MonitorWindow.i = 0
 Global MonitorLastShownCount.i = 0
 Global LogFile.i = 0
+Global LogMutex.i = 0
 Global ErrorLogPath.s = ""
 Global AutoBackupPath.s = ""
 Global LastBackupTime.i = 0
@@ -168,6 +169,15 @@ Global CurrentKeyPath.s = ""
 Global SnapshotWindow.i = 0
 Global SnapshotCreationActive.i = #False
 Global SnapshotDirectory.s = ""
+Global BackupProgram.i = 0
+Global BackupScriptFile.s = ""
+Global BackupOutputFile.s = ""
+Global BackupOutputFolder.s = ""
+Global BackupReason.s = ""
+Global BackupIsAuto.i = #False
+Global BackupStatusFile.s = ""
+Global BackupCurrentStage.s = ""
+Global BackupCurrentMode.s = ""
 Global LoadValuesThreadID.i = 0
 Global StressTestActive.i = #False
 Global StressThreadID.i = 0
@@ -298,6 +308,7 @@ Global LoadValuesMutex.i = 0
 
 #MONITOR_THREAD_ID = 1
 #TIMER_MONITOR_REFRESH = 1001
+#TIMER_BACKUP_REFRESH = 1002
 #MONITOR_REFRESH_INTERVAL = 200
 
 #ICON_STRING = 0
@@ -310,8 +321,8 @@ Declare LogInfo(location.s, infoMsg.s)
 Declare LogError(location.s, errorMsg.s, errorCode.i = 0)
 Declare LogWarning(location.s, warnMsg.s)
 Declare UpdateStatusBar(text.s)
-Declare BackupThread(param.i)
 Declare BackupRegistry(fileName.s)
+Declare BackupCurrentKey(rootKey.i, keyPath.s, fileName.s)
 Declare CleanupOldBackups(daysToKeep.i = 7)
 Declare JumpToPath(fullPath.s)
 Declare.s GetRootKeyName(rootKey.i)
@@ -358,14 +369,21 @@ Declare HandleMainWindowGadget(gadgetID.i)
 Declare HandleMonitorWindowGadget(gadgetID.i)
 Declare HandleSnapshotWindowGadget(gadgetID.i)
 Declare HandleSearchWindowGadget(gadgetID.i)
+Declare.s EscapePowerShellLiteral(text.s)
+Declare.i StartBackupProcess(fileName.s, reason.s, isAuto.i, mode.s = "full", rootKey.i = 0, keyPath.s = "")
 
 ;- Logging, App Lifecycle, and Shared Helpers
 
 Procedure.i InitErrorLog()
   ErrorLogPath = AppPath + "RegistryManager.log"
+  If Not LogMutex
+    LogMutex = CreateMutex()
+  EndIf
   LogFile = OpenFile(#PB_Any, ErrorLogPath, #PB_File_Append | #PB_File_SharedRead)
   If LogFile
+    LockMutex(LogMutex)
     WriteStringN(LogFile, "--- Log Session Started: " + FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date()) + " ---")
+    UnlockMutex(LogMutex)
     ProcedureReturn #True
   EndIf
   ProcedureReturn #False
@@ -422,7 +440,7 @@ Procedure SnapshotThread(param.i)
 
   *res = AllocateStructure(SnapshotCreationResult)
   If *res = 0
-    FreeMemory(*p)
+    FreeStructure(*p)
     ProcedureReturn
   EndIf
 
@@ -438,7 +456,7 @@ Procedure SnapshotThread(param.i)
     *res\ErrorText = "Failed to create registry snapshot file."
   EndIf
 
-  FreeMemory(*p)
+  FreeStructure(*p)
   PostEvent(#EVENT_SNAPSHOT_CREATED, #WINDOW_MAIN, 0, 0, *res)
 EndProcedure
 
@@ -448,7 +466,7 @@ Procedure CompareThread(param.i)
 
   Protected s1.s = *p\Snapshot1
   Protected s2.s = *p\Snapshot2
-  FreeMemory(*p)
+  FreeStructure(*p)
 
   LogInfo("CompareThread", "Starting comparison in background: " + s1 + " vs " + s2)
   CompareSnapshots(s1, s2)
@@ -505,8 +523,11 @@ Procedure LogError(location.s, errorMsg.s, errorCode.i = 0)
     logMsg + " (Code: " + Str(errorCode) + ")"
   EndIf
   If LogFile
+    If Not LogMutex : LogMutex = CreateMutex() : EndIf
+    LockMutex(LogMutex)
     WriteStringN(LogFile, logMsg)
     FlushFileBuffers(LogFile)
+    UnlockMutex(LogMutex)
   EndIf
   Debug logMsg
 EndProcedure
@@ -516,8 +537,11 @@ Procedure LogInfo(location.s, infoMsg.s)
   timestamp = FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date())
   logMsg = "[" + timestamp + "] INFO in " + location + ": " + infoMsg
   If LogFile
+    If Not LogMutex : LogMutex = CreateMutex() : EndIf
+    LockMutex(LogMutex)
     WriteStringN(LogFile, logMsg)
     FlushFileBuffers(LogFile)
+    UnlockMutex(LogMutex)
   EndIf
   Debug logMsg
 EndProcedure
@@ -527,19 +551,25 @@ Procedure LogWarning(location.s, warnMsg.s)
   timestamp = FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date())
   logMsg = "[" + timestamp + "] WARNING in " + location + ": " + warnMsg
   If LogFile
+    If Not LogMutex : LogMutex = CreateMutex() : EndIf
+    LockMutex(LogMutex)
     WriteStringN(LogFile, logMsg)
     FlushFileBuffers(LogFile)
+    UnlockMutex(LogMutex)
   EndIf
   Debug logMsg
 EndProcedure
 
 Procedure CloseErrorLog()
   If LogFile
+    If Not LogMutex : LogMutex = CreateMutex() : EndIf
+    LockMutex(LogMutex)
     WriteStringN(LogFile, "")
     WriteStringN(LogFile, "=" + Space(60) + "=")
     WriteStringN(LogFile, "Log closed at " + FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date()))
     CloseFile(LogFile)
     LogFile = 0
+    UnlockMutex(LogMutex)
   EndIf
 EndProcedure
 
@@ -561,10 +591,144 @@ Procedure PostAsyncMessage(title.s, text.s, flags.i)
   EndIf
 EndProcedure
 
-Procedure.i ExportRegistryHives(fileName.s)
-  Protected tempFile.s, mergeFile.i, i.i, exitCode.i, program.i
+Procedure.s EscapePowerShellLiteral(text.s)
+  ProcedureReturn ReplaceString(text, "'", "''")
+EndProcedure
+
+Procedure.i StartBackupProcess(fileName.s, reason.s, isAuto.i, mode.s = "full", rootKey.i = 0, keyPath.s = "")
+  Protected scriptFile.s, statusFile.s, scriptHandle.i, program.i, i.i, entryCount.i
   Protected Dim hiveNames.s(4)
   Protected Dim hiveShortNames.s(4)
+  Protected Dim tempFiles.s(4)
+  Protected script.s
+  Protected rootName.s, sourcePath.s, baseName.s, extPos.i, targetFolder.s, folderName.s
+
+  If fileName = ""
+    ProcedureReturn #False
+  EndIf
+
+  If BackupProgram And ProgramRunning(BackupProgram)
+    LogWarning("StartBackupProcess", "Backup already running")
+    ProcedureReturn #False
+  EndIf
+
+  BackupOutputFolder = ""
+
+  If LCase(mode) = "key" And rootKey <> 0
+    Select rootKey
+      Case #HKEY_CLASSES_ROOT : rootName = "HKEY_CLASSES_ROOT" : hiveShortNames(0) = "HKCR"
+      Case #HKEY_CURRENT_USER : rootName = "HKEY_CURRENT_USER" : hiveShortNames(0) = "HKCU"
+      Case #HKEY_LOCAL_MACHINE : rootName = "HKEY_LOCAL_MACHINE" : hiveShortNames(0) = "HKLM"
+      Case #HKEY_USERS : rootName = "HKEY_USERS" : hiveShortNames(0) = "HKU"
+      Case #HKEY_CURRENT_CONFIG : rootName = "HKEY_CURRENT_CONFIG" : hiveShortNames(0) = "HKCC"
+    EndSelect
+    If rootName = ""
+      LogError("StartBackupProcess", "Invalid root key for key backup")
+      ProcedureReturn #False
+    EndIf
+    sourcePath = rootName
+    If keyPath <> "" : sourcePath + "\" + keyPath : EndIf
+    hiveNames(0) = sourcePath
+    tempFiles(0) = fileName
+    entryCount = 1
+  Else
+    hiveNames(0) = "HKEY_CLASSES_ROOT"
+    hiveNames(1) = "HKEY_CURRENT_USER"
+    hiveNames(2) = "HKEY_LOCAL_MACHINE"
+    hiveNames(3) = "HKEY_USERS"
+    hiveNames(4) = "HKEY_CURRENT_CONFIG"
+    hiveShortNames(0) = "HKCR"
+    hiveShortNames(1) = "HKCU"
+    hiveShortNames(2) = "HKLM"
+    hiveShortNames(3) = "HKU"
+    hiveShortNames(4) = "HKCC"
+
+    extPos = FindString(fileName, ".", Len(fileName) - 4)
+    If extPos > 0
+      baseName = Left(fileName, extPos - 1)
+    Else
+      baseName = fileName
+    EndIf
+
+    folderName = GetFilePart(baseName)
+    targetFolder = GetPathPart(fileName) + folderName + "\"
+    If FileSize(targetFolder) <> -2
+      If Not CreateDirectory(targetFolder)
+        LogError("StartBackupProcess", "Failed to create backup folder: " + targetFolder)
+        ProcedureReturn #False
+      EndIf
+    EndIf
+    BackupOutputFolder = targetFolder
+
+    For i = 0 To ArraySize(hiveNames())
+      tempFiles(i) = targetFolder + folderName + "_" + hiveShortNames(i) + ".reg"
+    Next
+    entryCount = ArraySize(hiveNames()) + 1
+  EndIf
+
+  scriptFile = GetTemporaryDirectory() + "RegistryManager_Backup_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + ".ps1"
+  statusFile = GetTemporaryDirectory() + "RegistryManager_BackupStatus_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + ".txt"
+  script + "$ErrorActionPreference = 'Stop'" + #CRLF$
+  script + "$status = '" + EscapePowerShellLiteral(statusFile) + "'" + #CRLF$
+  script + "$entries = @(" + #CRLF$
+  For i = 0 To entryCount - 1
+    script + "  @{ Hive = '" + EscapePowerShellLiteral(hiveNames(i)) + "'; File = '" + EscapePowerShellLiteral(tempFiles(i)) + "' }"
+    If i < entryCount - 1
+      script + ","
+    EndIf
+    script + #CRLF$
+  Next
+  script + ")" + #CRLF$
+  script + "try {" + #CRLF$
+  script + "  foreach ($entry in $entries) {" + #CRLF$
+  script + "    Set-Content -LiteralPath $status -Value ('Exporting ' + $entry.Hive) -Encoding UTF8" + #CRLF$
+  script + "    & reg.exe export $entry.Hive $entry.File /y | Out-Null" + #CRLF$
+  script + "    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $entry.File) -or ((Get-Item -LiteralPath $entry.File).Length -le 0)) {" + #CRLF$
+  script + "      throw ('Failed exporting ' + $entry.Hive)" + #CRLF$
+  script + "    }" + #CRLF$
+  script + "  }" + #CRLF$
+  script + "  Set-Content -LiteralPath $status -Value 'Backup complete' -Encoding UTF8" + #CRLF$
+  script + "  exit 0" + #CRLF$
+  script + "}" + #CRLF$
+  script + "catch {" + #CRLF$
+  script + "  Set-Content -LiteralPath $status -Value ('Failed: ' + $_.Exception.Message) -Encoding UTF8" + #CRLF$
+  script + "  exit 1" + #CRLF$
+  script + "}" + #CRLF$
+
+  scriptHandle = CreateFile(#PB_Any, scriptFile)
+  If Not scriptHandle
+    LogError("StartBackupProcess", "Failed to create backup script: " + scriptFile)
+    ProcedureReturn #False
+  EndIf
+  WriteString(scriptHandle, script, #PB_UTF8)
+  CloseFile(scriptHandle)
+
+  LogInfo("StartBackupProcess", "Launching backup process for: " + reason)
+  program = RunProgram("powershell", "-NoProfile -ExecutionPolicy Bypass -File " + Chr(34) + scriptFile + Chr(34), "", #PB_Program_Open | #PB_Program_Hide)
+  If Not program
+    DeleteFile(scriptFile)
+    LogError("StartBackupProcess", "Failed to start PowerShell backup process")
+    ProcedureReturn #False
+  EndIf
+
+  BackupProgram = program
+  BackupScriptFile = scriptFile
+  BackupStatusFile = statusFile
+  BackupOutputFile = fileName
+  BackupReason = reason
+  BackupIsAuto = isAuto
+  BackupCurrentMode = LCase(mode)
+  BackupCurrentStage = "Starting backup..."
+  AddWindowTimer(#WINDOW_MAIN, #TIMER_BACKUP_REFRESH, 250)
+  ProcedureReturn #True
+EndProcedure
+
+Procedure.i ExportRegistryHives(fileName.s)
+  Protected tempFile.s, scriptFile.s, scriptHandle.i, i.i, exitCode.i, program.i, mergeProgram.i
+  Protected Dim hiveNames.s(4)
+  Protected Dim hiveShortNames.s(4)
+  Protected Dim tempFiles.s(4)
+  Protected script.s
 
   If fileName = ""
     ProcedureReturn #False
@@ -581,60 +745,85 @@ Procedure.i ExportRegistryHives(fileName.s)
   hiveShortNames(3) = "HKU"
   hiveShortNames(4) = "HKCC"
 
-  mergeFile = CreateFile(#PB_Any, fileName)
-  If Not mergeFile
-    LogError("ExportRegistryHives", "Failed to create export file: " + fileName)
-    ProcedureReturn #False
-  EndIf
-
-  WriteStringN(mergeFile, "Windows Registry Editor Version 5.00")
-  WriteStringN(mergeFile, "")
-
   For i = 0 To ArraySize(hiveNames())
     tempFile = GetTemporaryDirectory() + "RegistryManager_" + hiveShortNames(i) + "_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + "_" + Str(i) + ".reg"
+    tempFiles(i) = tempFile
     If FileSize(tempFile) >= 0
       DeleteFile(tempFile)
     EndIf
 
+    LogInfo("ExportRegistryHives", "Exporting hive: " + hiveNames(i))
     program = RunProgram("reg", "export " + hiveNames(i) + " " + Chr(34) + tempFile + Chr(34) + " /y", "", #PB_Program_Wait | #PB_Program_Hide)
     If program
       exitCode = ProgramExitCode(program)
       CloseProgram(program)
       If exitCode <> 0 Or FileSize(tempFile) <= 0
-        CloseFile(mergeFile)
-        DeleteFile(fileName)
+        If FileSize(fileName) >= 0 : DeleteFile(fileName) : EndIf
         If FileSize(tempFile) >= 0 : DeleteFile(tempFile) : EndIf
         LogError("ExportRegistryHives", "Failed exporting hive " + hiveNames(i) + " (exit code " + Str(exitCode) + ")")
         ProcedureReturn #False
       EndIf
-
-      Protected readFile.i = ReadFile(#PB_Any, tempFile)
-      If Not readFile
-        CloseFile(mergeFile)
-        DeleteFile(fileName)
-        DeleteFile(tempFile)
-        LogError("ExportRegistryHives", "Failed to reopen temp hive export: " + tempFile)
-        ProcedureReturn #False
-      EndIf
-
-      While Not Eof(readFile)
-        Protected line.s = ReadString(readFile)
-        If Left(line, 31) <> "Windows Registry Editor Version"
-          WriteStringN(mergeFile, line)
-        EndIf
-      Wend
-      WriteStringN(mergeFile, "")
-      CloseFile(readFile)
-      DeleteFile(tempFile)
     Else
-      CloseFile(mergeFile)
-      DeleteFile(fileName)
+      If FileSize(fileName) >= 0 : DeleteFile(fileName) : EndIf
       LogError("ExportRegistryHives", "Failed to execute reg.exe for hive " + hiveNames(i))
       ProcedureReturn #False
     EndIf
   Next
 
-  CloseFile(mergeFile)
+  scriptFile = GetTemporaryDirectory() + "RegistryManager_Merge_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + ".ps1"
+  script = "$files = @(" + #CRLF$
+  For i = 0 To ArraySize(tempFiles())
+    script + "  '" + EscapePowerShellLiteral(tempFiles(i)) + "'"
+    If i < ArraySize(tempFiles())
+      script + ","
+    EndIf
+    script + #CRLF$
+  Next
+  script + ")" + #CRLF$
+  script + "$out = '" + EscapePowerShellLiteral(fileName) + "'" + #CRLF$
+  script + "$enc = New-Object System.Text.UnicodeEncoding($false, $true)" + #CRLF$
+  script + "$writer = New-Object System.IO.StreamWriter($out, $false, $enc)" + #CRLF$
+  script + "$writer.NewLine = '`r`n'" + #CRLF$
+  script + "$writer.WriteLine('Windows Registry Editor Version 5.00')" + #CRLF$
+  script + "$writer.WriteLine()" + #CRLF$
+  script + "foreach ($file in $files) {" + #CRLF$
+  script + "  Get-Content -LiteralPath $file | Select-Object -Skip 2 | ForEach-Object { $writer.WriteLine($_) }" + #CRLF$
+  script + "  $writer.WriteLine()" + #CRLF$
+  script + "}" + #CRLF$
+  script + "$writer.Close()" + #CRLF$
+
+  scriptHandle = CreateFile(#PB_Any, scriptFile)
+  If Not scriptHandle
+    LogError("ExportRegistryHives", "Failed to create merge script: " + scriptFile)
+    For i = 0 To ArraySize(tempFiles())
+      If FileSize(tempFiles(i)) >= 0 : DeleteFile(tempFiles(i)) : EndIf
+    Next
+    ProcedureReturn #False
+  EndIf
+  WriteString(scriptHandle, script, #PB_UTF8)
+  CloseFile(scriptHandle)
+
+  LogInfo("ExportRegistryHives", "Merging exported hives into: " + fileName)
+  mergeProgram = RunProgram("powershell", "-NoProfile -ExecutionPolicy Bypass -File " + Chr(34) + scriptFile + Chr(34), "", #PB_Program_Wait | #PB_Program_Hide)
+  If mergeProgram
+    exitCode = ProgramExitCode(mergeProgram)
+    CloseProgram(mergeProgram)
+  Else
+    exitCode = -1
+  EndIf
+
+  DeleteFile(scriptFile)
+  For i = 0 To ArraySize(tempFiles())
+    If FileSize(tempFiles(i)) >= 0 : DeleteFile(tempFiles(i)) : EndIf
+  Next
+
+  If exitCode <> 0 Or FileSize(fileName) <= 0
+    If FileSize(fileName) >= 0 : DeleteFile(fileName) : EndIf
+    LogError("ExportRegistryHives", "Failed merging exported hives (exit code " + Str(exitCode) + ")")
+    ProcedureReturn #False
+  EndIf
+
+  LogInfo("ExportRegistryHives", "Registry export completed successfully")
   ProcedureReturn #True
 EndProcedure
 
@@ -653,39 +842,8 @@ Procedure.s GetBackupDirectory()
   ProcedureReturn backupDir
 EndProcedure
 
-Procedure BackupThread(param.i)
-  Protected *p.BackupThreadParams = param
-  Protected fileName.s, reason.s, isAuto.i
-
-  If *p = 0 : ProcedureReturn : EndIf
-
-  fileName = *p\FileName
-  reason = *p\Reason
-  isAuto = *p\IsAuto
-  FreeMemory(*p)
-
-  LogInfo("BackupThread", "Starting backup for: " + reason)
-  If ExportRegistryHives(fileName)
-    If isAuto
-      AutoBackupPath = fileName
-      LastBackupTime = ElapsedMilliseconds()
-      LogInfo("BackupThread", "Auto-backup created successfully: " + fileName)
-    Else
-      LogInfo("BackupThread", "Manual backup completed: " + fileName)
-    EndIf
-    PostAsyncStatus("Backup completed: " + GetFilePart(fileName))
-  Else
-    LogError("BackupThread", "Backup export failed")
-    PostAsyncStatus("Error: Backup failed!")
-    If Not isAuto
-      PostAsyncMessage("Backup Failed", "Failed to create registry backup file." + #CRLF$ + "Check the log for details.", #PB_MessageRequester_Error)
-    EndIf
-  EndIf
-EndProcedure
-
 Procedure.i CreateAutoBackup(reason.s = "Auto-backup before changes")
   Protected backupFile.s, backupDir.s, timestamp.s
-  Protected *p.BackupThreadParams
 
   timestamp = FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date())
   backupDir = GetBackupDirectory()
@@ -694,22 +852,10 @@ Procedure.i CreateAutoBackup(reason.s = "Auto-backup before changes")
   LogInfo("CreateAutoBackup", "Queuing automatic backup: " + reason)
   UpdateStatusBar("Background backup started... You can continue working.")
 
-  *p = AllocateMemory(SizeOf(BackupThreadParams))
-  If *p
-    *p\FileName = backupFile
-    *p\Reason = reason
-    *p\IsAuto = #True
-    If CreateThread(@BackupThread(), *p)
-      ProcedureReturn #True
-    EndIf
-    FreeMemory(*p)
-  EndIf
-
-  ProcedureReturn #False
+  ProcedureReturn StartBackupProcess(backupFile, reason, #True, "full")
 EndProcedure
 
 Procedure BackupRegistry(fileName.s)
-  Protected *p.BackupThreadParams
   If fileName = ""
     LogError("BackupRegistry", "Empty filename provided")
     UpdateStatusBar("Error: No filename specified")
@@ -719,19 +865,29 @@ Procedure BackupRegistry(fileName.s)
   LogInfo("BackupRegistry", "Queuing manual backup to: " + fileName)
   UpdateStatusBar("Background backup started...")
 
-  *p = AllocateMemory(SizeOf(BackupThreadParams))
-  If *p
-    *p\FileName = fileName
-    *p\Reason = "Manual User Backup"
-    *p\IsAuto = #False
-    If CreateThread(@BackupThread(), *p)
-      ProcedureReturn #True
-    EndIf
-    FreeMemory(*p)
+  If StartBackupProcess(fileName, "Manual User Backup", #False, "full")
+    ProcedureReturn #True
   EndIf
 
-  UpdateStatusBar("Error: Could not start backup thread")
+  UpdateStatusBar("Error: Could not start backup process")
   MessageRequester("Backup Failed", "Could not start the backup task.", #PB_MessageRequester_Error)
+  ProcedureReturn #False
+EndProcedure
+
+Procedure BackupCurrentKey(rootKey.i, keyPath.s, fileName.s)
+  If rootKey = 0 Or fileName = ""
+    ProcedureReturn #False
+  EndIf
+
+  LogInfo("BackupCurrentKey", "Queuing current key backup to: " + fileName)
+  UpdateStatusBar("Background key backup started...")
+
+  If StartBackupProcess(fileName, "Current Key Backup", #False, "key", rootKey, keyPath)
+    ProcedureReturn #True
+  EndIf
+
+  UpdateStatusBar("Error: Could not start key backup process")
+  MessageRequester("Backup Failed", "Could not start the key backup task.", #PB_MessageRequester_Error)
   ProcedureReturn #False
 EndProcedure
 
@@ -945,6 +1101,79 @@ Procedure HandleTimerEvent()
   ElseIf EventWindow() = #WINDOW_SNAPSHOT And EventTimer() = 4002
     If CompareThreadID <> 0
       UpdateStatusBar("Comparing snapshots in background... Found " + Str(ListSize(DiffResults())) + " diffs")
+    EndIf
+  ElseIf EventWindow() = #WINDOW_MAIN And EventTimer() = #TIMER_BACKUP_REFRESH
+    If BackupProgram
+      If BackupStatusFile <> "" And FileSize(BackupStatusFile) > 0
+        Protected statusReader.i = ReadFile(#PB_Any, BackupStatusFile)
+        If statusReader
+          Protected latestStatus.s = ""
+          While Not Eof(statusReader)
+            latestStatus = ReadString(statusReader)
+          Wend
+          CloseFile(statusReader)
+          If latestStatus <> "" And latestStatus <> BackupCurrentStage
+            BackupCurrentStage = latestStatus
+            UpdateStatusBar(latestStatus)
+          EndIf
+        EndIf
+      EndIf
+
+      If ProgramRunning(BackupProgram)
+        ProcedureReturn
+      EndIf
+
+      Define backupExitCode.i = ProgramExitCode(BackupProgram)
+      CloseProgram(BackupProgram)
+      BackupProgram = 0
+      RemoveWindowTimer(#WINDOW_MAIN, #TIMER_BACKUP_REFRESH)
+      If BackupScriptFile <> "" And FileSize(BackupScriptFile) >= 0
+        DeleteFile(BackupScriptFile)
+      EndIf
+      If BackupStatusFile <> "" And FileSize(BackupStatusFile) >= 0
+        DeleteFile(BackupStatusFile)
+      EndIf
+
+      If backupExitCode = 0
+        If BackupIsAuto
+          AutoBackupPath = BackupOutputFile
+          LastBackupTime = ElapsedMilliseconds()
+        EndIf
+        If BackupCurrentMode = "full"
+          LogInfo("HandleTimerEvent", "Backup completed successfully: " + BackupOutputFile)
+          UpdateStatusBar("Full backup completed in separate hive files")
+          If Not BackupIsAuto
+            MessageRequester("Backup Complete", "Full registry backup completed." + #CRLF$ + #CRLF$ + "Files were written to folder:" + #CRLF$ + BackupOutputFolder, #PB_MessageRequester_Info)
+          EndIf
+        ElseIf FileSize(BackupOutputFile) > 0
+          LogInfo("HandleTimerEvent", "Key backup completed successfully: " + BackupOutputFile)
+          UpdateStatusBar("Backup completed: " + GetFilePart(BackupOutputFile))
+          If Not BackupIsAuto
+            MessageRequester("Backup Complete", "Registry key backup completed:" + #CRLF$ + BackupOutputFile, #PB_MessageRequester_Info)
+          EndIf
+        Else
+          LogError("HandleTimerEvent", "Key backup finished but output file is missing: " + BackupOutputFile)
+          UpdateStatusBar("Error: Backup failed!")
+        EndIf
+      Else
+        If FileSize(BackupOutputFile) = 0
+          DeleteFile(BackupOutputFile)
+        EndIf
+        LogError("HandleTimerEvent", "Backup process failed for: " + BackupOutputFile + " (exit code " + Str(backupExitCode) + ")")
+        UpdateStatusBar("Error: Backup failed!")
+        If Not BackupIsAuto
+          MessageRequester("Backup Failed", "Failed to create registry backup file." + #CRLF$ + "Check the log for details.", #PB_MessageRequester_Error)
+        EndIf
+      EndIf
+
+      BackupScriptFile = ""
+      BackupStatusFile = ""
+      BackupOutputFile = ""
+      BackupOutputFolder = ""
+      BackupReason = ""
+      BackupIsAuto = #False
+      BackupCurrentMode = ""
+      BackupCurrentStage = ""
     EndIf
   EndIf
 EndProcedure

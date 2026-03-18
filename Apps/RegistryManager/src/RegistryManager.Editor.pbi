@@ -10,7 +10,7 @@ Procedure LoadKeysThread(param.i)
   Protected rootKey.i = *p\RootKey
   Protected keyPath.s = *p\KeyPath
   Protected sam.l = *p\SAM
-  FreeMemory(*p)
+  FreeStructure(*p)
   
   Protected i.i, count.i, subKeyName.s
   Protected ret.Registry::RegValue
@@ -66,7 +66,7 @@ Procedure.i LoadSubKeys(parentItem.i, rootKey.i, keyPath.s, sam.l = 0)
   
   If sam = 0 : sam = GetDefaultSAM() : EndIf
   
-  Protected *p.LoadKeysParams = AllocateMemory(SizeOf(LoadKeysParams))
+  Protected *p.LoadKeysParams = AllocateStructure(LoadKeysParams)
   If *p
     *p\ParentItem = parentItem
     *p\RootKey = rootKey
@@ -78,7 +78,7 @@ Procedure.i LoadSubKeys(parentItem.i, rootKey.i, keyPath.s, sam.l = 0)
     If thread
       ActiveLoadThreads(Str(parentItem)) = thread
     Else
-      FreeMemory(*p)
+      FreeStructure(*p)
     EndIf
     UnlockMutex(LoadKeysMutex)
     
@@ -162,7 +162,7 @@ Procedure SearchThread(param.i)
   Protected sKeys.i = *p\SearchKeys
   Protected sVals.i = *p\SearchValues
   Protected sData.i = *p\SearchData
-  FreeMemory(*p)
+  FreeStructure(*p)
   
   Protected wow64.i = GetRegistryWow64Flag()
   
@@ -555,7 +555,7 @@ Procedure LoadValuesThread(param.i)
   Protected rootKey.i = *p\RootKey
   Protected keyPath.s = *p\KeyPath
   Protected sam.l = *p\SAM
-  FreeMemory(*p)
+  FreeStructure(*p)
   
   Protected i.i, count.i, valueName.s, valueData.s, valueType.i
   Protected ret.Registry::RegValue
@@ -620,7 +620,7 @@ Procedure LoadValues(rootKey.i, keyPath.s, sam.l = 0)
   UpdateStatusBar("Loading values...")
   
   ; Launch thread
-  Protected *p.LoadValuesParams = AllocateMemory(SizeOf(LoadValuesParams))
+  Protected *p.LoadValuesParams = AllocateStructure(LoadValuesParams)
   If *p
     *p\RootKey = rootKey
     *p\KeyPath = keyPath
@@ -792,7 +792,7 @@ Procedure ExportThread(param.i)
   Protected keyPath.s = *p\KeyPath
   Protected fileName.s = *p\FileName
   Protected isRestore.i = *p\IsRestore
-  FreeMemory(*p)
+  FreeStructure(*p)
   
   Protected program.i, exitCode.i, rootName.s
   Select rootKey
@@ -828,14 +828,14 @@ Procedure ExportRegistryKey(rootKey.i, keyPath.s, fileName.s)
   LogInfo("ExportRegistryKey", "Queuing export to " + fileName)
   UpdateStatusBar("Background export started...")
   
-  Protected *p.ExportThreadParams = AllocateMemory(SizeOf(ExportThreadParams))
+  Protected *p.ExportThreadParams = AllocateStructure(ExportThreadParams)
   If *p
     *p\RootKey = rootKey
     *p\KeyPath = keyPath
     *p\FileName = fileName
     *p\IsRestore = #False
     If CreateThread(@ExportThread(), *p) : ProcedureReturn #True : EndIf
-    FreeMemory(*p)
+    FreeStructure(*p)
   EndIf
   UpdateStatusBar("Error: Could not start export task")
   MessageRequester("Export Failed", "Could not start the export task.", #PB_MessageRequester_Error)
@@ -852,12 +852,12 @@ Procedure RestoreRegistry(fileName.s)
   If MessageRequester("Confirm Restore", "This will restore registry settings from file. Continue?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning) = #PB_MessageRequester_Yes
     UpdateStatusBar("Background restore started...")
     
-    Protected *p.ExportThreadParams = AllocateMemory(SizeOf(ExportThreadParams))
+    Protected *p.ExportThreadParams = AllocateStructure(ExportThreadParams)
     If *p
       *p\FileName = fileName
       *p\IsRestore = #True
       If CreateThread(@ExportThread(), *p) : ProcedureReturn #True : EndIf
-      FreeMemory(*p)
+      FreeStructure(*p)
     EndIf
     UpdateStatusBar("Error: Could not start restore task")
     MessageRequester("Restore Failed", "Could not start the restore task.", #PB_MessageRequester_Error)

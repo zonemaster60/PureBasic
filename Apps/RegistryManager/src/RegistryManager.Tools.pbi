@@ -221,7 +221,7 @@ Procedure CleanerThread(param.i)
   
   ; Ensure thread variable is cleared BEFORE the event might be processed
   CleanerThreadID = 0
-  FreeMemory(*p)
+  FreeStructure(*p)
 EndProcedure
 
 
@@ -314,7 +314,7 @@ Procedure CleanRegistry()
                   CleanerStopRequested = #False
                   UpdateStatusBar("Scanning registry...")
                   
-                  Protected *p.CleanerParams = AllocateMemory(SizeOf(CleanerParams))
+                  Protected *p.CleanerParams = AllocateStructure(CleanerParams)
                   If *p
                     *p\MuiCache = GetGadgetState(101)
                     *p\FileAssoc = GetGadgetState(102)

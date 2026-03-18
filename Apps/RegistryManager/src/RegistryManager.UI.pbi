@@ -626,11 +626,25 @@ Procedure HandleToolsMenu(menuID.i)
       CleanRegistry()
 
     Case #MENU_TOOLS_BACKUP
-      fileName = SaveFileRequester("Backup Registry", "registry_backup_" + FormatDate("%yyyy%mm%dd", Date()) + ".reg", "Registry Files (*.reg)|*.reg", 0)
-      If fileName <> ""
-        BackupRegistry(fileName)
-      Else
-        LogInfo("Main", "User cancelled backup")
+      Define backupMode.i = MessageRequester("Backup Mode", "Choose backup mode:" + #CRLF$ + #CRLF$ + "Yes = Full registry backup (separate per-hive files)" + #CRLF$ + "No = Current selected key only" + #CRLF$ + #CRLF$ + "Cancel = Abort", #PB_MessageRequester_YesNoCancel | #PB_MessageRequester_Info)
+      If backupMode = #PB_MessageRequester_Yes
+        fileName = SaveFileRequester("Backup Full Registry", "registry_backup_" + FormatDate("%yyyy%mm%dd", Date()) + ".reg", "Registry Files (*.reg)|*.reg", 0)
+        If fileName <> ""
+          BackupRegistry(fileName)
+        Else
+          LogInfo("Main", "User cancelled full backup")
+        EndIf
+      ElseIf backupMode = #PB_MessageRequester_No
+        If CurrentRootKey <> 0
+          fileName = SaveFileRequester("Backup Current Key", "registry_key_backup_" + FormatDate("%yyyy%mm%dd", Date()) + ".reg", "Registry Files (*.reg)|*.reg", 0)
+          If fileName <> ""
+            BackupCurrentKey(CurrentRootKey, CurrentKeyPath, fileName)
+          Else
+            LogInfo("Main", "User cancelled key backup")
+          EndIf
+        Else
+          MessageRequester("Backup", "Select a registry key first for current-key backup.", #PB_MessageRequester_Info)
+        EndIf
       EndIf
 
     Case #MENU_TOOLS_RESTORE
@@ -944,7 +958,7 @@ Procedure HandleSnapshotWindowGadget(gadgetID.i)
           If name = ""
             name = "Snapshot_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date())
           EndIf
-          Define *snapParams.SnapshotThreadParams = AllocateMemory(SizeOf(SnapshotThreadParams))
+          Define *snapParams.SnapshotThreadParams = AllocateStructure(SnapshotThreadParams)
           If *snapParams
             *snapParams\Name = name
             *snapParams\Description = description
@@ -952,7 +966,7 @@ Procedure HandleSnapshotWindowGadget(gadgetID.i)
             If Not CreateThread(@SnapshotThread(), *snapParams)
               SnapshotCreationActive = 0
               SetSnapshotControlsEnabled(#True)
-              FreeMemory(*snapParams)
+              FreeStructure(*snapParams)
               LogError("Snapshot", "Failed to start snapshot thread")
               MessageRequester("Error", "Failed to start snapshot creation thread.", #PB_MessageRequester_Error)
             EndIf
@@ -1020,7 +1034,7 @@ Procedure HandleSnapshotWindowGadget(gadgetID.i)
           If CompareThreadID = 0
             SetSnapshotControlsEnabled(#False)
             UpdateStatusBar("Starting background comparison...")
-            Define *p.CompareThreadParams = AllocateMemory(SizeOf(CompareThreadParams))
+            Define *p.CompareThreadParams = AllocateStructure(CompareThreadParams)
             If *p
               *p\Snapshot1 = snapshot1
               *p\Snapshot2 = snapshot2
@@ -1061,7 +1075,7 @@ Procedure HandleSearchWindowGadget(gadgetID.i)
           DisableGadget(#GADGET_SEARCH_START, #True)
           DisableGadget(#GADGET_SEARCH_STOP, #False)
           UpdateSearchStatusLabel(#True)
-          Define *sp.SearchThreadParams = AllocateMemory(SizeOf(SearchThreadParams))
+          Define *sp.SearchThreadParams = AllocateStructure(SearchThreadParams)
           If *sp
             *sp\SearchString = searchStr
             *sp\RootKey = CurrentRootKey
