@@ -6,6 +6,7 @@
 EnableExplicit
 
 #APP_NAME = "SafeGameBooster"
+#APP_MUTEX_NAME = #APP_NAME + "_mutex"
 
 Global DataDir.s, GamesIni.s, SessionIni.s
 DataDir = GetPathPart(ProgramFilename())
@@ -16,18 +17,25 @@ LogPath = DataDir + #APP_NAME + ".log"
 
 Global FontUI.i, FontTitle.i, FontSmall.i
 Global MainStatusBar.i
-Global version.s = "v1.0.0.3"
-Global BrowseExePath.s, BeforeCount.i
+Global version.s = "v1.0.0.4"
+Global BrowseExePath.s, BeforeCount.i, LaunchUiPulse.i
 
-; Prevent multiple instances (don't rely on window title text)
-; Allow helper modes to run even if the tray app is running.
 Global hMutex.i
-  hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
-  If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
-    MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
-    CloseHandle_(hMutex)
+
+Procedure AcquireSingleInstanceMutex()
+  hMutex = CreateMutex_(0, 1, #APP_MUTEX_NAME)
+  If hMutex = 0
+    MessageRequester(#APP_NAME, "Failed to initialize the single-instance guard.", #PB_MessageRequester_Error)
     End
   EndIf
+
+  If GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
+    MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+    CloseHandle_(hMutex)
+    hMutex = 0
+    End
+  EndIf
+EndProcedure
 
 ; ---------- Windows constants ----------
 
@@ -74,7 +82,6 @@ Structure GameEntry
   SteamGameArgs.s
   SteamDetectTimeoutMs.i
   GameRoot.s
-  PowerGuid.s
 EndStructure
 
 Structure OC_TOKEN_ELEVATION
@@ -121,13 +128,22 @@ Structure OC_MODULEENTRY32
 EndStructure
 
 Global NewList Games.GameEntry()
-Global idx.i
-Global g.GameEntry
+Global LaunchActive.i, LaunchState.i, AppQuitting.i
+Global LaunchGame.GameEntry
+Global LaunchCtx.BoostSessionContext
+Global LaunchProcess.i, LaunchDetectDeadline.i
+Global LaunchOrigPriority.l
+Global LaunchProcessAffinity.q, LaunchSystemAffinity.q
+Global LaunchGotAffinity.i
+Global LaunchGameRoot.s
+Global NewMap LaunchBaseline.i()
 
 Enumeration Gadgets
   #G_List
   #G_Title
   #G_Subtitle
+  #G_LaunchState
+  #G_CancelWait
   #G_Edit
   #G_Launch
 EndEnumeration
@@ -158,13 +174,14 @@ XIncludeFile "SafeGameBooster.Games.pbi"
 XIncludeFile "SafeGameBooster.App.pbi"
 
 EnsureElevatedOrRelaunch()
+AcquireSingleInstanceMutex()
 RestoreIfDirtySession()
 LoadGames()
 InitFonts()
 RunApplication()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 18
+; CursorPosition = 19
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -175,12 +192,12 @@ RunApplication()
 ; UseIcon = SafeGameBooster.ico
 ; Executable = ..\SafeGameBooster.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = SafeGameBooster
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = A Safe Game Booster made with PureBasic
 ; VersionField7 = SafeGameBooster
 ; VersionField8 = SafeGameBooster.exe

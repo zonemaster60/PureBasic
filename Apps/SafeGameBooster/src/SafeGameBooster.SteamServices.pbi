@@ -211,7 +211,6 @@ Procedure ImportSteamGames()
               Games()\SteamDetectTimeoutMs = ClampSteamDetectTimeout(60000)
               commonRoot = PathJoin(lib, "steamapps\\common\\")
               Games()\GameRoot = EnsureTrailingSlash(PathJoin(commonRoot, installdir))
-              Games()\PowerGuid = ""
               added + 1
             EndIf
           EndIf
@@ -231,6 +230,155 @@ Procedure.s RunPowerShellAndCapture(ps.s)
   ProcedureReturn RunProgramAndCapture("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -Command " + #DQUOTE$ + ps + #DQUOTE$)
 EndProcedure
 
+Procedure.i IsProtectedServiceName(name.s)
+  Protected key.s = LCase(Trim(name))
+  Select key
+    Case "winmgmt", "rpcss", "dcomlaunch", "eventlog", "plugplay", "bfe", "mpssvc", "audiosrv", "dhcp", "dnscache", "lanmanworkstation", "lanmanserver", "nlasvc", "wlansvc", "cryptsvc", "trustedinstaller", "wuauserv", "schedule", "power", "profsvc", "gpsvc", "themes", "samss", "lsm", "termservice", "w32time"
+      ProcedureReturn 1
+  EndSelect
+  ProcedureReturn 0
+EndProcedure
+
+Procedure.i IsRiskyServiceName(name.s)
+  Protected key.s = LCase(Trim(name))
+  If IsProtectedServiceName(key)
+    ProcedureReturn 0
+  EndIf
+
+  If FindString(key, "anti", 1) Or FindString(key, "cheat", 1) Or FindString(key, "defender", 1) Or FindString(key, "security", 1) Or FindString(key, "vpn", 1) Or FindString(key, "audio", 1) Or FindString(key, "network", 1) Or FindString(key, "firewall", 1) Or FindString(key, "update", 1)
+    ProcedureReturn 1
+  EndIf
+
+  Select key
+    Case "wscsvc", "windefend", "sense", "securityhealthservice", "mpssvc", "audiosrv", "audioendpointbuilder", "nlasvc", "netprofm", "lanmanworkstation", "lanmanserver", "bits", "cscservice", "vgc", "vgk", "easyanticheat", "bedaisy"
+      ProcedureReturn 1
+  EndSelect
+
+  ProcedureReturn 0
+EndProcedure
+
+Procedure.s SanitizeServiceCsv(csv.s, allowProtected.i, logContext.s = "")
+  Protected NewMap seen.i()
+  Protected outCsv.s
+  Protected i.i, n.i
+  Protected original.s, name.s, key.s
+
+  csv = Trim(csv)
+  If csv = "" : ProcedureReturn "" : EndIf
+
+  n = CountString(csv, ",") + 1
+  For i = 1 To n
+    original = Trim(StringField(csv, i, ","))
+    If original = "" : Continue : EndIf
+    name = RemoveString(RemoveString(original, #CR$), #LF$)
+    key = LCase(name)
+    If FindMapElement(seen(), key)
+      Continue
+    EndIf
+    If allowProtected = 0 And IsProtectedServiceName(name)
+      If logContext <> ""
+        LogLine("[" + logContext + "] Skipping protected service: " + name)
+      Else
+        LogLine("Skipping protected service: " + name)
+      EndIf
+      Continue
+    EndIf
+
+    seen(key) = 1
+    If outCsv <> "" : outCsv + "," : EndIf
+    outCsv + name
+  Next
+
+  ProcedureReturn outCsv
+EndProcedure
+
+Procedure.s BuildSelectedServiceCsv(Map selected.i(), Map selectedName.s())
+  Protected outCsv.s
+
+  ForEach selected()
+    If selected()
+      If outCsv <> "" : outCsv + "," : EndIf
+      If FindMapElement(selectedName(), MapKey(selected())) And selectedName() <> ""
+        outCsv + selectedName()
+      Else
+        outCsv + MapKey(selected())
+      EndIf
+    EndIf
+  Next
+
+  ProcedureReturn outCsv
+EndProcedure
+
+Procedure.s RiskySelectedServicesCsv(Map selected.i(), Map selectedName.s())
+  Protected riskyCsv.s
+  Protected name.s
+
+  ForEach selected()
+    If selected()
+      If FindMapElement(selectedName(), MapKey(selected())) And selectedName() <> ""
+        name = selectedName()
+      Else
+        name = MapKey(selected())
+      EndIf
+      If IsRiskyServiceName(name)
+        If riskyCsv <> "" : riskyCsv + "," : EndIf
+        riskyCsv + name
+      EndIf
+    EndIf
+  Next
+
+  ProcedureReturn riskyCsv
+EndProcedure
+
+Procedure.i ConfirmRiskyServicesIfNeeded(csv.s)
+  Protected riskyCsv.s
+  Protected riskyCount.i
+  Protected title.s
+  Protected msg.s
+
+  csv = SanitizeServiceCsv(csv, 1)
+  If csv = "" : ProcedureReturn 1 : EndIf
+
+  Protected i.i, n.i
+  Protected item.s
+  n = CountString(csv, ",") + 1
+  For i = 1 To n
+    item = Trim(StringField(csv, i, ","))
+    If item <> "" And IsRiskyServiceName(item)
+      If riskyCsv <> "" : riskyCsv + ", " : EndIf
+      riskyCsv + item
+      riskyCount + 1
+    EndIf
+  Next
+
+  If riskyCount = 0
+    ProcedureReturn 1
+  EndIf
+
+  title = #APP_NAME
+  msg = "Warning: the selected service list includes potentially risky items." + #LF$ + #LF$ +
+        riskyCsv + #LF$ + #LF$ +
+        "Stopping these may break audio, networking, security software, or anti-cheat for some games." + #LF$ + #LF$ +
+        "Continue anyway?"
+  ProcedureReturn Bool(MessageRequester(title, msg, #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning) = #PB_MessageRequester_Yes)
+EndProcedure
+
+Procedure ApplyServiceListStyling(listGadget.i)
+  Protected r.i
+  Protected name.s
+
+  For r = 0 To CountGadgetItems(listGadget) - 1
+    name = Trim(GetGadgetItemText(listGadget, r, 1))
+    If name <> "" And IsRiskyServiceName(name)
+      SetGadgetItemColor(listGadget, r, #PB_Gadget_FrontColor, RGB(170, 90, 0))
+      SetGadgetItemColor(listGadget, r, #PB_Gadget_BackColor, RGB(255, 245, 220))
+    Else
+      SetGadgetItemColor(listGadget, r, #PB_Gadget_FrontColor, RGB(0, 0, 0))
+      SetGadgetItemColor(listGadget, r, #PB_Gadget_BackColor, RGB(255, 255, 255))
+    EndIf
+  Next
+EndProcedure
+
 Procedure.s StopServicesCsvAndLog(csv.s, context.s)
   Protected out.s, line.s
   Protected sep.s = Chr(31)
@@ -239,7 +387,7 @@ Procedure.s StopServicesCsvAndLog(csv.s, context.s)
   Protected stoppedPipe.s
   Protected ps.s
 
-  csv = Trim(csv)
+  csv = SanitizeServiceCsv(csv, 0, context)
   If csv = "" : ProcedureReturn "" : EndIf
 
   ps = "$sep=[char]31;"
@@ -294,7 +442,7 @@ Procedure StartServicesCsvAndLog(csv.s, context.s)
   Protected name.s, action.s, result.s, before.s, after.s
   Protected ps.s
 
-  csv = Trim(csv)
+  csv = SanitizeServiceCsv(csv, 1, context)
   If csv = "" : ProcedureReturn : EndIf
 
   ps = "$sep=[char]31;"
@@ -395,6 +543,8 @@ Procedure FillServiceList(listGadget.i, showAll.i, Map selected.i(), List all.Se
       EndIf
     Next
   EndIf
+
+  ApplyServiceListStyling(listGadget)
 EndProcedure
 
 Procedure ToggleSelectedRows(listGadget.i, Map selected.i(), Map selectedName.s())
@@ -454,14 +604,14 @@ Procedure.s SelectedNamesCsv(listGadget.i)
 EndProcedure
 
 Procedure StopServicesNow(csv.s)
-  csv = Trim(csv)
+  csv = SanitizeServiceCsv(csv, 0, "service-picker")
   If csv = "" : ProcedureReturn : EndIf
   LogLine("Stop now (picker): " + csv)
   RunPowerShellAndCapture("$names='" + PshEscapeSingle(csv) + "'.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ } ; foreach($n in $names){ try{ Stop-Service -Name $n -Force -ErrorAction SilentlyContinue } catch{} }")
 EndProcedure
 
 Procedure StartServicesNow(csv.s)
-  csv = Trim(csv)
+  csv = SanitizeServiceCsv(csv, 1, "service-picker")
   If csv = "" : ProcedureReturn : EndIf
   LogLine("Start now (picker): " + csv)
   RunPowerShellAndCapture("$names='" + PshEscapeSingle(csv) + "'.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ } ; foreach($n in $names){ try{ Start-Service -Name $n -ErrorAction SilentlyContinue } catch{} }")
@@ -534,7 +684,7 @@ Procedure.s ServicesPickDialog(initialCsv.s, *autoRun.Integer)
   EndEnumeration
 
   If OpenWindow(#W_Svc, 0, 0, 860, 520, "Pick Services (temporary)", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
-    TextGadget(#PB_Any, 10, 10, 840, 35, "Select services to stop while the game runs. Only choose what you understand; stopping a service can break features.")
+    TextGadget(#PB_Any, 10, 10, 840, 35, "Select services to stop while the game runs. Protected core services are blocked; risky ones still require confirmation.")
     CheckBoxGadget(#S_ShowAll, 10, 45, 240, 22, "Show all services")
     ListIconGadget(#S_List, 10, 75, 840, 380, "Sel", 40, #PB_ListIcon_FullRowSelect | #PB_ListIcon_GridLines | #PB_ListIcon_MultiSelect)
     AddGadgetColumn(#S_List, 1, "Service", 170)
@@ -581,17 +731,10 @@ Procedure.s ServicesPickDialog(initialCsv.s, *autoRun.Integer)
                 EndIf
               EndIf
             Case #S_BtnOk
-              outCsv = ""
-              ForEach selected()
-                If selected()
-                  If outCsv <> "" : outCsv + "," : EndIf
-                  If FindMapElement(selectedName(), MapKey(selected())) And selectedName() <> ""
-                    outCsv + selectedName()
-                  Else
-                    outCsv + MapKey(selected())
-                  EndIf
-                EndIf
-              Next
+              outCsv = BuildSelectedServiceCsv(selected(), selectedName())
+              If ConfirmRiskyServicesIfNeeded(outCsv) = 0
+                Continue
+              EndIf
               If *autoRun
                 *autoRun\i = GetGadgetState(#S_AutoRun)
               EndIf

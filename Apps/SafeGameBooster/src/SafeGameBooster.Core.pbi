@@ -4,9 +4,34 @@ Procedure Exit()
   Protected Req.i
   Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
   If Req = #PB_MessageRequester_Yes
-    CloseHandle_(hMutex)
-    End
+    If IsLaunchActive()
+      PrepareForApplicationExit()
+      ProcedureReturn
+    EndIf
+    FinalizeApplicationExit()
   EndIf
+EndProcedure
+
+Procedure.i IsLaunchActive()
+  If LaunchActive
+    ProcedureReturn 1
+  EndIf
+  ProcedureReturn 0
+EndProcedure
+
+Procedure PrepareForApplicationExit()
+  AppQuitting = 1
+  If IsWindow(0)
+    HideWindow(0, 1)
+  EndIf
+EndProcedure
+
+Procedure FinalizeApplicationExit()
+  If hMutex
+    CloseHandle_(hMutex)
+    hMutex = 0
+  EndIf
+  End
 EndProcedure
 
 Procedure.s HelpText()
@@ -33,20 +58,20 @@ Procedure.s HelpText()
   t + "   - Select a game -> Run" + #CRLF$ + #CRLF$
   t + "Services (important)" + #CRLF$
   t + "- Services you check are saved per game." + #CRLF$
-  t + "- When you click Run, SafeBooster stops services and records ONLY those it actually stopped." + #CRLF$
+  t + "- When you click Run, " + #APP_NAME + " stops services and records ONLY those it actually stopped." + #CRLF$
   t + "- On exit, it restarts exactly that recorded set." + #CRLF$
   t + "- If a service fails to stop/start, the log records the error." + #CRLF$ + #CRLF$
   t + "Crash recovery" + #CRLF$
   t + "- While a game is running, session.ini is marked 'dirty' and stores:" + #CRLF$
   t + "  - the previous power plan GUID" + #CRLF$
   t + "  - the effective list of stopped services" + #CRLF$
-  t + "- Next time SafeBooster starts, it detects a dirty session and restores power plan/services." + #CRLF$ + #CRLF$
+  t + "- Next time " + #APP_NAME + " starts, it detects a dirty session and restores power plan/services." + #CRLF$ + #CRLF$
   t + "Where files are" + #CRLF$
   t + "- games.ini, session.ini, " + #APP_NAME + ".log are stored next to the EXE." + #CRLF$
-  t + "- Use the Log button to open " + #APP_NAME + ".log." + #CRLF$ + #CRLF$
+  t + "- Use the Open Log button to open " + #APP_NAME + ".log." + #CRLF$ + #CRLF$
   t + "Troubleshooting" + #CRLF$
-  t + "- Admin rights: service control requires an elevated process. SafeBooster auto-prompts via UAC." + #CRLF$
-  t + "- Steam games: SafeBooster waits for a new process whose EXE path starts with the game's install folder." + #CRLF$
+  t + "- Admin rights: service control requires an elevated process. " + #APP_NAME + " auto-prompts via UAC." + #CRLF$
+  t + "- Steam games: " + #APP_NAME + " waits for a new process whose EXE path starts with the game's install folder." + #CRLF$
   t + "- If Run 'does nothing', make sure a game is selected, then check " + #APP_NAME + ".log." + #CRLF$
   ProcedureReturn t
 EndProcedure

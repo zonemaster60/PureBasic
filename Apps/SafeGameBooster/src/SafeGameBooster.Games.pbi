@@ -36,7 +36,6 @@ Procedure AddExeEntry(exePath.s)
   ge\SteamGameArgs = ""
   ge\SteamDetectTimeoutMs = ClampSteamDetectTimeout(60000)
   ge\GameRoot = ""
-  ge\PowerGuid = ""
 
   AddElement(Games())
   Games() = ge
@@ -291,26 +290,22 @@ Procedure.i StartsWithNoCase(s.s, prefix.s)
   ProcedureReturn 0
 EndProcedure
 
-Procedure.i FindNewProcessInFolder(gameRoot.s, Map baseline.i(), timeoutMs.i)
-  Protected start.i = ElapsedMilliseconds()
+Procedure.i FindNewProcessInFolderOnce(gameRoot.s, Map baseline.i())
   Protected NewMap cur.i()
   Protected key.s, pid.i, exe.s
   gameRoot = EnsureTrailingSlash(gameRoot)
 
-  While ElapsedMilliseconds() - start < timeoutMs
-    SnapshotPids(cur())
-    ForEach cur()
-      key = MapKey(cur())
-      If FindMapElement(baseline(), key) = 0
-        pid = Val(key)
-        exe = GetMainModulePath(pid)
-        If exe <> "" And StartsWithNoCase(exe, gameRoot)
-          ProcedureReturn pid
-        EndIf
+  SnapshotPids(cur())
+  ForEach cur()
+    key = MapKey(cur())
+    If FindMapElement(baseline(), key) = 0
+      pid = Val(key)
+      exe = GetMainModulePath(pid)
+      If exe <> "" And StartsWithNoCase(exe, gameRoot)
+        ProcedureReturn pid
       EndIf
-    Next
-    Delay(200)
-  Wend
+    EndIf
+  Next
 
   ProcedureReturn 0
 EndProcedure
@@ -339,7 +334,6 @@ Procedure LoadGames()
       g\SteamGameArgs   = ReadPreferenceString("steamGameArgs", "")
       g\SteamDetectTimeoutMs = ReadPreferenceInteger("steamTimeoutMs", 60000)
       g\GameRoot    = ReadPreferenceString("gameRoot", "")
-      g\PowerGuid   = ReadPreferenceString("powerGuid", "")
       If g\LaunchMode <> 1
         g\LaunchMode = 0
         g\SteamAppId = 0
@@ -389,7 +383,6 @@ Procedure SaveGames()
       WritePreferenceString("steamGameArgs", Games()\SteamGameArgs)
       WritePreferenceInteger("steamTimeoutMs", Games()\SteamDetectTimeoutMs)
       WritePreferenceString("gameRoot", CollapseBackslashes(Games()\GameRoot))
-      WritePreferenceString("powerGuid", Games()\PowerGuid)
       i + 1
     Next
     ClosePreferences()
@@ -414,7 +407,6 @@ Procedure.i SelectGameByIndex(idx.i, *out.GameEntry)
       *out\SteamGameArgs   = Games()\SteamGameArgs
       *out\SteamDetectTimeoutMs = Games()\SteamDetectTimeoutMs
       *out\GameRoot    = Games()\GameRoot
-      *out\PowerGuid   = Games()\PowerGuid
       ProcedureReturn 1
     EndIf
     i + 1
@@ -446,7 +438,6 @@ Procedure AddGameSimple()
   g\SteamGameArgs = ""
   g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(60000)
   g\GameRoot = ""
-  g\PowerGuid = ""
 
   AddElement(Games())
   Games() = g
