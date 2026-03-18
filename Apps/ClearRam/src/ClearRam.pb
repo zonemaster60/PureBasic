@@ -39,7 +39,7 @@ Global gTooltipOverrideText.s = ""
 
 ; Logging toggle
 Global loggingEnabled   = #True
-Global version.s = "v1.0.0.9"
+Global version.s = "v1.0.1.0"
 
 ; Memory threshold (auto-clean when available RAM <= threshold)
 Global gMemThresholdEnabled.i = #False
@@ -52,6 +52,9 @@ Global gLogRotateEnabled.i = #True
 Global gLogRotateMaxBytes.q = 1024 * 1024 ; 1 MiB
 Global gLogRotateKeep.i = 3
 Global gLogMutex.i = CreateMutex()
+Global gRunStateMutex.i = CreateMutex()
+Global gTimerThread.i = 0
+Global gWorkerThread.i = 0
 
 ; Paths / config
 #INI_FILE        = "ClearRam.ini"
@@ -133,6 +136,8 @@ Procedure LogMessage(msg.s)
   If loggingEnabled = #False Or gLogPath = ""
     ProcedureReturn
   EndIf
+
+  LogRotateIfNeeded()
 
   LockMutex(gLogMutex)
   Protected file = OpenFile(#PB_Any, gLogPath, #PB_File_SharedRead | #PB_File_SharedWrite)
@@ -385,6 +390,7 @@ Procedure RemoveLegacyStartupRegistryEntry()
 EndProcedure
 
 Declare.i IsInStartup()
+Declare RunClearRam_Thread(*unused)
 
 ; ---------------------------------------------------------
 ; Task Scheduler helpers (logging + elevation)
@@ -408,6 +414,7 @@ Procedure.s RunAndCapture(exe.s, args.s)
     While AvailableProgramOutput(program)
       output + ReadProgramString(program) + #CRLF$
     Wend
+    Delay(10)
   Wend
 
   While AvailableProgramOutput(program)
@@ -456,6 +463,11 @@ Procedure AddToStartup()
   RemoveLegacyStartupRegistryEntry()
 
   LogMessage("AddToStartup: task='" + StartupTaskName() + "' exe='" + ProgramFilename() + "'")
+
+  If IsProcessElevated() = #False And gInstallStartupTaskMode = #False
+    RelaunchSelfElevated("--installstartup")
+    ProcedureReturn
+  EndIf
 
   ; Task is created to run in the current user session (interactive),
   ; so the tray icon is visible after logon.
@@ -535,6 +547,7 @@ Procedure.i IsInStartup()
       While AvailableProgramOutput(program)
         ReadProgramString(program) ; drain output
       Wend
+      Delay(10)
     Wend
 
     Protected code.i = ProgramExitCode(program)
@@ -556,11 +569,25 @@ Procedure Exit()
   If Req = #PB_MessageRequester_Yes
     LogMessage("Program exiting")
     quitProgram = #True
-    
-    ; Allow some time for threads to finish
-    Delay(200)
+
+    Protected timerThread.i
+    Protected workerThread.i
+
+    LockMutex(gRunStateMutex)
+    timerThread = gTimerThread
+    workerThread = gWorkerThread
+    UnlockMutex(gRunStateMutex)
+
+    If timerThread
+      WaitThread(timerThread, 3000)
+    EndIf
+
+    If workerThread
+      WaitThread(workerThread, 3000)
+    EndIf
 
     ; Proper cleanup
+    RemoveWindowTimer(0, 2)
     RemoveSysTrayIcon(#TRAY_ICON)
     FreeMenu(#TRAY_MENU)
     FreeImage(#ICON_IDLE)
@@ -569,9 +596,12 @@ Procedure Exit()
     If IsLibrary(gNtdll)
       CloseLibrary(gNtdll)
     EndIf
-    
+
+    FreeMutex(gRunStateMutex)
     FreeMutex(gLogMutex)
-    CloseHandle_(hMutex)
+    If hMutex
+      CloseHandle_(hMutex)
+    EndIf
     End
   EndIf
 EndProcedure
@@ -626,6 +656,23 @@ EndEnumeration
 
 
 Global gRunInProgress.i = #False
+
+Procedure.b QueueRunClearRam()
+  Protected queued.b = #False
+
+  LockMutex(gRunStateMutex)
+  If quitProgram = #False And gRunInProgress = #False And gWorkerThread = 0
+    gWorkerThread = CreateThread(@RunClearRam_Thread(), 0)
+    queued = Bool(gWorkerThread <> 0)
+  EndIf
+  UnlockMutex(gRunStateMutex)
+
+  If queued = #False And quitProgram = #False
+    LogMessage("Run requested but already queued/running; ignoring")
+  EndIf
+
+  ProcedureReturn queued
+EndProcedure
 
 Procedure EnsureNtdll()
   If IsLibrary(gNtdll)
@@ -779,12 +826,14 @@ Procedure.l RunClearRamInternal(showUi.i)
 EndProcedure
 
 Procedure RunClearRam()
-  If gRunInProgress
+  LockMutex(gRunStateMutex)
+  If quitProgram Or gRunInProgress
+    UnlockMutex(gRunStateMutex)
     LogMessage("Run requested but already running; ignoring")
     ProcedureReturn
   EndIf
-
   gRunInProgress = #True
+  UnlockMutex(gRunStateMutex)
 
   Protected status.l = RunClearRamInternal(#True)
   If status = $C0000061 ; STATUS_PRIVILEGE_NOT_HELD
@@ -795,7 +844,9 @@ Procedure RunClearRam()
 
   LogMessage(#APP_NAME + " execution complete")
 
+  LockMutex(gRunStateMutex)
   gRunInProgress = #False
+  UnlockMutex(gRunStateMutex)
 EndProcedure
 
 Procedure ElevateAndClearOnce()
@@ -806,6 +857,10 @@ EndProcedure
 
 Procedure RunClearRam_Thread(*unused)
   RunClearRam()
+
+  LockMutex(gRunStateMutex)
+  gWorkerThread = 0
+  UnlockMutex(gRunStateMutex)
 EndProcedure
 
 ; ---------------------------------------------------------
@@ -824,16 +879,20 @@ Procedure TimerThread(*unused)
 
     If ShouldTriggerThresholdClear()
       LogMessage("Memory threshold reached (avail <= " + Str(gMemThresholdAvailMB) + "MB), triggering clean")
-      CreateThread(@RunClearRam_Thread(), 0)
+      QueueRunClearRam()
     EndIf
 
     If ElapsedMilliseconds() >= g_TimerNextRun
-      CreateThread(@RunClearRam_Thread(), 0)
+      QueueRunClearRam()
       g_TimerNextRun = ElapsedMilliseconds() + IntervalMS
     EndIf
   Wend
 
   LogMessage("Timer thread exiting")
+
+  LockMutex(gRunStateMutex)
+  gTimerThread = 0
+  UnlockMutex(gRunStateMutex)
 EndProcedure
 
 ; ---------------------------------------------------------
@@ -1054,13 +1113,13 @@ UpdateLogMenuLabel()
 
 
 ; Start timer thread
-CreateThread(@TimerThread(), 0)
+gTimerThread = CreateThread(@TimerThread(), 0)
 
 ; Initialize countdown
 g_TimerNextRun = ElapsedMilliseconds() + IntervalMS
 
 ; run initially
-CreateThread(@RunClearRam_Thread(), 0)
+QueueRunClearRam()
 
 ; ---------------------------------------------------------
 ; Main event loop
@@ -1104,7 +1163,7 @@ Repeat
         DisplayPopupMenu(#TRAY_MENU, WindowID(0))
       EndIf
       If EventType() = #PB_EventType_LeftClick
-         CreateThread(@RunClearRam_Thread(), 0)
+         QueueRunClearRam()
       EndIf
       
     Case #PB_Event_Menu
@@ -1113,16 +1172,15 @@ Repeat
       Select menuID
 
         Case #MENU_RUNNOW
-          CreateThread(@RunClearRam_Thread(), 0)
-           
+          QueueRunClearRam()
+            
         Case #MENU_STARTUP
           If startupEnabled
-            startupEnabled = #False
             RemoveFromStartup()
           Else
-            startupEnabled = #True
             AddToStartup()
           EndIf
+          startupEnabled = IsInStartup()
           UpdateStartupMenuLabel()
           SaveSettings()
 
@@ -1156,7 +1214,7 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 35
+; CursorPosition = 41
 ; FirstLine = 33
 ; Folding = -------
 ; Optimizer
@@ -1168,12 +1226,12 @@ Until quitProgram = #True
 ; Executable = ..\ClearRam.exe
 ; DisableDebugger
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,9
-; VersionField1 = 1,0,0,9
+; VersionField0 = 1,0,1,0
+; VersionField1 = 1,0,1,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = ClearRam
-; VersionField4 = 1.0.0.9
-; VersionField5 = 1.0.0.9
+; VersionField4 = 1.0.1.0
+; VersionField5 = 1.0.1.0
 ; VersionField6 = Clears RAM using native Windows APIs
 ; VersionField7 = ClearRam
 ; VersionField8 = ClearRam.exe
