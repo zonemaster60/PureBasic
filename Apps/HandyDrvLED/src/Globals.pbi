@@ -1,7 +1,7 @@
 ; HandyDrvLED Globals & Constants
 
 #APP_NAME = "HandyDrvLED"
-Global version.s = "v1.0.3.3"
+Global version.s = "v1.0.3.4"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
 #IOCTL_DISK_PERFORMANCE = $70020
@@ -103,8 +103,10 @@ EndStructure
 ; Global Variables
 Global AppPath.s = GetPathPart(ProgramFilename())
 Global IniPath.s = AppPath + #APP_NAME + ".ini"
-Global LogBase.s = AppPath + #APP_NAME
-Global LogPath.s = LogBase + ".log"
+Global IconLibDir.s = AppPath + "IconLibs\"
+Global LogDir.s = ""
+Global LogBase.s = ""
+Global LogPath.s = ""
 Global LogCurrentDate.s = ""
 Global NewMap LogLastTime.i()
 
@@ -181,12 +183,52 @@ Procedure.d ClampD(value.d, minValue.d, maxValue.d)
   ProcedureReturn value
 EndProcedure
 
+Procedure.s EnsureTrailingBackslash(path.s)
+  If path = "" : ProcedureReturn "" : EndIf
+  If Right(path, 1) <> "\" And Right(path, 1) <> "/" : path + "\" : EndIf
+  ProcedureReturn path
+EndProcedure
+
+Procedure.s ResolveWritableLogDir()
+  Protected dir.s
+  Protected probe.s
+  Protected fh.i
+
+  dir = EnsureTrailingBackslash(AppPath) + "Logs\"
+  If FileSize(dir) <> -2
+    CreateDirectory(dir)
+  EndIf
+
+  probe = dir + ".write-test"
+  fh = CreateFile(#PB_Any, probe)
+  If fh
+    CloseFile(fh)
+    DeleteFile(probe)
+    ProcedureReturn dir
+  EndIf
+
+  dir = EnsureTrailingBackslash(GetTemporaryDirectory()) + #APP_NAME + "\"
+  If FileSize(dir) <> -2
+    CreateDirectory(dir)
+  EndIf
+  ProcedureReturn dir
+EndProcedure
+
 Procedure LogLine(message.s, key.s = "")
   Protected k.s = key : If k = "" : k = message : EndIf
   Protected now.i = ElapsedMilliseconds()
+  Protected activeLogDir.s
+
   LockMutex(Mutex_DiskData)
   If FindMapElement(LogLastTime(), k) : If now - LogLastTime() < #LOG_THROTTLE_MS : UnlockMutex(Mutex_DiskData) : ProcedureReturn : EndIf : EndIf
   LogLastTime(k) = now
+
+  If LogDir = ""
+    LogDir = ResolveWritableLogDir()
+    LogBase = LogDir + #APP_NAME
+    LogPath = LogBase + "." + FormatDate("%yyyy-%mm-%dd", Date()) + ".log"
+  EndIf
+  activeLogDir = LogDir
   UnlockMutex(Mutex_DiskData)
 
   Protected today.s = FormatDate("%yyyy-%mm-%dd", Date())
@@ -198,7 +240,7 @@ Procedure LogLine(message.s, key.s = "")
   Static lastRetentionCheck.i
   If now - lastRetentionCheck > 3600000 ; 1 hour
     lastRetentionCheck = now
-    If ExamineDirectory(1, AppPath, #APP_NAME + ".*.log")
+    If ExamineDirectory(1, activeLogDir, #APP_NAME + ".*.log")
       Protected cutoff.i = AddDate(Date(), #PB_Date_Day, -#LOG_RETENTION_DAYS)
       While NextDirectoryEntry(1)
         Protected entryName.s = DirectoryEntryName(1)
@@ -206,7 +248,7 @@ Procedure LogLine(message.s, key.s = "")
         If Len(entryDate) = 10
           Protected fileTime.i = ParseDate("%yyyy-%mm-%dd", entryDate)
           If fileTime < cutoff
-            DeleteFile(AppPath + entryName)
+            DeleteFile(activeLogDir + entryName)
           EndIf
         EndIf
       Wend
@@ -223,11 +265,21 @@ Procedure LogLine(message.s, key.s = "")
     If segment >= #LOG_MAX_SEGMENTS_PER_DAY : Break : EndIf
   Wend
 
-  fh = OpenFile(#PB_Any, actualTarget)
+  If FileSize(actualTarget) = -1
+    fh = CreateFile(#PB_Any, actualTarget)
+  Else
+    fh = OpenFile(#PB_Any, actualTarget)
+  EndIf
+
   If fh
-    FileSeek(fh, Lof(fh))
+    If Lof(fh) > 0
+      FileSeek(fh, Lof(fh))
+    EndIf
     WriteStringN(fh, stamp + " | " + message)
     CloseFile(fh)
+    LockMutex(Mutex_DiskData)
+    LogPath = actualTarget
+    UnlockMutex(Mutex_DiskData)
   EndIf
 EndProcedure
 
@@ -275,7 +327,7 @@ EndProcedure
 
 Procedure.i CountIconLibraries()
   Protected count.i = 0
-  If ExamineDirectory(0, "IconLibs\", "*.icl")
+  If ExamineDirectory(0, IconLibDir, "*.icl")
     While NextDirectoryEntry(0) : count + 1 : Wend
     FinishDirectory(0)
   EndIf
@@ -284,7 +336,7 @@ Procedure.i CountIconLibraries()
 EndProcedure
 
 Procedure.i LoadIconSet(iconSetNumber.i)
-  Protected iconlib.s = "IconLibs\" + #APP_NAME + "." + iconSetNumber + ".icl"
+  Protected iconlib.s = IconLibDir + #APP_NAME + "." + iconSetNumber + ".icl"
   If FileSize(iconlib) = -1 : ProcedureReturn #False : EndIf
   If IdIcon1 : DestroyIcon_(IdIcon1) : EndIf
   If IdIcon2 : DestroyIcon_(IdIcon2) : EndIf

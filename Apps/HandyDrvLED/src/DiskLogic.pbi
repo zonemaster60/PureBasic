@@ -18,9 +18,9 @@ Procedure.s FormatRate(bytesPerSec.d)
   Protected unit.s = "B/s"
   If value >= 10240
     value / 1024.0 : unit = "KB/s"
-    if value >= 10240
+    If value >= 10240
       value / 1024.0 : unit = "MB/s"
-      if value >= 10240
+      If value >= 10240
         value / 1024.0 : unit = "GB/s"
       EndIf
     EndIf
@@ -29,8 +29,12 @@ Procedure.s FormatRate(bytesPerSec.d)
 EndProcedure
 
 Procedure EnsurePdhInitialized()
+  Protected status.l = -1
+  Protected source.s = ""
+
   LockMutex(Mutex_DiskData)
   If UsePdh : UnlockMutex(Mutex_DiskData) : ProcedureReturn #True : EndIf
+  PdhInitStage = "Opening library"
   
   PdhLib = OpenLibrary(#PB_Any, "pdh.dll")
   If PdhLib
@@ -43,28 +47,55 @@ Procedure EnsurePdhInitialized()
     PdhFormatErrorW = GetFunction(PdhLib, "PdhFormatErrorW")
     
     If PdhOpenQueryW And PdhCollectQueryData And PdhGetFormattedCounterValue And PdhCloseQuery
-      If PdhOpenQueryW(0, 0, @PdhQuery) = 0
-        Protected status.l = -1
+      PdhInitStage = "Opening query"
+      status = PdhOpenQueryW(0, 0, @PdhQuery)
+      If status = 0
         If PdhAddEnglishCounterW
+          PdhInitStage = "Adding physical counters"
           status = PdhAddEnglishCounterW(PdhQuery, @"\PhysicalDisk(_Total)\Disk Read Bytes/sec", 0, @PdhReadCounter)
           If status = 0
             status = PdhAddEnglishCounterW(PdhQuery, @"\PhysicalDisk(_Total)\Disk Write Bytes/sec", 0, @PdhWriteCounter)
+            If status = 0 : source = "PhysicalDisk(_Total)" : EndIf
           EndIf
           If status <> 0
+            PdhInitStage = "Adding logical counters"
             status = PdhAddEnglishCounterW(PdhQuery, @"\LogicalDisk(_Total)\Disk Read Bytes/sec", 0, @PdhReadCounter)
             If status = 0
               status = PdhAddEnglishCounterW(PdhQuery, @"\LogicalDisk(_Total)\Disk Write Bytes/sec", 0, @PdhWriteCounter)
+              If status = 0 : source = "LogicalDisk(_Total)" : EndIf
             EndIf
           EndIf
         EndIf
-        If status = 0 
-          PdhCollectQueryData(PdhQuery) ; Prime
-          UsePdh = #True 
+        If status = 0
+          PdhInitStage = "Priming query"
+          status = PdhCollectQueryData(PdhQuery)
+          If status = 0
+            UsePdh = #True
+            PdhCounterSource = source
+            PdhInitStatus = status
+            PdhInitStage = "Ready"
+          EndIf
         EndIf
       EndIf
+    Else
+      PdhInitStage = "Missing PDH exports"
     EndIf
+  Else
+    PdhInitStage = "Unable to load pdh.dll"
+  EndIf
+
+  If Not UsePdh
+    PdhInitStatus = status
+    If PdhCounterSource = "" : PdhCounterSource = source : EndIf
   EndIf
   UnlockMutex(Mutex_DiskData)
+
+  If UsePdh
+    LogLine("PDH fallback initialized using " + PdhCounterSource, "PDH init ok")
+  Else
+    LogLine("PDH initialization failed at " + PdhInitStage + ": " + FormatPdhError(status), "PDH init fail")
+  EndIf
+
   ProcedureReturn UsePdh
 EndProcedure
 
@@ -75,14 +106,26 @@ Procedure PdhReadWriteActivity(*ReadBytesPerSec, *WriteBytesPerSec)
   If Not UsePdh Or PdhQuery = 0 : ProcedureReturn #False : EndIf
   
   status = PdhCollectQueryData(PdhQuery)
-  If status <> 0 : ProcedureReturn #False : EndIf
-  
-  If PdhGetFormattedCounterValue(PdhReadCounter, #PDH_FMT_DOUBLE, 0, @counterValue) = 0
-    PokeD(*ReadBytesPerSec, counterValue\DoubleValue)
+  PdhLastCollectStatus = status
+  If status <> 0
+    LogLine("PDH collect failed: " + FormatPdhError(status), "PDH collect fail")
+    ProcedureReturn #False
   EndIf
   
-  If PdhGetFormattedCounterValue(PdhWriteCounter, #PDH_FMT_DOUBLE, 0, @counterValue) = 0
+  status = PdhGetFormattedCounterValue(PdhReadCounter, #PDH_FMT_DOUBLE, 0, @counterValue)
+  PdhLastReadStatus = status
+  If status = 0
+    PokeD(*ReadBytesPerSec, counterValue\DoubleValue)
+  Else
+    LogLine("PDH read counter failed: " + FormatPdhError(status), "PDH read fail")
+  EndIf
+  
+  status = PdhGetFormattedCounterValue(PdhWriteCounter, #PDH_FMT_DOUBLE, 0, @counterValue)
+  PdhLastWriteStatus = status
+  If status = 0
     PokeD(*WriteBytesPerSec, counterValue\DoubleValue)
+  Else
+    LogLine("PDH write counter failed: " + FormatPdhError(status), "PDH write fail")
   EndIf
   
   ProcedureReturn #True
@@ -106,7 +149,12 @@ Procedure MonitorThread(unused.i)
     LockMutex(Mutex_DiskData)
     If Not (ForcePdhOnly Or DisableIoctlSession) And IoctlBackoff = 0
       Result = DeviceIoControl_(hdh, #IOCTL_DISK_PERFORMANCE, 0, 0, @dp, SizeOf(DISK_PERFORMANCE), @lBytesReturned, 0)
-      If Not Result : LastIoctlError = GetLastError_() : EndIf
+      If Not Result
+        LastIoctlError = GetLastError_()
+        If IoctlBackoffCycles > 0 : IoctlBackoff = IoctlBackoffCycles : EndIf
+      Else
+        LastIoctlError = 0
+      EndIf
     EndIf
     UnlockMutex(Mutex_DiskData)
     
@@ -121,10 +169,20 @@ Procedure MonitorThread(unused.i)
       ; IdIcon1=Write (RED), IdIcon2=Read (GREEN), IdIcon3=Both (BLUE), IdIcon4=Idle (YELLOW)
       If ReadDetected And WriteDetected : CurrentIconID = IdIcon3 : ElseIf WriteDetected : CurrentIconID = IdIcon1 : ElseIf ReadDetected : CurrentIconID = IdIcon2 : Else : CurrentIconID = IdIcon4 : EndIf
       CurrentTooltip = "RC/s: " + Str((dp\ReadCount - Count_Read)*10) + " | WC/s: " + Str((dp\WriteCount - Count_Write)*10)
+      DisableIoctlSession = #False
       Count_Read = dp\ReadCount : Count_Write = dp\WriteCount
       UnlockMutex(Mutex_DiskData)
       PostEvent(#Event_UpdateTrayIcon)
     Else
+      If IoctlBackoff > 0
+        IoctlBackoff - 1
+      ElseIf Not ForcePdhOnly And Not DisableIoctlSession
+        LogLine("IOCTL_DISK_PERFORMANCE failed with Win32 error " + Str(LastIoctlError) + "; switching to PDH fallback", "IOCTL fail")
+        LockMutex(Mutex_DiskData)
+        DisableIoctlSession = #True
+        UnlockMutex(Mutex_DiskData)
+      EndIf
+
       ; Fallback to PDH
       If Not UsePdh : EnsurePdhInitialized() : EndIf
       

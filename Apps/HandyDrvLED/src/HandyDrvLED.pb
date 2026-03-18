@@ -10,14 +10,27 @@ IncludeFile "Localization.pbi"
 IncludeFile "DiskLogic.pbi"
 IncludeFile "UI_Drives.pbi"
 
+Global HelperMode.i
+
+Procedure.i IsHelperMode()
+  If CountProgramParameters() = 0 : ProcedureReturn #False : EndIf
+  Select LCase(ProgramParameter(0))
+    Case "--installstartup", "--removestartup"
+      ProcedureReturn #True
+  EndSelect
+  ProcedureReturn #False
+EndProcedure
+
 ; Prevent multiple instances (don't rely on window title text)
 ; Allow helper modes to run even if the tray app is running.
-Global hMutex.i
-  hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
-  If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
-    MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
-    CloseHandle_(hMutex)
-    End
+  HelperMode = IsHelperMode()
+  If Not HelperMode
+    hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
+    If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
+      MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+      CloseHandle_(hMutex)
+      End
+    EndIf
   EndIf
 
 Procedure.s FindCmdArgValue(name.s)
@@ -34,24 +47,36 @@ EndProcedure
 ; --- Initialization ---
 Procedure InitializeApp()
   ; Helper-modes for startup task management
-  If CountProgramParameters() > 0
+  If HelperMode
     Select LCase(ProgramParameter(0))
       Case "--installstartup"
         Define targetUser.s = FindCmdArgValue("--user")
-        If InstallStartupTask(targetUser) : End : Else : End : EndIf
+        If Not InstallStartupTask(targetUser)
+          MessageRequester("Error", "Unable to install startup task.", #PB_MessageRequester_Error)
+        EndIf
+        End
       Case "--removestartup"
-        If RemoveFromStartup() : End : Else : End : EndIf
+        If Not RemoveFromStartup()
+          MessageRequester("Error", "Unable to remove startup task.", #PB_MessageRequester_Error)
+        EndIf
+        End
     EndSelect
   EndIf
 
   LoadSettings()
+  LogLine("Application started")
   numicl = CountIconLibraries()
   If StartWithRandomIconSet : icon1 = Random(numicl, 1) : Else : icon1 = DefaultIconSet : EndIf
   icon1 = ClampI(icon1, 1, numicl)
   If Not LoadIconSet(icon1) : LogLine("Failed to load icon set") : End : EndIf
+
+  CurrentIconID = IdIcon4
+  CurrentTooltip = "Starting monitor..."
   
   If OpenPhysDrive(0) = #INVALID_HANDLE_VALUE
-    MessageRequester(Lng\AppName, "Unable to open drive!", #PB_MessageRequester_Error) : End
+    LogLine("Unable to open physical drive 0. Win32 error " + Str(GetLastError_()))
+    DisableIoctlSession = #True
+    CurrentTooltip = "PDH fallback active (physical drive access denied)"
   EndIf
   
   ; Start Background Monitor Thread
@@ -62,7 +87,9 @@ EndProcedure
 InitializeApp()
 
 Define Event.i, EventMenu.i, EventWindow.i, EventType.i
-Define ioErr.l, useP.i, qry.i, forceP.i, currentForce.i, result.i
+Define ioErr.l, useP.i, qry.i, forceP.i, currentForce.i, result.i, logFile.s
+Define pdhInit.l, pdhCollect.l, pdhRead.l, pdhWrite.l, rawDisabled.i
+Define pdhStage.s, pdhSource.s
 
 OpenWindow(#Window_Main, 0, 0, 0, 0, Lng\AppName, #PB_Window_Invisible)
 CreatePopupMenu(#Menu_Main)
@@ -79,7 +106,7 @@ MenuItem(#MenuItem_ForcePdh, Lng\PdhOnly)
 MenuBar()
 MenuItem(#MenuItem_Exit, Lng\Exit)
 
-AddSysTrayIcon(1, WindowID(#Window_Main), IdIcon3)
+AddSysTrayIcon(1, WindowID(#Window_Main), CurrentIconID)
 SysTrayIconToolTip(1, Lng\AppName + " " + version)
 
   StartupEnabled = IsInStartup()
@@ -114,11 +141,27 @@ SysTrayIconToolTip(1, Lng\AppName + " " + version)
           useP = UsePdh
           qry = PdhQuery
           forceP = ForcePdhOnly
+          rawDisabled = DisableIoctlSession
+          logFile = LogPath
+          pdhInit = PdhInitStatus
+          pdhCollect = PdhLastCollectStatus
+          pdhRead = PdhLastReadStatus
+          pdhWrite = PdhLastWriteStatus
+          pdhStage = PdhInitStage
+          pdhSource = PdhCounterSource
           UnlockMutex(Mutex_DiskData)
           MessageRequester("Diagnostics", "IOCTL Last Error: " + Str(ioErr) + #CRLF$ +
+                                       "Raw Drive Disabled: " + Str(rawDisabled) + #CRLF$ +
                                        "Force PDH Active: " + Str(forceP) + #CRLF$ +
                                        "PDH Initialized: " + Str(useP) + #CRLF$ +
-                                       "PDH Query Handle: " + Str(qry), #PB_MessageRequester_Info)
+                                       "PDH Query Handle: " + Str(qry) + #CRLF$ +
+                                       "PDH Init Stage: " + pdhStage + #CRLF$ +
+                                       "PDH Counter Source: " + pdhSource + #CRLF$ +
+                                       "PDH Init Status: " + FormatPdhError(pdhInit) + #CRLF$ +
+                                       "PDH Collect Status: " + FormatPdhError(pdhCollect) + #CRLF$ +
+                                       "PDH Read Status: " + FormatPdhError(pdhRead) + #CRLF$ +
+                                       "PDH Write Status: " + FormatPdhError(pdhWrite) + #CRLF$ +
+                                       "Log File: " + logFile, #PB_MessageRequester_Info)
         Case #MenuItem_ForcePdh
           LockMutex(Mutex_DiskData)
           ForcePdhOnly ! 1
@@ -151,11 +194,13 @@ ForEver
 
 ; --- Shutdown ---
 If IsThread(Thread_Monitor) : WaitThread(Thread_Monitor, 1000) : EndIf
+LogLine("Application shutting down")
 Cleanup()
 End
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 6
+; FirstLine = 90
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -165,12 +210,12 @@ End
 ; UseIcon = HandyDrvLED.ico
 ; Executable = ..\HandyDrvLED.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,3
-; VersionField1 = 1,0,3,3
+; VersionField0 = 1,0,3,4
+; VersionField1 = 1,0,3,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyDrvLED
-; VersionField4 = 1.0.3.3
-; VersionField5 = 1.0.3.3
+; VersionField4 = 1.0.3.4
+; VersionField5 = 1.0.3.4
 ; VersionField6 = A handy drive monitor - with tons of features
 ; VersionField7 = HandyDrvLED
 ; VersionField8 = HandyDrvLED.exe
