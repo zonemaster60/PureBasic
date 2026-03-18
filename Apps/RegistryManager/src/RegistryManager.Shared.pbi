@@ -705,7 +705,7 @@ Procedure.i StartBackupProcess(fileName.s, reason.s, isAuto.i, mode.s = "full", 
 
   LogInfo("StartBackupProcess", "Launching backup process for: " + reason)
   program = RunProgram("powershell", "-NoProfile -ExecutionPolicy Bypass -File " + Chr(34) + scriptFile + Chr(34), "", #PB_Program_Open | #PB_Program_Hide)
-  If Not program
+  If program = 0 And Not IsProgram(0)
     DeleteFile(scriptFile)
     LogError("StartBackupProcess", "Failed to start PowerShell backup process")
     ProcedureReturn #False
