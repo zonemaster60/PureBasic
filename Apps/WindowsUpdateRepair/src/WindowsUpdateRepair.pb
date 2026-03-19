@@ -11,6 +11,10 @@
 EnableExplicit
 UseZipPacker()
 
+Declare.i GetServiceStateByName(name.s)
+Declare.s ServiceStateLabel(st.i)
+Declare.l RegOpenReadKey(hive.l, subkey.s, *hKey.Integer)
+
 ; ----------------------------
 ; WinAPI imports / constants
 ; ----------------------------
@@ -42,39 +46,71 @@ UseZipPacker()
 #PB_Registry_HKLM       = #HKEY_LOCAL_MACHINE
 #PB_Registry_HKCU       = #HKEY_CURRENT_USER
 
-#KEY_QUERY_VALUE        = $0001
-#KEY_ENUMERATE_SUB_KEYS = $0008
-#KEY_NOTIFY             = $0010
 #KEY_READ               = $20019
 #KEY_WOW64_64KEY        = $0100
 #KEY_WOW64_32KEY        = $0200
 
-#REG_NONE               = 0
 #REG_SZ                 = 1
 #REG_EXPAND_SZ          = 2
 #REG_DWORD              = 4
 
 #APP_NAME = "WindowsUpdateRepair"
-#EMAIL_NAME = "zonemaster60@gmail.com"
 
-Global AppPath.s = GetPathPart(ProgramFilename())
-SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.0.1"
+SetCurrentDirectory(GetPathPart(ProgramFilename()))
+Global version.s = "v1.0.0.2"
 
 ; Prevent multiple instances (don't rely on window title text)
 Global hMutex.i
-hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
-If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
-  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
-  CloseHandle_(hMutex)
-  End
-EndIf
+Global gQuietMode.i
+Global gShouldExit.i
+Global gIsRunning.i
+Global gIsExporting.i
+
+Procedure ShowInfo(title.s, message.s)
+  If gQuietMode = 0
+    MessageRequester(title, message, #PB_MessageRequester_Info)
+  EndIf
+EndProcedure
+
+Procedure.i AcquireInstanceMutex()
+  If hMutex
+    ProcedureReturn #True
+  EndIf
+
+  hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
+  If hMutex = 0
+    ShowInfo("Error", "Failed to create application mutex.")
+    ProcedureReturn #False
+  EndIf
+
+  If GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
+    ShowInfo("Info", #APP_NAME + " is already running.")
+    CloseHandle_(hMutex)
+    hMutex = 0
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure ReleaseInstanceMutex()
+  If hMutex
+    CloseHandle_(hMutex)
+    hMutex = 0
+  EndIf
+EndProcedure
 
 Procedure Exit()
-  Define Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
+  Define Req.i
+
+  If gIsRunning Or gIsExporting
+    ShowInfo("Busy", "A repair or diagnostics export is still running. Wait for it to finish before exiting.")
+    ProcedureReturn
+  EndIf
+
+  Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
   If Req = #PB_MessageRequester_Yes
-    CloseHandle_(hMutex)
-    End
+    gShouldExit = #True
   EndIf
 EndProcedure
 
@@ -124,7 +160,6 @@ Import "advapi32.lib"
   ControlService_(hService.i, dwControl.l, *lpServiceStatus) As "ControlService"
   StartServiceW_(hService.i, dwNumServiceArgs.l, *lpServiceArgVectors) As "StartServiceW"
   QueryServiceStatusEx_(hService.i, InfoLevel.l, *lpBuffer, cbBufSize.l, *pcbBytesNeeded) As "QueryServiceStatusEx"
-  GetLastError_() As "GetLastError"
 
   RegOpenKeyExW_(hKey.i, lpSubKey.p-unicode, ulOptions.l, samDesired.l, *phkResult) As "RegOpenKeyExW"
   RegQueryValueExW_(hKey.i, lpValueName.p-unicode, lpReserved.i, *lpType, *lpData, *lpcbData) As "RegQueryValueExW"
@@ -133,8 +168,9 @@ EndImport
 
 Import "kernel32.lib"
   GetCurrentProcess_() As "GetCurrentProcess"
+  GetLastError_() As "GetLastError"
   IsWow64Process_(hProcess.i, *Wow64) As "IsWow64Process"
-  GetTickCount_() As "GetTickCount"
+  GetTickCount64_() As "GetTickCount64"
   Sleep_(dwMilliseconds.l) As "Sleep"
   MoveFileExW_(lpExistingFileName.p-unicode, lpNewFileName.p-unicode, dwFlags.l) As "MoveFileExW"
 EndImport
@@ -145,6 +181,7 @@ EndImport
 
 Import "shell32.lib"
   ShellExecuteW_(hwnd.i, lpOperation.p-unicode, lpFile.p-unicode, lpParameters.p-unicode, lpDirectory.p-unicode, nShowCmd.l) As "ShellExecuteW"
+  IsUserAnAdmin_() As "IsUserAnAdmin"
 EndImport
 
 ; ----------------------------
@@ -154,15 +191,12 @@ EndImport
 Global gLogFile.s
 Global gMutex.i
 Global NewList gPendingLog.s()
-Global gWorkerThread.i
-Global gIsRunning.i
-
-Global gExportThread.i
-Global gIsExporting.i
-Global gLastDiagZip.s
+Global gLastRunSucceeded.i
+Global gLastExportSucceeded.i
 
 Global gDryRun.i
 Global gRebootAfter.i
+Global gHaveSvcSnapshot.i
 
 ; Remember service state so we can restore it
 Structure RememberedService
@@ -204,14 +238,16 @@ Procedure LogLine(line.s)
   Protected fh.i
   line = FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date()) + " | " + line
 
+  LockMutex(gMutex)
   fh = OpenFile(#PB_Any, gLogFile)
+  If fh = 0
+    fh = CreateFile(#PB_Any, gLogFile)
+  EndIf
   If fh
     FileSeek(fh, Lof(fh))
     WriteStringN(fh, line, #PB_UTF8)
     CloseFile(fh)
   EndIf
-
-  LockMutex(gMutex)
   AddElement(gPendingLog())
   gPendingLog() = line
   UnlockMutex(gMutex)
@@ -232,34 +268,42 @@ Procedure.i Is64BitOS()
   ProcedureReturn #False
 EndProcedure
 
-Procedure.s SystemToolPath(toolName.s)
+Procedure.s RealSystemPath(pathSuffix.s)
   Protected winDir.s = GetEnvironmentVariable("WINDIR")
   If winDir = "" : winDir = "C:\Windows" : EndIf
 
   ; 32-bit process on 64-bit OS: use Sysnative to reach 64-bit System32 tools
   If SizeOf(Integer) = 4 And Is64BitOS()
-    ProcedureReturn winDir + "\Sysnative\" + toolName
+    ProcedureReturn winDir + "\Sysnative\" + pathSuffix
   Else
-    ProcedureReturn winDir + "\System32\" + toolName
+    ProcedureReturn winDir + "\System32\" + pathSuffix
   EndIf
+EndProcedure
+
+Procedure.s SystemToolPath(toolName.s)
+  ProcedureReturn RealSystemPath(toolName)
 EndProcedure
 
 Procedure.i IsAdmin()
-  ; Simple: try opening SCM connect only; if it fails often indicates not elevated.
-  ; (Not perfect, but works well for this tool.)
-  Protected hSCM.i = OpenSCManagerW_(0, 0, #SC_MANAGER_CONNECT)
-  If hSCM
-    CloseServiceHandle_(hSCM)
-    ProcedureReturn #True
-  EndIf
-  ProcedureReturn #False
+  ProcedureReturn Bool(IsUserAnAdmin_() <> 0)
 EndProcedure
 
-Procedure RelaunchElevatedIfNeeded()
-  If IsAdmin() : ProcedureReturn : EndIf
+Procedure.i RelaunchElevatedIfNeeded()
+  Protected rc.i
+
+  If IsAdmin()
+    ProcedureReturn #True
+  EndIf
+
   ; Pass only args, not full command line.
-  ShellExecuteW_(0, "runas", ProgramFilename(), JoinParams(), ExeDir(), 1)
-  End
+  rc = ShellExecuteW_(0, "runas", ProgramFilename(), JoinParams(), ExeDir(), 1)
+  If rc <= 32
+    ShowInfo("Elevation Required", "Administrator privileges are required. The UAC prompt was cancelled or elevation failed.")
+    ProcedureReturn #False
+  EndIf
+
+  ReleaseInstanceMutex()
+  ProcedureReturn #False
 EndProcedure
 
 Procedure.i GetWindowsVersion(*major.Integer, *minor.Integer, *build.Integer, *spMajor.Integer)
@@ -305,7 +349,7 @@ EndProcedure
 ; ----------------------------
 
 Procedure.i RunAndLog(exePath.s, args.s, workDir.s="")
-  Protected p.i, line.s
+  Protected p.i, line.s, exitCode.i
   LogLine("RUN: " + Quote(exePath) + " " + args)
 
   If gDryRun
@@ -337,11 +381,16 @@ Procedure.i RunAndLog(exePath.s, args.s, workDir.s="")
   Wend
   While AvailableProgramOutput(p)
     line = ReadProgramString(p, #PB_Program_Error)
-    If line <> "" : LogLine("ERR: " + line) : EndIf
+      If line <> "" : LogLine("ERR: " + line) : EndIf
   Wend
 
-  LogLine("EXITCODE: " + Str(ProgramExitCode(p)))
+  exitCode = ProgramExitCode(p)
+  LogLine("EXITCODE: " + Str(exitCode))
   CloseProgram(p)
+  If exitCode <> 0
+    LogLine("ERROR: process returned non-zero exit code.")
+    ProcedureReturn #False
+  EndIf
   ProcedureReturn #True
 EndProcedure
 
@@ -371,17 +420,7 @@ Procedure.i QueryServiceState(hSvc.i)
 EndProcedure
 
 Procedure.s SystemFolderPath(folderName.s)
-  ; Like SystemToolPath(), but for directories/files under the real System32.
-  ; On 64-bit OS, 32-bit processes get redirected from System32 -> SysWOW64.
-  ; Sysnative bypasses redirection and points at the real System32.
-  Protected winDir.s = GetEnvironmentVariable("WINDIR")
-  If winDir = "" : winDir = "C:\Windows" : EndIf
-
-  If SizeOf(Integer) = 4 And Is64BitOS()
-    ProcedureReturn winDir + "\Sysnative\" + folderName
-  Else
-    ProcedureReturn winDir + "\System32\" + folderName
-  EndIf
+  ProcedureReturn RealSystemPath(folderName)
 EndProcedure
 
 Procedure.i QueryServiceStatusProcess(hSvc.i, *ssp.SERVICE_STATUS_PROCESS)
@@ -393,7 +432,7 @@ Procedure.i QueryServiceStatusProcess(hSvc.i, *ssp.SERVICE_STATUS_PROCESS)
 EndProcedure
 
 Procedure.i WaitServiceState(hSvc.i, desiredState.i, timeoutMs.i)
-  Protected start.l = GetTickCount_()
+  Protected start.q = GetTickCount64_()
   Protected st.i, last.i = -999
   Repeat
     st = QueryServiceState(hSvc)
@@ -407,7 +446,30 @@ Procedure.i WaitServiceState(hSvc.i, desiredState.i, timeoutMs.i)
       last = st
     EndIf
     Sleep_(150)
-  Until (GetTickCount_() - start) > timeoutMs
+  Until (GetTickCount64_() - start) > timeoutMs
+  ProcedureReturn #False
+EndProcedure
+
+Procedure.i IsServiceBusyState(st.i)
+  ProcedureReturn Bool(st = #SERVICE_RUNNING Or st = #SERVICE_START_PENDING Or st = #SERVICE_STOP_PENDING)
+EndProcedure
+
+Procedure.i WaitServiceInactiveByName(name.s, timeoutMs.i)
+  Protected start.q = GetTickCount64_()
+  Protected st.i
+
+  Repeat
+    st = GetServiceStateByName(name)
+    If st = -2 Or st = #SERVICE_STOPPED
+      ProcedureReturn #True
+    EndIf
+    If IsServiceBusyState(st) = 0
+      ProcedureReturn #True
+    EndIf
+    Sleep_(200)
+  Until (GetTickCount64_() - start) > timeoutMs
+
+  LogLine("WARN: service still active or pending: " + name + " state=" + ServiceStateLabel(st))
   ProcedureReturn #False
 EndProcedure
 
@@ -597,6 +659,7 @@ Procedure RememberDefaultServices()
   RememberServiceState("msiserver")
   RememberServiceState("UsoSvc")
   RememberServiceState("DoSvc")
+  gHaveSvcSnapshot = #True
 EndProcedure
 
 Procedure.i WasServiceRunning(name.s)
@@ -669,24 +732,31 @@ Procedure.i ResetWindowsUpdateCaches()
     ProcedureReturn #True
   EndIf
 
+  If gHaveSvcSnapshot = 0
+    RememberDefaultServices()
+    LogLine("Service snapshot captured automatically for cache reset.")
+  EndIf
+
   ; Ensure services that lock these folders are stopped (even if user didn't run the Stop step).
   ; Important: stop update-related services BEFORE cryptsvc to avoid dependent-service blocks.
-  If GetServiceStateByName("wuauserv") = #SERVICE_RUNNING
+  If IsServiceBusyState(GetServiceStateByName("wuauserv"))
     LogLine("wuauserv is running; stopping it for cache reset.")
     StopServiceByName("wuauserv", 60000)
   EndIf
-  If GetServiceStateByName("bits") = #SERVICE_RUNNING
+  If IsServiceBusyState(GetServiceStateByName("bits"))
     LogLine("bits is running; stopping it for cache reset.")
     StopServiceByName("bits", 60000)
   EndIf
-  If GetServiceStateByName("cryptsvc") = #SERVICE_RUNNING
+  If IsServiceBusyState(GetServiceStateByName("cryptsvc"))
     LogLine("cryptsvc is running; stopping it for catroot2 rename.")
     StopServiceByName("cryptsvc", 120000)
   EndIf
 
   ; Verify services are actually stopped before attempting renames
-  If GetServiceStateByName("wuauserv") = #SERVICE_RUNNING Or GetServiceStateByName("cryptsvc") = #SERVICE_RUNNING
-    LogLine("ERROR: Services still running, cannot safely reset caches. Aborting rename.")
+  If WaitServiceInactiveByName("wuauserv", 15000) = 0 Or
+     WaitServiceInactiveByName("bits", 15000) = 0 Or
+     WaitServiceInactiveByName("cryptsvc", 30000) = 0
+    LogLine("ERROR: Services still active or pending, cannot safely reset caches. Aborting rename.")
     ProcedureReturn #False
   EndIf
 
@@ -721,18 +791,8 @@ EndProcedure
 ; ----------------------------
 
 Procedure.i RegKeyExists(hive.l, subkey.s)
-  Protected hKey.i, rc.l
-  Protected sam.l = #KEY_READ
-
-  ; Prefer 64-bit view on 64-bit OS.
-  If Is64BitOS()
-    rc = RegOpenKeyExW_(hive, subkey, 0, #KEY_READ | #KEY_WOW64_64KEY, @hKey)
-    If rc <> 0
-      rc = RegOpenKeyExW_(hive, subkey, 0, #KEY_READ | #KEY_WOW64_32KEY, @hKey)
-    EndIf
-  Else
-    rc = RegOpenKeyExW_(hive, subkey, 0, sam, @hKey)
-  EndIf
+  Protected hKey.i
+  Protected rc.l = RegOpenReadKey(hive, subkey, @hKey)
 
   If rc = 0 And hKey
     RegCloseKey_(hKey)
@@ -741,18 +801,27 @@ Procedure.i RegKeyExists(hive.l, subkey.s)
   ProcedureReturn #False
 EndProcedure
 
+Procedure.l RegOpenReadKey(hive.l, subkey.s, *hKey.Integer)
+  Protected rc.l
+
+  *hKey\i = 0
+  If Is64BitOS()
+    rc = RegOpenKeyExW_(hive, subkey, 0, #KEY_READ | #KEY_WOW64_64KEY, *hKey)
+    If rc <> 0
+      rc = RegOpenKeyExW_(hive, subkey, 0, #KEY_READ | #KEY_WOW64_32KEY, *hKey)
+    EndIf
+  Else
+    rc = RegOpenKeyExW_(hive, subkey, 0, #KEY_READ, *hKey)
+  EndIf
+
+  ProcedureReturn rc
+EndProcedure
+
 Procedure.s RegReadStr(hive.l, subkey.s, valueName.s)
   Protected hKey.i, rc.l, t.l, cb.l
   Protected *buf, s.s = ""
 
-  If Is64BitOS()
-    rc = RegOpenKeyExW_(hive, subkey, 0, #KEY_READ | #KEY_WOW64_64KEY, @hKey)
-    If rc <> 0
-      rc = RegOpenKeyExW_(hive, subkey, 0, #KEY_READ | #KEY_WOW64_32KEY, @hKey)
-    EndIf
-  Else
-    rc = RegOpenKeyExW_(hive, subkey, 0, #KEY_READ, @hKey)
-  EndIf
+  rc = RegOpenReadKey(hive, subkey, @hKey)
 
   If rc <> 0 Or hKey = 0
     ProcedureReturn ""
@@ -778,14 +847,7 @@ Procedure.i RegReadDword(hive.l, subkey.s, valueName.s, defaultVal.i=-1)
   Protected hKey.i, rc.l, t.l, cb.l
   Protected v.l
 
-  If Is64BitOS()
-    rc = RegOpenKeyExW_(hive, subkey, 0, #KEY_READ | #KEY_WOW64_64KEY, @hKey)
-    If rc <> 0
-      rc = RegOpenKeyExW_(hive, subkey, 0, #KEY_READ | #KEY_WOW64_32KEY, @hKey)
-    EndIf
-  Else
-    rc = RegOpenKeyExW_(hive, subkey, 0, #KEY_READ, @hKey)
-  EndIf
+  rc = RegOpenReadKey(hive, subkey, @hKey)
 
   If rc <> 0 Or hKey = 0
     ProcedureReturn defaultVal
@@ -969,15 +1031,20 @@ Procedure.i ExportDiagnosticsZip()
   AddFolderToZip(pack, diagDir, "Diag-" + ts)
   ClosePack(pack)
 
-  gLastDiagZip = zipPath
   LogLine("Diagnostics: done: " + zipPath)
   ProcedureReturn #True
 EndProcedure
 
 Procedure ExportThread(*dummy)
   gIsExporting = #True
+  gLastExportSucceeded = #False
   LogLine("=== Start Diagnostics Export ===")
-  ExportDiagnosticsZip()
+  gLastExportSucceeded = ExportDiagnosticsZip()
+  If gLastExportSucceeded
+    LogLine("Diagnostics export completed successfully.")
+  Else
+    LogLine("Diagnostics export completed with errors.")
+  EndIf
   LogLine("=== End Diagnostics Export ===")
   gIsExporting = #False
 EndProcedure
@@ -1000,55 +1067,87 @@ EndEnumeration
 
 Global Dim gSelectedStep.i(#Step_LogPolicyAndHealth)
 
-Procedure StopUpdateServices()
+Procedure.i StopUpdateServices()
+  Protected success.i = #True
+
   RememberDefaultServices()
   LogLine("Service snapshot captured. Will restore prior running state when done.")
 
   ; Stop only what was running (safe + avoids changing intentional state)
   ; Order: stop orchestrators first, then WU/BITS, then crypto/installer.
-  If WasServiceRunning("UsoSvc")    : StopServiceByName("UsoSvc")    : EndIf
-  If WasServiceRunning("DoSvc")     : StopServiceByName("DoSvc")     : EndIf
-  If WasServiceRunning("wuauserv")  : StopServiceByName("wuauserv")  : EndIf
-  If WasServiceRunning("bits")      : StopServiceByName("bits")      : EndIf
+  If WasServiceRunning("UsoSvc")    And StopServiceByName("UsoSvc") = 0    : success = #False : EndIf
+  If WasServiceRunning("DoSvc")     And StopServiceByName("DoSvc") = 0     : success = #False : EndIf
+  If WasServiceRunning("wuauserv")  And StopServiceByName("wuauserv") = 0  : success = #False : EndIf
+  If WasServiceRunning("bits")      And StopServiceByName("bits") = 0      : success = #False : EndIf
   ; cryptsvc can take a long time to stop and often hangs on Win11.
   ; We stop it only if needed for catroot2 rename, or if user specifically wants it stopped.
-  If WasServiceRunning("cryptsvc")  : StopServiceByName("cryptsvc")  : EndIf
-  If WasServiceRunning("msiserver") : StopServiceByName("msiserver") : EndIf
+  If WasServiceRunning("cryptsvc")  And StopServiceByName("cryptsvc") = 0  : success = #False : EndIf
+  If WasServiceRunning("msiserver") And StopServiceByName("msiserver") = 0 : success = #False : EndIf
+
+  ProcedureReturn success
 EndProcedure
 
-Procedure StartUpdateServices()
+Procedure.i StartUpdateServices()
+  Protected success.i = #True
+
   If ListSize(gSvc()) = 0
     LogLine("WARN: no captured service state; not restoring services. Run Stop step first.")
-    ProcedureReturn
+    ProcedureReturn #False
   EndIf
 
   ; Start only what was running before (ordered)
-  If WasServiceRunning("cryptsvc")  : StartServiceByName("cryptsvc")  : EndIf
-  If WasServiceRunning("msiserver") : StartServiceByName("msiserver") : EndIf
-  If WasServiceRunning("bits")      : StartServiceByName("bits")      : EndIf
-  If WasServiceRunning("wuauserv")  : StartServiceByName("wuauserv")  : EndIf
-  If WasServiceRunning("DoSvc")     : StartServiceByName("DoSvc")     : EndIf
-  If WasServiceRunning("UsoSvc")    : StartServiceByName("UsoSvc")    : EndIf
+  If WasServiceRunning("cryptsvc")  And StartServiceByName("cryptsvc") = 0  : success = #False : EndIf
+  If WasServiceRunning("msiserver") And StartServiceByName("msiserver") = 0 : success = #False : EndIf
+  If WasServiceRunning("bits")      And StartServiceByName("bits") = 0      : success = #False : EndIf
+  If WasServiceRunning("wuauserv")  And StartServiceByName("wuauserv") = 0  : success = #False : EndIf
+  If WasServiceRunning("DoSvc")     And StartServiceByName("DoSvc") = 0     : success = #False : EndIf
+  If WasServiceRunning("UsoSvc")    And StartServiceByName("UsoSvc") = 0    : success = #False : EndIf
+
+  ProcedureReturn success
+EndProcedure
+
+Procedure NormalizeSelectedSteps()
+  If gSelectedStep(#Step_StopServices)
+    If gSelectedStep(#Step_StartServices) = 0
+      LogLine("Adjusting selection: enabling service restore because services will be stopped.")
+      gSelectedStep(#Step_StartServices) = #True
+    EndIf
+  EndIf
+
+  If gSelectedStep(#Step_ResetCaches)
+    If gSelectedStep(#Step_StartServices) = 0
+      LogLine("Adjusting selection: enabling service restore because cache reset may stop services.")
+      gSelectedStep(#Step_StartServices) = #True
+    EndIf
+  EndIf
 EndProcedure
 
 Procedure Worker(*dummy)
   Protected dism.s, sfc.s, netsh.s, ipconfig.s
   Protected shutdownExe.s
   Protected resetSuccess.i = #True
+  Protected overallSuccess.i = #True
 
   gIsRunning = #True
+  gLastRunSucceeded = #False
   LogLine("=== Start Repair ===")
+  NormalizeSelectedSteps()
 
   If gSelectedStep(#Step_LogPolicyAndHealth)
     LogPolicyAndHealth()
   EndIf
 
   If gSelectedStep(#Step_StopServices)
-    StopUpdateServices()
+    If StopUpdateServices() = 0
+      overallSuccess = #False
+    EndIf
   EndIf
 
   If gSelectedStep(#Step_ResetCaches)
     resetSuccess = ResetWindowsUpdateCaches()
+    If resetSuccess = 0
+      overallSuccess = #False
+    EndIf
   EndIf
 
   ; Only proceed with repairs if caches were successfully reset (if selected)
@@ -1056,7 +1155,9 @@ Procedure Worker(*dummy)
     If gSelectedStep(#Step_RunDISM)
       If IsWin10OrLater()
         dism = SystemToolPath("dism.exe")
-        RunAndLog(dism, "/Online /Cleanup-Image /RestoreHealth")
+        If RunAndLog(dism, "/Online /Cleanup-Image /RestoreHealth") = 0
+          overallSuccess = #False
+        EndIf
       Else
         LogLine("SKIP: DISM /RestoreHealth not enabled for this OS preset.")
       EndIf
@@ -1064,43 +1165,61 @@ Procedure Worker(*dummy)
 
     If gSelectedStep(#Step_RunSFC)
       sfc = SystemToolPath("sfc.exe")
-      RunAndLog(sfc, "/scannow")
+      If RunAndLog(sfc, "/scannow") = 0
+        overallSuccess = #False
+      EndIf
     EndIf
 
     If gSelectedStep(#Step_ResetWinHTTP)
       netsh = SystemToolPath("netsh.exe")
-      RunAndLog(netsh, "winhttp reset proxy")
+      If RunAndLog(netsh, "winhttp reset proxy") = 0
+        overallSuccess = #False
+      EndIf
     EndIf
 
     If gSelectedStep(#Step_ResetWinsock)
       netsh = SystemToolPath("netsh.exe")
-      RunAndLog(netsh, "winsock reset")
+      If RunAndLog(netsh, "winsock reset") = 0
+        overallSuccess = #False
+      EndIf
     EndIf
 
     If gSelectedStep(#Step_FlushDNS)
       ipconfig = SystemToolPath("ipconfig.exe")
-      RunAndLog(ipconfig, "/flushdns")
+      If RunAndLog(ipconfig, "/flushdns") = 0
+        overallSuccess = #False
+      EndIf
     EndIf
   Else
-    LogLine("CRITICAL: Cache reset failed. Subsequent repair steps skipped to prevent system corruption.")
+    LogLine("ERROR: cache reset failed. Subsequent repair steps were skipped.")
   EndIf
 
   ; Restore services at the end (after repairs)
   If gSelectedStep(#Step_StartServices)
-    StartUpdateServices()
+    If StartUpdateServices() = 0
+      overallSuccess = #False
+    EndIf
   EndIf
 
+  gLastRunSucceeded = overallSuccess
+  If overallSuccess
+    LogLine("Repair completed successfully.")
+  Else
+    LogLine("Repair completed with errors. Review the log for failed steps.")
+  EndIf
   LogLine("=== End Repair ===")
 
   If gRebootAfter
     If gDryRun
       LogLine("DRYRUN: reboot requested but skipped.")
-    ElseIf resetSuccess
+    ElseIf overallSuccess
       shutdownExe = SystemToolPath("shutdown.exe")
       LogLine("Reboot requested. System will reboot in 10 seconds.")
-      RunAndLog(shutdownExe, "/r /t 10 /c " + Quote(#APP_NAME + ": reboot requested"))
+      If RunAndLog(shutdownExe, "/r /t 10 /c " + Quote(#APP_NAME + ": reboot requested")) = 0
+        gLastRunSucceeded = #False
+      EndIf
     Else
-      LogLine("ABORT: reboot skipped because a critical error occurred.")
+      LogLine("ABORT: reboot skipped because repair completed with errors.")
     EndIf
   EndIf
 
@@ -1129,25 +1248,27 @@ Procedure.i StepIdFromToken(tok.s)
   ProcedureReturn -1
 EndProcedure
 
+Procedure.i RecommendedStepEnabled(stepId.i)
+  Select stepId
+    Case #Step_LogPolicyAndHealth, #Step_StopServices, #Step_ResetCaches, #Step_StartServices, #Step_RunSFC
+      ProcedureReturn #True
+    Case #Step_RunDISM
+      ProcedureReturn IsWin10OrLater()
+  EndSelect
+  ProcedureReturn #False
+EndProcedure
+
 Procedure ApplyRecommendedPresetToArray()
-  gSelectedStep(#Step_LogPolicyAndHealth) = #True
-  gSelectedStep(#Step_StopServices) = #True
-  gSelectedStep(#Step_ResetCaches) = #True
-  gSelectedStep(#Step_StartServices) = #True
+  Protected stepId.i
+
+  For stepId = 0 To ArraySize(gSelectedStep())
+    gSelectedStep(stepId) = RecommendedStepEnabled(stepId)
+  Next
   gRebootAfter = #False
-  gSelectedStep(#Step_RunSFC) = #True
-  If IsWin10OrLater()
-    gSelectedStep(#Step_RunDISM) = #True
-  Else
-    gSelectedStep(#Step_RunDISM) = #False
-  EndIf
-  gSelectedStep(#Step_ResetWinHTTP) = #False
-  gSelectedStep(#Step_ResetWinsock) = #False
-  gSelectedStep(#Step_FlushDNS) = #False
 EndProcedure
 
 Procedure.i ParseCliAndMaybeRun()
-  Protected i.i, p.s, cmd.s, arg.s, quiet.i, doRun.i, doDiag.i
+  Protected i.i, p.s, cmd.s, doRun.i, doDiag.i
   Protected steps.s, tok.s, stepId.i, n.i
   Protected count.i = CountProgramParameters()
 
@@ -1168,7 +1289,7 @@ Procedure.i ParseCliAndMaybeRun()
 
     Select cmd
       Case "quiet"
-        quiet = #True
+        gQuietMode = #True
 
       Case "dryrun"
         gDryRun = #True
@@ -1206,24 +1327,32 @@ Procedure.i ParseCliAndMaybeRun()
     EndSelect
   Next
 
-  If quiet = 0
-    ; If not quiet, still allow GUI to open even after CLI parsing unless we actually run/export.
-  EndIf
-
   If doRun
-    RelaunchElevatedIfNeeded()
+    NormalizeSelectedSteps()
+    If RelaunchElevatedIfNeeded() = 0
+      ProcedureReturn #True
+    EndIf
+    If AcquireInstanceMutex() = 0
+      ProcedureReturn #True
+    EndIf
     LogLine("CLI: starting repair.")
     Worker(0)
   EndIf
 
   If doDiag
-    RelaunchElevatedIfNeeded()
+    If RelaunchElevatedIfNeeded() = 0
+      ProcedureReturn #True
+    EndIf
+    If AcquireInstanceMutex() = 0
+      ProcedureReturn #True
+    EndIf
     LogLine("CLI: exporting diagnostics.")
     ExportDiagnosticsZip()
   EndIf
 
   If doRun Or doDiag
-    End
+    ReleaseInstanceMutex()
+    ProcedureReturn #True
   EndIf
 
   ProcedureReturn #False
@@ -1255,22 +1384,16 @@ Enumeration Gadgets
 EndEnumeration
 
 Procedure ApplyRecommendedPresetUI()
-  SetGadgetState(#ChkPolicy, 1)
-  SetGadgetState(#ChkStop, 1)
-  SetGadgetState(#ChkCaches, 1)
-  SetGadgetState(#ChkStart, 1)
+  SetGadgetState(#ChkPolicy, RecommendedStepEnabled(#Step_LogPolicyAndHealth))
+  SetGadgetState(#ChkStop, RecommendedStepEnabled(#Step_StopServices))
+  SetGadgetState(#ChkCaches, RecommendedStepEnabled(#Step_ResetCaches))
+  SetGadgetState(#ChkStart, RecommendedStepEnabled(#Step_StartServices))
   SetGadgetState(#ChkReboot, 0)
-
-  If IsWin10OrLater()
-    SetGadgetState(#ChkDISM, 1)
-  Else
-    SetGadgetState(#ChkDISM, 0)
-  EndIf
-
-  SetGadgetState(#ChkSFC, 1)
-  SetGadgetState(#ChkWinHTTP, 0)
-  SetGadgetState(#ChkWinsock, 0)
-  SetGadgetState(#ChkDNS, 0)
+  SetGadgetState(#ChkDISM, RecommendedStepEnabled(#Step_RunDISM))
+  SetGadgetState(#ChkSFC, RecommendedStepEnabled(#Step_RunSFC))
+  SetGadgetState(#ChkWinHTTP, RecommendedStepEnabled(#Step_ResetWinHTTP))
+  SetGadgetState(#ChkWinsock, RecommendedStepEnabled(#Step_ResetWinsock))
+  SetGadgetState(#ChkDNS, RecommendedStepEnabled(#Step_FlushDNS))
 EndProcedure
 
 Procedure SyncSelectedStepsFromUI()
@@ -1331,9 +1454,19 @@ gMutex = CreateMutex()
 gLogFile = ExeDir() + #APP_NAME + "-" + NowStamp() + ".log"
 
 ; CLI early-exit if requested
-ParseCliAndMaybeRun()
+If ParseCliAndMaybeRun()
+  ReleaseInstanceMutex()
+  End
+EndIf
 
-RelaunchElevatedIfNeeded()
+If RelaunchElevatedIfNeeded() = 0
+  ReleaseInstanceMutex()
+  End
+EndIf
+
+If AcquireInstanceMutex() = 0
+  End
+EndIf
 
 OpenWindow(#Win, 0, 0, 900, 660, #APP_NAME + " - " + version, #PB_Window_MinimizeGadget | #PB_Window_SystemMenu |
                                                                  #PB_Window_ScreenCentered)
@@ -1405,6 +1538,7 @@ Repeat
         Case #BtnRun
           If gIsRunning = 0 And gIsExporting = 0
             SyncSelectedStepsFromUI()
+            NormalizeSelectedSteps()
             LogLine("Selected steps: policy=" + Str(gSelectedStep(#Step_LogPolicyAndHealth)) +
                     ", stop=" + Str(gSelectedStep(#Step_StopServices)) +
                     ", caches=" + Str(gSelectedStep(#Step_ResetCaches)) +
@@ -1414,24 +1548,34 @@ Repeat
                     ", winhttp=" + Str(gSelectedStep(#Step_ResetWinHTTP)) +
                     ", winsock=" + Str(gSelectedStep(#Step_ResetWinsock)) +
                     ", dns=" + Str(gSelectedStep(#Step_FlushDNS)))
-            gWorkerThread = CreateThread(@Worker(), 0)
+            gIsRunning = #True
+            If CreateThread(@Worker(), 0) = 0
+              gIsRunning = #False
+              LogLine("ERROR: failed to create repair worker thread.")
+            EndIf
           EndIf
 
         Case #BtnExport
           If gIsRunning = 0 And gIsExporting = 0
-            gExportThread = CreateThread(@ExportThread(), 0)
+            gIsExporting = #True
+            If CreateThread(@ExportThread(), 0) = 0
+              gIsExporting = #False
+              LogLine("ERROR: failed to create diagnostics export thread.")
+            EndIf
           EndIf
       EndSelect
 
     Case #PB_Event_CloseWindow
       Exit()
   EndSelect
-ForEver
+Until gShouldExit
+
+ReleaseInstanceMutex()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 61
+; CursorPosition = 59
 ; FirstLine = 36
-; Folding = ---------
+; Folding = ----------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1440,15 +1584,15 @@ ForEver
 ; UseIcon = WindowsUpdateRepair.ico
 ; Executable = ..\WindowsUpdateRepair.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
-; VersionField3 = UpdateRepairPortable
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
-; VersionField6 = Windows Update Repair Tool
-; VersionField7 = UpdateRepairPortable
-; VersionField8 = UpdateRepairPortable.exe
+; VersionField3 = WindowsUpdateRepair
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
+; VersionField6 = A Windows Update Repair Tool
+; VersionField7 = WindowsUpdateRepair
+; VersionField8 = WindowsUpdateRepair.exe
 ; VersionField9 = David Scouten
 ; VersionField13 = zonemaster60@gmail.com
 ; VersionField14 = https://github.com/zonemaster60
