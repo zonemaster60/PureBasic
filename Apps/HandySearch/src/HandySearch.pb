@@ -4,7 +4,7 @@ EnableExplicit
 
 #APP_NAME   = "HandySearch"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-Global version.s = "v1.0.1.2"
+Global version.s = "v1.0.1.3"
 
 ; Crash logging (best-effort)
 Declare InitCrashLogging()
@@ -62,11 +62,13 @@ Declare.i GetFileIconIndex(path.s)
 Declare DbWriterThreadProc(dummy.i)
 Declare FlushIndexBatchToDb(List batch.IndexRecord())
 Declare.b ConfirmExit()
+Declare.i PendingResultsCount()
+Declare SaveSettingsIni()
 
 ; Startup (run at login) helpers
 Declare.i IsInStartup()
-Declare AddToStartup()
-Declare RemoveFromStartup()
+Declare.i AddToStartup()
+Declare.i RemoveFromStartup()
 Declare UpdateStartupMenuState()
 
 ; === Constants and Globals ===
@@ -107,7 +109,6 @@ Declare UpdateStartupMenuState()
 
 ; System tray
 #SysTray_Main = 1
-#Menu_TrayPopup = 2
 #Menu_Tray_ShowHide = 200
 #Menu_Tray_RebuildIndex = 201
 #Menu_Tray_OpenDbFolder = 203
@@ -141,9 +142,9 @@ Global AppCompactMode.i = 0
 Global IndexingActive.i
 Global IndexingPaused.i
 Global IndexPauseEvent.i ; event handle for worker pause
+Global PendingUiStateSync.i
 Global LastTrayTooltip.s
 Global LastQueryText.s
-Global LastQueryChangeMS.i
 Global QueryDirty.i
 Global QueryNextAtMS.i
 Global LiveMatcherMode.i ; 0=contains, 1=wildcard, 2=regex
@@ -175,9 +176,6 @@ Global CompactSavedX.i = 0
 Global CompactSavedY.i = 0
 
 ; SQLite index + query settings
-Global EffectiveDbPath.s = ""
-Global IndexingPaused.i
-Global IndexPauseEvent.i
 Global CachedIndexedCount.q = -1
 Global CachedIndexedCountAtMS.q
 
@@ -709,7 +707,7 @@ Procedure RelaunchSelfElevated(args.s)
   ShellExecute_(0, "runas", exe$, args, AppPath, 1)
 EndProcedure
 
-Procedure AddToStartup()
+Procedure.i AddToStartup()
   RemoveLegacyStartupRegistryEntry()
 
   ; Create/update an interactive scheduled task so the tray icon shows up.
@@ -742,19 +740,21 @@ Procedure AddToStartup()
           "}"
 
   RunAndCapture("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -Command " + Chr(34) + psCmd + Chr(34))
+  ProcedureReturn Bool(gLastExecExitCode = 0)
 EndProcedure
 
-Procedure RemoveFromStartup()
+Procedure.i RemoveFromStartup()
   RemoveLegacyStartupRegistryEntry()
 
   If IsProcessElevated() = #False And gRemoveStartupTaskMode = #False
     RelaunchSelfElevated("--removestartup")
-    ProcedureReturn
+    ProcedureReturn #True
   EndIf
 
   Protected nameQuoted.s = Chr(34) + StartupTaskName() + Chr(34)
   Protected cmd.s = "/c schtasks /Delete /TN " + nameQuoted + " /F"
   RunAndCapture("cmd.exe", cmd)
+  ProcedureReturn Bool(gLastExecExitCode = 0)
 EndProcedure
 
 Procedure.i IsInStartup()
@@ -807,6 +807,10 @@ Procedure UpdateControlStates()
   ; is the search bar.
   DisableGadget(#Gadget_SearchBar, #False)
   SyncUiState()
+EndProcedure
+
+Procedure RequestUiStateSync()
+  PendingUiStateSync = #True
 EndProcedure
 
 ; === Search Parameters ===
@@ -945,6 +949,20 @@ Procedure EnqueueResultsBatch(List batch.s())
     PendingResults() = batch()
   Next
   UnlockMutex(ResultMutex)
+EndProcedure
+
+Procedure.i PendingResultsCount()
+  Protected count.i
+
+  If ResultMutex = 0
+    ProcedureReturn 0
+  EndIf
+
+  LockMutex(ResultMutex)
+  count = ListSize(PendingResults())
+  UnlockMutex(ResultMutex)
+
+  ProcedureReturn count
 EndProcedure
 
 Procedure PushDirectory(dir.s)
@@ -1238,6 +1256,7 @@ Procedure InitGUI()
   MenuItem(#Menu_View_LiveMatchFullPath, "Live match full path")
   MenuTitle("App")
   MenuItem(#Menu_App_RunAtStartup, "Run at startup")
+  MenuItem(#Menu_App_EditExcludes, "Edit excludes")
   SetMenuItemState(#Menu_Main, #Menu_App_RunAtStartup, Bool(AppRunAtStartup))
   MenuTitle("Tools")
   MenuItem(#Menu_Tools_Settings, "Settings")
@@ -1358,8 +1377,6 @@ Structure WorkerParams
 EndStructure
 
 ; DB insert batching is done per worker; DB access is protected by a single mutex.
-Global DbMutex.i
-
 Procedure.s DbEscape(text.s)
   ; SQLite uses single quotes, escaped as doubled single quotes.
   ProcedureReturn ReplaceString(text, "'", "''")
@@ -1485,7 +1502,7 @@ Procedure WorkerThreadProc(*params.WorkerParams)
     EndIf
 
     ; Memory back-pressure: slow down workers if PendingResults is too large
-    If ListSize(PendingResults()) > 10000
+    If PendingResultsCount() > 10000
       Delay(100)
       Continue
     EndIf
@@ -1694,7 +1711,7 @@ Procedure StartIndexingAllFixedDrives()
   EndIf
 
   IndexingActive = 0
-  UpdateControlStates()
+  RequestUiStateSync()
 EndProcedure
 
 Procedure SearchThreadProc(*params.SearchParams)
@@ -1871,22 +1888,52 @@ Procedure EditExcludeLists()
   
   ; 3. If changed, force a full save of the INI
   If changed
-    If OpenPreferences(AppPath + #INI_FILE)
-      ; We must clear the existing group to remove deleted items
-      RemovePreferenceGroup("ExcludeDirs")
-      PreferenceGroup("ExcludeDirs")
-      ForEach ExcludeDirNames()
-        WritePreferenceString(MapKey(ExcludeDirNames()), "")
-      Next
-      
-      RemovePreferenceGroup("ExcludeFiles")
-      PreferenceGroup("ExcludeFiles")
-      ForEach ExcludeFileNames()
-        WritePreferenceString(MapKey(ExcludeFileNames()), "")
-      Next
-      
+    SaveSettingsIni()
+    LoadExcludesIni(AppPath + #INI_FILE)
+    MessageRequester(#APP_NAME, "Exclusion lists updated and saved.", #PB_MessageRequester_Info)
+  EndIf
+EndProcedure
+
+Procedure SaveSettingsIni()
+  Protected iniPath.s = AppPath + #INI_FILE
+
+  If OpenPreferences(iniPath)
+    PreferenceGroup("Search")
+    WritePreferenceString("MaxResults", Str(SearchMaxResults))
+    WritePreferenceString("DebounceMS", Str(SearchDebounceMS))
+
+    PreferenceGroup("Performance")
+    WritePreferenceString("Threads", Str(ConfigThreadCount))
+    WritePreferenceString("BatchSize", Str(ConfigBatchSize))
+
+    PreferenceGroup("Index")
+    WritePreferenceString("DbPath", IndexDbPath)
+
+    PreferenceGroup("App")
+    WritePreferenceString("StartMinimized", Str(AppStartMinimized))
+    WritePreferenceString("CloseToTray", Str(AppCloseToTray))
+    WritePreferenceString("MinimizeToTray", Str(AppMinimizeToTray))
+    WritePreferenceString("AutoStartIndex", Str(AppAutoStartIndex))
+    WritePreferenceString("LiveMatchFullPath", Str(LiveMatchFullPath))
+    WritePreferenceString("RunAtStartup", Str(AppRunAtStartup))
+
+    RemovePreferenceGroup("ExcludeDirs")
+    PreferenceGroup("ExcludeDirs")
+    ForEach ExcludeDirNames()
+      WritePreferenceString(MapKey(ExcludeDirNames()), "")
+    Next
+
+    RemovePreferenceGroup("ExcludeFiles")
+    PreferenceGroup("ExcludeFiles")
+    ForEach ExcludeFileNames()
+      WritePreferenceString(MapKey(ExcludeFileNames()), "")
+    Next
+
+    ClosePreferences()
+  ElseIf FileSize(iniPath) < 0
+    WriteDefaultExcludesIni(iniPath)
+    If OpenPreferences(iniPath)
       ClosePreferences()
-      MessageRequester(#APP_NAME, "Exclusion lists updated and saved.", #PB_MessageRequester_Info)
     EndIf
   EndIf
 EndProcedure
@@ -1962,40 +2009,6 @@ Procedure EditSettings()
     AppAutoStartIndex = ClampSettingInt(@changed, AppAutoStartIndex, Val(newAutoIndex), 0, 1)
   EndIf
 
-  ; --- ADDED EXCLUDE DIALOGS ---
-  Protected newDirs.s, newFiles.s, currentDirs.s, currentFiles.s
-  ForEach ExcludeDirNames()
-    If currentDirs <> "" : currentDirs + ", " : EndIf
-    currentDirs + MapKey(ExcludeDirNames())
-  Next
-  ForEach ExcludeFileNames()
-    If currentFiles <> "" : currentFiles + ", " : EndIf
-    currentFiles + MapKey(ExcludeFileNames())
-  Next
-
-  newDirs = InputRequester("Edit Exclude Folders", "Enter folder names to skip (comma-separated):", currentDirs)
-  If newDirs <> currentDirs
-    ClearMap(ExcludeDirNames())
-    Protected i.i, count.i = CountString(newDirs, ",") + 1
-    For i = 1 To count
-      Protected part.s = LCase(Trim(StringField(newDirs, i, ",")))
-      If part <> "" : ExcludeDirNames(part) = 1 : EndIf
-    Next
-    changed\i = #True
-  EndIf
-
-  newFiles = InputRequester("Edit Exclude Files", "Enter file names to skip (comma-separated):", currentFiles)
-  If newFiles <> currentFiles
-    ClearMap(ExcludeFileNames())
-    count = CountString(newFiles, ",") + 1
-    For i = 1 To count
-      part = LCase(Trim(StringField(newFiles, i, ",")))
-      If part <> "" : ExcludeFileNames(part) = 1 : EndIf
-    Next
-    changed\i = #True
-  EndIf
-  ; ----------------------------
-
   newLiveFullPath = InputRequester("Edit Settings", "LiveMatchFullPath (0/1) (current: " + Str(LiveMatchFullPath) + "):", Str(LiveMatchFullPath))
   If newLiveFullPath <> ""
     LiveMatchFullPath = ClampSettingInt(@changed, LiveMatchFullPath, Val(newLiveFullPath), 0, 1)
@@ -2004,61 +2017,8 @@ Procedure EditSettings()
   ClampConfigValues()
 
   If changed\i
-    ; We must preserve the Exclude sections while updating keys.
-    ; PureBasic's OpenPreferences/WritePreference only handles Key=Value.
-    ; To preserve raw list sections like [ExcludeDirs], we must manually update.
-    If OpenPreferences(AppPath + #INI_FILE)
-      PreferenceGroup("Search")
-      WritePreferenceString("MaxResults", Str(SearchMaxResults))
-      WritePreferenceString("DebounceMS", Str(SearchDebounceMS))
-      
-      PreferenceGroup("Performance")
-      WritePreferenceString("Threads", Str(ConfigThreadCount))
-      WritePreferenceString("BatchSize", Str(ConfigBatchSize))
-      
-      PreferenceGroup("Index")
-      WritePreferenceString("DbPath", IndexDbPath)
-      
-      PreferenceGroup("App")
-      WritePreferenceString("StartMinimized", Str(AppStartMinimized))
-      WritePreferenceString("CloseToTray", Str(AppCloseToTray))
-      WritePreferenceString("MinimizeToTray", Str(AppMinimizeToTray))
-      WritePreferenceString("AutoStartIndex", Str(AppAutoStartIndex))
-      WritePreferenceString("LiveMatchFullPath", Str(LiveMatchFullPath))
-      WritePreferenceString("RunAtStartup", Str(AppRunAtStartup))
-      
-      ; --- FORCE WRITE EXCLUDES ---
-      RemovePreferenceGroup("ExcludeDirs")
-      PreferenceGroup("ExcludeDirs")
-      ForEach ExcludeDirNames()
-        WritePreferenceString(MapKey(ExcludeDirNames()), "")
-      Next
-      
-      RemovePreferenceGroup("ExcludeFiles")
-      PreferenceGroup("ExcludeFiles")
-      ForEach ExcludeFileNames()
-        WritePreferenceString(MapKey(ExcludeFileNames()), "")
-      Next
-      ; ----------------------------
-      
-      ClosePreferences()
-    Else
-      ; Fallback if file is missing entirely
-      WriteDefaultExcludesIni(AppPath + #INI_FILE)
-      If OpenPreferences(AppPath + #INI_FILE)
-        PreferenceGroup("Search") : WritePreferenceString("MaxResults", Str(SearchMaxResults))
-        PreferenceGroup("Performance") : WritePreferenceString("Threads", Str(ConfigThreadCount))
-        PreferenceGroup("Index") : WritePreferenceString("DbPath", IndexDbPath)
-        PreferenceGroup("App") : WritePreferenceString("StartMinimized", Str(AppStartMinimized))
-        PreferenceGroup("ExcludeDirs")
-        PreferenceGroup("ExcludeFiles")
-        ClosePreferences()
-      EndIf
-    EndIf
-
-    If IsMenu(#Menu_Main)
-      SetMenuItemState(#Menu_Main, #Menu_View_LiveMatchFullPath, LiveMatchFullPath)
-    EndIf
+    SaveSettingsIni()
+    SyncUiState()
 
     ; Reload INI so runtime reflects the persisted settings
     LoadExcludesIni(AppPath + #INI_FILE)
@@ -2078,10 +2038,6 @@ Procedure EditSettings()
     ; Refresh results with new MaxResults / matching behavior.
     QueryDirty = 1
     QueryNextAtMS = ElapsedMilliseconds()
-
-    If IsMenu(#Menu_Main)
-      SetMenuItemState(#Menu_Main, #Menu_View_LiveMatchFullPath, LiveMatchFullPath)
-    EndIf
 
     If dbPathChanged And IndexingActive
       MessageRequester("Settings Saved", "Settings saved. DbPath will apply after stopping indexing.", #PB_MessageRequester_Info)
@@ -2595,7 +2551,6 @@ Procedure PumpPendingResults(maxItems.i)
         StatusBarText(#StatusBar_Main, 1, "Showing: " + Str(CountGadgetItems(#Gadget_ResultsList)) + "  Indexed: " + Str(IndexTotalFiles))
       EndIf
     EndIf
-    UnlockMutex(ProgressMutex)
   EndIf
 EndProcedure
 
@@ -2788,6 +2743,8 @@ Procedure MainLoop()
         EndSelect
  
       Case #PB_Event_Menu
+        Protected desiredStartupState.i
+        Protected startupOk.i
         Select EventMenu()
           Case #Menu_StartSearchShortcut
             If GetActiveGadget() = #Gadget_SearchBar
@@ -2824,6 +2781,7 @@ Procedure MainLoop()
             WorkStop = 1
             If IndexPauseEvent : SetEvent_(IndexPauseEvent) : EndIf
             IndexingPaused = 0
+            SyncUiState()
             If DirQueueSem And WorkerCount > 0
               ReleaseSemaphore_(DirQueueSem, WorkerCount, 0)
             EndIf
@@ -2831,31 +2789,37 @@ Procedure MainLoop()
           Case #Menu_View_Compact
             SetCompactMode(1 - Bool(AppCompactMode))
 
-           Case #Menu_View_LiveMatchFullPath
-             LiveMatchFullPath = 1 - Bool(LiveMatchFullPath)
-             If IsMenu(#Menu_Main)
-               SetMenuItemState(#Menu_Main, #Menu_View_LiveMatchFullPath, LiveMatchFullPath)
-             EndIf
-             SaveIniKey(AppPath + #INI_FILE, "App", "LiveMatchFullPath", Str(LiveMatchFullPath))
-             ; Force refresh so the list updates under the new mode.
-             QueryDirty = 1
-             QueryNextAtMS = ElapsedMilliseconds()
+          Case #Menu_View_LiveMatchFullPath
+            LiveMatchFullPath = 1 - Bool(LiveMatchFullPath)
+            If IsMenu(#Menu_Main)
+              SetMenuItemState(#Menu_Main, #Menu_View_LiveMatchFullPath, LiveMatchFullPath)
+            EndIf
+            SaveIniKey(AppPath + #INI_FILE, "App", "LiveMatchFullPath", Str(LiveMatchFullPath))
+            QueryDirty = 1
+            QueryNextAtMS = ElapsedMilliseconds()
 
-           Case #Menu_App_RunAtStartup, #Menu_Tray_RunAtStartup
-              AppRunAtStartup = 1 - Bool(AppRunAtStartup)
-              If AppRunAtStartup
-                AddToStartup()
-              Else
-                RemoveFromStartup()
-              EndIf
+          Case #Menu_App_RunAtStartup, #Menu_Tray_RunAtStartup
+            desiredStartupState = 1 - Bool(AppRunAtStartup)
+
+            If desiredStartupState
+              startupOk = AddToStartup()
+            Else
+              startupOk = RemoveFromStartup()
+            EndIf
+
+            If startupOk
+              AppRunAtStartup = desiredStartupState
               SaveIniKey(AppPath + #INI_FILE, "App", "RunAtStartup", Str(AppRunAtStartup))
-              UpdateStartupMenuState()
+            Else
+              MessageRequester(#APP_NAME, "Failed to update the run-at-startup task.", #PB_MessageRequester_Error)
+            EndIf
+            UpdateStartupMenuState()
 
-            Case #Menu_App_EditExcludes
-              EditExcludeLists()
+          Case #Menu_App_EditExcludes
+            EditExcludeLists()
 
-            Case #Menu_Tray_Settings
-              EditSettings()
+          Case #Menu_Tray_Settings
+            EditSettings()
 
           Case #Menu_Tools_Settings
             EditSettings()
@@ -2898,16 +2862,6 @@ Procedure MainLoop()
 
           Case #Menu_Tray_OpenCrashLog
             OpenCrashLog(#Open_ShowError)
-          Case #Menu_Tray_PauseResume
-            If IndexingActive
-              If IndexingPaused
-                IndexingPaused = 0
-                If IndexPauseEvent : SetEvent_(IndexPauseEvent) : EndIf
-              Else
-                IndexingPaused = 1
-                If IndexPauseEvent : ResetEvent_(IndexPauseEvent) : EndIf
-              EndIf
-            EndIf
  
           Case #Menu_Tray_Exit
             If ConfirmExit()
@@ -2921,6 +2875,10 @@ Procedure MainLoop()
 
       Case #PB_Event_Timer
         If EventTimer() = #Timer_PumpResults
+          If PendingUiStateSync
+            PendingUiStateSync = #False
+            UpdateControlStates()
+          EndIf
           ; Only pump if the previous call has likely finished
           ; and don't call UpdateControlStates() every 50ms (too heavy).
           PumpPendingResults(50) 
@@ -2946,7 +2904,7 @@ Procedure.s ResolveDbPath(dbPath.s)
   EndIf
  
   ; If path has no drive/UNC, treat as relative to app.
-  If FindString(p, ":\", 1) = 0 And Left(p, 2) <> "\"
+  If FindString(p, ":\", 1) = 0 And Left(p, 2) <> "\\"
     p = AppPath + p
   EndIf
  
@@ -3058,12 +3016,7 @@ IndexTotalFiles = GetIndexedCountFast()
 InitGUI()
 
 ; Apply initial menu states now that the menu exists.
-If IsMenu(#Menu_Main)
-  SetMenuItemState(#Menu_Main, #Menu_View_Compact, AppCompactMode)
-  SetMenuItemState(#Menu_Main, #Menu_View_LiveMatchFullPath, LiveMatchFullPath)
-EndIf
-
-UpdateStartupMenuState()
+SyncUiState()
 
 ; Start query right away.
 QueryDirty = 1
@@ -3096,8 +3049,7 @@ If TrayIconHandle : DestroyIcon_(TrayIconHandle) : TrayIconHandle = 0 : EndIf
 If hMutex : CloseHandle_(hMutex) : EndIf
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 436
-; FirstLine = 427
+; CursorPosition = 6
 ; Folding = --------------
 ; Optimizer
 ; EnableThread
@@ -3107,12 +3059,12 @@ If hMutex : CloseHandle_(hMutex) : EndIf
 ; UseIcon = HandySearch.ico
 ; Executable = ..\HandySearch.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,2
-; VersionField1 = 1,0,1,2
+; VersionField0 = 1,0,1,3
+; VersionField1 = 1,0,1,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandySearch
-; VersionField4 = 1.0.1.2
-; VersionField5 = 1.0.1.2
+; VersionField4 = 1.0.1.3
+; VersionField5 = 1.0.1.3
 ; VersionField6 = Everything-like search tool for desktop and web
 ; VersionField7 = HandySearch
 ; VersionField8 = HandySearch.exe
