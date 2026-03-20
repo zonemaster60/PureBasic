@@ -8,8 +8,6 @@ EnableExplicit
 ; Constants
 ;-----------------------------
 
-#SECURITY_MAX_SID_SIZE = 68
-#TOKEN_QUERY = $0008
 #TaskXmlNamespace = "http://schemas.microsoft.com/windows/2004/02/mit/task"
 #TaskSchemaVersion = "1.6"
 
@@ -26,7 +24,7 @@ EnableExplicit
 Global LogBuffer.s = ""
 Global LogFile.s = #LogFileDefault
 
-Global version.s = "v1.0.0.3"
+Global version.s = "v1.0.0.4"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -38,17 +36,6 @@ If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
   CloseHandle_(hMutex)
   End
 EndIf
-
-;-----------------------------
-; Imports (must be global)
-;-----------------------------
-
-Import "Advapi32.lib"
-  AllocateAndInitializeSid(*pIdentifierAuthority, nSubAuthorityCount.l, n0.l, n1.l, n2.l, n3.l, n4.l, n5.l, n6.l, n7.l, *pSid)
-  FreeSid(*Sid)
-  CheckTokenMembership(TokenHandle.i, Sid.i, *IsMember)
-  OpenProcessToken(hProcess.i, DesiredAccess.i, *TokenHandle)
-EndImport
 
 ;-----------------------------
 ; Structures
@@ -93,13 +80,43 @@ Procedure FlushLog()
     ProcedureReturn
   EndIf
 
-  Protected file = OpenFile(#PB_Any, LogFile, #PB_File_SharedRead | #PB_File_NoBuffering)
+  If LogBuffer = ""
+    ProcedureReturn
+  EndIf
+
+  Protected file
+  If FileSize(LogFile) = -1
+    file = CreateFile(#PB_Any, LogFile)
+  Else
+    file = OpenFile(#PB_Any, LogFile, #PB_File_SharedRead)
+  EndIf
+
   If file
     FileSeek(file, Lof(file))
     WriteString(file, LogBuffer)
     CloseFile(file)
     LogBuffer = "" ; Clear buffer after flush
   EndIf
+EndProcedure
+
+Procedure CleanupAndExit()
+  FlushLog()
+
+  If hMutex
+    CloseHandle_(hMutex)
+    hMutex = 0
+  EndIf
+
+  End
+EndProcedure
+
+Procedure FatalError(userMessage.s, logMessage.s = "")
+  If logMessage <> ""
+    LogLine(logMessage)
+  EndIf
+
+  MessageRequester(#APP_NAME, userMessage, #PB_MessageRequester_Error)
+  CleanupAndExit()
 EndProcedure
 
 ;-----------------------------
@@ -119,16 +136,6 @@ Procedure.s GetArg(flag.s, Default1.s)
   ProcedureReturn Default1
 EndProcedure
 
-Procedure.i HasSwitch(flag.s)
-  Protected i, c = CountProgramParameters()
-  For i = 0 To c-1
-    If LCase(ProgramParameter(i)) = LCase(flag)
-      ProcedureReturn #True
-    EndIf
-  Next
-  ProcedureReturn #False
-EndProcedure
-
 ;-----------------------------
 ; XML builder
 ;-----------------------------
@@ -146,6 +153,80 @@ Procedure.s TaskBool(val.i)
   If val : ProcedureReturn "true" : Else : ProcedureReturn "false" : EndIf
 EndProcedure
 
+Procedure.i IsAllowedValue(value.s, allowedValues.s)
+  Protected i, itemCount = CountString(allowedValues, "|") + 1
+
+  For i = 1 To itemCount
+    If LCase(StringField(allowedValues, i, "|")) = LCase(value)
+      ProcedureReturn #True
+    EndIf
+  Next
+
+  ProcedureReturn #False
+EndProcedure
+
+Procedure.i IsValidIsoDateTime(value.s)
+  Protected i
+
+  If Len(value) <> 19
+    ProcedureReturn #False
+  EndIf
+
+  If Mid(value, 5, 1) <> "-" Or Mid(value, 8, 1) <> "-" Or Mid(value, 11, 1) <> "T" Or Mid(value, 14, 1) <> ":" Or Mid(value, 17, 1) <> ":"
+    ProcedureReturn #False
+  EndIf
+
+  For i = 1 To Len(value)
+    Select i
+      Case 5, 8, 11, 14, 17
+      Default
+        If FindString("0123456789", Mid(value, i, 1)) = 0
+          ProcedureReturn #False
+        EndIf
+    EndSelect
+  Next
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure.i IsValidIsoDuration(value.s)
+  Protected upperValue.s = UCase(Trim(value))
+
+  If upperValue = ""
+    ProcedureReturn #True
+  EndIf
+
+  If Left(upperValue, 1) <> "P"
+    ProcedureReturn #False
+  EndIf
+
+  If FindString(upperValue, " ")
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure.s SanitizeFileComponent(value.s)
+  Protected result.s = Trim(value)
+
+  result = ReplaceString(result, "\\", "_")
+  result = ReplaceString(result, "/", "_")
+  result = ReplaceString(result, ":", "_")
+  result = ReplaceString(result, "*", "_")
+  result = ReplaceString(result, "?", "_")
+  result = ReplaceString(result, Chr(34), "_")
+  result = ReplaceString(result, "<", "_")
+  result = ReplaceString(result, ">", "_")
+  result = ReplaceString(result, "|", "_")
+
+  If result = ""
+    result = "task"
+  EndIf
+
+  ProcedureReturn result
+EndProcedure
+
 Procedure.s BuildTaskXml(*opt.TaskOptions)
   Protected xml.s
   
@@ -155,6 +236,10 @@ Procedure.s BuildTaskXml(*opt.TaskOptions)
   Protected exe.s = EscapeXml(*opt\exePath)
   Protected args.s = EscapeXml(*opt\arguments)
   Protected wdir.s = EscapeXml(*opt\workingDir)
+  Protected startBoundary.s = EscapeXml(*opt\startBoundaryISO)
+  Protected logonType.s = EscapeXml(*opt\logonType)
+  Protected multipleInstancesPolicy.s = EscapeXml(*opt\multipleInstancesPolicy)
+  Protected repeatISO.s = EscapeXml(*opt\repeatISO)
 
   ; RegistrationInfo
   Protected regBlock.s = "    <RegistrationInfo>" + #CRLF$ +
@@ -171,14 +256,14 @@ Procedure.s BuildTaskXml(*opt.TaskOptions)
   Protected principalsBlock.s = "    <Principals>" + #CRLF$ +
                                 "      <Principal id="+Chr(34)+"Author"+Chr(34)+">" + #CRLF$ +
                                 "        <UserId>S-1-5-18</UserId>" + #CRLF$ +
-                                "        <LogonType>" + *opt\logonType + "</LogonType>" +
+                                "        <LogonType>" + logonType + "</LogonType>" +
                                          runLevelTag + #CRLF$ +
                                 "      </Principal>" + #CRLF$ +
                                 "    </Principals>" + #CRLF$
   
   ; Settings
   Protected settingsBlock.s = "    <Settings>" + #CRLF$ +
-                              "      <MultipleInstancesPolicy>" + *opt\multipleInstancesPolicy + "</MultipleInstancesPolicy>" + #CRLF$ +
+                              "      <MultipleInstancesPolicy>" + multipleInstancesPolicy + "</MultipleInstancesPolicy>" + #CRLF$ +
                               "      <AllowStartOnDemand>" + TaskBool(*opt\allowDemandStart) + "</AllowStartOnDemand>" + #CRLF$ +
                               "      <AllowHardTerminate>" + TaskBool(*opt\allowHardTerminate) + "</AllowHardTerminate>" + #CRLF$ +
                               "      <RunOnlyIfNetworkAvailable>" + TaskBool(*opt\runOnlyIfNetworkAvailable) + "</RunOnlyIfNetworkAvailable>" + #CRLF$ +
@@ -189,17 +274,26 @@ Procedure.s BuildTaskXml(*opt.TaskOptions)
 
   ; Trigger
   Protected triggerBlock.s
+  Protected repetitionBlock.s = ""
+  If repeatISO <> ""
+    repetitionBlock = "        <Repetition>" + #CRLF$ +
+                      "          <Interval>" + repeatISO + "</Interval>" + #CRLF$ +
+                      "        </Repetition>" + #CRLF$
+  EndIf
+
   If *opt\daily
     triggerBlock = "    <Triggers>" + #CRLF$ +
                    "      <CalendarTrigger>" + #CRLF$ +
-                   "        <StartBoundary>" + *opt\startBoundaryISO + "</StartBoundary>" + #CRLF$ +
+                   "        <StartBoundary>" + startBoundary + "</StartBoundary>" + #CRLF$ +
+                   repetitionBlock +
                    "        <ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>" + #CRLF$ +
                    "      </CalendarTrigger>" + #CRLF$ +
                    "    </Triggers>" + #CRLF$
   Else
     triggerBlock = "    <Triggers>" + #CRLF$ +
                    "      <TimeTrigger>" + #CRLF$ +
-                   "        <StartBoundary>" + *opt\startBoundaryISO + "</StartBoundary>" + #CRLF$ +
+                   "        <StartBoundary>" + startBoundary + "</StartBoundary>" + #CRLF$ +
+                   repetitionBlock +
                    "      </TimeTrigger>" + #CRLF$ +
                    "    </Triggers>" + #CRLF$
   EndIf
@@ -228,15 +322,23 @@ EndProcedure
 
 Procedure.s SaveXmlToTemp(xml.s, baseName.s)
   Protected tmpDir.s = GetTemporaryDirectory()
-  Protected filePath.s = tmpDir + baseName + ".xml"
-  If CreateFile(1, filePath)
-    WriteString(1, xml)
-    CloseFile(1)
+  Protected filePath.s = tmpDir + SanitizeFileComponent(baseName) + ".xml"
+  Protected file = CreateFile(#PB_Any, filePath)
+
+  If file
+    WriteStringFormat(file, #PB_Unicode)
+    WriteString(file, xml)
+    CloseFile(file)
     LogLine("XML saved: " + filePath)
-    CopyFile(filePath, AppPath + #APP_NAME + ".xml")
+
+    If CopyFile(filePath, AppPath + #APP_NAME + ".xml") = #False
+      LogLine("WARNING: Unable to copy XML beside executable.")
+    EndIf
+
     ProcedureReturn filePath
   EndIf
-    LogLine("ERROR: Unable to create XML file at " + filePath)
+
+  LogLine("ERROR: Unable to create XML file at " + filePath)
   ProcedureReturn ""
 EndProcedure
 
@@ -288,7 +390,7 @@ Procedure.i RegisterTaskFromXml(xmlPath.s, taskName.s)
   ProcedureReturn #False
 EndProcedure
 
-Procedure LoadTaskOptions(*opt.TaskOptions, iniFile.s)
+Procedure.i LoadTaskOptions(*opt.TaskOptions, iniFile.s)
   If OpenPreferences(iniFile)
     PreferenceGroup("Task")
     *opt\taskName                 = ReadPreferenceString("Name", #DefaultTaskName)
@@ -319,9 +421,39 @@ Procedure LoadTaskOptions(*opt.TaskOptions, iniFile.s)
       LogLine("ERROR: Executable path cannot be empty.")
       ProcedureReturn #False
     EndIf
+    If FileSize(*opt\exePath) < 0
+      LogLine("ERROR: Executable path not found: " + *opt\exePath)
+      ProcedureReturn #False
+    EndIf
+    If *opt\workingDir <> "" And FileSize(*opt\workingDir) <> -2
+      LogLine("ERROR: Working directory not found: " + *opt\workingDir)
+      ProcedureReturn #False
+    EndIf
+    If IsValidIsoDateTime(*opt\startBoundaryISO) = #False
+      LogLine("ERROR: StartBoundaryISO must use yyyy-mm-ddThh:ii:ss format.")
+      ProcedureReturn #False
+    EndIf
+    If IsValidIsoDuration(*opt\repeatISO) = #False
+      LogLine("ERROR: RepeatISO must be an ISO-8601 duration such as PT15M.")
+      ProcedureReturn #False
+    EndIf
+    If IsAllowedValue(*opt\multipleInstancesPolicy, "Parallel|Queue|IgnoreNew|StopExisting") = #False
+      LogLine("WARNING: Invalid MultipleInstancesPolicy. Falling back to IgnoreNew.")
+      *opt\multipleInstancesPolicy = "IgnoreNew"
+    EndIf
+    If IsAllowedValue(*opt\logonType, "None|Password|S4U|InteractiveToken|Group|ServiceAccount|InteractiveTokenOrPassword") = #False
+      LogLine("WARNING: Invalid LogonType. Falling back to ServiceAccount.")
+      *opt\logonType = "ServiceAccount"
+    EndIf
+    If LCase(*opt\logonType) <> "serviceaccount"
+      LogLine("WARNING: SYSTEM tasks require ServiceAccount logon type. Falling back to ServiceAccount.")
+      *opt\logonType = "ServiceAccount"
+    EndIf
 
     ProcedureReturn #True
   EndIf
+
+  LogLine("ERROR: Unable to open preferences file: " + iniFile)
   ProcedureReturn #False
 EndProcedure
 
@@ -334,52 +466,48 @@ LogLine("Starting " + #APP_NAME)
 
 Define opts.TaskOptions
 If LoadTaskOptions(@opts, AppPath + #APP_NAME + ".ini") = #False
-  MessageRequester(#APP_NAME, "Failed To load " + AppPath + #APP_NAME + ".ini", #PB_MessageRequester_Error)
-  CloseHandle_(hMutex)
-  End
+  FatalError("Failed To load " + AppPath + #APP_NAME + ".ini")
 EndIf
 
 ; Build XML
 Define xml.s = BuildTaskXml(@opts)
 If xml = ""
-  LogLine("ERROR: XML build failed.")
-  MessageRequester(#APP_NAME, "XML build failed.", #PB_MessageRequester_Error)
-  CloseHandle_(hMutex)
-  End
+  FatalError("XML build failed.", "ERROR: XML build failed.")
 EndIf
 
 Define xmlPath.s = SaveXmlToTemp(xml, ReplaceString(opts\taskName, " ", "_"))
 If xmlPath = ""
-  MessageRequester(#APP_NAME, "Failed To write XML To temp.", #PB_MessageRequester_Error)
-  CloseHandle_(hMutex)
-  End
+  FatalError("Failed To write XML To temp.")
 EndIf
 
 ; Registration via schtasks
-If RegisterTaskFromXml(xmlPath, opts\taskName)
+Define registrationOk.i = RegisterTaskFromXml(xmlPath, opts\taskName)
+
+If registrationOk
   LogLine("SUCCESS: Task registered: " + opts\taskName)
-  FlushLog() ; Flush before final message
-  MessageRequester(#APP_NAME, "Task registered successfully: " + opts\taskName, #PB_MessageRequester_Info)
 Else
   LogLine("ERROR: Task registration failed.")
-  FlushLog()
-  MessageRequester(#APP_NAME, "Task registration failed. See log: " + LogFile, #PB_MessageRequester_Error)
 EndIf
 
 LogLine("Done.")
 FlushLog()
-MessageRequester("Info", #APP_NAME + " - " + version + #CRLF$ +
-                         "Thank you for using this free tool!" + #CRLF$ +
-                         "-----------------------------------" + #CRLF$ +
-                         "Contact: " + #EMAIL_NAME + #CRLF$ +
-                         "Website: https://github.com/zonemaster60" + #CRLF$ +
-                         "Task: schtasks /run /tn " + Chr(34) + opts\taskName + Chr(34), #PB_MessageRequester_Info)
-CloseHandle_(hMutex)
-End
+
+If registrationOk
+  MessageRequester("Info", #APP_NAME + " - " + version + #CRLF$ +
+                           "Task registered successfully: " + opts\taskName + #CRLF$ +
+                           "-----------------------------------" + #CRLF$ +
+                           "Contact: " + #EMAIL_NAME + #CRLF$ +
+                           "Website: https://github.com/zonemaster60" + #CRLF$ +
+                           "Task: schtasks /run /tn " + Chr(34) + opts\taskName + Chr(34), #PB_MessageRequester_Info)
+Else
+  MessageRequester(#APP_NAME, "Task registration failed. See log: " + LogFile, #PB_MessageRequester_Error)
+EndIf
+
+CleanupAndExit()
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 28
+; CursorPosition = 26
 ; FirstLine = 9
-; Folding = --
+; Folding = ---
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -388,12 +516,12 @@ End
 ; UseIcon = XML-Task_Maker.ico
 ; Executable = ..\XML-Task_Maker.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = XML-Task_Maker
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = Creates Tasks for use with Task Scheduler
 ; VersionField7 = XML-Task_Maker
 ; VersionField8 = XML-Task_Maker.exe
