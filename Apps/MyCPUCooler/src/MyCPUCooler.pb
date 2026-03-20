@@ -12,7 +12,7 @@ EnableExplicit
 #SET_MAX_PROC_STATE$ = "bc5038f7-23e0-4960-96da-33abaf5935ec"
 #SET_BOOST_MODE$     = "be337238-0d82-4146-a960-4f3749d470c7"
 #SET_SYS_COOLING_POLICY$ = "94d3a615-a899-4ac5-ae2b-e4d8f634367f"
-#SET_MIN_PROC_STATE$ = "893df05b-2057-4611-9126-1b0c369936d0"
+#SET_MIN_PROC_STATE$ = "893dee8e-2bef-41e0-89c6-b55d0929964c"
 #SCHEME_BALANCED$    = "381b4222-f694-41f0-9685-ff5bb260df2e"
 #SUB_PCIE$           = "ee12f483-ad20-4395-8360-3116c4296227"
 #SET_ASPM$           = "ee12f483-ad20-4395-8360-3116c4296228"
@@ -36,7 +36,7 @@ EndEnumeration
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.0.3"
+Global version.s = "v1.0.0.4"
 
 ; Registry base key (HKCU)
 #APP_NAME = "MyCPUCooler"
@@ -1690,7 +1690,7 @@ If HasArg("--silent")
 EndIf
 
 
-OpenWindow(#Win, 0, 0, 500, 760, #APP_NAME + " - " + version + " (powercfg)", #PB_Window_SystemMenu | #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered)
+OpenWindow(#Win, 0, 0, 500, 790, #APP_NAME + " - " + version + " (powercfg)", #PB_Window_SystemMenu | #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered)
 LogLine(#LOG_INFO, "UI started")
 
 TextGadget(#PB_Any, 15, 15, 470, 20, "Custom power scheme: " + scheme$)
@@ -1757,35 +1757,35 @@ If useASPM = #False
   DisableGadget(#ComboASPM, #True)
 EndIf
 
-CheckBoxGadget(#ChkAutoApply, 15, 620, 250, 20, "Auto apply saved settings on startup")
+CheckBoxGadget(#ChkAutoApply, 15, 650, 250, 20, "Auto apply saved settings on startup")
 SetGadgetState(#ChkAutoApply, settings\AutoApply)
 
-CheckBoxGadget(#ChkLiveApply, 275, 620, 210, 20, "Live apply while adjusting")
+CheckBoxGadget(#ChkLiveApply, 275, 650, 210, 20, "Live apply while adjusting")
 SetGadgetState(#ChkLiveApply, settings\LiveApply)
 
-CheckBoxGadget(#ChkRunAtStartup, 15, 645, 470, 20, "Run at Windows startup (applies settings silently)")
+CheckBoxGadget(#ChkRunAtStartup, 15, 675, 470, 20, "Run at Windows startup (applies settings silently)")
 SetGadgetState(#ChkRunAtStartup, settings\RunAtStartup)
 
-CheckBoxGadget(#ChkUseTaskScheduler, 15, 665, 470, 20, "Use Task Scheduler (no UAC prompt at login)")
+CheckBoxGadget(#ChkUseTaskScheduler, 15, 695, 470, 20, "Use Task Scheduler (no UAC prompt at login)")
 SetGadgetState(#ChkUseTaskScheduler, settings\UseTaskScheduler)
 
 ButtonGadget(#BtnApply, 15, 485, 470, 28, "Apply now")
 
 UpdateDisplayedValues(useBoost)
 
-ButtonGadget(#BtnBatteryPreset, 15, 520, 90, 28, "Battery")
-ButtonGadget(#BtnEcoPreset, 110, 520, 90, 28, "Eco")
-ButtonGadget(#BtnQuietPreset, 205, 520, 90, 28, "Quiet")
-ButtonGadget(#BtnCoolPreset, 300, 520, 90, 28, "Cool")
-ButtonGadget(#BtnBalancedPreset, 395, 520, 90, 28, "Balanced")
-ButtonGadget(#BtnPerfPreset, 395, 555, 90, 28, "Performance")
+ButtonGadget(#BtnBatteryPreset, 15, 520, 150, 28, "Battery")
+ButtonGadget(#BtnEcoPreset, 175, 520, 150, 28, "Eco")
+ButtonGadget(#BtnQuietPreset, 335, 520, 150, 28, "Quiet")
+ButtonGadget(#BtnCoolPreset, 15, 555, 150, 28, "Cool")
+ButtonGadget(#BtnBalancedPreset, 175, 555, 150, 28, "Balanced")
+ButtonGadget(#BtnPerfPreset, 335, 555, 150, 28, "Performance")
 
-TextGadget(#TxtStatusSummary, 15, 555, 280, 20, "Status: Ready")
-EditorGadget(#EditStatusDetails, 15, 580, 470, 32)
+TextGadget(#TxtStatusSummary, 15, 595, 470, 20, "Status: Ready")
+EditorGadget(#EditStatusDetails, 15, 620, 470, 24)
 DisableGadget(#EditStatusDetails, #True)
 SetStatus("Status: Ready", "Waiting for changes.")
 
-ButtonGadget(#BtnRestoreBalanced, 15, 690, 470, 25, "Restore Windows Balanced plan (activate default)")
+ButtonGadget(#BtnRestoreBalanced, 15, 730, 470, 25, "Restore Windows Balanced plan (activate default)")
 
 ; Apply on startup if enabled
 If settings\AutoApply
@@ -1926,7 +1926,7 @@ ForEver
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 38
-; FirstLine = 18
+; FirstLine = 21
 ; Folding = ------------
 ; Optimizer
 ; EnableThread
@@ -1936,12 +1936,12 @@ ForEver
 ; UseIcon = MyCPUCooler.ico
 ; Executable = ..\MyCPUCooler.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = MyCPUCooler
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = Chooses the coolest powerplan
 ; VersionField7 = MyCPUCooler
 ; VersionField8 = MyCPUCooler.exe
