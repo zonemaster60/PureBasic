@@ -3,7 +3,7 @@ EnableExplicit
 #APP_NAME   = "HandyWSERTool"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
-Global version.s = "v1.0.0.6"
+Global version.s = "v1.0.0.7"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -46,6 +46,8 @@ DeclareModule EnvSys
   EndEnumeration
 
   Declare.i OpenEnvKey(access.l, *hKey.Integer, scope.i = #ScopeSystem)
+  Declare.l LastErrorCode()
+  Declare.s LastErrorText()
   Declare.s ReadVar(name.s, scope.i = #ScopeSystem)
   Declare.i WriteVar(name.s, value.s, type.l, scope.i = #ScopeSystem)
   Declare.i DeleteVar(name.s, scope.i = #ScopeSystem)
@@ -65,6 +67,157 @@ EndDeclareModule
 
 Module EnvSys
 
+  Global lastErrorCode.l
+
+  Procedure SetLastErrorCode(result.l)
+    lastErrorCode = result
+  EndProcedure
+
+  Procedure.l LastErrorCode()
+    ProcedureReturn lastErrorCode
+  EndProcedure
+
+  Procedure.s LastErrorText()
+    ProcedureReturn "Win32 error " + Str(lastErrorCode)
+  EndProcedure
+
+  Procedure.s RegistryTypeName(type.l)
+    Select type
+      Case #REG_SZ
+        ProcedureReturn "REG_SZ"
+      Case #REG_EXPAND_SZ
+        ProcedureReturn "REG_EXPAND_SZ"
+      Case #REG_MULTI_SZ
+        ProcedureReturn "REG_MULTI_SZ"
+    EndSelect
+
+    ProcedureReturn Str(type)
+  EndProcedure
+
+  Procedure.l ParseRegistryType(typeText.s)
+    Protected normalized.s = UCase(Trim(typeText))
+
+    Select normalized
+      Case "REG_SZ"
+        ProcedureReturn #REG_SZ
+      Case "REG_EXPAND_SZ"
+        ProcedureReturn #REG_EXPAND_SZ
+      Case "REG_MULTI_SZ"
+        ProcedureReturn #REG_MULTI_SZ
+    EndSelect
+
+    If normalized <> ""
+      ProcedureReturn Val(normalized)
+    EndIf
+
+    ProcedureReturn #REG_EXPAND_SZ
+  EndProcedure
+
+  Procedure.s SerializeVar(*var.VarEntry)
+    ProcedureReturn *var\Name + "|" + RegistryTypeName(*var\Type) + "=" + *var\Value
+  EndProcedure
+
+  Procedure.i ParseVarLine(line.s, *var.VarEntry)
+    Protected pos.l = FindString(line, "=", 1)
+    Protected meta.s, value.s, typePos.l, typeText.s
+
+    If pos <= 0
+      ProcedureReturn #False
+    EndIf
+
+    meta = Trim(Left(line, pos - 1))
+    value = Mid(line, pos + 1)
+    typePos = FindString(meta, "|", 1)
+
+    If typePos > 0
+      *var\Name = Trim(Left(meta, typePos - 1))
+      typeText = Mid(meta, typePos + 1)
+      *var\Type = ParseRegistryType(typeText)
+    Else
+      *var\Name = meta
+      *var\Type = #REG_EXPAND_SZ
+    EndIf
+
+    *var\Value = Trim(value)
+    If Left(*var\Value, 1) = #DQUOTE$ And Right(*var\Value, 1) = #DQUOTE$ And Len(*var\Value) >= 2
+      *var\Value = Mid(*var\Value, 2, Len(*var\Value) - 2)
+    EndIf
+
+    ProcedureReturn Bool(*var\Name <> "")
+  EndProcedure
+
+  Procedure AppendContinuation(List vars.VarEntry(), line.s)
+    If LastElement(vars())
+      If vars()\Value <> "" And Right(vars()\Value, 1) <> ";" And Left(line, 1) <> ";"
+        vars()\Value + ";"
+      EndIf
+      vars()\Value + line
+    EndIf
+  EndProcedure
+
+  Procedure.i ParseFile(filePath.s, List sysVars.VarEntry(), List userVars.VarEntry(), defaultScope.i = #ScopeSystem)
+    Protected line.s
+    Protected currentScope.i = defaultScope
+    Protected entry.VarEntry
+
+    ClearList(sysVars())
+    ClearList(userVars())
+
+    If ReadFile(0, filePath) = 0
+      SetLastErrorCode(GetLastError_())
+      ProcedureReturn #False
+    EndIf
+
+    SetLastErrorCode(#ERROR_SUCCESS)
+
+    While Eof(0) = 0
+      line = Trim(ReadString(0))
+
+      If line = "" : Continue : EndIf
+      If Left(line, 1) = ";" Or Left(line, 1) = "#" : Continue : EndIf
+
+      Select LCase(line)
+        Case "[system]"
+          currentScope = #ScopeSystem
+          Continue
+        Case "[user]"
+          currentScope = #ScopeUser
+          Continue
+      EndSelect
+
+      If ParseVarLine(line, @entry)
+        If currentScope = #ScopeUser
+          AddElement(userVars())
+          userVars() = entry
+        Else
+          AddElement(sysVars())
+          sysVars() = entry
+        EndIf
+      ElseIf currentScope = #ScopeUser
+        AppendContinuation(userVars(), line)
+      Else
+        AppendContinuation(sysVars(), line)
+      EndIf
+    Wend
+
+    CloseFile(0)
+    ProcedureReturn #True
+  EndProcedure
+
+  Procedure.i VarExists(name.s, scope.i = #ScopeSystem)
+    Protected hKey.i, valueType.l, dataBytes.l, result.l
+
+    If OpenEnvKey(#KEY_READ, @hKey, scope) = #False
+      ProcedureReturn #False
+    EndIf
+
+    result = RegQueryValueEx_(hKey, name, 0, @valueType, 0, @dataBytes)
+    RegCloseKey_(hKey)
+    SetLastErrorCode(result)
+
+    ProcedureReturn Bool(result = #ERROR_SUCCESS)
+  EndProcedure
+
   Procedure.i OpenEnvKey(access.l, *hKey.Integer, scope.i = #ScopeSystem)
     Protected rootKey.i, subKey.s
 
@@ -76,7 +229,8 @@ Module EnvSys
       subKey  = #ENV_PATH_SYS
     EndIf
 
-    If RegOpenKeyEx_(rootKey, subKey, 0, access, *hKey)
+    SetLastErrorCode(RegOpenKeyEx_(rootKey, subKey, 0, access, *hKey))
+    If lastErrorCode
       ProcedureReturn #False
     EndIf
     ProcedureReturn #True
@@ -93,6 +247,7 @@ Module EnvSys
     ; Query required size first (handles long values like PATH)
     result = RegQueryValueEx_(hKey, name, 0, @valueType, 0, @dataBytes)
     If result <> #ERROR_SUCCESS Or dataBytes = 0
+      SetLastErrorCode(result)
       RegCloseKey_(hKey)
       ProcedureReturn ""
     EndIf
@@ -104,6 +259,7 @@ Module EnvSys
 
     result = RegQueryValueEx_(hKey, name, 0, @valueType, @buffer, @dataBytes)
     RegCloseKey_(hKey)
+    SetLastErrorCode(result)
 
     If result <> #ERROR_SUCCESS
       ProcedureReturn ""
@@ -124,12 +280,14 @@ Module EnvSys
       ProcedureReturn #False
     EndIf
 
-    If RegSetValueEx_(hKey, name, 0, type, *buf, size) <> #ERROR_SUCCESS
+    SetLastErrorCode(RegSetValueEx_(hKey, name, 0, type, *buf, size))
+    If lastErrorCode <> #ERROR_SUCCESS
       RegCloseKey_(hKey)
       ProcedureReturn #False
     EndIf
 
     RegCloseKey_(hKey)
+    SetLastErrorCode(#ERROR_SUCCESS)
     ProcedureReturn #True
   EndProcedure
 
@@ -140,9 +298,9 @@ Module EnvSys
       ProcedureReturn #False
     EndIf
 
-    RegDeleteValue_(hKey, name)
+    SetLastErrorCode(RegDeleteValue_(hKey, name))
     RegCloseKey_(hKey)
-    ProcedureReturn #True
+    ProcedureReturn Bool(lastErrorCode = #ERROR_SUCCESS)
   EndProcedure
 
   Procedure.i LoadAll(List vars.VarEntry(), scope.i = #ScopeSystem)
@@ -200,6 +358,7 @@ Module EnvSys
       EndIf
 
       If result <> #ERROR_SUCCESS
+        SetLastErrorCode(result)
         Break
       EndIf
 
@@ -212,12 +371,19 @@ Module EnvSys
     Wend
 
     RegCloseKey_(hKey)
-    ProcedureReturn #True
+    If result = #ERROR_NO_MORE_ITEMS
+      SetLastErrorCode(#ERROR_SUCCESS)
+      ProcedureReturn #True
+    EndIf
+
+    ProcedureReturn #False
   EndProcedure
 
   Procedure.i ApplyAll(List vars.VarEntry(), overwrite.i = #True, strict.i = #False, scope.i = #ScopeSystem)
 
     Protected hKey.i
+    Protected result.l
+    Protected ok.i = #True
 
     If OpenEnvKey(#KEY_READ | #KEY_WRITE, @hKey, scope) = #False
       ProcedureReturn #False
@@ -228,8 +394,6 @@ Module EnvSys
       Protected nameBuf.s
 
       While #True
-        Protected result.l
-
         sizeName = 512
         nameBuf  = Space(sizeName)
 
@@ -239,7 +403,13 @@ Module EnvSys
           result = RegEnumValue_(hKey, index, @nameBuf, @sizeName, 0, 0, 0, 0)
         EndIf
 
+        If result = #ERROR_NO_MORE_ITEMS
+          Break
+        EndIf
+
         If result <> #ERROR_SUCCESS
+          SetLastErrorCode(result)
+          ok = #False
           Break
         EndIf
 
@@ -254,21 +424,36 @@ Module EnvSys
         Next
 
         If found = #False
-          RegDeleteValue_(hKey, existing)
+          result = RegDeleteValue_(hKey, existing)
+          If result <> #ERROR_SUCCESS
+            SetLastErrorCode(result)
+            ok = #False
+            Break
+          EndIf
         Else
           index + 1
         EndIf
       Wend
     EndIf
 
-    ForEach vars()
-      If overwrite Or ReadVar(vars()\Name, scope) = ""
-        RegSetValueEx_(hKey, vars()\Name, 0, vars()\Type, @vars()\Value, StringByteLength(vars()\Value) + SizeOf(Character))
-      EndIf
-    Next
+    If ok
+      ForEach vars()
+        If overwrite Or VarExists(vars()\Name, scope) = #False
+          result = RegSetValueEx_(hKey, vars()\Name, 0, vars()\Type, @vars()\Value, StringByteLength(vars()\Value) + SizeOf(Character))
+          If result <> #ERROR_SUCCESS
+            SetLastErrorCode(result)
+            ok = #False
+            Break
+          EndIf
+        EndIf
+      Next
+    EndIf
 
     RegCloseKey_(hKey)
-    ProcedureReturn #True
+    If ok
+      SetLastErrorCode(#ERROR_SUCCESS)
+    EndIf
+    ProcedureReturn ok
   EndProcedure
 
   Procedure.i ExportToFile(filePath.s, scope.i = #ScopeSystem)
@@ -279,14 +464,16 @@ Module EnvSys
     EndIf
 
     If CreateFile(0, filePath) = 0
+      SetLastErrorCode(GetLastError_())
       ProcedureReturn #False
     EndIf
 
     ForEach vars()
-      WriteStringN(0, vars()\Name + "=" + vars()\Value)
+      WriteStringN(0, SerializeVar(@vars()))
     Next
 
     CloseFile(0)
+    SetLastErrorCode(#ERROR_SUCCESS)
     ProcedureReturn #True
   EndProcedure
 
@@ -299,6 +486,7 @@ Module EnvSys
     EndIf
 
     If CreateFile(0, filePath) = 0
+      SetLastErrorCode(GetLastError_())
       ProcedureReturn #False
     EndIf
 
@@ -309,132 +497,43 @@ Module EnvSys
     EndIf
     WriteStringN(0, "; Generated: " + FormatDate("[%yy-%mm-%dd]-[%hh:%ii:%ss] ", Date()))
     WriteStringN(0, "; Machine: " + machine)
+    WriteStringN(0, "; Format: Name|RegistryType=Value")
     WriteStringN(0, "; ---------------------------------------------")
     WriteStringN(0, "")
 
     ForEach vars()
-      WriteStringN(0, vars()\Name + "=" + vars()\Value)
+      WriteStringN(0, SerializeVar(@vars()))
     Next
 
     CloseFile(0)
+    SetLastErrorCode(#ERROR_SUCCESS)
     ProcedureReturn #True
   EndProcedure
 
   Procedure.i ImportFromFile(filePath.s, overwrite.i = #True, scope.i = #ScopeSystem)
- 
-    Protected line.s, pos.l, key.s, val.s
-    Protected NewList vars.VarEntry()
- 
-    If ReadFile(0, filePath) = 0
-      ProcedureReturn #False
-    EndIf
-  
-    While Eof(0) = 0
-      line = Trim(ReadString(0))
-  
-      If line = "" : Continue : EndIf
-      If Left(line, 1) = ";" Or Left(line, 1) = "#" : Continue : EndIf
-  
-      pos = FindString(line, "=", 1)
-      If pos > 0
-        key = Trim(Left(line, pos - 1))
-        val = Trim(Mid(line, pos + 1))
-        
-        ; Remove surrounding quotes if present
-        If Left(val, 1) = #DQUOTE$ And Right(val, 1) = #DQUOTE$ And Len(val) >= 2
-          val = Mid(val, 2, Len(val) - 2)
-        EndIf
-        
-        AddElement(vars())
-        vars()\Name  = key
-        vars()\Value = val
-        vars()\Type  = #REG_EXPAND_SZ
-      Else
-        ; Continuation line support for long values (commonly PATH)
-        If LastElement(vars())
-          ; Only append if not a comment and not empty
-          If vars()\Value <> "" And Right(vars()\Value, 1) <> ";"
-            vars()\Value + ";"
-          EndIf
-          vars()\Value + line
-        EndIf
-      EndIf
-    Wend
-  
-    CloseFile(0)
-  
-    ProcedureReturn ApplyAll(vars(), overwrite, #False, scope)
-  EndProcedure
-
-  Procedure.i ImportBoth(filePath.s, overwrite.i = #True, defaultScope.i = #ScopeSystem)
-    Protected line.s, pos.l, key.s, val.s
-    Protected currentScope.i = defaultScope
     Protected NewList sysVars.VarEntry()
     Protected NewList userVars.VarEntry()
 
-    If ReadFile(0, filePath) = 0
+    If ParseFile(filePath, sysVars(), userVars(), scope) = #False
       ProcedureReturn #False
     EndIf
 
-    While Eof(0) = 0
-      line = Trim(ReadString(0))
+    If scope = #ScopeUser
+      ProcedureReturn ApplyAll(userVars(), overwrite, #False, scope)
+    EndIf
 
-      If line = "" : Continue : EndIf
-      If Left(line, 1) = ";" Or Left(line, 1) = "#" : Continue : EndIf
+    ProcedureReturn ApplyAll(sysVars(), overwrite, #False, scope)
+  EndProcedure
 
-      If LCase(line) = "[system]"
-        currentScope = #ScopeSystem
-        Continue
-      ElseIf LCase(line) = "[user]"
-        currentScope = #ScopeUser
-        Continue
-      EndIf
-
-      pos = FindString(line, "=", 1)
-      If pos > 0
-        key = Trim(Left(line, pos - 1))
-        val = Trim(Mid(line, pos + 1))
-        
-        ; Remove surrounding quotes
-        If Left(val, 1) = #DQUOTE$ And Right(val, 1) = #DQUOTE$ And Len(val) >= 2
-          val = Mid(val, 2, Len(val) - 2)
-        EndIf
-
-        If currentScope = #ScopeUser
-          AddElement(userVars())
-          userVars()\Name  = key
-          userVars()\Value = val
-          userVars()\Type  = #REG_EXPAND_SZ
-        Else
-          AddElement(sysVars())
-          sysVars()\Name  = key
-          sysVars()\Value = val
-          sysVars()\Type  = #REG_EXPAND_SZ
-        EndIf
-      Else
-        ; Continuation support
-        If currentScope = #ScopeUser
-          If LastElement(userVars())
-            If userVars()\Value <> "" And Right(userVars()\Value, 1) <> ";"
-              userVars()\Value + ";"
-            EndIf
-            userVars()\Value + line
-          EndIf
-        Else
-          If LastElement(sysVars())
-            If sysVars()\Value <> "" And Right(sysVars()\Value, 1) <> ";"
-              sysVars()\Value + ";"
-            EndIf
-            sysVars()\Value + line
-          EndIf
-        EndIf
-      EndIf
-    Wend
-
-    CloseFile(0)
-
+  Procedure.i ImportBoth(filePath.s, overwrite.i = #True, defaultScope.i = #ScopeSystem)
+    Protected NewList sysVars.VarEntry()
+    Protected NewList userVars.VarEntry()
     Protected okSys.i = #True
     Protected okUser.i = #True
+
+    If ParseFile(filePath, sysVars(), userVars(), defaultScope) = #False
+      ProcedureReturn #False
+    EndIf
 
     If ListSize(sysVars()) > 0
       okSys = ApplyAll(sysVars(), overwrite, #False, #ScopeSystem)
@@ -451,70 +550,59 @@ Module EnvSys
     Protected machine.s = GetEnvironmentVariable("COMPUTERNAME")
 
     If CreateFile(0, filePath) = 0
+      SetLastErrorCode(GetLastError_())
       ProcedureReturn #False
     EndIf
 
     WriteStringN(0, "; HandyWSERTool Environment Backup")
     WriteStringN(0, "; Generated: " + FormatDate("[%yy-%mm-%dd]-[%hh:%ii:%ss] ", Date()))
     WriteStringN(0, "; Machine: " + machine)
-    WriteStringN(0, "; Format: [System] and [User] sections")
+    WriteStringN(0, "; Format: [System]/[User] sections with Name|RegistryType=Value")
     WriteStringN(0, "")
 
     WriteStringN(0, "[System]")
-    If LoadAll(vars(), #ScopeSystem)
-      ForEach vars()
-        WriteStringN(0, vars()\Name + "=" + vars()\Value)
-      Next
+    If LoadAll(vars(), #ScopeSystem) = #False
+      If LastErrorCode() = #ERROR_SUCCESS
+        SetLastErrorCode(#ERROR_GEN_FAILURE)
+      EndIf
+      CloseFile(0)
+      ProcedureReturn #False
     EndIf
+    ForEach vars()
+      WriteStringN(0, SerializeVar(@vars()))
+    Next
 
     WriteStringN(0, "")
     WriteStringN(0, "[User]")
-    If LoadAll(vars(), #ScopeUser)
-      ForEach vars()
-        WriteStringN(0, vars()\Name + "=" + vars()\Value)
-      Next
+    If LoadAll(vars(), #ScopeUser) = #False
+      If LastErrorCode() = #ERROR_SUCCESS
+        SetLastErrorCode(#ERROR_GEN_FAILURE)
+      EndIf
+      CloseFile(0)
+      ProcedureReturn #False
     EndIf
+    ForEach vars()
+      WriteStringN(0, SerializeVar(@vars()))
+    Next
 
     CloseFile(0)
+    SetLastErrorCode(#ERROR_SUCCESS)
     ProcedureReturn #True
   EndProcedure
 
   Procedure.i RestoreExact(filePath.s, strict.i = #True, scope.i = #ScopeSystem)
- 
-    Protected NewList vars.VarEntry()
-    Protected line.s, pos.l
- 
-    If ReadFile(0, filePath) = 0
+    Protected NewList sysVars.VarEntry()
+    Protected NewList userVars.VarEntry()
+
+    If ParseFile(filePath, sysVars(), userVars(), scope) = #False
       ProcedureReturn #False
     EndIf
- 
-    While Eof(0) = 0
-      line = Trim(ReadString(0))
- 
-      If line = "" : Continue : EndIf
-      If Left(line, 1) = ";" Or Left(line, 1) = "#" : Continue : EndIf
- 
-      pos = FindString(line, "=", 1)
-      If pos > 0
-        AddElement(vars())
-        vars()\Name  = Trim(Left(line, pos - 1))
-        vars()\Value = Trim(Mid(line, pos + 1))
-        vars()\Type  = #REG_EXPAND_SZ
-      Else
-        ; Continuation line support for long values (commonly PATH)
-        ; If a line doesn't contain '=', append it to the previous variable.
-        If LastElement(vars())
-          If vars()\Value <> "" And Right(vars()\Value, 1) <> ";" And Left(line, 1) <> ";"
-            vars()\Value + ";"
-          EndIf
-          vars()\Value + line
-        EndIf
-      EndIf
-    Wend
- 
-    CloseFile(0)
- 
-    ProcedureReturn ApplyAll(vars(), #True, strict, scope)
+
+    If scope = #ScopeUser
+      ProcedureReturn ApplyAll(userVars(), #True, strict, scope)
+    EndIf
+
+    ProcedureReturn ApplyAll(sysVars(), #True, strict, scope)
   EndProcedure
 
 EndModule
@@ -693,11 +781,11 @@ Procedure.s RecommendedUserValue(varName.s)
 
   Select n
     Case "temp", "tmp"
-      ProcedureReturn "%USERPROFILE%\\AppData\\Local\\Temp"
+      ProcedureReturn "%USERPROFILE%\AppData\Local\Temp"
     Case "appdata"
-      ProcedureReturn "%USERPROFILE%\\AppData\\Roaming"
+      ProcedureReturn "%USERPROFILE%\AppData\Roaming"
     Case "localappdata"
-      ProcedureReturn "%USERPROFILE%\\AppData\\Local"
+      ProcedureReturn "%USERPROFILE%\AppData\Local"
   EndSelect
 
   ProcedureReturn ""
@@ -802,6 +890,8 @@ Procedure CollectReferencedFromVars(List vars.EnvSys::VarEntry(), Map referenced
   Next
 EndProcedure
 
+Declare AppendLog(msg.s)
+
 Procedure BroadcastEnvironmentChange()
   ; Notify other apps that environment changed
   ; WM_SETTINGCHANGE / lParam = "Environment"
@@ -812,6 +902,19 @@ Procedure BroadcastEnvironmentChange()
   Protected result.i
   Protected msg.s = "Environment"
   SendMessageTimeout_(#HWND_BROADCAST, #WM_SETTINGCHANGE, 0, @msg, #SMTO_ABORTIFHUNG, 2000, @result)
+EndProcedure
+
+Procedure.s LastRegistryErrorText()
+  ProcedureReturn EnvSys::LastErrorText()
+EndProcedure
+
+Procedure.i LoadScopeOrLog(List vars.EnvSys::VarEntry(), scope.i, label.s)
+  If EnvSys::LoadAll(vars(), scope) = #False
+    AppendLog("[ERROR] Failed to load " + label + " environment (" + LastRegistryErrorText() + ")")
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn #True
 EndProcedure
 
 ; ============================================================
@@ -859,8 +962,12 @@ Procedure ScanEnvironment()
   Protected missingUser.l, emptyUser.l
 
   ; Load once per scope (faster + enables richer analysis)
-  EnvSys::LoadAll(sysVars(), EnvSys::#ScopeSystem)
-  EnvSys::LoadAll(userVars(), EnvSys::#ScopeUser)
+  If LoadScopeOrLog(sysVars(), EnvSys::#ScopeSystem, "System") = #False
+    ProcedureReturn
+  EndIf
+  If LoadScopeOrLog(userVars(), EnvSys::#ScopeUser, "User") = #False
+    ProcedureReturn
+  EndIf
 
   ForEach sysVars()
     key = LCase(sysVars()\Name)
@@ -1017,7 +1124,7 @@ Procedure ScanEnvironment()
   UserCheck("HOMEPATH", #False)
   UserCheck("APPDATA", #False)
   UserCheck("LOCALAPPDATA", #False)
-  UserCheck("OneDrive", #False)
+  UserCheck("OneDrive", #True)
   UserCheck("OneDriveConsumer", #True)
 
   If FindMapElement(userMap(), "path") = 0
@@ -1051,7 +1158,7 @@ Procedure RepairEnvironment()
   If EnvSys::Backup(backupFile, EnvSys::#ScopeSystem)
     AppendLog("Backup saved to: " + backupFile)
   Else
-    AppendLog("Backup FAILED (no changes made).")
+    AppendLog("Backup FAILED (" + LastRegistryErrorText() + ", no changes made).")
     ProcedureReturn
   EndIf
 
@@ -1060,7 +1167,7 @@ Procedure RepairEnvironment()
   If EnvSys::Backup(backupUserFile, EnvSys::#ScopeUser)
     AppendLog("User backup saved to: " + backupUserFile)
   Else
-    AppendLog("User backup FAILED (continuing).")
+    AppendLog("User backup FAILED (" + LastRegistryErrorText() + ", continuing).")
   EndIf
 
   AppendLog("")
@@ -1073,7 +1180,10 @@ Procedure RepairEnvironment()
   Protected NewMap userMap.EnvSys::VarEntry()
   Protected key.s, current.s
 
-  EnvSys::LoadAll(sysVars(), EnvSys::#ScopeSystem)
+  If LoadScopeOrLog(sysVars(), EnvSys::#ScopeSystem, "System") = #False
+    AppendLog("Repair aborted.")
+    ProcedureReturn
+  EndIf
   ForEach sysVars()
     key = LCase(sysVars()\Name)
     If key <> ""
@@ -1082,7 +1192,10 @@ Procedure RepairEnvironment()
     EndIf
   Next
 
-  EnvSys::LoadAll(userVars(), EnvSys::#ScopeUser)
+  If LoadScopeOrLog(userVars(), EnvSys::#ScopeUser, "User") = #False
+    AppendLog("Repair aborted.")
+    ProcedureReturn
+  EndIf
   ForEach userVars()
     key = LCase(userVars()\Name)
     If key <> ""
@@ -1098,7 +1211,7 @@ Procedure RepairEnvironment()
       If EnvSys::WriteVar(DefaultVars()\name, DefaultVars()\value, DefaultVars()\typ, EnvSys::#ScopeSystem)
         AppendLog("[FIXED] " + DefaultVars()\name + " = " + DefaultVars()\value)
       Else
-        AppendLog("[FAILED] " + DefaultVars()\name)
+        AppendLog("[FAILED] " + DefaultVars()\name + " (" + LastRegistryErrorText() + ")")
       EndIf
     Else
       AppendLog("[SKIP] " + DefaultVars()\name + " already set")
@@ -1111,7 +1224,7 @@ Procedure RepairEnvironment()
     If EnvSys::WriteVar("Path", DefaultSystemPath, #REG_EXPAND_SZ, EnvSys::#ScopeSystem)
       AppendLog("[FIXED] Path set to core defaults")
     Else
-      AppendLog("[FAILED] Path")
+      AppendLog("[FAILED] Path (" + LastRegistryErrorText() + ")")
     EndIf
   Else
     Protected newPath.s = EnsurePathContainsRequired(sysMap()\Value, DefaultSystemPath, @addedCount)
@@ -1119,7 +1232,7 @@ Procedure RepairEnvironment()
       If EnvSys::WriteVar("Path", newPath, #REG_EXPAND_SZ, EnvSys::#ScopeSystem)
         AppendLog("[FIXED] Path updated (added core entries: " + Str(addedCount\i) + ")")
       Else
-        AppendLog("[FAILED] Path")
+        AppendLog("[FAILED] Path (" + LastRegistryErrorText() + ")")
       EndIf
     Else
       AppendLog("[OK] Path already contains core entries")
@@ -1137,12 +1250,12 @@ Procedure RepairEnvironment()
     If FindMapElement(userMap(), key)
       current = userMap()\Value
     EndIf
-    rec.s = RecommendedUserValue(name)
+    rec = RecommendedUserValue(name)
     If rec <> "" And (FindMapElement(userMap(), key) = 0 Or current = "")
       If EnvSys::WriteVar(name, rec, #REG_EXPAND_SZ, EnvSys::#ScopeUser)
         AppendLog("[FIXED] " + name + " = " + rec)
       Else
-        AppendLog("[FAILED] " + name)
+        AppendLog("[FAILED] " + name + " (" + LastRegistryErrorText() + ")")
       EndIf
     Else
       AppendLog("[SKIP] " + name + " already set")
@@ -1178,14 +1291,14 @@ Procedure FixReferencedMissingVars()
   If EnvSys::Backup(backupSysFile, EnvSys::#ScopeSystem)
     AppendLog("System backup saved to: " + backupSysFile)
   Else
-    AppendLog("System backup FAILED (no changes made).")
+    AppendLog("System backup FAILED (" + LastRegistryErrorText() + ", no changes made).")
     ProcedureReturn
   EndIf
 
   If EnvSys::Backup(backupUserFile, EnvSys::#ScopeUser)
     AppendLog("User backup saved to: " + backupUserFile)
   Else
-    AppendLog("User backup FAILED (continuing).")
+    AppendLog("User backup FAILED (" + LastRegistryErrorText() + ", continuing).")
   EndIf
 
   Protected NewList sysVars.EnvSys::VarEntry()
@@ -1195,8 +1308,14 @@ Procedure FixReferencedMissingVars()
   Protected NewMap referenced.i()
   Protected key.s, token.s
 
-  EnvSys::LoadAll(sysVars(), EnvSys::#ScopeSystem)
-  EnvSys::LoadAll(userVars(), EnvSys::#ScopeUser)
+  If LoadScopeOrLog(sysVars(), EnvSys::#ScopeSystem, "System") = #False
+    AppendLog("Fix %Vars% aborted.")
+    ProcedureReturn
+  EndIf
+  If LoadScopeOrLog(userVars(), EnvSys::#ScopeUser, "User") = #False
+    AppendLog("Fix %Vars% aborted.")
+    ProcedureReturn
+  EndIf
 
   ForEach sysVars()
     key = LCase(sysVars()\Name)
@@ -1232,7 +1351,7 @@ Procedure FixReferencedMissingVars()
     ; Prefer System for known system vars, otherwise User for known user vars
     If IsSystemVar(token) Or IsFixableSystemVar(token)
       If IsFixableSystemVar(token)
-        recSys.s = RecommendedSystemValue(token)
+        recSys = RecommendedSystemValue(token)
         If token = "path" And FindMapElement(sysMap(), "path")
           ; For PATH we repair by appending missing core entries
           Protected addedCount.Integer
@@ -1244,7 +1363,7 @@ Procedure FixReferencedMissingVars()
             AppendLog("[FIXED] %" + token + "% -> System")
             fixed + 1
           Else
-            AppendLog("[FAILED] %" + token + "% -> System")
+            AppendLog("[FAILED] %" + token + "% -> System (" + LastRegistryErrorText() + ")")
             failed + 1
           EndIf
         Else
@@ -1257,13 +1376,13 @@ Procedure FixReferencedMissingVars()
       EndIf
     Else
       If IsFixableUserVar(token)
-        recUser.s = RecommendedUserValue(token)
+        recUser = RecommendedUserValue(token)
         If recUser <> ""
           If EnvSys::WriteVar(token, recUser, #REG_EXPAND_SZ, EnvSys::#ScopeUser)
             AppendLog("[FIXED] %" + token + "% -> User")
             fixed + 1
           Else
-            AppendLog("[FAILED] %" + token + "% -> User")
+            AppendLog("[FAILED] %" + token + "% -> User (" + LastRegistryErrorText() + ")")
             failed + 1
           EndIf
         Else
@@ -1308,7 +1427,7 @@ Procedure DoExport()
     If EnvSys::Backup(file, scope)
       AppendLog("Export saved to: " + file)
     Else
-      AppendLog("Export FAILED: " + file)
+      AppendLog("Export FAILED: " + file + " (" + LastRegistryErrorText() + ")")
     EndIf
 
   ElseIf choice = #PB_MessageRequester_No
@@ -1320,7 +1439,7 @@ Procedure DoExport()
     If EnvSys::Backup(file, scope)
       AppendLog("Export saved to: " + file)
     Else
-      AppendLog("Export FAILED: " + file)
+      AppendLog("Export FAILED: " + file + " (" + LastRegistryErrorText() + ")")
     EndIf
 
   Else
@@ -1330,7 +1449,7 @@ Procedure DoExport()
     If EnvSys::BackupBoth(file)
       AppendLog("Export saved to: " + file)
     Else
-      AppendLog("Export FAILED: " + file)
+      AppendLog("Export FAILED: " + file + " (" + LastRegistryErrorText() + ")")
     EndIf
   EndIf
 EndProcedure
@@ -1356,9 +1475,10 @@ Procedure DoImport()
     AppendLog("")
 
     If EnvSys::ImportFromFile(file, #True, scope)
+      BroadcastEnvironmentChange()
       AppendLog("Import OK. Log off or reboot is required for changes to fully apply.")
     Else
-      AppendLog("Import FAILED.")
+      AppendLog("Import FAILED (" + LastRegistryErrorText() + ").")
     EndIf
 
   ElseIf choice = #PB_MessageRequester_No
@@ -1371,9 +1491,10 @@ Procedure DoImport()
     AppendLog("")
 
     If EnvSys::ImportFromFile(file, #True, scope)
+      BroadcastEnvironmentChange()
       AppendLog("Import OK. Log off or reboot is required for changes to fully apply.")
     Else
-      AppendLog("Import FAILED.")
+      AppendLog("Import FAILED (" + LastRegistryErrorText() + ").")
     EndIf
 
   Else
@@ -1384,9 +1505,10 @@ Procedure DoImport()
     AppendLog("")
 
     If EnvSys::ImportBoth(file, #True, EnvSys::#ScopeSystem)
+      BroadcastEnvironmentChange()
       AppendLog("Import OK. Log off or reboot is required for changes to fully apply.")
     Else
-      AppendLog("Import FAILED.")
+      AppendLog("Import FAILED (" + LastRegistryErrorText() + ").")
     EndIf
   EndIf
 EndProcedure
@@ -1429,7 +1551,7 @@ ForEver
 ; DPIAware
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 5
-; Folding = -------
+; Folding = ---------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1438,12 +1560,12 @@ ForEver
 ; UseIcon = HandyWSERTool.ico
 ; Executable = ..\HandyWSERTool.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,6
-; VersionField1 = 1,0,0,6
+; VersionField0 = 1,0,0,7
+; VersionField1 = 1,0,0,7
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyWSERTool
-; VersionField4 = 1.0.0.6
-; VersionField5 = 1.0.0.6
+; VersionField4 = 1.0.0.7
+; VersionField5 = 1.0.0.7
 ; VersionField6 = Windows System Environment Repair Tool
 ; VersionField7 = HandyWSERTool
 ; VersionField8 = HandyWSERTool.exe
