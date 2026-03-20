@@ -1,0 +1,7 @@
+Global ConstantTheme.s = ""
+Global ConstantSetting.s = ""
+Global ConstantCulture.s = ""
+Global ConstantLandmark.s = ""
+Global ConstantRole.s = ""
+Global ConstantGoal.s = ""
+Global ConstantTwist.s = ""
