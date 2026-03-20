@@ -8,7 +8,9 @@ EnableExplicit
 
 #App_Name = "ResetTimeStamper"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-Global version.s = "v1.0.0.3"
+Global version.s = "v1.0.0.4"
+
+Declare WriteLog(msg.s)
 
 ; Prevent multiple instances (don't rely on window title text)
 Global hMutex.i
@@ -19,12 +21,19 @@ If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
   End
 EndIf
 
-Procedure Exit()
-  Protected Req.i
-  Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
-  If Req = #PB_MessageRequester_Yes
+Procedure.i ConfirmExit()
+  Protected req.i
+
+  req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
+  ProcedureReturn Bool(req = #PB_MessageRequester_Yes)
+EndProcedure
+
+Procedure Shutdown()
+  WriteLog("Application closed")
+
+  If hMutex
     CloseHandle_(hMutex)
-    End
+    hMutex = 0
   EndIf
 EndProcedure
 
@@ -41,13 +50,21 @@ EndProcedure
 #Log_MaxSize = 1048576
 #Log_MaxBackups = 5
 
+#Color_StatusFuture = $C8C8FF
+#Color_StatusCreatedAfterModified = $C8E6FF
+#Color_StatusOld = $C8FFFF
+#Color_StatusOk = $C8FFC8
+#Color_StatusError = $9696FF
+#Color_SearchMatch = $C8FFFF
+#Color_SearchDefault = $FFFFFF
+
 #Win_Main = 0
 #Win_LogViewer = 1
 #Gad_Browse = 1
 #Gad_Reset = 2
 #Gad_List = 3
 #Gad_Clear = 4
-#Gad_Exit = 5
+#Gad_Cancel = 5
 #Gad_Search = 6
 #Gad_SearchText = 7
 #Gad_ViewLog = 8
@@ -57,13 +74,21 @@ EndProcedure
 #Gad_LogEditor = 12
 #StatusBar_Main = 0
 
+#Menu_Exit = 1
+#Menu_About = 2
+#Menu_ViewLog = 3
+#Menu_CheckTimestamps = 4
+#Menu_CancelOperation = 5
+#Shortcut_Cancel = 100
+
 Global NewList FileList.s()
 Global NewList FileNeedsReset.i()
-Global DirtySelection.i
 Global LogFile.s
 Global LogEnabled.i = #True
 Global NewList SearchResults.s()
 Global LastBrowsePath.s
+Global CancelRequested.i
+Global OperationActive.i
 
 LogFile = GetPathPart(ProgramFilename()) + #App_Name + ".log"
 
@@ -117,14 +142,96 @@ Procedure SetStatus(msg.s)
   WriteLog(msg)
 EndProcedure
 
+Procedure BeginOperation(operationName.s)
+  OperationActive = #True
+  CancelRequested = #False
+  DisableMenuItem(0, #Menu_CancelOperation, #False)
+  DisableGadget(#Gad_Cancel, #False)
+  SetStatus(operationName + "... Press Cancel to stop.")
+EndProcedure
+
+Procedure EndOperation(statusText.s = "")
+  OperationActive = #False
+  CancelRequested = #False
+  DisableMenuItem(0, #Menu_CancelOperation, #True)
+  DisableGadget(#Gad_Cancel, #True)
+
+  If statusText <> ""
+    SetStatus(statusText)
+  EndIf
+EndProcedure
+
+Procedure RequestCancel()
+  If OperationActive And CancelRequested = #False
+    CancelRequested = #True
+    SetStatus("Cancel requested... finishing current step.")
+    WriteLog("Operation cancellation requested by user")
+  EndIf
+EndProcedure
+
+Procedure.i PumpUi()
+  Protected event.i
+  Protected menuId.i
+
+  Repeat
+    event = WindowEvent()
+    If event = 0
+      Break
+    EndIf
+
+    Select event
+      Case #PB_Event_Gadget
+        If EventGadget() = #Gad_Cancel
+          RequestCancel()
+        EndIf
+
+      Case #PB_Event_Menu
+        menuId = EventMenu()
+        If menuId = #Menu_CancelOperation Or menuId = #Shortcut_Cancel
+          RequestCancel()
+        EndIf
+    EndSelect
+  ForEver
+
+  ProcedureReturn CancelRequested
+EndProcedure
+
+Procedure UpdateActionButtons()
+  Protected hasFiles.i
+  Protected disableState.i
+
+  hasFiles = Bool(ListSize(FileList()) > 0)
+  disableState = Bool(hasFiles = #False)
+  DisableGadget(#Gad_Reset, disableState)
+  DisableGadget(#Gad_Clear, disableState)
+  DisableGadget(#Gad_CheckTimestamps, disableState)
+EndProcedure
+
+Procedure.i FileAlreadyListed(filePath.s)
+  ForEach FileList()
+    If LCase(FileList()) = LCase(filePath)
+      ProcedureReturn #True
+    EndIf
+  Next
+
+  ProcedureReturn #False
+EndProcedure
+
+Procedure SetListRowColor(itemIndex.i, color.i)
+  SetGadgetItemColor(#Gad_List, itemIndex, #PB_Gadget_BackColor, color)
+EndProcedure
+
+Procedure SetTimestampStatus(itemIndex.i, statusText.s, color.i, needsReset.i)
+  SetGadgetItemText(#Gad_List, itemIndex, statusText, 1)
+  SetListRowColor(itemIndex, color)
+  FileNeedsReset() = needsReset
+EndProcedure
+
 Procedure ClearSelection()
   ClearList(FileList())
   ClearList(FileNeedsReset())
   ClearGadgetItems(#Gad_List)
-  DirtySelection = #False
-  DisableGadget(#Gad_Reset, #True)
-  DisableGadget(#Gad_Clear, #True)
-  DisableGadget(#Gad_CheckTimestamps, #True)
+  UpdateActionButtons()
   SetGadgetText(#Gad_SearchText, "")
   SetStatus("Ready. Select files to reset their timestamps.")
 EndProcedure
@@ -132,7 +239,7 @@ EndProcedure
 Procedure AddFileToList(filePath.s, skipGadget.i = #False)
   Protected itemIndex.i
   
-  If filePath = ""
+  If filePath = "" Or FileSize(filePath) < 0 Or FileAlreadyListed(filePath)
     ProcedureReturn
   EndIf
   
@@ -150,43 +257,77 @@ Procedure SearchInDirectory(directory.s, searchText.s, *count.Integer)
   Protected dir.i
   Protected entry.s
   Protected fullPath.s
-  Static lastUpdate.i = 0
-  
+  Protected searchTextLower.s
+  Protected currentDirectory.s
+  Protected lastUpdate.i
+  Protected NewList pendingDirectories.s()
+
   If Right(directory, 1) <> "\" And Right(directory, 1) <> "/"
     directory + "\"
   EndIf
-  
-  dir = ExamineDirectory(#PB_Any, directory, "*.*")
-  If dir
+
+  AddElement(pendingDirectories())
+  pendingDirectories() = directory
+  searchTextLower = LCase(searchText)
+  lastUpdate = ElapsedMilliseconds()
+
+  While ListSize(pendingDirectories()) > 0
+    LastElement(pendingDirectories())
+    currentDirectory = pendingDirectories()
+    DeleteElement(pendingDirectories())
+
+    dir = ExamineDirectory(#PB_Any, currentDirectory, "*.*")
+    If dir = 0
+      WriteLog("WARNING: Cannot access folder during search: " + currentDirectory)
+      If PumpUi()
+        ProcedureReturn
+      EndIf
+      Continue
+    EndIf
+
     While NextDirectoryEntry(dir)
+      If CancelRequested
+        FinishDirectory(dir)
+        ProcedureReturn
+      EndIf
+
       entry = DirectoryEntryName(dir)
-      
+
       If entry <> "." And entry <> ".."
-        fullPath = directory + entry
-        
+        fullPath = currentDirectory + entry
+
         If DirectoryEntryType(dir) = #PB_DirectoryEntry_Directory
-          SearchInDirectory(fullPath, searchText, *count)
-        Else
-          If searchText = "*" Or 
-             FindString(LCase(entry), LCase(searchText), 1) > 0 Or
-             FindString(LCase(fullPath), LCase(searchText), 1) > 0
-            
-            AddElement(SearchResults())
-            SearchResults() = fullPath
-            *count\i + 1
-            
-            ; Throttled UI update (max 10 times per second) for better performance
-            If ElapsedMilliseconds() - lastUpdate > 100
-              SetStatus("Searching... Found " + Str(*count\i) + " file(s)")
-              WindowEvent()
-              lastUpdate = ElapsedMilliseconds()
+          If Right(fullPath, 1) <> "\" And Right(fullPath, 1) <> "/"
+            fullPath + "\"
+          EndIf
+
+          AddElement(pendingDirectories())
+          pendingDirectories() = fullPath
+        ElseIf searchText = "*" Or
+               FindString(LCase(entry), searchTextLower, 1) > 0 Or
+               FindString(LCase(fullPath), searchTextLower, 1) > 0
+          AddElement(SearchResults())
+          SearchResults() = fullPath
+          *count\i + 1
+
+          If ElapsedMilliseconds() - lastUpdate > 100
+            SetStatus("Searching... Found " + Str(*count\i) + " file(s)")
+            If PumpUi()
+              FinishDirectory(dir)
+              ProcedureReturn
             EndIf
+            lastUpdate = ElapsedMilliseconds()
           EndIf
         EndIf
       EndIf
     Wend
+
     FinishDirectory(dir)
-  EndIf
+
+    If PumpUi()
+      ProcedureReturn
+    EndIf
+  Wend
 EndProcedure
 
 
@@ -222,33 +363,23 @@ Procedure CheckTimestamps()
       dateDiff = (currentDate - fileDate) / (3600 * 24)
       
       If fileDate > currentDate
-        SetGadgetItemText(#Gad_List, itemIndex, "FUTURE (" + dateStr + ")", 1)
-        SetGadgetItemColor(#Gad_List, itemIndex, #PB_Gadget_BackColor, RGB(255, 200, 200))
+        SetTimestampStatus(itemIndex, "FUTURE (" + dateStr + ")", #Color_StatusFuture, #True)
         flagged + 1
-        FileNeedsReset() = #True
         WriteLog("FLAGGED (Future): " + FileList())
       ElseIf createdDate > fileDate
-        SetGadgetItemText(#Gad_List, itemIndex, "Created>Modified (" + dateStr + ")", 1)
-        SetGadgetItemColor(#Gad_List, itemIndex, #PB_Gadget_BackColor, RGB(255, 230, 200))
+        SetTimestampStatus(itemIndex, "Created>Modified (" + dateStr + ")", #Color_StatusCreatedAfterModified, #True)
         flagged + 1
-        FileNeedsReset() = #True
         WriteLog("FLAGGED (Created>Modified): " + FileList())
       ElseIf dateDiff > 365
-        SetGadgetItemText(#Gad_List, itemIndex, ">1 year old (" + dateStr + ")", 1)
-        SetGadgetItemColor(#Gad_List, itemIndex, #PB_Gadget_BackColor, RGB(255, 255, 200))
+        SetTimestampStatus(itemIndex, ">1 year old (" + dateStr + ")", #Color_StatusOld, #True)
         flagged + 1
-        FileNeedsReset() = #True
         WriteLog("FLAGGED (Old): " + FileList())
       Else
-        SetGadgetItemText(#Gad_List, itemIndex, "OK (" + dateStr + ")", 1)
-        SetGadgetItemColor(#Gad_List, itemIndex, #PB_Gadget_BackColor, RGB(200, 255, 200))
-        FileNeedsReset() = #False
+        SetTimestampStatus(itemIndex, "OK (" + dateStr + ")", #Color_StatusOk, #False)
       EndIf
     Else
-      SetGadgetItemText(#Gad_List, itemIndex, "ERROR - Cannot read", 1)
-      SetGadgetItemColor(#Gad_List, itemIndex, #PB_Gadget_BackColor, RGB(255, 150, 150))
+      SetTimestampStatus(itemIndex, "ERROR - Cannot read", #Color_StatusError, #True)
       flagged + 1
-      FileNeedsReset() = #True
       WriteLog("FLAGGED (Error): " + FileList())
     EndIf
     
@@ -256,7 +387,7 @@ Procedure CheckTimestamps()
     
     If itemIndex % 50 = 0
       SetStatus("Checking... " + Str(itemIndex) + "/" + Str(total))
-      WindowEvent()
+      PumpUi()
     EndIf
   Next
   
@@ -267,9 +398,9 @@ Procedure CheckTimestamps()
                    "Total files: " + Str(total) + #CRLF$ +
                    "Flagged: " + Str(flagged) + #CRLF$ +
                    "OK: " + Str(total - flagged) + #CRLF$ + #CRLF$ +
-                   "Flags:" + #CRLF$ +
+                   "Color legend:" + #CRLF$ +
                    "Red = Future date" + #CRLF$ +
-                   "Orange = Created date > Modified date" + #CRLF$ +
+                   "Orange = Created date later than modified date" + #CRLF$ +
                    "Yellow = Over 1 year old" + #CRLF$ +
                    "Green = OK",
                    #PB_MessageRequester_Info)
@@ -283,6 +414,7 @@ Procedure SearchFiles()
   Protected found.i
   Protected drive.s
   Protected countPtr.Integer
+  Protected searchWasCancelled.i
   
   searchText = GetGadgetText(#Gad_SearchText)
   
@@ -299,15 +431,15 @@ Procedure SearchFiles()
       found = FindString(LCase(filePath), LCase(searchText), 1)
       
       If found > 0
-        SetGadgetItemColor(#Gad_List, itemIndex, #PB_Gadget_BackColor, RGB(255, 255, 200))
+        SetListRowColor(itemIndex, #Color_SearchMatch)
         count + 1
       Else
-        SetGadgetItemColor(#Gad_List, itemIndex, #PB_Gadget_BackColor, RGB(255, 255, 255))
+        SetListRowColor(itemIndex, #Color_SearchDefault)
       EndIf
       itemIndex + 1
     Next
     
-    SetStatus("Found " + Str(count) + " file(s) matching '" + searchText + "'")
+    SetStatus("Found " + Str(count) + " file(s) matching '" + searchText + "' in the current list")
     WriteLog("Search results: " + Str(count) + " matches")
   Else
     drive = GetGadgetText(#Gad_DriveCombo)
@@ -318,12 +450,13 @@ Procedure SearchFiles()
     EndIf
     
     WriteLog("Searching drive " + drive + " for: " + searchText)
-    SetStatus("Searching drive " + drive + " for '" + searchText + "'...")
+    BeginOperation("Searching drive " + drive + " for '" + searchText + "'")
     
     ClearList(SearchResults())
     countPtr\i = 0
     
     SearchInDirectory(drive, searchText, @countPtr)
+    searchWasCancelled = CancelRequested
     
     ClearSelection()
     
@@ -331,14 +464,17 @@ Procedure SearchFiles()
       AddFileToList(SearchResults())
     Next
     
-    DisableGadget(#Gad_Reset, Bool(ListSize(FileList()) = 0))
-    DisableGadget(#Gad_Clear, Bool(ListSize(FileList()) = 0))
-    DisableGadget(#Gad_CheckTimestamps, Bool(ListSize(FileList()) = 0))
+    UpdateActionButtons()
+
+    If searchWasCancelled
+      EndOperation("Search cancelled. Found " + Str(countPtr\i) + " file(s) before cancellation.")
+      WriteLog("Drive search cancelled: " + Str(countPtr\i) + " matches before cancellation")
+    Else
+      EndOperation("Search complete. Found " + Str(countPtr\i) + " file(s) matching '" + searchText + "'")
+      WriteLog("Drive search complete: " + Str(countPtr\i) + " matches")
+    EndIf
     
-    SetStatus("Search complete. Found " + Str(countPtr\i) + " file(s) matching '" + searchText + "'")
-    WriteLog("Drive search complete: " + Str(countPtr\i) + " matches")
-    
-    If countPtr\i = 0
+    If countPtr\i = 0 And searchWasCancelled = #False
       MessageRequester("Search", "No files found matching '" + searchText + "'", #PB_MessageRequester_Info)
     EndIf
   EndIf
@@ -383,11 +519,10 @@ Procedure ResetTimestamps()
     
     If itemIndex % 50 = 0
       SetStatus("Resetting... " + Str(count) + " done, " + Str(itemIndex) + "/" + Str(ListSize(FileList())))
-      WindowEvent()
+      PumpUi()
     EndIf
   Next
   
-  DirtySelection = #True
   SetStatus("Reset " + Str(count) + " file(s). Failed: " + Str(failed) + ", Skipped: " + Str(skipped))
   WriteLog("Timestamp reset complete. Success: " + Str(count) + ", Failed: " + Str(failed) + ", Skipped: " + Str(skipped))
   
@@ -426,9 +561,7 @@ Procedure BrowseFiles()
       pattern = NextSelectedFileName()
     Wend
     
-    DisableGadget(#Gad_Reset, Bool(ListSize(FileList()) = 0))
-    DisableGadget(#Gad_Clear, Bool(ListSize(FileList()) = 0))
-    DisableGadget(#Gad_CheckTimestamps, Bool(ListSize(FileList()) = 0))
+    UpdateActionButtons()
     SetStatus("Selected " + Str(ListSize(FileList())) + " file(s)")
   EndIf
 EndProcedure
@@ -437,34 +570,69 @@ Procedure AddFilesFromDirectory(directory.s, *count.Integer)
   Protected dir.i
   Protected entry.s
   Protected fullPath.s
-  
+  Protected currentDirectory.s
+  Protected NewList pendingDirectories.s()
+
   If Right(directory, 1) <> "\" And Right(directory, 1) <> "/"
     directory + "\"
   EndIf
-  
-  dir = ExamineDirectory(#PB_Any, directory, "*.*")
-  If dir
+
+  AddElement(pendingDirectories())
+  pendingDirectories() = directory
+
+  While ListSize(pendingDirectories()) > 0
+    LastElement(pendingDirectories())
+    currentDirectory = pendingDirectories()
+    DeleteElement(pendingDirectories())
+
+    dir = ExamineDirectory(#PB_Any, currentDirectory, "*.*")
+    If dir = 0
+      WriteLog("WARNING: Cannot access folder while loading: " + currentDirectory)
+      If PumpUi()
+        ProcedureReturn
+      EndIf
+      Continue
+    EndIf
+
     While NextDirectoryEntry(dir)
+      If CancelRequested
+        FinishDirectory(dir)
+        ProcedureReturn
+      EndIf
+
       entry = DirectoryEntryName(dir)
-      
+
       If entry <> "." And entry <> ".."
-        fullPath = directory + entry
-        
+        fullPath = currentDirectory + entry
+
         If DirectoryEntryType(dir) = #PB_DirectoryEntry_File
           AddFileToList(fullPath, #True)
           *count\i + 1
-          
+
           If *count\i % 100 = 0
             SetStatus("Loading... " + Str(*count\i) + " file(s)")
-            WindowEvent()
+            If PumpUi()
+              FinishDirectory(dir)
+              ProcedureReturn
+            EndIf
           EndIf
         Else
-          AddFilesFromDirectory(fullPath, *count)
+          If Right(fullPath, 1) <> "\" And Right(fullPath, 1) <> "/"
+            fullPath + "\"
+          EndIf
+
+          AddElement(pendingDirectories())
+          pendingDirectories() = fullPath
         EndIf
       EndIf
     Wend
+
     FinishDirectory(dir)
-  EndIf
+
+    If PumpUi()
+      ProcedureReturn
+    EndIf
+  Wend
 EndProcedure
 
 
@@ -473,6 +641,7 @@ Procedure BrowseFolder()
   Protected countPtr.Integer
   Protected i.i
   Protected defaultPath.s
+  Protected loadWasCancelled.i
   
   If LastBrowsePath <> ""
     defaultPath = LastBrowsePath
@@ -488,26 +657,35 @@ Procedure BrowseFolder()
     ClearSelection()
     
     WriteLog("Browsing folder: " + folder)
-    SetStatus("Loading files from folder...")
+    BeginOperation("Loading files from folder")
     
     countPtr\i = 0
     AddFilesFromDirectory(folder, @countPtr)
+    loadWasCancelled = CancelRequested
     
     SetStatus("Populating list...")
     ForEach FileList()
+      If i % 500 = 0 And PumpUi()
+        loadWasCancelled = #True
+        Break
+      EndIf
+
       AddGadgetItem(#Gad_List, -1, FileList() + #TAB$ + "Ready")
       i + 1
       If i % 500 = 0
         SetStatus("Populating list... " + Str(i) + "/" + Str(countPtr\i))
-        WindowEvent()
       EndIf
     Next
     
-    DisableGadget(#Gad_Reset, Bool(ListSize(FileList()) = 0))
-    DisableGadget(#Gad_Clear, Bool(ListSize(FileList()) = 0))
-    DisableGadget(#Gad_CheckTimestamps, Bool(ListSize(FileList()) = 0))
-    SetStatus("Loaded " + Str(ListSize(FileList())) + " file(s) from folder")
-    WriteLog("Loaded " + Str(ListSize(FileList())) + " file(s) from folder")
+    UpdateActionButtons()
+
+    If loadWasCancelled
+      EndOperation("Folder load cancelled. Loaded " + Str(ListSize(FileList())) + " file(s) before cancellation.")
+      WriteLog("Folder load cancelled: " + Str(ListSize(FileList())) + " file(s) loaded before cancellation")
+    Else
+      EndOperation("Loaded " + Str(ListSize(FileList())) + " file(s) from folder")
+      WriteLog("Loaded " + Str(ListSize(FileList())) + " file(s) from folder")
+    EndIf
   EndIf
 EndProcedure
 
@@ -539,7 +717,7 @@ Procedure ViewLog()
       Repeat
         event = WaitWindowEvent()
         If event = #PB_Event_CloseWindow And EventWindow() = #Win_LogViewer
-          Exit()
+          Break
         EndIf
       ForEver
       
@@ -570,12 +748,15 @@ Procedure CreateMainWindow()
     
     CreateMenu(0, WindowID(#Win_Main))
     MenuTitle("File")
-    MenuItem(1, "Exit")
+    MenuItem(#Menu_Exit, "Exit")
     MenuTitle("Tools")
-    MenuItem(3, "View Log")
-    MenuItem(4, "Check Timestamps")
+    MenuItem(#Menu_ViewLog, "View Log")
+    MenuItem(#Menu_CheckTimestamps, "Check Timestamps")
+    MenuItem(#Menu_CancelOperation, "Cancel Current Operation")
+    DisableMenuItem(0, #Menu_CancelOperation, #True)
     MenuTitle("Help")
-    MenuItem(2, "About...")
+    MenuItem(#Menu_About, "About...")
+    AddKeyboardShortcut(#Win_Main, #PB_Shortcut_Escape, #Shortcut_Cancel)
     
     ; Action Group
     ContainerGadget(#PB_Any, 10, 10, 680, 50, #PB_Container_Flat)
@@ -596,12 +777,14 @@ Procedure CreateMainWindow()
       
       TextGadget(#PB_Any, 150, 15, 80, 20, "Search Term:")
       StringGadget(#Gad_SearchText, 235, 12, 340, 24, "")
-      ButtonGadget(#Gad_Search, 580, 11, 90, 26, "Run Search")
+      ButtonGadget(#Gad_Search, 580, 11, 90, 26, "Search")
     CloseGadgetList()
-    
-    ListIconGadget(#Gad_List, 10, 115, 680, 360, "Selected Files", 450, #PB_ListIcon_GridLines | #PB_ListIcon_FullRowSelect)
+
+    ListIconGadget(#Gad_List, 10, 115, 680, 330, "Selected Files", 450, #PB_ListIcon_GridLines | #PB_ListIcon_FullRowSelect)
     AddGadgetColumn(#Gad_List, 1, "Timestamp Status", 200)
     EnableGadgetDrop(#Gad_List, #PB_Drop_Files, #PB_Drag_Copy)
+    ButtonGadget(#Gad_Cancel, 590, 452, 100, 26, "Cancel")
+    DisableGadget(#Gad_Cancel, #True)
     
     CreateStatusBar(#StatusBar_Main, WindowID(#Win_Main))
     AddStatusBarField(#PB_Ignore)
@@ -611,7 +794,6 @@ Procedure CreateMainWindow()
 EndProcedure
 
 
-LogFile = GetPathPart(ProgramFilename()) + #App_Name + ".log"
 WriteLog("Application started - " + #App_Name + " - " + version)
 
 CreateMainWindow()
@@ -649,24 +831,29 @@ Repeat
         Case #Gad_ViewLog
           ViewLog()
           
-        Case #Gad_Exit
-          Exit()
-                    
+        Case #Gad_Cancel
+          RequestCancel()
+                     
       EndSelect
       
     Case #PB_Event_Menu
       Select EventMenu()
-        Case 1
-          Exit()
+        Case #Menu_Exit
+            If ConfirmExit()
+              Break
+            EndIf
           
-        Case 2
+        Case #Menu_About
           ShowAbout()
           
-        Case 3
+        Case #Menu_ViewLog
           ViewLog()
           
-        Case 4
+        Case #Menu_CheckTimestamps
           CheckTimestamps()
+
+        Case #Menu_CancelOperation, #Shortcut_Cancel
+          RequestCancel()
       EndSelect
       
     Case #PB_Event_GadgetDrop
@@ -681,26 +868,25 @@ Repeat
           droppedFile = EventDropFiles()
         Wend
         
-        DisableGadget(#Gad_Reset, Bool(ListSize(FileList()) = 0))
-        DisableGadget(#Gad_Clear, Bool(ListSize(FileList()) = 0))
-        DisableGadget(#Gad_CheckTimestamps, Bool(ListSize(FileList()) = 0))
+        UpdateActionButtons()
         SetStatus("Selected " + Str(ListSize(FileList())) + " file(s)")
       EndIf
       
     Case #PB_Event_CloseWindow
-      Exit()
+      If ConfirmExit()
+        Break
+      EndIf
       
   EndSelect
 ForEver
 
-WriteLog("Application closed")
+Shutdown()
 
 End
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 614
-; FirstLine = 592
-; Folding = ---
+; CursorPosition = 10
+; Folding = -----
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -709,12 +895,12 @@ End
 ; UseIcon = ResetTimeStamper.ico
 ; Executable = ..\ResetTimeStamper.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = ResetTimeStamper
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = Resets any file/files timestamp
 ; VersionField7 = ResetTimeStamper
 ; VersionField8 = ResetTimeStamper.exe
