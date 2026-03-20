@@ -6,6 +6,7 @@ Procedure OpenHelpDialog(EditModeHelp.b)
   Protected ev.i, gid.i
   Protected content.s
   Protected wTitle.s
+  Protected win.i
 
   Protected scriptHelp.s
   scriptHelp = "Object Scripts (simple ZZT-ish):" + #LF$ +
@@ -289,7 +290,12 @@ Procedure OpenHelpDialog(EditModeHelp.b)
   DisableWindow(0, 1)
   ResetKeyLatches()
 
-  OpenWindow(#Win_Help, 0, 0, 520, 420, wTitle, #PB_Window_ScreenCentered | #PB_Window_SystemMenu | #PB_Window_TitleBar, WindowID(0))
+  win = OpenWindow(#Win_Help, 0, 0, 520, 420, wTitle, #PB_Window_ScreenCentered | #PB_Window_SystemMenu | #PB_Window_TitleBar, WindowID(0))
+  If win = 0
+    DisableWindow(0, 0)
+    MessageRequester(#APP_NAME, "Failed to open help window.")
+    ProcedureReturn
+  EndIf
   EditorGadget(#Gad_HelpText, 10, 10, 500, 360)
   SetGadgetText(#Gad_HelpText, content)
   SetGadgetAttribute(#Gad_HelpText, #PB_Editor_ReadOnly, 1)
@@ -310,8 +316,7 @@ Procedure OpenHelpDialog(EditModeHelp.b)
     EndSelect
   ForEver
 
-  SavePrefs()
-  CloseWindow(#Win_Help)
+  CloseWindow(win)
   RefocusMainWindow()
 EndProcedure
 

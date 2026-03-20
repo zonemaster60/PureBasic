@@ -154,10 +154,8 @@ Procedure.b LoadWorld(FilePath.s)
     ; Commit buffered passage when a new section begins.
     If passageTouched
       If Left(Trim(line), 1) = "[" And FindString(line, "]", 1)
-        passageBoard = Clamp(passageBoard, 0, BoardCount - 1)
         passageX = Clamp(passageX, 0, #MAP_W - 1)
         passageY = Clamp(passageY, 0, #MAP_H - 1)
-        passageDestBoard = Clamp(passageDestBoard, 0, BoardCount - 1)
         passageDestX = Clamp(passageDestX, 0, #MAP_W - 1)
         passageDestY = Clamp(passageDestY, 0, #MAP_H - 1)
 
@@ -262,7 +260,7 @@ Procedure.b LoadWorld(FilePath.s)
         EndIf
         mapY = 0
 
-      ElseIf section = "OBJECT"
+      ElseIf section = "OBJECT" Or section = "OBJECTSTATE"
         If boardIdx < 0
           boardIdx = 0
           EnsureWorldBoards(1)
@@ -273,6 +271,7 @@ Procedure.b LoadWorld(FilePath.s)
           Objects()\IP = 0
           Objects()\Wait = 0
         EndIf
+        section = "OBJECTSTATE"
 
       EndIf
 
@@ -514,10 +513,8 @@ Procedure.b LoadWorld(FilePath.s)
 
   ; Commit trailing [Passage] block at EOF.
   If passageTouched
-    passageBoard = Clamp(passageBoard, 0, BoardCount - 1)
     passageX = Clamp(passageX, 0, #MAP_W - 1)
     passageY = Clamp(passageY, 0, #MAP_H - 1)
-    passageDestBoard = Clamp(passageDestBoard, 0, BoardCount - 1)
     passageDestX = Clamp(passageDestX, 0, #MAP_W - 1)
     passageDestY = Clamp(passageDestY, 0, #MAP_H - 1)
 
@@ -536,6 +533,7 @@ Procedure.b LoadWorld(FilePath.s)
 
   Protected bi.i
   For bi = 0 To BoardCount - 1
+    ConvertEnemyTilesToObjects(bi)
     ConvertWaterTilesToObjects(bi)
     SanitizeBoard(bi)
   Next
@@ -547,10 +545,28 @@ Procedure.b LoadWorld(FilePath.s)
     Objects()\Script = NormalizeScriptText(Objects()\Script)
   Next
 
+  ForEach Passages()
+    Passages()\Board = Clamp(Passages()\Board, 0, BoardCount - 1)
+    Passages()\X = Clamp(Passages()\X, 0, #MAP_W - 1)
+    Passages()\Y = Clamp(Passages()\Y, 0, #MAP_H - 1)
+    Passages()\DestBoard = Clamp(Passages()\DestBoard, 0, BoardCount - 1)
+    Passages()\DestX = Clamp(Passages()\DestX, 0, #MAP_W - 1)
+    Passages()\DestY = Clamp(Passages()\DestY, 0, #MAP_H - 1)
+  Next
+
   SyncNextObjectIdFromObjects()
 
   World\StartBoard = Clamp(World\StartBoard, 0, BoardCount - 1)
   World\CurrentBoard = Clamp(World\CurrentBoard, 0, BoardCount - 1)
+
+  If DeathPending
+    Protected nowMS.i = ElapsedMilliseconds()
+    DeathAtMS = nowMS
+    DeathFadeUntilMS = nowMS + Clamp(World\DeathFadeMS, 0, 60000)
+  Else
+    DeathAtMS = 0
+    DeathFadeUntilMS = 0
+  EndIf
 
   PlayerX = Clamp(PlayerX, 0, #MAP_W - 1)
   PlayerY = Clamp(PlayerY, 0, #MAP_H - 1)
@@ -585,7 +601,92 @@ EndProcedure
 ; Purpose: Save current PBZT world to a text file.
 ;------------------------------------------------------------------------------
 
-Procedure.b SaveWorldCore(FilePath.s, UpdateWorldPath.b, CleanInvalidPassages.b)
+Procedure WriteScriptLines(f.i, ScriptText.s)
+  Protected i.i, cnt.i, ln.s
+
+  cnt = GetScriptLineCount(ScriptText)
+  For i = 0 To cnt - 1
+    ln = GetScriptLine(ScriptText, i)
+    WriteStringN(f, ln)
+  Next
+EndProcedure
+
+Procedure WriteMapStringSection(f.i, SectionName.s, Map Values.i())
+  If MapSize(Values()) <= 0
+    ProcedureReturn
+  EndIf
+
+  WriteStringN(f, "")
+  WriteStringN(f, "[" + SectionName + "]")
+  ForEach Values()
+    If Values() <> 0
+      WriteStringN(f, MapKey(Values()) + "=" + Str(Values()))
+    EndIf
+  Next
+EndProcedure
+
+Procedure WriteObjectSection(f.i, RuntimeState.b)
+  WriteStringN(f, "")
+
+  If RuntimeState
+    WriteStringN(f, "[ObjectState]")
+    WriteStringN(f, "ID=" + Str(Objects()\Id))
+    WriteStringN(f, "Alive=" + Str(Bool(Objects()\Alive <> 0)))
+    WriteStringN(f, "Board=" + Str(Clamp(Objects()\Board, 0, BoardCount - 1)))
+  Else
+    WriteStringN(f, "[Object]")
+  EndIf
+
+  WriteStringN(f, "Name=" + Objects()\Name)
+  WriteStringN(f, "X=" + Str(Objects()\X))
+  WriteStringN(f, "Y=" + Str(Objects()\Y))
+  WriteStringN(f, "Char=" + Chr(Objects()\Char))
+  WriteStringN(f, "Color=" + Str(Clamp(Objects()\Color, 0, 255)))
+  WriteStringN(f, "Solid=" + Str(Bool(Objects()\Solid <> 0)))
+
+  If RuntimeState
+    WriteStringN(f, "IP=" + Str(Objects()\IP))
+    WriteStringN(f, "Wait=" + Str(Objects()\Wait))
+  EndIf
+
+  WriteStringN(f, "ScriptBegin")
+  WriteScriptLines(f, Objects()\Script)
+  WriteStringN(f, "ScriptEnd")
+EndProcedure
+
+Procedure WriteRuntimeSnapshotSections(f.i)
+  WriteStringN(f, "")
+  WriteStringN(f, "[Game]")
+  WriteStringN(f, "WorldFile=" + World\FilePath)
+  WriteStringN(f, "CurrentBoard=" + Str(World\CurrentBoard))
+  WriteStringN(f, "PlayerX=" + Str(PlayerX))
+  WriteStringN(f, "PlayerY=" + Str(PlayerY))
+  WriteStringN(f, "Score=" + Str(Score))
+  WriteStringN(f, "Keys=" + Str(Keys))
+  WriteStringN(f, "Health=" + Str(Health))
+  WriteStringN(f, "TorchStepsLeft=" + Str(TorchStepsLeft))
+  WriteStringN(f, "LanternStepsLeft=" + Str(LanternStepsLeft))
+  WriteStringN(f, "DeathPending=" + Str(Bool(DeathPending <> 0)))
+
+  If MapSize(ScriptFlags()) > 0
+    WriteStringN(f, "")
+    WriteStringN(f, "[Flags]")
+    ForEach ScriptFlags()
+      If ScriptFlags()
+        WriteStringN(f, MapKey(ScriptFlags()))
+      EndIf
+    Next
+  EndIf
+
+  WriteMapStringSection(f, "Items", ScriptItems())
+  WriteMapStringSection(f, "ColorKeys", ColorKeys())
+
+  ForEach Objects()
+    WriteObjectSection(f, #True)
+  Next
+EndProcedure
+
+Procedure.b SaveWorldCore(FilePath.s, UpdateWorldPath.b, CleanInvalidPassages.b, IncludeRuntimeState.b = #False)
   Protected f.i
   Protected Dim used.b(255)
   Protected b.i, x.i, y.i, ch.a
@@ -635,7 +736,7 @@ Procedure.b SaveWorldCore(FilePath.s, UpdateWorldPath.b, CleanInvalidPassages.b)
   WriteStringN(f, "# " + Str(#MAP_W) + "x" + Str(#MAP_H))
   WriteStringN(f, "")
 
-   WriteStringN(f, "[World]")
+  WriteStringN(f, "[World]")
   WriteStringN(f, "Name=" + World\Name)
   WriteStringN(f, "StartBoard=" + Str(World\StartBoard))
   WriteStringN(f, "BangOneShot=" + Str(Bool(World\BangOneShot <> 0)))
@@ -723,29 +824,18 @@ Procedure.b SaveWorldCore(FilePath.s, UpdateWorldPath.b, CleanInvalidPassages.b)
       WriteStringN(f, colorRow)
     Next
 
-    ForEach Objects()
-      If Objects()\Alive And Objects()\Board = b
-        WriteStringN(f, "")
-        WriteStringN(f, "[Object]")
-        WriteStringN(f, "Name=" + Objects()\Name)
-        WriteStringN(f, "X=" + Str(Objects()\X))
-        WriteStringN(f, "Y=" + Str(Objects()\Y))
-        WriteStringN(f, "Char=" + Chr(Objects()\Char))
-        WriteStringN(f, "Color=" + Str(Clamp(Objects()\Color, 0, 255)))
-        WriteStringN(f, "Solid=" + Str(Bool(Objects()\Solid <> 0)))
-        WriteStringN(f, "ScriptBegin")
-
-        Protected i.i, cnt.i, ln.s
-        cnt = GetScriptLineCount(Objects()\Script)
-        For i = 0 To cnt - 1
-          ln = GetScriptLine(Objects()\Script, i)
-          WriteStringN(f, ln)
-        Next
-
-        WriteStringN(f, "ScriptEnd")
-      EndIf
-    Next
+    If IncludeRuntimeState = 0
+      ForEach Objects()
+        If Objects()\Alive And Objects()\Board = b
+          WriteObjectSection(f, #False)
+        EndIf
+      Next
+    EndIf
   Next
+
+  If IncludeRuntimeState
+    WriteRuntimeSnapshotSections(f)
+  EndIf
 
   CloseFile(f)
 
@@ -780,7 +870,7 @@ EndProcedure
 
 Procedure.b SaveGame(FilePath.s)
   ; Save a full snapshot to a text file.
-  ProcedureReturn SaveWorldCore(FilePath, #False, #False)
+  ProcedureReturn SaveWorldCore(FilePath, #False, #False, #True)
 EndProcedure
 
 Procedure.b LoadGame(FilePath.s)

@@ -385,6 +385,11 @@ Procedure MainLoop(List WorldFiles.s())
 
         If loadPath <> ""
           If LoadGame(loadPath)
+            Protected loadedWorldIdx.i
+            loadedWorldIdx = FindWorldFileIndex(WorldFiles(), GetFilePart(World\FilePath))
+            If loadedWorldIdx >= 0
+              WorldIndex = loadedWorldIdx
+            EndIf
             SetStatus("Loaded game: " + GetFilePart(loadPath), 2500)
           Else
             SetStatus("Load failed.", 2500)

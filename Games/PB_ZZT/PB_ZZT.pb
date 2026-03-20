@@ -974,8 +974,8 @@ Procedure SanitizeBoard(BoardIdx.i)
   
   If b < 0 Or b >= BoardCount : ProcedureReturn : EndIf
   
-  Boards(b)\StartX = Clamp(Boards(b)\StartX, 0, #MAP_W - 1)
-  Boards(b)\StartY = Clamp(Boards(b)\StartY, 0, #MAP_H - 1)
+  Boards(b)\StartX = Clamp(Boards(b)\StartX, 1, #MAP_W - 2)
+  Boards(b)\StartY = Clamp(Boards(b)\StartY, 1, #MAP_H - 2)
   
   For y = 0 To #MAP_H - 1
     For x = 0 To #MAP_W - 1
@@ -1099,6 +1099,9 @@ EndProcedure
 ;------------------------------------------------------------------------------
 
 Procedure SwitchBoard(NewBoard.i, EntrySide.s = "")
+  Protected preservedX.i = Clamp(PlayerX, 1, #MAP_W - 2)
+  Protected preservedY.i = Clamp(PlayerY, 1, #MAP_H - 2)
+
   If NewBoard < 0 Or NewBoard >= BoardCount
     ProcedureReturn
   EndIf
@@ -1106,12 +1109,19 @@ Procedure SwitchBoard(NewBoard.i, EntrySide.s = "")
   World\CurrentBoard = NewBoard
 
   Select UCase(EntrySide)
-    Case "N" : PlayerY = #MAP_H - 2
-    Case "S" : PlayerY = 1
-    Case "W" : PlayerX = #MAP_W - 2
-    Case "E" : PlayerX = 1
+    Case "N"
+      PlayerX = preservedX
+      PlayerY = #MAP_H - 2
+    Case "S"
+      PlayerX = preservedX
+      PlayerY = 1
+    Case "W"
+      PlayerX = #MAP_W - 2
+      PlayerY = preservedY
+    Case "E"
+      PlayerX = 1
+      PlayerY = preservedY
     Default
-      ResetPlayerToBoardStart()
       PlayerX = Boards(NewBoard)\StartX
       PlayerY = Boards(NewBoard)\StartY
   EndSelect
@@ -1813,6 +1823,7 @@ Procedure OpenPassageDialog()
   Protected ok.b
   Protected maxBoard.i
   Protected useStart.b
+  Protected win.i
 
   If b < 0 Or b >= BoardCount
     ProcedureReturn
@@ -1842,7 +1853,12 @@ Procedure OpenPassageDialog()
   DisableWindow(0, 1)
   ResetKeyLatches()
 
-  OpenWindow(#Win_Passage, 0, 0, 520, 230, "Passage Properties", #PB_Window_ScreenCentered | #PB_Window_SystemMenu | #PB_Window_TitleBar, WindowID(0))
+  win = OpenWindow(#Win_Passage, 0, 0, 520, 230, "Passage Properties", #PB_Window_ScreenCentered | #PB_Window_SystemMenu | #PB_Window_TitleBar, WindowID(0))
+  If win = 0
+    DisableWindow(0, 0)
+    MessageRequester(#APP_NAME, "Failed to open passage window.")
+    ProcedureReturn
+  EndIf
 
   TextGadget(#PB_Any, 10, 12, 120, 20, "Dest board")
   SpinGadget(#Gad_PassageDestBoard, 140, 10, 90, 24, 0, maxBoard, #PB_Spin_Numeric)
@@ -1917,7 +1933,7 @@ Procedure OpenPassageDialog()
     SetStatus("Updated passage.")
   EndIf
 
-  CloseWindow(#Win_Passage)
+  CloseWindow(win)
   RefocusMainWindow()
 EndProcedure
 
@@ -1935,37 +1951,59 @@ Procedure OpenObjectDialog(ObjectId.i)
   Protected b.i = CurBoard()
   Protected ev.i, gid.i
   Protected ok.b
+  Protected isNew.b
   Protected t.s
+  Protected objName.s
+  Protected objScript.s
+  Protected objChar.a
+  Protected objColor.i
+  Protected objSolid.b
+  Protected win.i
 
-  If ObjectId = 0
-    ObjectId = AddObject(b, CursorX, CursorY)
-  EndIf
-
-  If SelectObjectById(ObjectId) = 0
-    ProcedureReturn
+  isNew = Bool(ObjectId = 0)
+  If isNew
+    objName = "Object" + Str(NextObjectId)
+    objChar = Asc("O")
+    objColor = 14
+    objSolid = 1
+    objScript = ":TOUCH" + #LF$ + "#SAY Hello from " + objName + #LF$ + "#END" + #LF$
+  Else
+    If SelectObjectById(ObjectId) = 0
+      ProcedureReturn
+    EndIf
+    objName = Objects()\Name
+    objChar = Objects()\Char
+    objColor = Clamp(Objects()\Color, 0, 255)
+    objSolid = Bool(Objects()\Solid <> 0)
+    objScript = Objects()\Script
   EndIf
 
   DisableWindow(0, 1)
   ResetKeyLatches()
 
-  OpenWindow(#Win_Object, 0, 0, 760, 560, "Object / OOP Script", #PB_Window_ScreenCentered | #PB_Window_SystemMenu | #PB_Window_TitleBar, WindowID(0))
+  win = OpenWindow(#Win_Object, 0, 0, 760, 560, "Object / OOP Script", #PB_Window_ScreenCentered | #PB_Window_SystemMenu | #PB_Window_TitleBar, WindowID(0))
+  If win = 0
+    DisableWindow(0, 0)
+    MessageRequester(#APP_NAME, "Failed to open object editor window.")
+    ProcedureReturn
+  EndIf
 
   TextGadget(#PB_Any, 10, 10, 60, 20, "Name")
-  StringGadget(#Gad_ObjName, 70, 8, 300, 24, Objects()\Name)
+  StringGadget(#Gad_ObjName, 70, 8, 300, 24, objName)
 
   TextGadget(#PB_Any, 390, 10, 40, 20, "Char")
-  StringGadget(#Gad_ObjChar, 430, 8, 40, 24, Chr(Objects()\Char))
+  StringGadget(#Gad_ObjChar, 430, 8, 40, 24, Chr(objChar))
 
   TextGadget(#PB_Any, 485, 10, 40, 20, "Color")
   SpinGadget(#Gad_ObjColor, 525, 8, 60, 24, 0, 255, #PB_Spin_Numeric)
-  SetGadgetState(#Gad_ObjColor, Clamp(Objects()\Color, 0, 255))
+  SetGadgetState(#Gad_ObjColor, objColor)
 
 
   CheckBoxGadget(#Gad_ObjSolid, 610, 10, 120, 20, "Solid")
-  SetGadgetState(#Gad_ObjSolid, Objects()\Solid)
+  SetGadgetState(#Gad_ObjSolid, objSolid)
 
   EditorGadget(#Gad_ObjScript, 10, 40, 740, 470)
-  SetGadgetText(#Gad_ObjScript, Objects()\Script)
+  SetGadgetText(#Gad_ObjScript, objScript)
 
   ButtonGadget(#Gad_ObjOk, 560, 520, 90, 28, "OK")
   ButtonGadget(#Gad_ObjCancel, 660, 520, 90, 28, "Cancel")
@@ -1991,6 +2029,10 @@ Procedure OpenObjectDialog(ObjectId.i)
   ForEver
 
   If ok
+    If isNew
+      ObjectId = AddObject(b, CursorX, CursorY)
+    EndIf
+
     If SelectObjectById(ObjectId)
       Objects()\Name = GetGadgetText(#Gad_ObjName)
 
@@ -2011,7 +2053,7 @@ Procedure OpenObjectDialog(ObjectId.i)
     EndIf
   EndIf
 
-  CloseWindow(#Win_Object)
+  CloseWindow(win)
   RefocusMainWindow()
 EndProcedure
 
@@ -2033,6 +2075,7 @@ Procedure OpenBoardDialog()
   Protected ok.b
   Protected b.i = CurBoard()
   Protected maxBoard.i
+  Protected win.i
 
   If b < 0 Or b >= BoardCount
     ProcedureReturn
@@ -2044,18 +2087,23 @@ Procedure OpenBoardDialog()
   DisableWindow(0, 1)
   ResetKeyLatches()
  
-  OpenWindow(#Win_Board, 0, 0, 520, 280, "Board Settings", #PB_Window_ScreenCentered | #PB_Window_SystemMenu | #PB_Window_TitleBar, WindowID(0))
+  win = OpenWindow(#Win_Board, 0, 0, 520, 280, "Board Settings", #PB_Window_ScreenCentered | #PB_Window_SystemMenu | #PB_Window_TitleBar, WindowID(0))
+  If win = 0
+    DisableWindow(0, 0)
+    MessageRequester(#APP_NAME, "Failed to open board settings window.")
+    ProcedureReturn
+  EndIf
 
   TextGadget(#PB_Any, 10, 12, 80, 20, "Name")
   StringGadget(#Gad_BoardName, 90, 10, 410, 24, Boards(b)\Name)
 
   TextGadget(#PB_Any, 10, 46, 80, 20, "Start X")
-  SpinGadget(#Gad_BoardStartX, 90, 44, 70, 24, 0, #MAP_W - 1, #PB_Spin_Numeric)
-  SetGadgetState(#Gad_BoardStartX, Clamp(Boards(b)\StartX, 0, #MAP_W - 1))
+  SpinGadget(#Gad_BoardStartX, 90, 44, 70, 24, 1, #MAP_W - 2, #PB_Spin_Numeric)
+  SetGadgetState(#Gad_BoardStartX, Clamp(Boards(b)\StartX, 1, #MAP_W - 2))
 
   TextGadget(#PB_Any, 180, 46, 80, 20, "Start Y")
-  SpinGadget(#Gad_BoardStartY, 250, 44, 70, 24, 0, #MAP_H - 1, #PB_Spin_Numeric)
-  SetGadgetState(#Gad_BoardStartY, Clamp(Boards(b)\StartY, 0, #MAP_H - 1))
+  SpinGadget(#Gad_BoardStartY, 250, 44, 70, 24, 1, #MAP_H - 2, #PB_Spin_Numeric)
+  SetGadgetState(#Gad_BoardStartY, Clamp(Boards(b)\StartY, 1, #MAP_H - 2))
 
   CheckBoxGadget(#Gad_BoardDark, 10, 86, 240, 22, "Dark room (needs torch)")
   SetGadgetState(#Gad_BoardDark, Bool(Boards(b)\Dark <> 0))
@@ -2107,8 +2155,8 @@ Procedure OpenBoardDialog()
 
   If ok
     Boards(b)\Name = GetGadgetText(#Gad_BoardName)
-    Boards(b)\StartX = Clamp(GetGadgetState(#Gad_BoardStartX), 0, #MAP_W - 1)
-    Boards(b)\StartY = Clamp(GetGadgetState(#Gad_BoardStartY), 0, #MAP_H - 1)
+    Boards(b)\StartX = Clamp(GetGadgetState(#Gad_BoardStartX), 1, #MAP_W - 2)
+    Boards(b)\StartY = Clamp(GetGadgetState(#Gad_BoardStartY), 1, #MAP_H - 2)
     Boards(b)\Dark = Bool(GetGadgetState(#Gad_BoardDark) <> 0)
 
     Boards(b)\ExitN = Clamp(GetGadgetState(#Gad_BoardExitN), -1, BoardCount - 1)
@@ -2125,7 +2173,7 @@ Procedure OpenBoardDialog()
     SetStatus("Updated board settings.")
   EndIf
 
-  CloseWindow(#Win_Board)
+  CloseWindow(win)
   RefocusMainWindow()
 EndProcedure
 
@@ -2312,7 +2360,7 @@ Procedure.s ComposeSongForBoard(BoardIdx.i, Tempo.i, Root.i, Steps.i, Seed.i)
   EndIf
 
   ; Map-based hinting (very cheap heuristics).
-  Protected waterCt.i = CountBoardChar(BoardIdx, Asc("W")) + CountBoardChar(BoardIdx, Asc("~"))
+  Protected waterCt.i = CountBoardChar(BoardIdx, Asc("w")) + CountBoardChar(BoardIdx, Asc("~"))
   Protected treeCt.i = CountBoardChar(BoardIdx, Asc("T"))
   Protected treasureCt.i = CountBoardChar(BoardIdx, Asc("$"))
   Protected enemyCt.i = CountBoardChar(BoardIdx, Asc("E"))
@@ -2751,6 +2799,7 @@ Procedure OpenWorldDialog()
   Protected ev.i, gid.i
   Protected ok.b
   Protected maxBoard.i
+  Protected win.i
 
   maxBoard = BoardCount - 1
   If maxBoard < 0 : maxBoard = 0 : EndIf
@@ -2758,7 +2807,12 @@ Procedure OpenWorldDialog()
   DisableWindow(0, 1)
   ResetKeyLatches()
 
-  OpenWindow(#Win_World, 0, 0, 520, 320, "World Settings", #PB_Window_ScreenCentered | #PB_Window_SystemMenu | #PB_Window_TitleBar, WindowID(0))
+  win = OpenWindow(#Win_World, 0, 0, 520, 320, "World Settings", #PB_Window_ScreenCentered | #PB_Window_SystemMenu | #PB_Window_TitleBar, WindowID(0))
+  If win = 0
+    DisableWindow(0, 0)
+    MessageRequester(#APP_NAME, "Failed to open world settings window.")
+    ProcedureReturn
+  EndIf
  
   TextGadget(#PB_Any, 10, 12, 80, 20, "Name")
   StringGadget(#Gad_WorldName, 90, 10, 410, 24, World\Name)
@@ -2830,9 +2884,7 @@ Procedure OpenWorldDialog()
     SetStatus("Updated world settings.")
   EndIf
 
-  SavePrefs()
-
-  CloseWindow(#Win_World)
+  CloseWindow(win)
   RefocusMainWindow()
 EndProcedure
 
@@ -2914,17 +2966,17 @@ Procedure LoadWorldByIndex(Index.i, List Files.s())
   path = Files()
   ok = LoadWorld(path)
 
-   Score = 0
-   Keys = 0
-   ClearMap(ColorKeys())
-   Health = 5
-   TorchStepsLeft = 0
-   LanternStepsLeft = 0
-   DeathPending = #False
-   DeathAtMS = 0
-   DeathFadeUntilMS = 0
+  If ok
+    Score = 0
+    Keys = 0
+    ClearMap(ColorKeys())
+    Health = 5
+    TorchStepsLeft = 0
+    LanternStepsLeft = 0
+    DeathPending = #False
+    DeathAtMS = 0
+    DeathFadeUntilMS = 0
 
-If ok
     PrefLastWorldPath = path
     SavePrefs()
     SetStatus("World: " + World\Name + " (" + Str(BoardCount) + " boards, " + Str(ListSize(Objects())) + " objects)  File:" + GetFilePart(path) + "  Size:" + Str(FileSize(path)), 5000)
@@ -2964,7 +3016,7 @@ ShutdownApp()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 2957
-; FirstLine = 231
+; FirstLine = 387
 ; Folding = -----------
 ; Optimizer
 ; EnableThread
@@ -2974,13 +3026,13 @@ ShutdownApp()
 ; UseIcon = PB_ZZT.ico
 ; Executable = PB_ZZT.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_ZZT
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
-; VersionField6 = A ZZT clone
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
+; VersionField6 = A ZZT clone with editor, sound, and music
 ; VersionField7 = PB_ZZT
 ; VersionField8 = PB_ZZT.exe
 ; VersionField9 = David Scouten

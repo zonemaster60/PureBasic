@@ -529,6 +529,9 @@ Procedure UpdateObjects()
   ForEach Objects()
     If Objects()\Alive And Objects()\Board = b
       StepObject(Objects()\Id)
+      If CurBoard() <> b
+        Break
+      EndIf
     EndIf
   Next
 EndProcedure
