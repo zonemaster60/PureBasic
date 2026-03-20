@@ -6,7 +6,7 @@ EnableExplicit
 
 #APP_NAME = "Yahtzee_3D"
 
-Global version.s = "v1.0.0.1"
+Global version.s = "v1.0.0.2"
 Global AppPath.s        = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -27,6 +27,7 @@ EndIf
 #NUM_CATEGORIES = 13
 #DEBUG_TESTS = #False ; Set True to run self-tests at startup
 #NETWORK_PORT = 7331
+#MAX_PACKET_SIZE = 65536
 
 ; AI Difficulty levels
 Enumeration
@@ -149,6 +150,7 @@ Global PrevJDown.i
 Global PrevSDown.i
 Global PrevEscDown.i
 Global IsFullscreen.i = #False
+Global SettingsInitialized.i = #False
 If OpenPreferences(#APP_NAME + ".ini")
   IsFullscreen = ReadPreferenceInteger("Fullscreen", #False)
   ClosePreferences()
@@ -159,6 +161,20 @@ Global HostIP.s = ""
 Global LastJoinedIP.s = ""
 
 Declare DisconnectNetwork()
+
+Procedure StopLanScan()
+  If IsThread(LanScanThread)
+    LockMutex(LanScanMutex)
+    LanScanActive = 0
+    UnlockMutex(LanScanMutex)
+    WaitThread(LanScanThread, 1000)
+    LanScanThread = 0
+  Else
+    LockMutex(LanScanMutex)
+    LanScanActive = 0
+    UnlockMutex(LanScanMutex)
+  EndIf
+EndProcedure
 
 ; Category names
 Procedure LanScannerThread(dummy.i)
@@ -199,12 +215,7 @@ Procedure LanScannerThread(dummy.i)
 EndProcedure
 
 Procedure StartLanScan(prefix.s)
-  If IsThread(LanScanThread)
-    LockMutex(LanScanMutex)
-    LanScanActive = 0
-    UnlockMutex(LanScanMutex)
-    WaitThread(LanScanThread, 1000)
-  EndIf
+  StopLanScan()
 
   LockMutex(LanScanMutex)
   LanScanPrefix = prefix
@@ -262,26 +273,40 @@ Procedure SendPacket(packetType.i, dataStr.s = "")
 EndProcedure
 
 ; Append received data to accumulator buffer
-Procedure AppendNetworkBuffer(*newBuffer, bytes.i)
+Procedure.i AppendNetworkBuffer(*newBuffer, bytes.i)
   Protected newCapacity.i
+  Protected *resizedMemory
+
+  If bytes <= 0
+    ProcedureReturn #True
+  EndIf
   
   ; Initialize buffer if needed
   If NetworkState\buffer\memory = 0
     NetworkState\buffer\capacity = 4096
     NetworkState\buffer\memory = AllocateMemory(NetworkState\buffer\capacity)
+    If NetworkState\buffer\memory = 0
+      NetworkState\buffer\capacity = 0
+      ProcedureReturn #False
+    EndIf
     NetworkState\buffer\size = 0
   EndIf
   
   ; Resize if necessary
   If NetworkState\buffer\size + bytes > NetworkState\buffer\capacity
     newCapacity = (NetworkState\buffer\size + bytes) * 2
-    NetworkState\buffer\memory = ReAllocateMemory(NetworkState\buffer\memory, newCapacity)
+    *resizedMemory = ReAllocateMemory(NetworkState\buffer\memory, newCapacity)
+    If *resizedMemory = 0
+      ProcedureReturn #False
+    EndIf
+    NetworkState\buffer\memory = *resizedMemory
     NetworkState\buffer\capacity = newCapacity
   EndIf
   
   ; Copy new data into buffer
   CopyMemory(*newBuffer, NetworkState\buffer\memory + NetworkState\buffer\size, bytes)
   NetworkState\buffer\size + bytes
+  ProcedureReturn #True
 EndProcedure
 
 ; Network: Process one single extracted packet
@@ -376,16 +401,21 @@ Procedure ProcessSinglePacket(packetType.i, dataStr.s)
 EndProcedure
 
 ; Process fully formed packets from accumulator
-Procedure ParseNetworkBuffer()
+Procedure.i ParseNetworkBuffer()
   Protected packetLen.i, packetType.i, dataStr.s
   
   If NetworkState\buffer\memory = 0 Or NetworkState\buffer\size < 5
-    ProcedureReturn
+    ProcedureReturn #True
   EndIf
   
   While NetworkState\buffer\size >= 5
     ; Peek the packet length (first 4 bytes)
     packetLen = PeekL(NetworkState\buffer\memory)
+
+    If packetLen < 5 Or packetLen > #MAX_PACKET_SIZE
+      NetworkState\buffer\size = 0
+      ProcedureReturn #False
+    EndIf
     
     ; If we haven't received the full packet yet, break and wait for more data
     If NetworkState\buffer\size < packetLen
@@ -412,12 +442,24 @@ Procedure ParseNetworkBuffer()
     EndIf
     NetworkState\buffer\size = remaining
   Wend
+  
+  ProcedureReturn #True
+EndProcedure
+
+Procedure FreeNetworkBuffer()
+  If NetworkState\buffer\memory
+    FreeMemory(NetworkState\buffer\memory)
+    NetworkState\buffer\memory = 0
+  EndIf
+  NetworkState\buffer\size = 0
+  NetworkState\buffer\capacity = 0
 EndProcedure
 
 ; Network: Receive and process packets
 Procedure ProcessNetworkPackets()
   Protected event.i, clientID.i
   Protected *tempBuffer, bytes.i
+  Protected networkError.i = #False
 
   *tempBuffer = AllocateMemory(4096)
   If Not *tempBuffer : ProcedureReturn : EndIf
@@ -454,8 +496,13 @@ Procedure ProcessNetworkPackets()
           If clientID = NetworkState\clientID
             bytes = ReceiveNetworkData(clientID, *tempBuffer, 4096)
             If bytes > 0
-              AppendNetworkBuffer(*tempBuffer, bytes)
-              ParseNetworkBuffer()
+              If AppendNetworkBuffer(*tempBuffer, bytes)
+                If Not ParseNetworkBuffer()
+                  networkError = #True
+                EndIf
+              Else
+                networkError = #True
+              EndIf
             EndIf
           EndIf
 
@@ -468,6 +515,13 @@ Procedure ProcessNetworkPackets()
             GameState\inMenu = 1
           EndIf
       EndSelect
+
+      If networkError
+        DisconnectNetwork()
+        GameState\inMenu = 1
+        GameState\message = "Disconnected due to invalid network data."
+        Break
+      EndIf
       
       ; Grab next event if any are queued
       event = NetworkServerEvent(NetworkState\serverID)
@@ -481,8 +535,13 @@ Procedure ProcessNetworkPackets()
         Case #PB_NetworkEvent_Data
           bytes = ReceiveNetworkData(NetworkState\serverID, *tempBuffer, 4096)
           If bytes > 0
-            AppendNetworkBuffer(*tempBuffer, bytes)
-            ParseNetworkBuffer()
+            If AppendNetworkBuffer(*tempBuffer, bytes)
+              If Not ParseNetworkBuffer()
+                networkError = #True
+              EndIf
+            Else
+              networkError = #True
+            EndIf
           EndIf
 
         Case #PB_NetworkEvent_Disconnect
@@ -491,6 +550,13 @@ Procedure ProcessNetworkPackets()
           DisconnectNetwork()
           GameState\inMenu = 1
       EndSelect
+
+      If networkError
+        DisconnectNetwork()
+        GameState\inMenu = 1
+        GameState\message = "Disconnected due to invalid network data."
+        Break
+      EndIf
       
       event = NetworkClientEvent(NetworkState\serverID)
     Wend
@@ -571,6 +637,7 @@ Procedure JoinGame(ip.s)
     NetworkState\connected = 1
     GameState\networkActive = 1
     GameState\gameMode = #MODE_JOIN
+    LastJoinedIP = ip
     SendPacket(#PKT_CONNECT, PlayerName)
     GameState\message = "Connected to " + ip
     ProcedureReturn #True
@@ -582,6 +649,8 @@ EndProcedure
 
 ; Network: Disconnect
 Procedure DisconnectNetwork()
+  StopLanScan()
+
   If NetworkState\isHost
     ; Host: close client connection and server
     If NetworkState\clientID
@@ -603,6 +672,7 @@ Procedure DisconnectNetwork()
   NetworkState\connected = 0
   NetworkState\opponentConnected = 0
   NetworkState\isHost = 0
+  FreeNetworkBuffer()
   GameState\networkActive = 0
 EndProcedure
 
@@ -1052,7 +1122,7 @@ EndProcedure
 
 ; Initialize 3D scene
 Procedure Initialize3D()
-  Protected i, mat, screenW, screenH
+  Protected i, mat, screenW, screenH, innerW, innerH
   
   InitSprite()
   InitKeyboard()
@@ -1071,7 +1141,9 @@ Procedure Initialize3D()
     screenH = #WINDOW_HEIGHT
     
     OpenWindow(0, 0, 0, screenW, screenH, "3D Yahtzee - Player vs AI", #PB_Window_ScreenCentered | #PB_Window_SystemMenu | #PB_Window_MinimizeGadget)
-    OpenWindowedScreen(WindowID(0), 0, 0, screenW, screenH, 0, 0, 0)
+    innerW = WindowWidth(0, #PB_Window_InnerCoordinate)
+    innerH = WindowHeight(0, #PB_Window_InnerCoordinate)
+    OpenWindowedScreen(WindowID(0), 0, 0, innerW, innerH, 0, 0, 0)
   EndIf
   
   ; Load fonts
@@ -1126,15 +1198,9 @@ Procedure DrawDiceValues()
   Protected centerX, centerY
   Protected angle.f, wobbleX.f, wobbleY.f
   Protected totalWidth, startX
-  
-  If IsFullscreen
-    ExamineDesktops()
-    screenW = DesktopWidth(0)
-    screenH = DesktopHeight(0)
-  Else
-    screenW = #WINDOW_WIDTH
-    screenH = #WINDOW_HEIGHT
-  EndIf
+
+  screenW = ScreenWidth()
+  screenH = ScreenHeight()
   
   DrawingMode(#PB_2DDrawing_Transparent)
   
@@ -1244,46 +1310,72 @@ EndProcedure
 Procedure DrawMenu()
   Protected screenW, screenH, centerX, centerY, menuY, i
   Protected diffText.s, fsText.s
-  
-  If IsFullscreen
-    ExamineDesktops()
-    screenW = DesktopWidth(0)
-    screenH = DesktopHeight(0)
-  Else
-    screenW = #WINDOW_WIDTH
-    screenH = #WINDOW_HEIGHT
-  EndIf
-  
-  centerX = screenW / 2
-  centerY = screenH / 2
+  Protected menuBoxWidth = 440
+  Protected menuBoxX
+  Protected titleY, subtitleY, instructionsY
+  Protected titleHeight, subtitleHeight, instructionsHeight
+  Protected menuSpacing = 20
+  Protected exitSpacing = 35
+  Protected menuBlockHeight
+  Protected menuTopY
+  Protected fsLabelOffset = -6
+  Protected fsNoteOffset = 14
+  Protected fsNoteHeight
+  Protected groupHeight
   
   StartDrawing(ScreenOutput())
+
+  screenW = ScreenWidth()
+  screenH = ScreenHeight()
+  centerX = screenW / 2
+  centerY = screenH / 2
+  menuBoxX = centerX - (menuBoxWidth / 2)
+
+  DrawingMode(#PB_2DDrawing_Transparent)
+
+  DrawingFont(FontID(Font4))
+  titleHeight = TextHeight("YAHTZEE 3D")
+
+  DrawingFont(FontID(Font2))
+  subtitleHeight = TextHeight("Dice Game - Player vs AI/Network")
+
+  Protected boxHeight = 50
+  Protected textHeight = TextHeight("START GAME")
+  Protected textOffset = (boxHeight - textHeight) / 2
+  Protected menuAreaHeight = (boxHeight * 5) + (menuSpacing * 3) + exitSpacing
+
+  DrawingFont(FontID(Font1))
+  instructionsHeight = TextHeight("Navigate  |  Change Options  |  Enter Select")
+  fsNoteHeight = TextHeight("(Requires Restart)")
+
+  menuBlockHeight = menuAreaHeight + fsNoteOffset + fsNoteHeight
+  groupHeight = titleHeight + 24 + subtitleHeight + 45 + menuBlockHeight + 35 + instructionsHeight
+  menuTopY = centerY - (groupHeight / 2)
+  titleY = menuTopY
+  subtitleY = titleY + titleHeight + 24
+  menuY = subtitleY + subtitleHeight + 45
+  instructionsY = menuY + menuBlockHeight + 35
   
   ; Title
-  DrawingMode(#PB_2DDrawing_Transparent)
   DrawingFont(FontID(Font4))
   FrontColor(RGB(255, 255, 100))
   Protected titleWidth = TextWidth("YAHTZEE 3D")
-  DrawText(centerX - titleWidth/2, centerY - 350, "YAHTZEE 3D")
+  DrawText(centerX - titleWidth/2, titleY, "YAHTZEE 3D")
   
   ; Subtitle
   DrawingFont(FontID(Font2))
   FrontColor(RGB(180, 180, 180))
   Protected subtitleWidth = TextWidth("Dice Game - Player vs AI/Network")
-  DrawText(centerX - subtitleWidth/2, centerY - 250, "Dice Game - Player vs AI/Network")
+  DrawText(centerX - subtitleWidth/2, subtitleY, "Dice Game - Player vs AI/Network")
   
   ; Menu options - sequential layout
   DrawingFont(FontID(Font2))
-  menuY = centerY - 150
   
   ; === OPTION 0: START GAME ===
-  Protected textHeight = TextHeight("START GAME")
-  Protected boxHeight = 50
-  Protected textOffset = (boxHeight - textHeight) / 2
   
   If GameState\menuSelection = 0
     DrawingMode(#PB_2DDrawing_AlphaBlend)
-    Box(centerX - 220, menuY, 440, boxHeight, RGBA(100, 200, 100, 200))
+    Box(menuBoxX, menuY, menuBoxWidth, boxHeight, RGBA(100, 200, 100, 200))
     DrawingMode(#PB_2DDrawing_Transparent)
     FrontColor(RGB(255, 255, 255))
   Else
@@ -1293,10 +1385,10 @@ Procedure DrawMenu()
   DrawText(centerX - textWidth/2, menuY + textOffset, "START GAME")
   
   ; === OPTION 1: MULTIPLAYER ===
-  menuY = menuY + 70
+  menuY = menuY + boxHeight + menuSpacing
   If GameState\menuSelection = 1
     DrawingMode(#PB_2DDrawing_AlphaBlend)
-    Box(centerX - 220, menuY, 440, boxHeight, RGBA(100, 150, 200, 200))
+    Box(menuBoxX, menuY, menuBoxWidth, boxHeight, RGBA(100, 150, 200, 200))
     DrawingMode(#PB_2DDrawing_Transparent)
     FrontColor(RGB(255, 255, 255))
   Else
@@ -1306,7 +1398,7 @@ Procedure DrawMenu()
   DrawText(centerX - textWidth/2, menuY + textOffset, "MULTIPLAYER (LAN/NET)")
   
   ; === OPTION 2: AI DIFFICULTY ===
-  menuY = menuY + 70
+  menuY = menuY + boxHeight + menuSpacing
   Select GameState\aiDifficulty
     Case #AI_EASY : diffText = "EASY"
     Case #AI_MEDIUM : diffText = "MEDIUM"
@@ -1315,7 +1407,7 @@ Procedure DrawMenu()
   
   If GameState\menuSelection = 2
     DrawingMode(#PB_2DDrawing_AlphaBlend)
-    Box(centerX - 220, menuY, 440, boxHeight, RGBA(200, 150, 100, 200))
+    Box(menuBoxX, menuY, menuBoxWidth, boxHeight, RGBA(200, 150, 100, 200))
     DrawingMode(#PB_2DDrawing_Transparent)
     FrontColor(RGB(255, 255, 255))
   Else
@@ -1326,7 +1418,7 @@ Procedure DrawMenu()
   DrawText(centerX - textWidth/2, menuY + textOffset, diffMenuText)
   
   ; === OPTION 3: FULLSCREEN ===
-  menuY = menuY + 70
+  menuY = menuY + boxHeight + menuSpacing
   If IsFullscreen
     fsText = "ON"
   Else
@@ -1335,7 +1427,7 @@ Procedure DrawMenu()
   
   If GameState\menuSelection = 3
     DrawingMode(#PB_2DDrawing_AlphaBlend)
-    Box(centerX - 220, menuY, 440, boxHeight, RGBA(150, 100, 200, 200))
+    Box(menuBoxX, menuY, menuBoxWidth, boxHeight, RGBA(150, 100, 200, 200))
     DrawingMode(#PB_2DDrawing_Transparent)
     FrontColor(RGB(255, 255, 255))
   Else
@@ -1343,18 +1435,18 @@ Procedure DrawMenu()
   EndIf
   Protected fsMenuText.s = "FULLSCREEN: " + fsText
   textWidth = TextWidth(fsMenuText)
-  DrawText(centerX - textWidth/2, menuY + textOffset - 6, fsMenuText)
+  DrawText(centerX - textWidth/2, menuY + textOffset + fsLabelOffset, fsMenuText)
   FrontColor(RGB(255, 100, 100))
   DrawingFont(FontID(Font1))
   textWidth = TextWidth("(Requires Restart)")
-  DrawText(centerX - textWidth/2, menuY + textOffset + 14, "(Requires Restart)")
+  DrawText(centerX - textWidth/2, menuY + textOffset + fsNoteOffset, "(Requires Restart)")
   DrawingFont(FontID(Font2))
   
   ; === OPTION 4: EXIT ===
-  menuY = menuY + 85
+  menuY = menuY + boxHeight + exitSpacing
   If GameState\menuSelection = 4
     DrawingMode(#PB_2DDrawing_AlphaBlend)
-    Box(centerX - 220, menuY, 440, boxHeight, RGBA(200, 100, 100, 200))
+    Box(menuBoxX, menuY, menuBoxWidth, boxHeight, RGBA(200, 100, 100, 200))
     DrawingMode(#PB_2DDrawing_Transparent)
     FrontColor(RGB(255, 255, 255))
   Else
@@ -1368,7 +1460,7 @@ Procedure DrawMenu()
   FrontColor(RGB(200, 200, 200))
   Protected instructText.s = "Navigate  |  Change Options  |  Enter Select"
   textWidth = TextWidth(instructText)
-  DrawText(centerX - textWidth/2, screenH - 100, instructText)
+  DrawText(centerX - textWidth/2, instructionsY, instructText)
   
   StopDrawing()
 EndProcedure
@@ -1396,17 +1488,9 @@ Procedure DrawUI()
     EndIf
   EndIf
   
-  ; Get current screen dimensions
-  If IsFullscreen
-    ExamineDesktops()
-    screenW = DesktopWidth(0)
-    screenH = DesktopHeight(0)
-  Else
-    screenW = #WINDOW_WIDTH
-    screenH = #WINDOW_HEIGHT
-  EndIf
-  
   StartDrawing(ScreenOutput())
+  screenW = ScreenWidth()
+  screenH = ScreenHeight()
   
   ; Background for UI
   DrawingMode(#PB_2DDrawing_AlphaBlend)
@@ -1566,7 +1650,7 @@ Procedure DrawUI()
     Else
       DrawText(textX, textY, "GAME OVER - TIE! " + Str(GameState\playerTotalScore) + " - " + Str(GameState\aiTotalScore))
     EndIf
-    DrawText(textX, textY + 40, "Press SPACE to play again or ESC to quit")
+    DrawText(textX, textY + 40, "Press SPACE to return to the menu")
   Else
     If GameState\currentPlayer = 0
       FrontColor(RGB(255, 255, 100))
@@ -1664,8 +1748,11 @@ Procedure NewGame()
   GameState\inMenu = 1  ; Start in menu
   GameState\menuSelection = 0
   GameState\opponentName = ""
-  If GameState\aiDifficulty = 0
-    GameState\aiDifficulty = #AI_MEDIUM ; Default difficulty only if not set
+  If Not SettingsInitialized
+    GameState\aiDifficulty = #AI_MEDIUM
+    SettingsInitialized = #True
+  ElseIf GameState\aiDifficulty < #AI_EASY Or GameState\aiDifficulty > #AI_HARD
+    GameState\aiDifficulty = #AI_MEDIUM
   EndIf
   
   For i = 0 To #NUM_DICE - 1
@@ -2257,6 +2344,8 @@ Repeat
             EndIf
           Wend
 
+          StopLanScan()
+
         Case 2 ; AI Difficulty (already handled by left/right arrows)
 
         Case 3 ; Toggle fullscreen (note about restart)
@@ -2495,12 +2584,14 @@ If CreatePreferences(#APP_NAME + ".ini")
   WritePreferenceInteger("Fullscreen", IsFullscreen)
   ClosePreferences()
 EndIf
+StopLanScan()
+FreeMutex(LanScanMutex)
+CloseHandle_(hMutex)
 End
 
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 2471
-; FirstLine = 2444
+; CursorPosition = 8
 ; Folding = -----
 ; Optimizer
 ; EnableThread
@@ -2510,13 +2601,13 @@ End
 ; UseIcon = Yahtzee_3D.ico
 ; Executable = ..\Yahtzee_3D.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = Yahtzee_3D
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
-; VersionField6 = Yahtzee game for 2 players with instructions
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
+; VersionField6 = Yahtzee game for 2 players or with AI
 ; VersionField7 = Yahtzee_3D
 ; VersionField8 = Yahtzee_3D.exe
 ; VersionField9 = David Scouten
