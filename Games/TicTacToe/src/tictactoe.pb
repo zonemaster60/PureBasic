@@ -5,8 +5,8 @@
 #CELL_SIZE = 100
 #CANVAS_WIDTH = 300
 #CANVAS_HEIGHT = 300
-#WINDOW_WIDTH = 560
-#WINDOW_HEIGHT = 505
+#WINDOW_WIDTH = 660
+#WINDOW_HEIGHT = 585
 #MAX_POWERUPS = 3
 
 ; === Enumerations ===
@@ -78,6 +78,17 @@ Structure PowerUp
   used.b
 EndStructure
 
+Declare SetPowerupDetails(*powerup.PowerUp, powerupType)
+Declare DrawCellSymbol(symbol.s, x, y, color)
+Declare.s EvaluateBoard(updateWinningLine = #False)
+Declare GetLinePotential(player.s, x1, y1, x2, y2, x3, y3)
+Declare EvaluateSymbolPosition(player.s, x, y)
+Declare EvaluateEmptyPosition(player.s, x, y)
+Declare CanvasPixelWidth()
+Declare CanvasPixelHeight()
+Declare CanvasCellWidth()
+Declare CanvasCellHeight()
+
 ; === Global Variables ===
 Global Dim Board.s(#BOARD_SIZE-1, #BOARD_SIZE-1)
 Global Dim ShieldBoard.b(#BOARD_SIZE-1, #BOARD_SIZE-1)
@@ -94,17 +105,13 @@ Global Dim WinningLine.Position(2)
 Global WinningLineCount = 0
 Global DoubleStrikeActive = #False
 Global DoubleStrikeCount = 0
-Global PendingRewind = #False
 Global LastMove.Position
 Global LastPlayer.s = ""
-Global version.s = "v1.0.0.2"
+Global version.s = "v1.0.0.3"
 
 ; Power-up arrays
 Global Dim Player1Powerups.PowerUp(#MAX_POWERUPS-1)
 Global Dim Player2Powerups.PowerUp(#MAX_POWERUPS-1)
-Global Player1PowerupCount = 0
-Global Player2PowerupCount = 0
-Global SelectedPowerup = #POWERUP_NONE
 
 ; === Utility Procedures ===
 Procedure IsValidPosition(x, y)
@@ -180,69 +187,13 @@ Procedure InitializePowerups()
   ; Initialize Player 1 power-ups
   For i = 0 To #MAX_POWERUPS-1
     randomType = powerupTypes(Random(7))
-    Player1Powerups(i)\type = randomType
-    Player1Powerups(i)\used = #False
-    
-    Select randomType
-      Case #POWERUP_DOUBLE_STRIKE
-        Player1Powerups(i)\name = "Double Strike"
-        Player1Powerups(i)\description = "Place two symbols in one turn"
-      Case #POWERUP_CONVERT
-        Player1Powerups(i)\name = "Convert"
-        Player1Powerups(i)\description = "Convert opponent's symbol to yours"
-      Case #POWERUP_SHIELD
-        Player1Powerups(i)\name = "Shield"
-        Player1Powerups(i)\description = "Protect one of your symbols"
-      Case #POWERUP_BLOCK_ROW
-        Player1Powerups(i)\name = "Block"
-        Player1Powerups(i)\description = "Block opponent's next move in a row"
-      Case #POWERUP_ROTATE_BOARD
-        Player1Powerups(i)\name = "Rotate"
-        Player1Powerups(i)\description = "Rotate the entire board 90°"
-      Case #POWERUP_REWIND
-        Player1Powerups(i)\name = "Rewind"
-        Player1Powerups(i)\description = "Undo the last move"
-      Case #POWERUP_STEAL
-        Player1Powerups(i)\name = "Steal"
-        Player1Powerups(i)\description = "Steal opponent's unused power-up"
-      Case #POWERUP_BOMB
-        Player1Powerups(i)\name = "Bomb"
-        Player1Powerups(i)\description = "Clear area and place symbol"
-    EndSelect
+    SetPowerupDetails(@Player1Powerups(i), randomType)
   Next
   
   ; Initialize Player 2/AI power-ups
   For i = 0 To #MAX_POWERUPS-1
     randomType = powerupTypes(Random(7))
-    Player2Powerups(i)\type = randomType
-    Player2Powerups(i)\used = #False
-    
-    Select randomType
-      Case #POWERUP_DOUBLE_STRIKE
-        Player2Powerups(i)\name = "Double Strike"
-        Player2Powerups(i)\description = "Place two symbols in one turn"
-      Case #POWERUP_CONVERT
-        Player2Powerups(i)\name = "Convert"
-        Player2Powerups(i)\description = "Convert opponent's symbol to yours"
-      Case #POWERUP_SHIELD
-        Player2Powerups(i)\name = "Shield"
-        Player2Powerups(i)\description = "Protect one of your symbols"
-      Case #POWERUP_BLOCK_ROW
-        Player2Powerups(i)\name = "Block"
-        Player2Powerups(i)\description = "Block opponent's next move in a row"
-      Case #POWERUP_ROTATE_BOARD
-        Player2Powerups(i)\name = "Rotate"
-        Player2Powerups(i)\description = "Rotate the entire board 90°"
-      Case #POWERUP_REWIND
-        Player2Powerups(i)\name = "Rewind"
-        Player2Powerups(i)\description = "Undo the last move"
-      Case #POWERUP_STEAL
-        Player2Powerups(i)\name = "Steal"
-        Player2Powerups(i)\description = "Steal opponent's unused power-up"
-      Case #POWERUP_BOMB
-        Player2Powerups(i)\name = "Bomb"
-        Player2Powerups(i)\description = "Clear area and place symbol"
-    EndSelect
+    SetPowerupDetails(@Player2Powerups(i), randomType)
   Next
   
   UpdatePowerupLists()
@@ -251,18 +202,22 @@ EndProcedure
 ; === Drawing Procedures ===
 Procedure DrawBoard()
   Protected x, y
+  Protected boardWidth = CanvasPixelWidth()
+  Protected boardHeight = CanvasPixelHeight()
+  Protected cellWidth = CanvasCellWidth()
+  Protected cellHeight = CanvasCellHeight()
   
   StartDrawing(CanvasOutput(#Canvas_Game))
   
   ; Clear background
-  Box(0, 0, #CANVAS_WIDTH, #CANVAS_HEIGHT, $FFFFFF)
+  Box(0, 0, boardWidth, boardHeight, $F8F7F3)
   
   ; Draw grid lines
   For x = 1 To #BOARD_SIZE-1
-    Line(x * #CELL_SIZE, 0, 1, #CANVAS_HEIGHT, $808080)
+    Line(x * cellWidth, 0, 2, boardHeight, $8B8378)
   Next
   For y = 1 To #BOARD_SIZE-1
-    Line(0, y * #CELL_SIZE, #CANVAS_WIDTH, 1, $808080)
+    Line(0, y * cellHeight, boardWidth, 2, $8B8378)
   Next
   
   ; Draw special cell states
@@ -270,19 +225,19 @@ Procedure DrawBoard()
     For x = 0 To #BOARD_SIZE-1
       ; Draw blocked cells
       If BlockedBoard(x, y)
-        Box(x * #CELL_SIZE + 2, y * #CELL_SIZE + 2, #CELL_SIZE - 4, #CELL_SIZE - 4, $FF0000)
+        Box(x * cellWidth + 3, y * cellHeight + 3, cellWidth - 6, cellHeight - 6, $E8A5A0)
       EndIf
       
       ; Draw shielded cells
       If ShieldBoard(x, y)
-        Box(x * #CELL_SIZE + 2, y * #CELL_SIZE + 2, #CELL_SIZE - 4, #CELL_SIZE - 4, $00FF00)
+        Box(x * cellWidth + 3, y * cellHeight + 3, cellWidth - 6, cellHeight - 6, $B9E3C6)
       EndIf
     Next
   Next
   
   ; Draw hover effect
   If Not GameOver And HoverX >= 0 And HoverY >= 0 And IsValidPosition(HoverX, HoverY) And Board(HoverX, HoverY) = "" And Not BlockedBoard(HoverX, HoverY)
-    Box(HoverX * #CELL_SIZE + 2, HoverY * #CELL_SIZE + 2, #CELL_SIZE - 4, #CELL_SIZE - 4, $808080)
+    Box(HoverX * cellWidth + 5, HoverY * cellHeight + 5, cellWidth - 10, cellHeight - 10, $E8DCC6)
   EndIf
   
   ; Draw symbols
@@ -292,9 +247,9 @@ Procedure DrawBoard()
   For y = 0 To #BOARD_SIZE-1
     For x = 0 To #BOARD_SIZE-1
       If Board(x, y) = "X"
-        DrawText(x * #CELL_SIZE + 20, y * #CELL_SIZE + 5, "X", $0000FF)
+        DrawCellSymbol("X", x, y, $356AA0)
       ElseIf Board(x, y) = "O"
-        DrawText(x * #CELL_SIZE + 20, y * #CELL_SIZE + 5, "O", $FF0000)
+        DrawCellSymbol("O", x, y, $B45D4C)
       EndIf
     Next
   Next
@@ -302,26 +257,54 @@ Procedure DrawBoard()
   StopDrawing()
 EndProcedure
 
+Procedure CanvasPixelWidth()
+  ProcedureReturn #CELL_SIZE * #BOARD_SIZE + 2
+EndProcedure
+
+Procedure CanvasPixelHeight()
+  ProcedureReturn #CELL_SIZE * #BOARD_SIZE + 2
+EndProcedure
+
+Procedure CanvasCellWidth()
+  ProcedureReturn (#CELL_SIZE * #BOARD_SIZE) / #BOARD_SIZE
+EndProcedure
+
+Procedure CanvasCellHeight()
+  ProcedureReturn (#CELL_SIZE * #BOARD_SIZE) / #BOARD_SIZE
+EndProcedure
+
+Procedure DrawCellSymbol(symbol.s, x, y, color)
+  Protected textX, textY
+  Protected cellWidth = CanvasCellWidth()
+  Protected cellHeight = CanvasCellHeight()
+
+  textX = x * cellWidth + ((cellWidth - TextWidth(symbol)) / 2)
+  textY = y * cellHeight + ((cellHeight - TextHeight(symbol)) / 2) - 4
+  DrawText(textX, textY, symbol, color)
+EndProcedure
+
 Procedure AnimateSymbol(symbol.s, x, y, color)
   Protected i, alpha
+  Protected cellWidth = CanvasCellWidth()
+  Protected cellHeight = CanvasCellHeight()
   
   For i = 10 To 0 Step -1
     StartDrawing(CanvasOutput(#Canvas_Game))
     
     ; Clear cell
     DrawingMode(#PB_2DDrawing_Default)
-    Box(x * #CELL_SIZE + 2, y * #CELL_SIZE + 2, #CELL_SIZE - 4, #CELL_SIZE - 4, $FFFFFF)
+    Box(x * cellWidth + 2, y * cellHeight + 2, cellWidth - 4, cellHeight - 4, $F8F7F3)
     
     ; Draw symbol
     DrawingMode(#PB_2DDrawing_Transparent)
     DrawingFont(FontID(0))
-    DrawText(x * #CELL_SIZE + 20, y * #CELL_SIZE + 5, symbol, color)
+    DrawCellSymbol(symbol, x, y, color)
     
     ; Add fade effect
     If i > 0
       DrawingMode(#PB_2DDrawing_AlphaBlend)
       alpha = RGBA($FF, $FF, $FF, i * 20)
-      Box(x * #CELL_SIZE + 2, y * #CELL_SIZE + 2, #CELL_SIZE - 4, #CELL_SIZE - 4, alpha)
+      Box(x * cellWidth + 2, y * cellHeight + 2, cellWidth - 4, cellHeight - 4, alpha)
     EndIf
     
     StopDrawing()
@@ -331,6 +314,8 @@ EndProcedure
 
 Procedure AnimateWinningLine(winner.s)
   Protected i, j, x, y, color
+  Protected cellWidth = CanvasCellWidth()
+  Protected cellHeight = CanvasCellHeight()
   
   ; Set color based on winner
   If winner = "X"
@@ -352,9 +337,9 @@ Procedure AnimateWinningLine(winner.s)
       
       ; Flash between winner color and white
       If i % 2 = 1
-        Box(x * #CELL_SIZE + 2, y * #CELL_SIZE + 2, #CELL_SIZE - 4, #CELL_SIZE - 4, color)
+        Box(x * cellWidth + 2, y * cellHeight + 2, cellWidth - 4, cellHeight - 4, color)
       Else
-        Box(x * #CELL_SIZE + 2, y * #CELL_SIZE + 2, #CELL_SIZE - 4, #CELL_SIZE - 4, $FFFFFF)
+        Box(x * cellWidth + 2, y * cellHeight + 2, cellWidth - 4, cellHeight - 4, $F8F7F3)
       EndIf
       
       ; Redraw the symbol in the cell
@@ -362,9 +347,9 @@ Procedure AnimateWinningLine(winner.s)
       DrawingFont(FontID(0))
       
       If Board(x, y) = "X"
-        DrawText(x * #CELL_SIZE + 20, y * #CELL_SIZE + 5, "X", $0000FF)
+        DrawCellSymbol("X", x, y, $356AA0)
       ElseIf Board(x, y) = "O"
-        DrawText(x * #CELL_SIZE + 20, y * #CELL_SIZE + 5, "O", $FF0000)
+        DrawCellSymbol("O", x, y, $B45D4C)
       EndIf
       
       DrawingMode(#PB_2DDrawing_Default)
@@ -384,9 +369,9 @@ Procedure AnimateWinningLine(winner.s)
     
     ; Highlight the winning cells with a lighter version of the winner's color
     If winner = "X"
-      Box(x * #CELL_SIZE + 2, y * #CELL_SIZE + 2, #CELL_SIZE - 4, #CELL_SIZE - 4, $6699FF)  ; Light blue
+      Box(x * cellWidth + 2, y * cellHeight + 2, cellWidth - 4, cellHeight - 4, $86B6E3)
     Else
-      Box(x * #CELL_SIZE + 2, y * #CELL_SIZE + 2, #CELL_SIZE - 4, #CELL_SIZE - 4, $FF9966)  ; Light red
+      Box(x * cellWidth + 2, y * cellHeight + 2, cellWidth - 4, cellHeight - 4, $E8B19E)
     EndIf
     
     ; Redraw the symbol
@@ -394,9 +379,9 @@ Procedure AnimateWinningLine(winner.s)
     DrawingFont(FontID(0))
     
     If Board(x, y) = "X"
-      DrawText(x * #CELL_SIZE + 20, y * #CELL_SIZE + 5, "X", $0000FF)
+      DrawCellSymbol("X", x, y, $356AA0)
     ElseIf Board(x, y) = "O"
-      DrawText(x * #CELL_SIZE + 20, y * #CELL_SIZE + 5, "O", $FF0000)
+      DrawCellSymbol("O", x, y, $B45D4C)
     EndIf
     
     DrawingMode(#PB_2DDrawing_Default)
@@ -431,148 +416,489 @@ Procedure RotateBoard()
   Next
 EndProcedure
 
+Procedure SetPowerupDetails(*powerup.PowerUp, powerupType)
+  *powerup\type = powerupType
+  *powerup\used = #False
+
+  Select powerupType
+    Case #POWERUP_DOUBLE_STRIKE
+      *powerup\name = "Double Strike"
+      *powerup\description = "Place two symbols in one turn"
+    Case #POWERUP_CONVERT
+      *powerup\name = "Convert"
+      *powerup\description = "Convert opponent's symbol to yours"
+    Case #POWERUP_SHIELD
+      *powerup\name = "Shield"
+      *powerup\description = "Protect one of your symbols"
+    Case #POWERUP_BLOCK_ROW
+      *powerup\name = "Block"
+      *powerup\description = "Block one empty cell"
+    Case #POWERUP_ROTATE_BOARD
+      *powerup\name = "Rotate"
+      *powerup\description = "Rotate the entire board 90 deg"
+    Case #POWERUP_REWIND
+      *powerup\name = "Rewind"
+      *powerup\description = "Undo the last move"
+    Case #POWERUP_STEAL
+      *powerup\name = "Steal"
+      *powerup\description = "Use an opponent power-up"
+    Case #POWERUP_BOMB
+      *powerup\name = "Bomb"
+      *powerup\description = "Claim the center cell"
+  EndSelect
+EndProcedure
+
+Procedure UpdatePowerupControls()
+  If PowerupMode
+    DisableGadget(#Gadget_Player1PowerupList, #False)
+    DisableGadget(#Gadget_UsePowerup1, #False)
+  Else
+    DisableGadget(#Gadget_Player1PowerupList, #True)
+    DisableGadget(#Gadget_UsePowerup1, #True)
+  EndIf
+
+  If GameMode = #MODE_VS_AI Or Not PowerupMode
+    DisableGadget(#Gadget_Player2PowerupList, #True)
+    DisableGadget(#Gadget_UsePowerup2, #True)
+  Else
+    DisableGadget(#Gadget_Player2PowerupList, #False)
+    DisableGadget(#Gadget_UsePowerup2, #False)
+  EndIf
+EndProcedure
+
+Procedure CleanupAndExit()
+  If hMutex
+    CloseHandle_(hMutex)
+    hMutex = 0
+  EndIf
+  End
+EndProcedure
+
+Procedure GetLinePotential(player.s, x1, y1, x2, y2, x3, y3)
+  Protected ownCount, emptyCount
+  Protected opponent.s
+
+  If player = "X"
+    opponent = "O"
+  Else
+    opponent = "X"
+  EndIf
+
+  If Board(x1, y1) = opponent Or Board(x2, y2) = opponent Or Board(x3, y3) = opponent
+    ProcedureReturn 0
+  EndIf
+
+  If Board(x1, y1) = player : ownCount + 1 : ElseIf Board(x1, y1) = "" And Not BlockedBoard(x1, y1) : emptyCount + 1 : EndIf
+  If Board(x2, y2) = player : ownCount + 1 : ElseIf Board(x2, y2) = "" And Not BlockedBoard(x2, y2) : emptyCount + 1 : EndIf
+  If Board(x3, y3) = player : ownCount + 1 : ElseIf Board(x3, y3) = "" And Not BlockedBoard(x3, y3) : emptyCount + 1 : EndIf
+
+  If ownCount = 2 And emptyCount = 1
+    ProcedureReturn 6
+  ElseIf ownCount = 1 And emptyCount = 2
+    ProcedureReturn 3
+  ElseIf ownCount = 0 And emptyCount = 3
+    ProcedureReturn 1
+  EndIf
+
+  ProcedureReturn 0
+EndProcedure
+
+Procedure EvaluateSymbolPosition(player.s, x, y)
+  Protected score = 0
+
+  score + GetLinePotential(player, x, 0, x, 1, x, 2)
+  score + GetLinePotential(player, 0, y, 1, y, 2, y)
+
+  If x = y
+    score + GetLinePotential(player, 0, 0, 1, 1, 2, 2)
+  EndIf
+
+  If x + y = #BOARD_SIZE - 1
+    score + GetLinePotential(player, 2, 0, 1, 1, 0, 2)
+  EndIf
+
+  If x = 1 And y = 1
+    score + 4
+  ElseIf (x = 0 Or x = 2) And (y = 0 Or y = 2)
+    score + 2
+  Else
+    score + 1
+  EndIf
+
+  ProcedureReturn score
+EndProcedure
+
+Procedure EvaluateEmptyPosition(player.s, x, y)
+  Protected opponent.s
+  Protected score
+
+  If Board(x, y) <> "" Or BlockedBoard(x, y)
+    ProcedureReturn -1000
+  EndIf
+
+  If player = "X"
+    opponent = "O"
+  Else
+    opponent = "X"
+  EndIf
+
+  Board(x, y) = player
+  score = EvaluateSymbolPosition(player, x, y)
+  If EvaluateBoard() = player
+    score + 100
+  EndIf
+  Board(x, y) = ""
+
+  Board(x, y) = opponent
+  If EvaluateBoard() = opponent
+    score + 80
+  EndIf
+  Board(x, y) = ""
+
+  ProcedureReturn score
+EndProcedure
+
 Procedure ExecutePowerup(powerupType, player.s)
-  Protected x, y, found = #False
+  Protected x, y, i, bestX = -1, bestY = -1, bestScore = -1000, score
+  Protected found = #False, success = #False
+  Protected stolenType, stolenName.s
   
   Select powerupType
     Case #POWERUP_DOUBLE_STRIKE
       DoubleStrikeActive = #True
       DoubleStrikeCount = 0
       SetGadgetText(#Gadget_PowerupStatus, "'" + player + "' activated Double Strike! Place two symbols.")
+      success = #True
       
     Case #POWERUP_CONVERT
-      ; Find opponent's symbol to swap
+      ; Convert the most valuable opponent symbol that is not shielded
       For y = 0 To #BOARD_SIZE-1
         For x = 0 To #BOARD_SIZE-1
           If (player = "X" And Board(x, y) = "O") Or (player = "O" And Board(x, y) = "X")
             If Not ShieldBoard(x, y)
-              Board(x, y) = player
-              SetGadgetText(#Gadget_PowerupStatus, "'" + player + "' used Convert!")
               found = #True
-              Break 2
+              score = EvaluateSymbolPosition(Board(x, y), x, y)
+              If score > bestScore
+                bestScore = score
+                bestX = x
+                bestY = y
+              EndIf
             EndIf
           EndIf
         Next
       Next
-      If Not found
+      If found
+        Board(bestX, bestY) = player
+        SetGadgetText(#Gadget_PowerupStatus, "'" + player + "' converted a key symbol!")
+        success = #True
+      Else
         SetGadgetText(#Gadget_PowerupStatus, "No symbols to convert!")
       EndIf
       
     Case #POWERUP_SHIELD
-      ; Shield the first symbol found
+      ; Shield the most valuable unshielded symbol
+      bestScore = -1000
       For y = 0 To #BOARD_SIZE-1
         For x = 0 To #BOARD_SIZE-1
-          If Board(x, y) = player
-            ShieldBoard(x, y) = #True
-            SetGadgetText(#Gadget_PowerupStatus, "'" + player + "' shielded a symbol!")
+          If Board(x, y) = player And Not ShieldBoard(x, y)
             found = #True
-            Break 2
+            score = EvaluateSymbolPosition(player, x, y)
+            If score > bestScore
+              bestScore = score
+              bestX = x
+              bestY = y
+            EndIf
           EndIf
         Next
       Next
-      If Not found
+      If found
+        ShieldBoard(bestX, bestY) = #True
+        SetGadgetText(#Gadget_PowerupStatus, "'" + player + "' shielded a key symbol!")
+        success = #True
+      Else
         SetGadgetText(#Gadget_PowerupStatus, "No symbols to shield!")
       EndIf
       
     Case #POWERUP_BLOCK_ROW
-      ; Block first row with opponent's symbol
+      ; Block the most dangerous empty cell for the opponent
+      bestScore = -1000
       For y = 0 To #BOARD_SIZE-1
         For x = 0 To #BOARD_SIZE-1
           If Board(x, y) = "" And Not BlockedBoard(x, y)
-            BlockedBoard(x, y) = #True
-            SetGadgetText(#Gadget_PowerupStatus, "'" + player + "' blocked a cell!")
             found = #True
-            Break 2
+            If player = "X"
+              score = EvaluateEmptyPosition("O", x, y)
+            Else
+              score = EvaluateEmptyPosition("X", x, y)
+            EndIf
+
+            If score > bestScore
+              bestScore = score
+              bestX = x
+              bestY = y
+            EndIf
           EndIf
         Next
       Next
-      If Not found
+      If found
+        BlockedBoard(bestX, bestY) = #True
+        SetGadgetText(#Gadget_PowerupStatus, "'" + player + "' blocked a dangerous cell!")
+        success = #True
+      Else
         SetGadgetText(#Gadget_PowerupStatus, "No cells to block!")
       EndIf
       
     Case #POWERUP_ROTATE_BOARD
       RotateBoard()
       SetGadgetText(#Gadget_PowerupStatus, "'" + player + "' rotated the board!")
+      success = #True
       
     Case #POWERUP_REWIND
       If LastPlayer <> ""
         Board(LastMove\x, LastMove\y) = ""
         SetGadgetText(#Gadget_PowerupStatus, "'" + player + "' rewound the last move!")
         LastPlayer = ""
+        success = #True
       Else
         SetGadgetText(#Gadget_PowerupStatus, "No move to rewind!")
       EndIf
       
     Case #POWERUP_STEAL
-      ; Simple steal - just show message (implementation would be more complex)
-      SetGadgetText(#Gadget_PowerupStatus, "'" + player + "' used Steal power-up!")
+      If player = "X"
+        For i = 0 To #MAX_POWERUPS-1
+          If Not Player2Powerups(i)\used And Player2Powerups(i)\type <> #POWERUP_STEAL
+            stolenType = Player2Powerups(i)\type
+            stolenName = Player2Powerups(i)\name
+            Player2Powerups(i)\used = #True
+            found = #True
+            Break
+          EndIf
+        Next
+      Else
+        For i = 0 To #MAX_POWERUPS-1
+          If Not Player1Powerups(i)\used And Player1Powerups(i)\type <> #POWERUP_STEAL
+            stolenType = Player1Powerups(i)\type
+            stolenName = Player1Powerups(i)\name
+            Player1Powerups(i)\used = #True
+            found = #True
+            Break
+          EndIf
+        Next
+      EndIf
+
+      If found
+        success = ExecutePowerup(stolenType, player)
+        If success
+          SetGadgetText(#Gadget_PowerupStatus, "'" + player + "' stole " + stolenName + "!")
+        Else
+          If player = "X"
+            Player2Powerups(i)\used = #False
+          Else
+            Player1Powerups(i)\used = #False
+          EndIf
+          SetGadgetText(#Gadget_PowerupStatus, "No usable power-up to steal!")
+        EndIf
+      Else
+        SetGadgetText(#Gadget_PowerupStatus, "No usable power-up to steal!")
+      EndIf
       
     Case #POWERUP_BOMB
-      ; Clear center and place symbol
+      ; Claim the center only if it is a legal target
       If Not ShieldBoard(1, 1) And Not BlockedBoard(1, 1)
         Board(1, 1) = player
-        SetGadgetText(#Gadget_PowerupStatus, "'" + player + "' used Bomb in center!")
+        SetGadgetText(#Gadget_PowerupStatus, "'" + player + "' claimed the center with Bomb!")
+        success = #True
       Else
         SetGadgetText(#Gadget_PowerupStatus, "Center is shielded or blocked!")
       EndIf
   EndSelect
+
+  ProcedureReturn success
 EndProcedure
 
 ; === Game Logic ===
-Procedure.s CheckWinner()
+Procedure.s EvaluateBoard(updateWinningLine = #False)
   Protected i
-  
-  ; Clear winning line
-  WinningLineCount = 0
-  
-  ; Check columns
+
+  If updateWinningLine
+    WinningLineCount = 0
+  EndIf
+
   For i = 0 To #BOARD_SIZE-1
     If Board(i, 0) <> "" And Board(i, 0) = Board(i, 1) And Board(i, 0) = Board(i, 2)
-      ; Store winning line positions
-      WinningLine(0)\x = i : WinningLine(0)\y = 0
-      WinningLine(1)\x = i : WinningLine(1)\y = 1
-      WinningLine(2)\x = i : WinningLine(2)\y = 2
-      WinningLineCount = 3
+      If updateWinningLine
+        WinningLine(0)\x = i : WinningLine(0)\y = 0
+        WinningLine(1)\x = i : WinningLine(1)\y = 1
+        WinningLine(2)\x = i : WinningLine(2)\y = 2
+        WinningLineCount = 3
+      EndIf
       ProcedureReturn Board(i, 0)
     EndIf
   Next
-  
-  ; Check rows
+
   For i = 0 To #BOARD_SIZE-1
     If Board(0, i) <> "" And Board(0, i) = Board(1, i) And Board(0, i) = Board(2, i)
-      ; Store winning line positions
-      WinningLine(0)\x = 0 : WinningLine(0)\y = i
-      WinningLine(1)\x = 1 : WinningLine(1)\y = i
-      WinningLine(2)\x = 2 : WinningLine(2)\y = i
-      WinningLineCount = 3
+      If updateWinningLine
+        WinningLine(0)\x = 0 : WinningLine(0)\y = i
+        WinningLine(1)\x = 1 : WinningLine(1)\y = i
+        WinningLine(2)\x = 2 : WinningLine(2)\y = i
+        WinningLineCount = 3
+      EndIf
       ProcedureReturn Board(0, i)
     EndIf
   Next
-  
-  ; Check diagonals
+
   If Board(0, 0) <> "" And Board(0, 0) = Board(1, 1) And Board(0, 0) = Board(2, 2)
-     ; Store winning line positions
-    WinningLine(0)\x = 0 : WinningLine(0)\y = 0
-    WinningLine(1)\x = 1 : WinningLine(1)\y = 1
-    WinningLine(2)\x = 2 : WinningLine(2)\y = 2
-    WinningLineCount = 3
+    If updateWinningLine
+      WinningLine(0)\x = 0 : WinningLine(0)\y = 0
+      WinningLine(1)\x = 1 : WinningLine(1)\y = 1
+      WinningLine(2)\x = 2 : WinningLine(2)\y = 2
+      WinningLineCount = 3
+    EndIf
     ProcedureReturn Board(0, 0)
   EndIf
+
   If Board(2, 0) <> "" And Board(2, 0) = Board(1, 1) And Board(2, 0) = Board(0, 2)
-    ; Store winning line positions
-    WinningLine(0)\x = 2 : WinningLine(0)\y = 0
-    WinningLine(1)\x = 1 : WinningLine(1)\y = 1
-    WinningLine(2)\x = 0 : WinningLine(2)\y = 2
-    WinningLineCount = 3
+    If updateWinningLine
+      WinningLine(0)\x = 2 : WinningLine(0)\y = 0
+      WinningLine(1)\x = 1 : WinningLine(1)\y = 1
+      WinningLine(2)\x = 0 : WinningLine(2)\y = 2
+      WinningLineCount = 3
+    EndIf
     ProcedureReturn Board(2, 0)
   EndIf
-  
-  ; Check for draw
+
   If IsBoardFull()
     ProcedureReturn "Draw"
   EndIf
-  
+
   ProcedureReturn ""
+EndProcedure
+
+Procedure.s CheckWinner()
+  ProcedureReturn EvaluateBoard(#True)
+EndProcedure
+
+Procedure EvaluateLineScore(a.s, b.s, c.s)
+  Protected xCount, oCount, emptyCount
+
+  If a = "X" : xCount + 1 : ElseIf a = "O" : oCount + 1 : Else : emptyCount + 1 : EndIf
+  If b = "X" : xCount + 1 : ElseIf b = "O" : oCount + 1 : Else : emptyCount + 1 : EndIf
+  If c = "X" : xCount + 1 : ElseIf c = "O" : oCount + 1 : Else : emptyCount + 1 : EndIf
+
+  If oCount > 0 And xCount = 0
+    Select oCount
+      Case 2
+        ProcedureReturn 10
+      Case 1
+        ProcedureReturn 2
+    EndSelect
+  ElseIf xCount > 0 And oCount = 0
+    Select xCount
+      Case 2
+        ProcedureReturn -10
+      Case 1
+        ProcedureReturn -2
+    EndSelect
+  EndIf
+
+  ProcedureReturn 0
+EndProcedure
+
+Procedure EvaluatePositionScore()
+  Protected score
+  Protected x, y
+
+  score + EvaluateLineScore(Board(0, 0), Board(1, 0), Board(2, 0))
+  score + EvaluateLineScore(Board(0, 1), Board(1, 1), Board(2, 1))
+  score + EvaluateLineScore(Board(0, 2), Board(1, 2), Board(2, 2))
+  score + EvaluateLineScore(Board(0, 0), Board(0, 1), Board(0, 2))
+  score + EvaluateLineScore(Board(1, 0), Board(1, 1), Board(1, 2))
+  score + EvaluateLineScore(Board(2, 0), Board(2, 1), Board(2, 2))
+  score + EvaluateLineScore(Board(0, 0), Board(1, 1), Board(2, 2))
+  score + EvaluateLineScore(Board(2, 0), Board(1, 1), Board(0, 2))
+
+  If Board(1, 1) = "O"
+    score + 3
+  ElseIf Board(1, 1) = "X"
+    score - 3
+  EndIf
+
+  For y = 0 To #BOARD_SIZE-1
+    For x = 0 To #BOARD_SIZE-1
+      If BlockedBoard(x, y)
+        If x = 1 And y = 1
+          score - 2
+        Else
+          score - 1
+        EndIf
+      EndIf
+    Next
+  Next
+
+  ProcedureReturn score
+EndProcedure
+
+Procedure Minimax(depth, isMaximizing, alpha, beta)
+  Protected result.s = EvaluateBoard()
+  Protected bestScore, score, x, y, symbol.s
+
+  Select result
+    Case "O"
+      ProcedureReturn 100 - depth
+    Case "X"
+      ProcedureReturn depth - 100
+    Case "Draw"
+      ProcedureReturn 0
+  EndSelect
+
+  If Difficulty = #DIFF_MEDIUM And depth >= 3
+    ProcedureReturn EvaluatePositionScore()
+  EndIf
+
+  If isMaximizing
+    bestScore = -10000
+    symbol = "O"
+  Else
+    bestScore = 10000
+    symbol = "X"
+  EndIf
+
+  For y = 0 To #BOARD_SIZE-1
+    For x = 0 To #BOARD_SIZE-1
+      If Board(x, y) = "" And Not BlockedBoard(x, y)
+        Board(x, y) = symbol
+        score = Minimax(depth + 1, Bool(Not isMaximizing), alpha, beta)
+        Board(x, y) = ""
+
+        If isMaximizing
+          If score > bestScore
+            bestScore = score
+          EndIf
+          If bestScore > alpha
+            alpha = bestScore
+          EndIf
+        Else
+          If score < bestScore
+            bestScore = score
+          EndIf
+          If bestScore < beta
+            beta = bestScore
+          EndIf
+        EndIf
+
+        If beta <= alpha
+          ProcedureReturn bestScore
+        EndIf
+      EndIf
+    Next
+  Next
+
+  If bestScore = -10000 Or bestScore = 10000
+    ProcedureReturn EvaluatePositionScore()
+  EndIf
+
+  ProcedureReturn bestScore
 EndProcedure
 
 Procedure CountWinningMoves(player.s)
@@ -583,7 +909,7 @@ Procedure CountWinningMoves(player.s)
       If Board(x, y) = "" And Not BlockedBoard(x, y)
         original = Board(x, y)
         Board(x, y) = player
-        If CheckWinner() = player
+        If EvaluateBoard() = player
           count + 1
         EndIf
         Board(x, y) = original
@@ -623,74 +949,52 @@ Procedure CountEmptyCells()
 EndProcedure
 
 Procedure GetBestMove()
-  Protected bestX = -1, bestY = -1, x, y, original.s
-  Protected bestScore = -1000, score
-  
-  ; Try to win
-  For y = 0 To #BOARD_SIZE-1
-    For x = 0 To #BOARD_SIZE-1
-      If Board(x, y) = "" And Not BlockedBoard(x, y)
-        original = Board(x, y)
-        Board(x, y) = "O"
-        If CheckWinner() = "O"
-          Board(x, y) = original
-          bestX = x : bestY = y
-          ProcedureReturn (bestY << 16) | bestX
-        EndIf
-        Board(x, y) = original
-      EndIf
-    Next
-  Next
-  
-  ; Block opponent from winning
-  For y = 0 To #BOARD_SIZE-1
-    For x = 0 To #BOARD_SIZE-1
-      If Board(x, y) = "" And Not BlockedBoard(x, y)
-        original = Board(x, y)
-        Board(x, y) = "X"
-        If CheckWinner() = "X"
-          Board(x, y) = original
-          bestX = x : bestY = y
-          ProcedureReturn (bestY << 16) | bestX
-        EndIf
-        Board(x, y) = original
-      EndIf
-    Next
-  Next
-  
-  ; Strategic moves based on difficulty
+  Protected bestX = -1, bestY = -1, x, y, score, bestScore = -10000
+  Protected randomnessThreshold
+
   Select Difficulty
-    Case #DIFF_HARD
-      ; Take center if available
-      If Board(1, 1) = "" And Not BlockedBoard(1, 1)
-        bestX = 1 : bestY = 1
-        ProcedureReturn (bestY << 16) | bestX
-      EndIf
-      
-      ; Take corners
-      If Board(0, 0) = "" And Not BlockedBoard(0, 0) : bestX = 0 : bestY = 0 : ProcedureReturn (bestY << 16) | bestX : EndIf
-      If Board(2, 0) = "" And Not BlockedBoard(2, 0) : bestX = 2 : bestY = 0 : ProcedureReturn (bestY << 16) | bestX : EndIf
-      If Board(0, 2) = "" And Not BlockedBoard(0, 2) : bestX = 0 : bestY = 2 : ProcedureReturn (bestY << 16) | bestX : EndIf
-      If Board(2, 2) = "" And Not BlockedBoard(2, 2) : bestX = 2 : bestY = 2 : ProcedureReturn (bestY << 16) | bestX : EndIf
-      
+    Case #DIFF_EASY
+      randomnessThreshold = 65
     Case #DIFF_MEDIUM
-      ; Sometimes take center
-      If Board(1, 1) = "" And Not BlockedBoard(1, 1) And Random(1)
-        bestX = 1 : bestY = 1
-        ProcedureReturn (bestY << 16) | bestX
-      EndIf
+      randomnessThreshold = 20
+    Default
+      randomnessThreshold = -1
   EndSelect
-  
-  ; Take any available move
+
+  If randomnessThreshold >= 0 And Random(99) < randomnessThreshold
+    For y = 0 To #BOARD_SIZE-1
+      For x = 0 To #BOARD_SIZE-1
+        If Board(x, y) = "" And Not BlockedBoard(x, y)
+          ProcedureReturn (y << 16) | x
+        EndIf
+      Next
+    Next
+  EndIf
+
   For y = 0 To #BOARD_SIZE-1
     For x = 0 To #BOARD_SIZE-1
       If Board(x, y) = "" And Not BlockedBoard(x, y)
-        bestX = x : bestY = y
-        ProcedureReturn (bestY << 16) | bestX
+        Board(x, y) = "O"
+        score = Minimax(0, #False, -10000, 10000)
+        Board(x, y) = ""
+
+        If Difficulty <> #DIFF_EASY And x = 1 And y = 1
+          score + 2
+        EndIf
+
+        If score > bestScore
+          bestScore = score
+          bestX = x
+          bestY = y
+        EndIf
       EndIf
     Next
   Next
-  
+
+  If bestX >= 0
+    ProcedureReturn (bestY << 16) | bestX
+  EndIf
+
   ProcedureReturn -1
 EndProcedure
 
@@ -770,11 +1074,12 @@ Procedure AITurn()
     
     ; Use power-up if priority is high enough
     If bestPowerup >= 0 And powerupPriority >= 60
-      ExecutePowerup(Player2Powerups(bestPowerup)\type, "O")
-      Player2Powerups(bestPowerup)\used = #True
-      UpdatePowerupLists()
-      DrawBoard()
-      Delay(1000)
+      If ExecutePowerup(Player2Powerups(bestPowerup)\type, "O")
+        Player2Powerups(bestPowerup)\used = #True
+        UpdatePowerupLists()
+        DrawBoard()
+        Delay(1000)
+      EndIf
     EndIf
   EndIf
   
@@ -1024,6 +1329,8 @@ Procedure ChangeGameMode()
   Else
     DisableGadget(#Gadget_Difficulty, #True)
   EndIf
+
+  UpdatePowerupControls()
   
   ; Reset scores when switching modes
   Player1Score = 0
@@ -1036,12 +1343,8 @@ EndProcedure
 
 Procedure ChangePowerupMode()
   PowerupMode = GetGadgetState(#Gadget_PowerupMode)
-  
-  ; Enable/disable power-up controls
-  DisableGadget(#Gadget_Player1PowerupList, #False)
-  DisableGadget(#Gadget_Player2PowerupList, #False)
-  DisableGadget(#Gadget_UsePowerup1, #False)
-  DisableGadget(#Gadget_UsePowerup2, #False)
+
+  UpdatePowerupControls()
   
   If PowerupMode
     InitializePowerups()
@@ -1057,14 +1360,15 @@ EndProcedure
 
 Procedure UsePowerup1()
   If Not PowerupMode Or GameOver : ProcedureReturn : EndIf
-  If CurrentPlayer <> "X" And GameMode = #MODE_VS_AI : ProcedureReturn : EndIf
+  If CurrentPlayer <> "X" : ProcedureReturn : EndIf
   
   Protected selectedIndex = GetGadgetState(#Gadget_Player1PowerupList)
   If selectedIndex >= 0 And selectedIndex < #MAX_POWERUPS And Not Player1Powerups(selectedIndex)\used
-    ExecutePowerup(Player1Powerups(selectedIndex)\type, "X")
-    Player1Powerups(selectedIndex)\used = #True
-    UpdatePowerupLists()
-    DrawBoard()
+    If ExecutePowerup(Player1Powerups(selectedIndex)\type, "X")
+      Player1Powerups(selectedIndex)\used = #True
+      UpdatePowerupLists()
+      DrawBoard()
+    EndIf
   EndIf
 EndProcedure
 
@@ -1075,10 +1379,11 @@ Procedure UsePowerup2()
   
   Protected selectedIndex = GetGadgetState(#Gadget_Player2PowerupList)
   If selectedIndex >= 0 And selectedIndex < #MAX_POWERUPS And Not Player2Powerups(selectedIndex)\used
-    ExecutePowerup(Player2Powerups(selectedIndex)\type, "O")
-    Player2Powerups(selectedIndex)\used = #True
-    UpdatePowerupLists()
-    DrawBoard()
+    If ExecutePowerup(Player2Powerups(selectedIndex)\type, "O")
+      Player2Powerups(selectedIndex)\used = #True
+      UpdatePowerupLists()
+      DrawBoard()
+    EndIf
   EndIf
 EndProcedure
 
@@ -1107,7 +1412,7 @@ Procedure ExitGame()
     MessageRequester("Info", #APP_NAME +" "+ version + #CRLF$ +
                              "Thank you for playing this free game!" + #CRLF$ +
                              "Contact: " + #EMAIL_NAME, #PB_MessageRequester_Info)
-    End
+    CleanupAndExit()
   EndIf
 EndProcedure
 
@@ -1115,66 +1420,72 @@ EndProcedure
 If OpenWindow(#Window_Main, 0, 0, #WINDOW_WIDTH, #WINDOW_HEIGHT, #APP_NAME + " - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
   
   ; Create game canvas and basic controls
-  CanvasGadget(#Canvas_Game, 10, 10, #CANVAS_WIDTH-60, #CANVAS_HEIGHT-60)
-  StringGadget(#Gadget_Status, 10, 260, 240, 20, "Player 1 move... Good luck!", #PB_String_ReadOnly)
-  StringGadget(#Gadget_Score, 10, 290, 240, 20, "", #PB_String_ReadOnly)
-  ButtonGadget(#Gadget_Reset, 10, 320, 115, 25, "Reset")
-  ButtonGadget(#Gadget_Help, 135, 320, 115, 25, "Help")
+  CanvasGadget(#Canvas_Game, 10, 10, CanvasPixelWidth(), CanvasPixelHeight())
+  StringGadget(#Gadget_Status, 10, 320, 300, 24, "Player 1 move... Good luck!", #PB_String_ReadOnly)
+  StringGadget(#Gadget_Score, 10, 352, 300, 22, "", #PB_String_ReadOnly)
+  ButtonGadget(#Gadget_Reset, 10, 380, 145, 25, "Reset")
+  ButtonGadget(#Gadget_Help, 165, 380, 145, 25, "Help")
   
   ; Game mode selector
-  TextGadget(#PB_Any, 10, 358, 50, 20, "Player 1")
-  ComboBoxGadget(#Gadget_GameMode, 60, 355, 90, 25)
+  TextGadget(#PB_Any, 10, 420, 55, 20, "Player 1")
+  ComboBoxGadget(#Gadget_GameMode, 60, 417, 110, 25)
   AddGadgetItem(#Gadget_GameMode, -1, "vs AI Player")
   AddGadgetItem(#Gadget_GameMode, -1, "vs Player 2")
   SetGadgetState(#Gadget_GameMode, #MODE_VS_AI)
   
   ; Difficulty selector
-  TextGadget(#PB_Any, 10, 392, 60, 20, "Difficulty:")
-  ComboBoxGadget(#Gadget_Difficulty, 70, 390, 80, 25)
+  TextGadget(#PB_Any, 10, 455, 65, 20, "Difficulty:")
+  ComboBoxGadget(#Gadget_Difficulty, 80, 452, 90, 25)
   AddGadgetItem(#Gadget_Difficulty, -1, "Easy")
   AddGadgetItem(#Gadget_Difficulty, -1, "Medium")
   AddGadgetItem(#Gadget_Difficulty, -1, "Hard")
   SetGadgetState(#Gadget_Difficulty, #DIFF_MEDIUM)
   
   ; Power-up mode selector
-  CheckBoxGadget(#Gadget_PowerupMode, 10, 425, 120, 20, "Enable Power-ups")
+  CheckBoxGadget(#Gadget_PowerupMode, 10, 490, 120, 20, "Enable Power-ups")
   
   ; Power-up status
-  TextGadget(#PB_Any, 10, 450, 100, 20, "Power-up Status:")
-  StringGadget(#Gadget_PowerupStatus, 10, 470, 540, 20, "", #PB_String_ReadOnly)
+  TextGadget(#PB_Any, 10, 525, 110, 20, "Power-up Status:")
+  StringGadget(#Gadget_PowerupStatus, 10, 545, 640, 24, "", #PB_String_ReadOnly)
   
   ; Power-up panels
-  TextGadget(#PB_Any, 260, 10, 100, 20, "Player 1 Power-ups:")
-  ListViewGadget(#Gadget_Player1PowerupList, 260, 30, 290, 80)
-  ButtonGadget(#Gadget_UsePowerup1, 260, 115, 290, 25, "Use Selected Power-up")
+  TextGadget(#PB_Any, 330, 20, 140, 20, "Player 1 Power-ups:")
+  ListViewGadget(#Gadget_Player1PowerupList, 330, 45, 320, 80)
+  ButtonGadget(#Gadget_UsePowerup1, 330, 130, 320, 25, "Use Selected Power-up")
   
-  TextGadget(#PB_Any, 260, 150, 100, 20, "Player 2 Power-ups:")
-  ListViewGadget(#Gadget_Player2PowerupList, 260, 170, 290, 80)
-  ButtonGadget(#Gadget_UsePowerup2, 260, 255, 290, 25, "Use Selected Power-up")
+  TextGadget(#PB_Any, 330, 170, 140, 20, "Player 2 Power-ups:")
+  ListViewGadget(#Gadget_Player2PowerupList, 330, 195, 320, 80)
+  ButtonGadget(#Gadget_UsePowerup2, 330, 280, 320, 25, "Use Selected Power-up")
   
   ; Instructions
-  TextGadget(#PB_Any, 260, 285, 290, 180, "Power-up Legend:" + Chr(10) + "Green cells = Shielded" + Chr(10) + "Red cells = Blocked" + 
+  TextGadget(#PB_Any, 330, 320, 320, 195, "Power-up Legend:" + Chr(10) + "Green cells = Shielded" + Chr(10) + "Red cells = Blocked" + 
                                           Chr(10) + "Double Strike = Place 2 symbols" + Chr(10) + "Convert = Convert opponent's symbol" +
-                                          Chr(10) + "Shield = Protect your symbol" + Chr(10) + "Block = Block opponent's next move in a row" +
-                                          Chr(10) + "Rotate = Rotate the entire board 90°" + Chr(10) + "Rewind = Undo the last move" +
-                                          Chr(10) + "Steal = Steal opponent's unused power-up" + Chr(10) + "Bomb = Clear area and place symbol", #PB_Text_Center)
+                                          Chr(10) + "Shield = Protect your symbol" + Chr(10) + "Block = Block one empty cell" +
+                                          Chr(10) + "Rotate = Rotate the entire board 90 deg" + Chr(10) + "Rewind = Undo the last move" +
+                                          Chr(10) + "Steal = Use an opponent power-up" + Chr(10) + "Bomb = Claim the center cell", #PB_Text_Center)
   
   ; Load fonts
-  LoadFont(0, "Arial", 50, #PB_Font_Bold)
-  LoadFont(1, "Arial", 10, #PB_Font_Bold)
-  LoadFont(2, "Arial", 9, #PB_Font_Bold)
-  LoadFont(3, "Arial", 8)
+  LoadFont(0, "Segoe UI", 50, #PB_Font_Bold)
+  LoadFont(1, "Segoe UI", 10, #PB_Font_Bold)
+  LoadFont(2, "Segoe UI", 9, #PB_Font_Bold)
+  LoadFont(3, "Segoe UI", 9)
   
   ; Set gadget fonts
   SetGadgetFont(#Gadget_Status, FontID(1))
   SetGadgetFont(#Gadget_Score, FontID(2))
   SetGadgetFont(#Gadget_PowerupStatus, FontID(2))
+  SetGadgetFont(#Gadget_Reset, FontID(3))
+  SetGadgetFont(#Gadget_Help, FontID(3))
+  SetGadgetFont(#Gadget_GameMode, FontID(3))
+  SetGadgetFont(#Gadget_Difficulty, FontID(3))
+  SetGadgetFont(#Gadget_PowerupMode, FontID(3))
+  SetGadgetFont(#Gadget_Player1PowerupList, FontID(3))
+  SetGadgetFont(#Gadget_Player2PowerupList, FontID(3))
+  SetGadgetFont(#Gadget_UsePowerup1, FontID(3))
+  SetGadgetFont(#Gadget_UsePowerup2, FontID(3))
   
   ; Initialize game
-  DisableGadget(#Gadget_Player1PowerupList, #True)
-  DisableGadget(#Gadget_Player2PowerupList, #True)
-  DisableGadget(#Gadget_UsePowerup1, #True)
-  DisableGadget(#Gadget_UsePowerup2, #True)
+  UpdatePowerupControls()
   
   UpdateScoreDisplay()
   UpdateStatusMessage()
@@ -1221,24 +1532,23 @@ If OpenWindow(#Window_Main, 0, 0, #WINDOW_WIDTH, #WINDOW_HEIGHT, #APP_NAME + " -
     EndSelect
   ForEver
 EndIf
-; IDE Options = PureBasic 6.30 beta 5 (Windows - x64)
-; CursorPosition = 58
-; FirstLine = 48
-; Folding = -----
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 109
+; FirstLine = 87
+; Folding = --------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
-; DPIAware
 ; UseIcon = tictactoe.ico
 ; Executable = ..\TicTacToe.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = TicTacToe
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = A full-featured 2-Player TicTacToe game.
 ; VersionField7 = TicTacToe
 ; VersionField8 = TicTacToe.exe
