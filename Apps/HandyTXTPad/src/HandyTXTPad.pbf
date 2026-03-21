@@ -15,11 +15,25 @@ Enumeration FormGadget
   #Editor1
 EndEnumeration
 
+Enumeration FormStatusBar
+  #StatusBar1
+EndEnumeration
+
 Enumeration FormMenu
   #mnuNew
   #mnuOpen
+  #mnuRecent1
+  #mnuRecent2
+  #mnuRecent3
+  #mnuRecent4
+  #mnuRecent5
   #mnuSave
   #mnuSaveAs
+  #mnuUndo
+  #mnuRedo
+  #mnuCut
+  #mnuCopy
+  #mnuPaste
   #mnuExit
   #mnuAbout
 EndEnumeration
@@ -31,7 +45,19 @@ Declare mnuOpen(Event)
 Declare mnuSave(Event)
 Declare mnuNew(Event)
 Declare mnuSaveAs(Event)
+Declare mnuUndo(Event)
+Declare mnuRedo(Event)
+Declare mnuCut(Event)
+Declare mnuCopy(Event)
+Declare mnuPaste(Event)
 Declare mnuExit(Event)
+Declare UpdateStatusBar()
+Declare HandleEditorChanged()
+Declare HandleWindowDrop()
+Declare OpenRecentFile(Index)
+Declare LoadRecentFiles()
+Declare OpenSelectedFile(FileName$)
+Declare UpdateRecentFilesMenu()
 
 Procedure OpenDlg1(x = 0, y = 0, width = 568, height = 372)
   OpenWindow(#Dlg1, x, y, width, height, "HandyTXTPad", #PB_Window_SystemMenu | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget | #PB_Window_SizeGadget | #PB_Window_ScreenCentered | #PB_Window_WindowCentered | #PB_Window_SystemMenu | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget | #PB_Window_SizeGadget | #PB_Window_ScreenCentered | #PB_Window_WindowCentered)
@@ -39,20 +65,38 @@ Procedure OpenDlg1(x = 0, y = 0, width = 568, height = 372)
   MenuTitle("File")
   MenuItem(#mnuNew, "New")
   MenuItem(#mnuOpen, "Open...")
+  OpenSubMenu("Recent Files")
+    MenuItem(#mnuRecent1, "(Empty)")
+    MenuItem(#mnuRecent2, "(Empty)")
+    MenuItem(#mnuRecent3, "(Empty)")
+    MenuItem(#mnuRecent4, "(Empty)")
+    MenuItem(#mnuRecent5, "(Empty)")
+  CloseSubMenu()
   MenuItem(#mnuSave, "Save")
   MenuItem(#mnuSaveAs, "Save As...")
   MenuBar()
   MenuItem(#mnuExit, "Exit")
+  MenuTitle("Edit")
+  MenuItem(#mnuUndo, "Undo")
+  MenuItem(#mnuRedo, "Redo")
+  MenuBar()
+  MenuItem(#mnuCut, "Cut")
+  MenuItem(#mnuCopy, "Copy")
+  MenuItem(#mnuPaste, "Paste")
   MenuTitle("Help")
   MenuItem(#mnuAbout, "About")
   EditorGadget(#Editor1, 0, 0, 568, 350, #PB_Editor_WordWrap)
+  If CreateStatusBar(#StatusBar1, WindowID(#Dlg1))
+    AddStatusBarField(110)
+    AddStatusBarField(#PB_Ignore)
+  EndIf
 EndProcedure
 
 Procedure ResizeGadgetsDlg1()
   Protected FormWindowWidth, FormWindowHeight
   FormWindowWidth = WindowWidth(#Dlg1)
   FormWindowHeight = WindowHeight(#Dlg1)
-  ResizeGadget(#Editor1, 0, 0, FormWindowWidth - 0, FormWindowHeight - MenuHeight() - 5)
+  ResizeGadget(#Editor1, 0, 0, FormWindowWidth, FormWindowHeight - MenuHeight() - StatusBarHeight(#StatusBar1))
 EndProcedure
 
 Procedure Dlg1_Events(event)
@@ -62,16 +106,39 @@ Procedure Dlg1_Events(event)
     Case #PB_Event_CloseWindow
       ProcedureReturn #False
 
+    Case #PB_Event_WindowDrop
+      HandleWindowDrop()
+
     Case #PB_Event_Menu
       Select EventMenu()
         Case #mnuNew
           mnuNew(EventMenu())
         Case #mnuOpen
           mnuOpen(EventMenu())
+        Case #mnuRecent1
+          OpenRecentFile(0)
+        Case #mnuRecent2
+          OpenRecentFile(1)
+        Case #mnuRecent3
+          OpenRecentFile(2)
+        Case #mnuRecent4
+          OpenRecentFile(3)
+        Case #mnuRecent5
+          OpenRecentFile(4)
         Case #mnuSave
           mnuSave(EventMenu())
         Case #mnuSaveAs
           mnuSaveAs(EventMenu())
+        Case #mnuUndo
+          mnuUndo(EventMenu())
+        Case #mnuRedo
+          mnuRedo(EventMenu())
+        Case #mnuCut
+          mnuCut(EventMenu())
+        Case #mnuCopy
+          mnuCopy(EventMenu())
+        Case #mnuPaste
+          mnuPaste(EventMenu())
         Case #mnuExit
           mnuExit(EventMenu())
         Case #mnuAbout
@@ -80,6 +147,8 @@ Procedure Dlg1_Events(event)
 
     Case #PB_Event_Gadget
       Select EventGadget()
+        Case #Editor1
+          HandleEditorChanged()
       EndSelect
   EndSelect
   ProcedureReturn #True
