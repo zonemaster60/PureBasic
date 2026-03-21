@@ -11,7 +11,7 @@ EnableExplicit
 #CHANNELS = 1
 #APP_NAME = "Game_Sndfx_Gen"
 
-Global version.s = "v1.0.0.1"
+Global version.s = "v1.0.0.2"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -59,6 +59,9 @@ Structure SoundParams
 EndStructure
 
 Declare StopPlayback()
+Declare CleanupAndExit()
+Declare SetStatus(text.s)
+Declare UpdateActionButtons(hasEffect.i, isPlaying.i)
 Declare.i CreateWaveFile(filename.s, *effect.SoundEffect)
 Declare GenerateExplosion(*effect.SoundEffect, *params.SoundParams)
 Declare GenerateLaser(*effect.SoundEffect, *params.SoundParams)
@@ -77,15 +80,22 @@ Declare GenerateBounce(*effect.SoundEffect, *params.SoundParams)
 Declare GenerateGameOver(*effect.SoundEffect, *params.SoundParams)
 
 ; Exit procedure
+Procedure CleanupAndExit()
+  StopPlayback()
+
+  If hMutex
+    CloseHandle_(hMutex)
+    hMutex = 0
+  EndIf
+
+  End
+EndProcedure
+
 Procedure ConfirmExit()
   Protected Req.i
   Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
   If Req = #PB_MessageRequester_Yes
-    If hMutex
-      CloseHandle_(hMutex)
-      hMutex = 0
-    EndIf
-    End
+    CleanupAndExit()
   EndIf
 EndProcedure
 
@@ -104,7 +114,7 @@ Procedure.f RandomFloat(min.f, max.f)
 EndProcedure
 
 Procedure.f Envelope(t.f, attack.f, decay.f, sustain.f, release.f, duration.f)
-  Protected totalADR.f = attack + decay + release
+  Protected totalADR.f
 
   If duration <= 0.0
     ProcedureReturn 0.0
@@ -114,6 +124,8 @@ Procedure.f Envelope(t.f, attack.f, decay.f, sustain.f, release.f, duration.f)
   If attack < 0.0 : attack = 0.0 : EndIf
   If decay < 0.0  : decay = 0.0  : EndIf
   If release < 0.0: release = 0.0: EndIf
+
+  totalADR = attack + decay + release
 
   If totalADR > duration
     If totalADR > 0.0
@@ -469,11 +481,24 @@ Procedure NormalizeEffect(*effect.SoundEffect)
   Protected i.i
   Protected.f maxAmp = 0.0
   Protected.f currentAbs
-  
+  Protected.d sum = 0.0
+  Protected.f mean = 0.0
+
   If *effect\numSamples <= 0
     ProcedureReturn
   EndIf
-  
+
+  For i = 0 To *effect\numSamples - 1
+    sum + *effect\samples(i)
+  Next
+
+  mean = sum / *effect\numSamples
+  If Abs(mean) > 0.000001
+    For i = 0 To *effect\numSamples - 1
+      *effect\samples(i) - mean
+    Next
+  EndIf
+
   ; Find maximum amplitude
   For i = 0 To *effect\numSamples - 1
     currentAbs = Abs(*effect\samples(i))
@@ -492,7 +517,7 @@ Procedure NormalizeEffect(*effect.SoundEffect)
 EndProcedure
 
 Procedure.i CreateWaveFile(filename.s, *effect.SoundEffect)
-  Protected file
+  Protected file.i
   Protected.WaveHeader header
   Protected.w sample16
   Protected numSamples = *effect\numSamples
@@ -572,6 +597,26 @@ Global.SoundParams params
 Global sound = -1
 Global tempSoundFile.s
 
+Procedure SetStatus(text.s)
+  If IsGadget(#TextStatus)
+    SetGadgetText(#TextStatus, text)
+  EndIf
+EndProcedure
+
+Procedure UpdateActionButtons(hasEffect.i, isPlaying.i)
+  If IsGadget(#ButtonSave)
+    DisableGadget(#ButtonSave, Bool(hasEffect = 0))
+  EndIf
+
+  If IsGadget(#ButtonPlay)
+    DisableGadget(#ButtonPlay, Bool(hasEffect = 0 Or isPlaying <> 0))
+  EndIf
+
+  If IsGadget(#ButtonStop)
+    DisableGadget(#ButtonStop, Bool(isPlaying = 0))
+  EndIf
+EndProcedure
+
 Procedure UpdateControls()
   Protected selectedItem = GetGadgetState(#ListEffect)
   Protected showFrequency = #False
@@ -597,16 +642,8 @@ Procedure UpdateControls()
   Else
     DisableGadget(#ButtonGenerate, #True)
   EndIf
-  
-  If currentEffect\numSamples > 0
-    DisableGadget(#ButtonSave, #False)
-    DisableGadget(#ButtonPlay, #False)
-    DisableGadget(#ButtonStop, #False)
-  Else
-    DisableGadget(#ButtonSave, #True)
-    DisableGadget(#ButtonPlay, #True)
-    DisableGadget(#ButtonStop, #True)
-  EndIf
+
+  UpdateActionButtons(Bool(currentEffect\numSamples > 0), Bool(sound >= 0))
 EndProcedure
 
 Procedure RandomizeParameters()
@@ -623,6 +660,12 @@ EndProcedure
 Procedure GenerateCurrentEffect()
   Protected selectedItem = GetGadgetState(#ListEffect)
 
+  If selectedItem < 0
+    SetStatus("Select an effect first")
+    UpdateControls()
+    ProcedureReturn
+  EndIf
+
   params\duration = GetGadgetState(#SpinDuration) / 100.0
   params\frequency = GetGadgetState(#SpinFrequency)
   params\pitch = GetGadgetState(#SpinPitch) / 100.0
@@ -634,6 +677,7 @@ Procedure GenerateCurrentEffect()
 
   ; Defensive validation (don’t rely only on gadget min/max).
   params\duration = Clamp(params\duration, 0.01, 60.0)
+  params\frequency = Clamp(params\frequency, 20.0, 20000.0)
   params\pitch = Clamp(params\pitch, 0.01, 10.0)
   params\speed = Clamp(params\speed, 0.01, 10.0)
   params\sustain = Clamp(params\sustain, 0.0, 1.0)
@@ -644,7 +688,7 @@ Procedure GenerateCurrentEffect()
   
   StopPlayback()
   
-  SetGadgetText(#TextStatus, "Generating sound effect...")
+  SetStatus("Generating sound effect...")
   
   Select selectedItem
     Case 0
@@ -680,26 +724,39 @@ Procedure GenerateCurrentEffect()
   EndSelect
   
   NormalizeEffect(@currentEffect)
-  
-  SetGadgetText(#TextStatus, "Generated: " + currentEffect\name + " (" + StrF(currentEffect\duration, 2) + "s, " + Str(currentEffect\numSamples) + " samples)")
+  currentEffect\duration = currentEffect\numSamples / #SAMPLE_RATE
+
+  If currentEffect\numSamples > 0
+    SetStatus("Generated: " + currentEffect\name + " (" + StrF(currentEffect\duration, 2) + "s, " + Str(currentEffect\numSamples) + " samples)")
+  Else
+    SetStatus("Error: generation produced no audio")
+  EndIf
+
   UpdateControls()
 EndProcedure
 
 Procedure SaveCurrentEffect()
   Protected filename.s = SaveFileRequester("Save Sound Effect", "sound_effect.wav", "Wave Files (*.wav)|*.wav", 0)
+
+  If currentEffect\numSamples <= 0
+    SetStatus("Generate an effect first")
+    ProcedureReturn
+  EndIf
   
   If filename
     If CreateWaveFile(filename, @currentEffect)
-      SetGadgetText(#TextStatus, "Saved: " + filename)
+      SetStatus("Saved: " + filename)
       MessageRequester("Success", "Sound effect saved successfully!", #PB_MessageRequester_Ok)
     Else
-      SetGadgetText(#TextStatus, "Error: Failed to save file")
+      SetStatus("Error: Failed to save file")
       MessageRequester("Error", "Failed to save sound effect!", #PB_MessageRequester_Error)
     EndIf
   EndIf
 EndProcedure
 
 Procedure StopPlayback()
+  Protected hadPlayback.i = Bool(sound >= 0 Or tempSoundFile <> "")
+
   If sound >= 0
     StopSound(sound)
     FreeSound(sound)
@@ -711,12 +768,20 @@ Procedure StopPlayback()
     tempSoundFile = ""
   EndIf
 
-  SetGadgetText(#TextStatus, "Stopped")
+  If hadPlayback
+    SetStatus("Stopped")
+  EndIf
   UpdateControls()
 EndProcedure
 
 Procedure PlayCurrentEffect()
   Protected tempFile.s
+
+  If currentEffect\numSamples <= 0
+    UpdateActionButtons(#False, #False)
+    SetStatus("Generate an effect first")
+    ProcedureReturn
+  EndIf
 
   tempFile = GetTemporaryDirectory() + #APP_NAME + "_" + Str(Date()) + "_" + Str(Random(1000000)) + ".wav"
 
@@ -728,11 +793,16 @@ Procedure PlayCurrentEffect()
     If sound >= 0
       tempSoundFile = tempFile
       PlaySound(sound)
-      SetGadgetText(#TextStatus, "Playing: " + currentEffect\name)
+      UpdateActionButtons(#True, #True)
+      SetStatus("Playing: " + currentEffect\name)
     Else
       DeleteFile(tempFile)
-      SetGadgetText(#TextStatus, "Error: Failed to load sound")
+      UpdateActionButtons(#True, #False)
+      SetStatus("Error: Failed to load sound")
     EndIf
+  Else
+    UpdateActionButtons(#True, #False)
+    SetStatus("Error: Failed to create WAV")
   EndIf
 EndProcedure
 
@@ -818,9 +888,7 @@ If InitSound()
   TextGadget(#TextStatus, 20, 545, 750, 40, "Ready. Select a sound effect and adjust parameters, then click Generate.")
   
   DisableGadget(#ButtonGenerate, #True)
-  DisableGadget(#ButtonSave, #True)
-  DisableGadget(#ButtonPlay, #True)
-  DisableGadget(#ButtonStop, #True)
+  UpdateActionButtons(#False, #False)
   
   Define event
   
@@ -861,11 +929,16 @@ Else
   MessageRequester("Error", "Failed to initialize sound system!", #PB_MessageRequester_Error)
 EndIf
 
+If hMutex
+  CloseHandle_(hMutex)
+  hMutex = 0
+EndIf
+
 End
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 13
-; Folding = -----
+; Folding = ------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -874,12 +947,12 @@ End
 ; UseIcon = game_sndfx_gen.ico
 ; Executable = ..\Game_Sndfx_Gen.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = Game_Sndfx_Gen
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
 ; VersionField6 = A configurable Sound Effects generator
 ; VersionField7 = Game_Sndfx_Gen
 ; VersionField8 = Game_Sndfx_Gen.exe

@@ -11,7 +11,7 @@ EnableExplicit
 #MAX_COLORS = 16
 #APP_NAME = "Game_Sprite_Gen"
 
-Global version.s = "v1.0.0.1"
+Global version.s = "v1.0.0.2"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -102,6 +102,7 @@ Global.SpriteData currentSprite
 Global.ColorPalette currentPalette
 Global Dim themePalettes.ColorPalette(20)
 Global randomSeed.l
+Global hasGeneratedSprite.i
 Global NewList typeIds.l()
 
 Declare GenerateSpaceShip(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
@@ -160,18 +161,42 @@ Declare SetPixel(*sprite.SpriteData, x.l, y.l, color.l)
 Declare.l GetPixel(*sprite.SpriteData, x.l, y.l)
 Declare DrawRectangle(*sprite.SpriteData, x.l, y.l, w.l, h.l, color.l)
 Declare DrawCircle(*sprite.SpriteData, cx.l, cy.l, radius.l, color.l)
+Declare CleanupAndExit()
+Declare SetStatus(text.s)
+Declare UpdateExportButtons(hasSprite.i)
 
 
 ; Exit procedure
+Procedure CleanupAndExit()
+  If hMutex
+    CloseHandle_(hMutex)
+    hMutex = 0
+  EndIf
+
+  End
+EndProcedure
+
 Procedure ConfirmExit()
   Protected Req.i
   Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
   If Req = #PB_MessageRequester_Yes
-    If hMutex
-      CloseHandle_(hMutex)
-      hMutex = 0
-    EndIf
-    End
+    CleanupAndExit()
+  EndIf
+EndProcedure
+
+Procedure SetStatus(text.s)
+  If IsGadget(#TextStatus)
+    SetGadgetText(#TextStatus, text)
+  EndIf
+EndProcedure
+
+Procedure UpdateExportButtons(hasSprite.i)
+  If IsGadget(#ButtonSave)
+    DisableGadget(#ButtonSave, Bool(hasSprite = 0))
+  EndIf
+
+  If IsGadget(#ButtonExport)
+    DisableGadget(#ButtonExport, Bool(hasSprite = 0))
   EndIf
 EndProcedure
 
@@ -193,6 +218,10 @@ EndProcedure
 
 Procedure ClearSprite(*sprite.SpriteData)
   Protected x, y
+
+  *sprite\width = #SPRITE_SIZE
+  *sprite\height = #SPRITE_SIZE
+  *sprite\name = ""
   
   For y = 0 To #SPRITE_SIZE - 1
     For x = 0 To #SPRITE_SIZE - 1
@@ -1235,9 +1264,9 @@ Procedure GenerateRocket(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, 
   
   ; Nose cone
   Protected i
-  For i = 0 To 4
-    DrawRectangle(*sprite, 14 + i, 4 + i, 4 - i * 2, 1, noseColor)
-  Next
+  DrawRectangle(*sprite, 14, 4, 4, 1, noseColor)
+  DrawRectangle(*sprite, 15, 5, 2, 1, noseColor)
+  SetPixel(*sprite, 16, 6, noseColor)
   
   ; Fins
   For i = 0 To 3
@@ -2377,6 +2406,16 @@ Procedure GenerateCurrentSprite()
   Protected outline = GetGadgetState(#CheckOutline)
   Protected complexity = GetGadgetState(#SpinComplexity)
   Protected seedText.s = GetGadgetText(#StringSeed)
+
+  If theme < 0 Or theme > 7
+    SetStatus("Select a theme first")
+    ProcedureReturn
+  EndIf
+
+  If selectedIndex < 0
+    SetStatus("Select a sprite type first")
+    ProcedureReturn
+  EndIf
   
   If seedText <> ""
     randomSeed = Val(seedText)
@@ -2483,23 +2522,29 @@ Procedure GenerateCurrentSprite()
   If outline
     AddOutline(@currentSprite, RGB2(0, 0, 0))
   EndIf
+
+  hasGeneratedSprite = #True
   
   DrawSpritePreview()
   
-  SetGadgetText(#TextStatus, "Generated: " + currentSprite\name + " (Seed: " + Str(randomSeed) + ")")
-  DisableGadget(#ButtonSave, #False)
-  DisableGadget(#ButtonExport, #False)
+  SetStatus("Generated: " + currentSprite\name + " (Seed: " + Str(randomSeed) + ")")
+  UpdateExportButtons(#True)
 EndProcedure
 
 Procedure SaveCurrentSprite()
   Protected filename.s = SaveFileRequester("Save Sprite", "sprite.png", "PNG Images (*.png)|*.png", 0)
+
+  If hasGeneratedSprite = 0
+    SetStatus("Generate a sprite first")
+    ProcedureReturn
+  EndIf
   
   If filename
     If SaveSpritePNG(filename, @currentSprite)
-      SetGadgetText(#TextStatus, "Saved: " + filename)
+      SetStatus("Saved: " + filename)
       MessageRequester("Success", "Sprite saved successfully!", #PB_MessageRequester_Ok)
     Else
-      SetGadgetText(#TextStatus, "Error: Failed to save file")
+      SetStatus("Error: Failed to save file")
       MessageRequester("Error", "Failed to save sprite!", #PB_MessageRequester_Error)
     EndIf
   EndIf
@@ -2508,10 +2553,13 @@ EndProcedure
 Procedure.l SaveSpritePNG(filename.s, *sprite.SpriteData)
   Protected img, x, y, color
   
-  img = CreateImage(#PB_Any, #SPRITE_SIZE, #SPRITE_SIZE, 32, RGB2(0, 0, 0))
+  img = CreateImage(#PB_Any, #SPRITE_SIZE, #SPRITE_SIZE, 32, RGBA(0, 0, 0, 0))
   
   If img
-    StartDrawing(ImageOutput(img))
+    If StartDrawing(ImageOutput(img)) = 0
+      FreeImage(img)
+      ProcedureReturn #False
+    EndIf
     
     For y = 0 To #SPRITE_SIZE - 1
       For x = 0 To #SPRITE_SIZE - 1
@@ -2526,7 +2574,11 @@ Procedure.l SaveSpritePNG(filename.s, *sprite.SpriteData)
     
     StopDrawing()
     
-    SaveImage(img, filename, #PB_ImagePlugin_PNG)
+    If SaveImage(img, filename, #PB_ImagePlugin_PNG) = 0
+      FreeImage(img)
+      ProcedureReturn #False
+    EndIf
+
     FreeImage(img)
     ProcedureReturn #True
   EndIf
@@ -2537,11 +2589,21 @@ EndProcedure
 Procedure ExportSpriteLarge()
   Protected filename.s = SaveFileRequester("Export Sprite", "sprite_large.png", "PNG Images (*.png)|*.png", 0)
   Protected imgLarge, x, y, color
+
+  If hasGeneratedSprite = 0
+    SetStatus("Generate a sprite first")
+    ProcedureReturn
+  EndIf
   
   If filename
-    imgLarge = CreateImage(#PB_Any, 256, 256, 32)
+    imgLarge = CreateImage(#PB_Any, 256, 256, 32, RGBA(0, 0, 0, 0))
     If imgLarge
-      StartDrawing(ImageOutput(imgLarge))
+      If StartDrawing(ImageOutput(imgLarge)) = 0
+        FreeImage(imgLarge)
+        SetStatus("Error: Failed to prepare export image")
+        ProcedureReturn
+      EndIf
+
       For y = 0 To #SPRITE_SIZE - 1
         For x = 0 To #SPRITE_SIZE - 1
           color = GetPixel(@currentSprite, x, y)
@@ -2553,10 +2615,20 @@ Procedure ExportSpriteLarge()
         Next
       Next
       StopDrawing()
-      SaveImage(imgLarge, filename, #PB_ImagePlugin_PNG)
+
+      If SaveImage(imgLarge, filename, #PB_ImagePlugin_PNG) = 0
+        FreeImage(imgLarge)
+        SetStatus("Error: Failed to export file")
+        MessageRequester("Error", "Failed to export sprite!", #PB_MessageRequester_Error)
+        ProcedureReturn
+      EndIf
+
       FreeImage(imgLarge)
-      SetGadgetText(#TextStatus, "Exported: " + filename)
+      SetStatus("Exported: " + filename)
       MessageRequester("Success", "Sprite exported successfully!", #PB_MessageRequester_Ok)
+    Else
+      SetStatus("Error: Failed to create export image")
+      MessageRequester("Error", "Failed to create export image!", #PB_MessageRequester_Error)
     EndIf
   EndIf
 EndProcedure
@@ -2706,8 +2778,7 @@ If InitSprite()
   FrameGadget(#PB_Any, 10, 470, 670, 120, "Status")
   TextGadget(#TextStatus, 20, 495, 650, 85, "Ready. Select a theme and sprite type, then click Generate.")
   
-  DisableGadget(#ButtonSave, #True)
-  DisableGadget(#ButtonExport, #True)
+  UpdateExportButtons(#False)
   
   ; Initialize preview
   currentSprite\width = #SPRITE_SIZE
@@ -2749,25 +2820,29 @@ Else
   MessageRequester("Error", "Failed to initialize sprite system!", #PB_MessageRequester_Error)
 EndIf
 
+If hMutex
+  CloseHandle_(hMutex)
+  hMutex = 0
+EndIf
+
 End
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 13
-; Folding = ----------
+; Folding = -----------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
-; DPIAware
 ; UseIcon = game_sprite_gen.ico
 ; Executable = ..\Game_Sprite_Gen.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = Game_Sprite_Gen
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
 ; VersionField6 = A configurable game sprite generator
 ; VersionField7 = Game_Sprite_Gen
 ; VersionField8 = Game_Sprite_Gen.exe

@@ -136,10 +136,7 @@ Procedure OpenAppWindow()
     FrameGadget(#PB_Any, 10, 575, 800, 65, "Status")
     TextGadget(#TextStatus, 20, 595, 780, 40, "Ready. Click Generate to create a loop.")
 
-    DisableGadget(#ButtonPlay, #True)
-    DisableGadget(#ButtonStop, #True)
-    DisableGadget(#ButtonSaveWav, #True)
-    DisableGadget(#ButtonSaveMidi, #True)
+    UpdateActionButtons(#False, #False)
     
     ProcedureReturn #True
   EndIf

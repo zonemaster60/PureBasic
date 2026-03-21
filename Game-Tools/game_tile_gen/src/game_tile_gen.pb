@@ -12,7 +12,7 @@ EnableExplicit
 #MAX_COLORS = 16
 #APP_NAME = "Game_Tile_Gen"
 
-Global version.s = "v1.0.0.1"
+Global version.s = "v1.0.0.2"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -67,6 +67,7 @@ Global.TileData currentTile
 Global.ColorPalette currentPalette
 Global Dim palettes.ColorPalette(10)
 Global randomSeed.l
+Global hasGeneratedTile.i
 Global NewList tileTypeIds.l()
 
 Declare InitializePalettes()
@@ -79,16 +80,41 @@ Declare ExportTileset()
 Declare.l SaveTilePNG(filename.s, *tile.TileData)
 Declare.l SaveTilesetPNG(filename.s)
 Declare.l SaveTsx(filename.s, imageFilename.s)
+Declare.i Clamp(value.i, minVal.i, maxVal.i)
+Declare CleanupAndExit()
+Declare SetStatus(text.s)
+Declare UpdateExportButtons(hasTile.i)
+
+Procedure CleanupAndExit()
+  If hMutex
+    CloseHandle_(hMutex)
+    hMutex = 0
+  EndIf
+
+  End
+EndProcedure
 
 Procedure ConfirmExit()
   Protected Req.i
   Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
   If Req = #PB_MessageRequester_Yes
-    If hMutex
-      CloseHandle_(hMutex)
-      hMutex = 0
-    EndIf
-    End
+    CleanupAndExit()
+  EndIf
+EndProcedure
+
+Procedure SetStatus(text.s)
+  If IsGadget(#TextStatus)
+    SetGadgetText(#TextStatus, text)
+  EndIf
+EndProcedure
+
+Procedure UpdateExportButtons(hasTile.i)
+  If IsGadget(#ButtonSaveTile)
+    DisableGadget(#ButtonSaveTile, Bool(hasTile = 0))
+  EndIf
+
+  If IsGadget(#ButtonExportTileset)
+    DisableGadget(#ButtonExportTileset, Bool(hasTile = 0))
   EndIf
 EndProcedure
 
@@ -105,6 +131,10 @@ EndProcedure
 
 Procedure ClearTile(*tile.TileData)
   Protected x, y
+
+  *tile\width = #TILE_SIZE
+  *tile\height = #TILE_SIZE
+  *tile\name = ""
 
   For y = 0 To #TILE_SIZE - 1
     For x = 0 To #TILE_SIZE - 1
@@ -296,9 +326,13 @@ EndProcedure
 Procedure.l SaveTilePNG(filename.s, *tile.TileData)
   Protected img, x, y, color
 
-  img = CreateImage(#PB_Any, #TILE_SIZE, #TILE_SIZE, 32)
+  img = CreateImage(#PB_Any, #TILE_SIZE, #TILE_SIZE, 32, RGBA(0, 0, 0, 0))
   If img
-    StartDrawing(ImageOutput(img))
+    If StartDrawing(ImageOutput(img)) = 0
+      FreeImage(img)
+      ProcedureReturn #False
+    EndIf
+
     For y = 0 To #TILE_SIZE - 1
       For x = 0 To #TILE_SIZE - 1
         color = GetPixel(*tile, x, y)
@@ -311,7 +345,11 @@ Procedure.l SaveTilePNG(filename.s, *tile.TileData)
     Next
     StopDrawing()
 
-    SaveImage(img, filename, #PB_ImagePlugin_PNG)
+    If SaveImage(img, filename, #PB_ImagePlugin_PNG) = 0
+      FreeImage(img)
+      ProcedureReturn #False
+    EndIf
+
     FreeImage(img)
     ProcedureReturn #True
   EndIf
@@ -344,15 +382,21 @@ Procedure.l SaveTilesetPNG(filename.s)
   symmetry = GetGadgetState(#CheckSymmetry)
   outline = GetGadgetState(#CheckOutline)
 
+  paletteIndex = Clamp(paletteIndex, 0, ArraySize(palettes()))
+
   tilesetW = #TILE_SIZE * 16
   tilesetH = #TILE_SIZE * 4
 
-  img = CreateImage(#PB_Any, tilesetW, tilesetH, 32)
+  img = CreateImage(#PB_Any, tilesetW, tilesetH, 32, RGBA(0, 0, 0, 0))
   If img = 0
     ProcedureReturn #False
   EndIf
 
-  StartDrawing(ImageOutput(img))
+  If StartDrawing(ImageOutput(img)) = 0
+    FreeImage(img)
+    ProcedureReturn #False
+  EndIf
+
   Box(0, 0, tilesetW, tilesetH, RGBA(0, 0, 0, 0))
 
   For tileType = 0 To 3
@@ -381,10 +425,23 @@ Procedure.l SaveTilesetPNG(filename.s)
 
   StopDrawing()
 
-  SaveImage(img, filename, #PB_ImagePlugin_PNG)
+  If SaveImage(img, filename, #PB_ImagePlugin_PNG) = 0
+    FreeImage(img)
+    ProcedureReturn #False
+  EndIf
+
   FreeImage(img)
 
   ProcedureReturn #True
+EndProcedure
+
+Procedure.i Clamp(value.i, minVal.i, maxVal.i)
+  If value < minVal
+    ProcedureReturn minVal
+  ElseIf value > maxVal
+    ProcedureReturn maxVal
+  EndIf
+  ProcedureReturn value
 EndProcedure
 
 Procedure.l SaveTsx(filename.s, imageFilename.s)
@@ -511,13 +568,18 @@ Procedure GenerateCurrentTile()
   paletteIndex = GetGadgetState(#ListPalette)
   typeIndex = GetGadgetState(#ListTileType)
 
+  paletteIndex = Clamp(paletteIndex, 0, ArraySize(palettes()))
+
   If typeIndex < 0
-    SetGadgetText(#TextStatus, "Select a tile type first.")
+    SetStatus("Select a tile type first.")
     ProcedureReturn
   EndIf
 
   ResetList(tileTypeIds())
-  SelectElement(tileTypeIds(), typeIndex)
+  If SelectElement(tileTypeIds(), typeIndex) = 0
+    SetStatus("Select a valid tile type")
+    ProcedureReturn
+  EndIf
   tileType = tileTypeIds()
 
   symmetry = GetGadgetState(#CheckSymmetry)
@@ -538,21 +600,27 @@ Procedure GenerateCurrentTile()
     AddOutline(@currentTile, RGB2(0, 0, 0))
   EndIf
 
+  hasGeneratedTile = #True
+
   DrawTilePreview()
-  SetGadgetText(#TextStatus, "Generated: " + currentTile\name + " (Seed: " + Str(randomSeed) + ")")
-  DisableGadget(#ButtonSaveTile, #False)
-  DisableGadget(#ButtonExportTileset, #False)
+  SetStatus("Generated: " + currentTile\name + " (Seed: " + Str(randomSeed) + ")")
+  UpdateExportButtons(#True)
 EndProcedure
 
 Procedure SaveCurrentTile()
   Protected filename.s = SaveFileRequester("Save Tile", "tile.png", "PNG Images (*.png)|*.png", 0)
 
+  If hasGeneratedTile = 0
+    SetStatus("Generate a tile first")
+    ProcedureReturn
+  EndIf
+
   If filename
     If SaveTilePNG(filename, @currentTile)
-      SetGadgetText(#TextStatus, "Saved: " + filename)
+      SetStatus("Saved: " + filename)
       MessageRequester("Success", "Tile saved successfully!", #PB_MessageRequester_Ok)
     Else
-      SetGadgetText(#TextStatus, "Error: Failed to save file")
+      SetStatus("Error: Failed to save file")
       MessageRequester("Error", "Failed to save tile!", #PB_MessageRequester_Error)
     EndIf
   EndIf
@@ -562,24 +630,29 @@ Procedure ExportTileset()
   Protected filenamePng.s = SaveFileRequester("Export Tileset Image", "tileset.png", "PNG Images (*.png)|*.png", 0)
   Protected filenameTsx.s
 
+  If hasGeneratedTile = 0
+    SetStatus("Generate a tile first")
+    ProcedureReturn
+  EndIf
+
   If filenamePng = ""
     ProcedureReturn
   EndIf
 
   If SaveTilesetPNG(filenamePng) = 0
-    SetGadgetText(#TextStatus, "Error: Failed to export PNG")
+    SetStatus("Error: Failed to export PNG")
     MessageRequester("Error", "Failed to export tileset PNG!", #PB_MessageRequester_Error)
     ProcedureReturn
   EndIf
 
   filenameTsx = GetPathPart(filenamePng) + GetFilePart(filenamePng, #PB_FileSystem_NoExtension) + ".tsx"
   If SaveTsx(filenameTsx, filenamePng) = 0
-    SetGadgetText(#TextStatus, "Exported PNG, but TSX failed: " + filenamePng)
+    SetStatus("Exported PNG, but TSX failed: " + filenamePng)
     MessageRequester("Warning", "Tileset PNG exported, but TSX creation failed.", #PB_MessageRequester_Ok)
     ProcedureReturn
   EndIf
 
-  SetGadgetText(#TextStatus, "Exported: " + filenamePng + " + " + filenameTsx)
+  SetStatus("Exported: " + filenamePng + " + " + filenameTsx)
   MessageRequester("Success", "Tileset exported for Tiled (PNG + TSX).", #PB_MessageRequester_Ok)
 EndProcedure
 
@@ -631,8 +704,7 @@ If InitSprite()
   FrameGadget(#PB_Any, 10, 420, 690, 130, "Status")
   TextGadget(#TextStatus, 20, 445, 670, 95, "Ready. Select a palette and tile type, then click Generate.")
 
-  DisableGadget(#ButtonSaveTile, #True)
-  DisableGadget(#ButtonExportTileset, #True)
+  UpdateExportButtons(#False)
 
   currentTile\width = #TILE_SIZE
   currentTile\height = #TILE_SIZE
@@ -669,6 +741,11 @@ Else
   MessageRequester("Error", "Failed to initialize sprite system!", #PB_MessageRequester_Error)
 EndIf
 
+If hMutex
+  CloseHandle_(hMutex)
+  hMutex = 0
+EndIf
+
 End
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
@@ -682,12 +759,12 @@ End
 ; UseIcon = game_tile_gen.ico
 ; Executable = ..\Game_Tile_Gen.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = Game_Tile_Gen
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
 ; VersionField6 = A configurable game tile generator
 ; VersionField7 = Game_Tile_Gen
 ; VersionField8 = Game_Tile_Gen.exe

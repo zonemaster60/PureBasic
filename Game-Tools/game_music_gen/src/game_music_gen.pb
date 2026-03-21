@@ -11,7 +11,7 @@ EnableExplicit
 #CHANNELS = 1
 #APP_NAME = "Game_Music_Gen"
 
-Global version.s = "v1.0.0.1"
+Global version.s = "v1.0.0.2"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -149,6 +149,9 @@ Global sound = -1
 Global tempSoundFile.s
 
 Declare StopPlayback()
+Declare CleanupAndExit()
+Declare SetStatus(text.s)
+Declare UpdateActionButtons(hasMusic.i, isPlaying.i)
 Declare.i CreateWaveFile(filename.s, *clip.MusicClip)
 Declare.i CreateMidiFile(filename.s, *clip.MusicClip)
 Declare GenerateMusic(*clip.MusicClip, *params.MusicParams)
@@ -159,14 +162,21 @@ Declare SaveCurrentMidi()
 Declare OpenAppWindow()
 Declare RunEventLoop()
 
+Procedure CleanupAndExit()
+  StopPlayback()
+
+  If hMutex
+    CloseHandle_(hMutex)
+    hMutex = 0
+  EndIf
+
+  End
+EndProcedure
+
 Procedure ConfirmExit()
   Protected req.i = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
   If req = #PB_MessageRequester_Yes
-    If hMutex
-      CloseHandle_(hMutex)
-      hMutex = 0
-    EndIf
-    End
+    CleanupAndExit()
   EndIf
 EndProcedure
 
@@ -178,6 +188,11 @@ Procedure.f Clamp(value.f, minVal.f, maxVal.f)
   Else
     ProcedureReturn value
   EndIf
+EndProcedure
+
+Procedure.f SoftClip(value.f, drive.f)
+  drive = Clamp(drive, 0.0, 1.0)
+  ProcedureReturn (value * (1.0 + drive)) / (1.0 + drive * Abs(value))
 EndProcedure
 
 Procedure.i ClampI(value.i, minVal.i, maxVal.i)
@@ -224,14 +239,24 @@ EndStructure
 
 Procedure.f GetAdsr(time.f, duration.f, *adsr.Adsr)
   Protected t.f
-  If time < *adsr\attack
+  If *adsr\attack <= 0.0
+    If time <= 0.0
+      ProcedureReturn 1.0
+    EndIf
+  ElseIf time < *adsr\attack
     ProcedureReturn time / *adsr\attack
   ElseIf time < *adsr\attack + *adsr\decay
+    If *adsr\decay <= 0.0
+      ProcedureReturn *adsr\sustain
+    EndIf
     t = (time - *adsr\attack) / *adsr\decay
     ProcedureReturn 1.0 - t * (1.0 - *adsr\sustain)
   ElseIf time < duration - *adsr\release
     ProcedureReturn *adsr\sustain
   ElseIf time < duration
+    If *adsr\release <= 0.0
+      ProcedureReturn 0.0
+    EndIf
     t = (time - (duration - *adsr\release)) / *adsr\release
     ProcedureReturn *adsr\sustain * (1.0 - t)
   Else
@@ -250,6 +275,30 @@ Procedure.f OnePoleLPF(in.f, *state.Float, cutoffHz.f)
   ProcedureReturn *state\f
 EndProcedure
 
+Procedure SetStatus(text.s)
+  If IsGadget(#TextStatus)
+    SetGadgetText(#TextStatus, text)
+  EndIf
+EndProcedure
+
+Procedure UpdateActionButtons(hasMusic.i, isPlaying.i)
+  If IsGadget(#ButtonPlay)
+    DisableGadget(#ButtonPlay, Bool(hasMusic = 0 Or isPlaying <> 0))
+  EndIf
+
+  If IsGadget(#ButtonStop)
+    DisableGadget(#ButtonStop, Bool(isPlaying = 0))
+  EndIf
+
+  If IsGadget(#ButtonSaveWav)
+    DisableGadget(#ButtonSaveWav, Bool(hasMusic = 0))
+  EndIf
+
+  If IsGadget(#ButtonSaveMidi)
+    DisableGadget(#ButtonSaveMidi, Bool(hasMusic = 0))
+  EndIf
+EndProcedure
+
 IncludeFile "includes/midi_gen.pbi"
 IncludeFile "includes/wave_gen.pbi"
 IncludeFile "includes/ui_gen.pbi"
@@ -265,6 +314,9 @@ Procedure.f StateVariableFilter(*state.FilterState, in.f, cutoffHz.f, resonance.
   ; cutoffHz: 20 to 20000
   ; resonance: 0.0 to 1.0 (0.0 = no resonance, 1.0 = self-oscillation)
   
+  cutoffHz = Clamp(cutoffHz, 20.0, (#SAMPLE_RATE / 2.0) - 100.0)
+  resonance = Clamp(resonance, 0.0, 0.99)
+
   Protected f.f = 2.0 * Sin(#PI * cutoffHz / #SAMPLE_RATE)
   Protected q.f = 2.0 * (1.0 - resonance)
   
@@ -330,6 +382,8 @@ Procedure.f NesNoiseSample(*lfsr.Long, shortMode.i, *hold.Float, *counter.Long, 
 EndProcedure
 
 Procedure StopPlayback()
+  Protected hasMusic.i
+
   If sound >= 0
     StopSound(sound)
     FreeSound(sound)
@@ -341,11 +395,19 @@ Procedure StopPlayback()
     tempSoundFile = ""
   EndIf
 
-  SetGadgetText(#TextStatus, "Stopped")
+  hasMusic = Bool(ListSize(currentMusic\samples()) > 0)
+  UpdateActionButtons(hasMusic, #False)
+  SetStatus("Stopped")
 EndProcedure
 
 Procedure PlayCurrentMusic()
   Protected tempFile.s
+
+  If ListSize(currentMusic\samples()) <= 0
+    UpdateActionButtons(#False, #False)
+    SetStatus("Generate a loop first")
+    ProcedureReturn
+  EndIf
 
   tempFile = GetTemporaryDirectory() + #APP_NAME + "_" + Str(Date()) + "_" + Str(Random(1000000)) + ".wav"
 
@@ -356,13 +418,16 @@ Procedure PlayCurrentMusic()
     If sound >= 0
       tempSoundFile = tempFile
       PlaySound(sound)
-      SetGadgetText(#TextStatus, "Playing: " + currentMusic\name)
+      UpdateActionButtons(#True, #True)
+      SetStatus("Playing: " + currentMusic\name)
     Else
       DeleteFile(tempFile)
-      SetGadgetText(#TextStatus, "Error: failed to load sound")
+      UpdateActionButtons(#True, #False)
+      SetStatus("Error: failed to load sound")
     EndIf
   Else
-    SetGadgetText(#TextStatus, "Error: failed to create WAV")
+    UpdateActionButtons(#True, #False)
+    SetStatus("Error: failed to create WAV")
   EndIf
 EndProcedure
 
@@ -411,6 +476,7 @@ EndProcedure
 
 Procedure GenerateMusic(*clip.MusicClip, *params.MusicParams)
   Protected stepsPerBar.i
+  Protected noteGridStep.i
   Protected totalBars.i
   Protected totalSteps16.i
   Protected secondsPerBeat.f
@@ -441,6 +507,8 @@ Procedure GenerateMusic(*clip.MusicClip, *params.MusicParams)
   Protected lfsr.Long
   Protected noiseHold.Float
   Protected noiseCounter.Long
+  Protected leadFilter.FilterState
+  Protected bassFilter.FilterState
 
   ClearList(*clip\samples())
   ClearList(*clip\events())
@@ -498,6 +566,26 @@ Procedure GenerateMusic(*clip.MusicClip, *params.MusicParams)
   Protected bassChannel.i = 1
 
   Protected curLeadDeg.i = Random(6)
+  Dim leadStepMidi.i(totalSteps16-1)
+  Dim leadStepStart.i(totalSteps16-1)
+  Dim leadStepLen.i(totalSteps16-1)
+  Dim bassStepMidi.i(totalSteps16-1)
+  Dim bassStepStart.i(totalSteps16-1)
+  Dim bassStepLen.i(totalSteps16-1)
+
+  noteGridStep = 16 / stepsPerBar
+  If noteGridStep < 1
+    noteGridStep = 1
+  EndIf
+
+  For i = 0 To totalSteps16 - 1
+    leadStepMidi(i) = -1
+    leadStepStart(i) = 0
+    leadStepLen(i) = 0
+    bassStepMidi(i) = -1
+    bassStepStart(i) = 0
+    bassStepLen(i) = 0
+  Next
 
   ; Drum pattern schedule (velocities 0..127) and MIDI events (channel 9)
   Dim kickVel.i(totalSteps16-1)
@@ -596,12 +684,6 @@ Procedure GenerateMusic(*clip.MusicClip, *params.MusicParams)
         EndIf
       EndIf
 
-      ; Clamp in case bars < 1 (safety)
-      For i = 0 To 15
-        If (s + i) >= totalSteps16
-          Break
-        EndIf
-      Next
     EndIf
 
     ; Build a chord triad degrees from chord root.
@@ -609,34 +691,46 @@ Procedure GenerateMusic(*clip.MusicClip, *params.MusicParams)
     Protected thirdDeg.i = (rootDeg + 2) % 7
     Protected fifthDeg.i = (rootDeg + 4) % 7
 
-    ; Lead: pick chord tones on strong steps, passing tones otherwise.
-    If stepInBar % 4 = 0
-      Select Random(2)
-        Case 0 : curLeadDeg = rootDeg
-        Case 1 : curLeadDeg = thirdDeg
-        Case 2 : curLeadDeg = fifthDeg
-      EndSelect
-    Else
-      If Random(100) < 20
-        curLeadDeg = (curLeadDeg + Random(2) - 1 + 7) % 7
+    ; Lead: follow the selected note grid while still exporting 16th-note MIDI.
+    If stepInBar % noteGridStep = 0
+      If stepInBar % 4 = 0
+        Select Random(2)
+          Case 0 : curLeadDeg = rootDeg
+          Case 1 : curLeadDeg = thirdDeg
+          Case 2 : curLeadDeg = fifthDeg
+        EndSelect
+      Else
+        If Random(100) < 20
+          curLeadDeg = (curLeadDeg + Random(2) - 1 + 7) % 7
+        EndIf
+        If Random(100) < 20
+          curLeadDeg = fifthDeg
+        EndIf
       EndIf
-      If Random(100) < 20
-        curLeadDeg = fifthDeg
+
+      Protected leadLen.i = noteGridStep
+      If Random(100) < 15
+        leadLen = noteGridStep * 2
       EndIf
-    EndIf
+      leadLen = ClampI(leadLen, noteGridStep, 16 - stepInBar)
+      If s + leadLen > totalSteps16
+        leadLen = totalSteps16 - s
+      EndIf
 
-    Protected leadLen.i = 1
-    If Random(100) < 15
-      leadLen = 2
-    EndIf
+      Protected leadMidi.i = 60 + *params\key + ScaleInterval(*params\scaleType, curLeadDeg)
+      AddElement(*clip\events())
+      *clip\events()\startStep = s
+      *clip\events()\lengthSteps = leadLen
+      *clip\events()\midiNote = leadMidi
+      *clip\events()\velocity = 92
+      *clip\events()\channel = leadChannel
 
-    Protected leadMidi.i = 60 + *params\key + ScaleInterval(*params\scaleType, curLeadDeg)
-    AddElement(*clip\events())
-    *clip\events()\startStep = s
-    *clip\events()\lengthSteps = leadLen
-    *clip\events()\midiNote = leadMidi
-    *clip\events()\velocity = 92
-    *clip\events()\channel = leadChannel
+      For i = 0 To leadLen - 1
+        leadStepMidi(s + i) = leadMidi
+        leadStepStart(s + i) = s
+        leadStepLen(s + i) = leadLen
+      Next
+    EndIf
 
     ; Bass: hit on beats (0,4,8,12) with root/fifth pattern.
     If stepInBar % 4 = 0
@@ -652,6 +746,12 @@ Procedure GenerateMusic(*clip.MusicClip, *params.MusicParams)
       *clip\events()\midiNote = bassMidi
       *clip\events()\velocity = 80
       *clip\events()\channel = bassChannel
+
+      For i = 0 To 3
+        bassStepMidi(s + i) = bassMidi
+        bassStepStart(s + i) = s
+        bassStepLen(s + i) = 4
+      Next
     EndIf
   Next
 
@@ -718,30 +818,23 @@ Procedure GenerateMusic(*clip.MusicClip, *params.MusicParams)
     tInStep = (i - (curStep * stepSamples)) / stepSamples
     tInStep = Clamp(tInStep, 0.0, 1.0)
 
-    ; Convert step -> bar
-    Protected bar2.i = curStep / 16
-    Protected stepInBar2.i = curStep % 16
-
-    Protected rootDeg2.i = chordDeg(bar2)
-    Protected thirdDeg2.i = (rootDeg2 + 2) % 7
-    Protected fifthDeg2.i = (rootDeg2 + 4) % 7
-
-    ; Lead pitch like MIDI schedule (approx)
-    Protected leadDeg.i
-    leadDeg = curLeadDeg
-    If stepInBar2 % 4 = 0
-      leadDeg = rootDeg2
-    EndIf
-
-    leadNote = 60 + *params\key + ScaleInterval(*params\scaleType, leadDeg)
-    leadHz = MidiNoteToHz(leadNote)
-
     Protected leadAdsr.Adsr
     leadAdsr\attack = 0.01
     leadAdsr\decay = 0.05
     leadAdsr\sustain = 0.6
     leadAdsr\release = 0.05
-    leadEnv = GetAdsr(tInStep * secondsPerStep16, secondsPerStep16, @leadAdsr)
+    leadEnv = 0.0
+
+    If leadStepMidi(curStep) >= 0
+      Protected leadStartStep.i = leadStepStart(curStep)
+      Protected leadLengthSteps.i = leadStepLen(curStep)
+      Protected leadTime.f = ((curStep - leadStartStep) + tInStep) * secondsPerStep16
+      Protected leadDuration.f = leadLengthSteps * secondsPerStep16
+
+      leadNote = leadStepMidi(curStep)
+      leadHz = MidiNoteToHz(leadNote)
+      leadEnv = GetAdsr(leadTime, leadDuration, @leadAdsr)
+    EndIf
 
     ; Swing: nudge phase slightly on offbeats (audible groove)
     Protected swingPhaseOffset.f = 0.0
@@ -749,31 +842,36 @@ Procedure GenerateMusic(*clip.MusicClip, *params.MusicParams)
       swingPhaseOffset = swingAmt * 0.02
     EndIf
 
-    leadPhase + (leadHz / #SAMPLE_RATE) * (1.0 + swingPhaseOffset)
+    If leadEnv > 0.0
+      leadPhase + (leadHz / #SAMPLE_RATE) * (1.0 + swingPhaseOffset)
+    EndIf
 
     ; Resonance Filter for Lead
-    Static leadFilter.FilterState
     Protected leadCutoff.f = 2000.0 + (leadEnv * 5000.0) ; Envelope follow for cutoff
-    Protected lead.f = WaveSample(*params\leadWave, leadPhase) * leadEnv
-    lead = StateVariableFilter(@leadFilter, lead, leadCutoff, 0.3)
+    Protected lead.f = 0.0
+    If leadEnv > 0.0
+      lead = WaveSample(*params\leadWave, leadPhase) * leadEnv
+      lead = StateVariableFilter(@leadFilter, lead, leadCutoff, 0.3)
+    EndIf
 
-    ; Bass on beats
+    ; Bass follows the generated event schedule.
     bassEnv = 0.0
-    If stepInBar2 % 4 = 0
-      bassNote = 36 + *params\key + ScaleInterval(*params\scaleType, rootDeg2)
-      If stepInBar2 = 8 And Random(100) < 60
-        bassNote = 36 + *params\key + ScaleInterval(*params\scaleType, fifthDeg2)
-      EndIf
+    If bassStepMidi(curStep) >= 0
+      Protected bassStartStep.i = bassStepStart(curStep)
+      Protected bassLengthSteps.i = bassStepLen(curStep)
+      Protected bassTime.f = ((curStep - bassStartStep) + tInStep) * secondsPerStep16
+      Protected bassDuration.f = bassLengthSteps * secondsPerStep16
+      Protected bassAdsr.Adsr
 
+      bassAdsr\attack = 0.01
+      bassAdsr\decay = 0.06
+      bassAdsr\sustain = 0.75
+      bassAdsr\release = 0.08
+
+      bassNote = bassStepMidi(curStep)
       bassHz = MidiNoteToHz(bassNote)
       bassPhase + bassHz / #SAMPLE_RATE
-
-      bassEnv = 1.0
-      If tInStep < 0.08
-        bassEnv = tInStep / 0.08
-      ElseIf tInStep > 0.7
-        bassEnv = Clamp(1.0 - (tInStep - 0.7) / 0.3, 0.0, 1.0)
-      EndIf
+      bassEnv = GetAdsr(bassTime, bassDuration, @bassAdsr)
     EndIf
 
     ; Drums (envelopes + accents from pattern)
@@ -814,6 +912,9 @@ Procedure GenerateMusic(*clip.MusicClip, *params.MusicParams)
     Protected hat.f = noise * hatEnv
 
     Protected bass.f = WaveSample(*params\bassWave, bassPhase) * bassEnv
+    If bassEnv > 0.0
+      bass = StateVariableFilter(@bassFilter, bass, 180.0 + (bassEnv * 900.0), 0.1)
+    EndIf
 
     Protected mix.f
     mix = lead * *params\leadVol + bass * *params\bassVol + (kick + snare + hat) * *params\drumVol
@@ -829,6 +930,7 @@ Procedure GenerateMusic(*clip.MusicClip, *params.MusicParams)
       mix = mix * (1.0 - echoMix) + delayed * echoMix
     EndIf
 
+    mix = SoftClip(mix, 0.35)
     mix = Clamp(mix, -1.0, 1.0)
 
     AddElement(*clip\samples())
@@ -837,6 +939,8 @@ Procedure GenerateMusic(*clip.MusicClip, *params.MusicParams)
 EndProcedure
 
 Procedure GenerateCurrentMusic()
+  Protected hasMusic.i
+
   StopPlayback()
 
   params\tempo = GetGadgetState(#SpinTempo)
@@ -866,25 +970,27 @@ Procedure GenerateCurrentMusic()
   params\noiseMode = GetGadgetState(#ComboNoiseMode)
   params\noiseRate = GetGadgetState(#SpinNoiseRate)
 
-  SetGadgetText(#TextStatus, "Generating music...")
+  SetStatus("Generating music...")
 
   GenerateMusic(@currentMusic, @params)
 
-  SetGadgetText(#TextStatus, "Generated loop: " + StrF(currentMusic\duration, 2) + "s, " + Str(ListSize(currentMusic\samples())) + " samples")
+  hasMusic = Bool(ListSize(currentMusic\samples()) > 0)
+  UpdateActionButtons(hasMusic, #False)
 
-  DisableGadget(#ButtonPlay, #False)
-  DisableGadget(#ButtonStop, #False)
-  DisableGadget(#ButtonSaveWav, #False)
-  DisableGadget(#ButtonSaveMidi, #False)
+  If hasMusic
+    SetStatus("Generated loop: " + StrF(currentMusic\duration, 2) + "s, " + Str(ListSize(currentMusic\samples())) + " samples")
+  Else
+    SetStatus("Error: generation produced no audio")
+  EndIf
 EndProcedure
 
 Procedure SaveCurrentWav()
   Protected filename.s = SaveFileRequester("Save Music WAV", "music_loop.wav", "Wave Files (*.wav)|*.wav", 0)
   If filename
     If CreateWaveFile(filename, @currentMusic)
-      SetGadgetText(#TextStatus, "Saved WAV: " + filename)
+      SetStatus("Saved WAV: " + filename)
     Else
-      SetGadgetText(#TextStatus, "Error: failed to save WAV")
+      SetStatus("Error: failed to save WAV")
     EndIf
   EndIf
 EndProcedure
@@ -893,9 +999,9 @@ Procedure SaveCurrentMidi()
   Protected filename.s = SaveFileRequester("Save Music MIDI", "music_loop.mid", "MIDI Files (*.mid)|*.mid", 0)
   If filename
     If CreateMidiFile(filename, @currentMusic)
-      SetGadgetText(#TextStatus, "Saved MIDI: " + filename)
+      SetStatus("Saved MIDI: " + filename)
     Else
-      SetGadgetText(#TextStatus, "Error: failed to save MIDI")
+      SetStatus("Error: failed to save MIDI")
     EndIf
   EndIf
 EndProcedure
@@ -907,6 +1013,11 @@ If InitSound()
   StopPlayback()
 Else
   MessageRequester("Error", "Failed to initialize sound system!", #PB_MessageRequester_Error)
+EndIf
+
+If hMutex
+  CloseHandle_(hMutex)
+  hMutex = 0
 EndIf
 
 End
@@ -922,12 +1033,12 @@ End
 ; UseIcon = game_music_gen.ico
 ; Executable = ..\Game_Music_Gen.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = Game_Music_Gen
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
 ; VersionField6 = A configurable game music generator
 ; VersionField7 = Game_Music_Gen
 ; VersionField8 = Game_Music_Gen.exe

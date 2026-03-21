@@ -34,6 +34,18 @@ Procedure AddMidiEvent(List out.a(), delta.i, status.a, d1.a, d2.a)
   AddElement(out()) : out() = d2
 EndProcedure
 
+Procedure WriteBEWord(file.i, value.i)
+  WriteByte(file, (value >> 8) & $FF)
+  WriteByte(file, value & $FF)
+EndProcedure
+
+Procedure WriteBELong(file.i, value.l)
+  WriteByte(file, (value >> 24) & $FF)
+  WriteByte(file, (value >> 16) & $FF)
+  WriteByte(file, (value >> 8) & $FF)
+  WriteByte(file, value & $FF)
+EndProcedure
+
 Procedure.i CreateMidiFile(filename.s, *clip.MusicClip)
   ; Type 0 MIDI file, 1 track, ticksPerQuarter=480
   Protected file.i
@@ -109,14 +121,14 @@ Procedure.i CreateMidiFile(filename.s, *clip.MusicClip)
 
   ; Header chunk
   WriteString(file, "MThd", #PB_Ascii)
-  WriteLong(file, 6)
-  WriteWord(file, 0) ; format 0
-  WriteWord(file, 1) ; one track
-  WriteWord(file, ticksPerQuarter)
+  WriteBELong(file, 6)
+  WriteBEWord(file, 0) ; format 0
+  WriteBEWord(file, 1) ; one track
+  WriteBEWord(file, ticksPerQuarter)
 
   ; Track chunk
   WriteString(file, "MTrk", #PB_Ascii)
-  WriteLong(file, ListSize(track()))
+  WriteBELong(file, ListSize(track()))
   ForEach track()
     WriteByte(file, track())
   Next
