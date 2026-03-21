@@ -1,132 +1,288 @@
 #APP_NAME   = "Html_2_Text"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
-Global version.s = "v1.0.0.2"
+Global version.s = "v1.0.0.3"
 
-; Prevent multiple instances
-Global hMutex.i
-hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
-If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
-  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
-  CloseHandle_(hMutex)
-  End
-EndIf
+Procedure.s DecodeNamedHtmlEntity(entity.s)
+  Select LCase(entity)
+    Case "amp" : ProcedureReturn "&"
+    Case "apos" : ProcedureReturn "'"
+    Case "bull" : ProcedureReturn "*"
+    Case "cent" : ProcedureReturn "cent"
+    Case "copy" : ProcedureReturn "(c)"
+    Case "deg" : ProcedureReturn " deg"
+    Case "divide" : ProcedureReturn "/"
+    Case "euro" : ProcedureReturn "EUR"
+    Case "frac12" : ProcedureReturn "1/2"
+    Case "frac14" : ProcedureReturn "1/4"
+    Case "frac34" : ProcedureReturn "3/4"
+    Case "gt" : ProcedureReturn ">"
+    Case "hellip" : ProcedureReturn "..."
+    Case "iexcl" : ProcedureReturn "!"
+    Case "iquest" : ProcedureReturn "?"
+    Case "laquo" : ProcedureReturn #DQUOTE$
+    Case "ldquo", "rdquo" : ProcedureReturn #DQUOTE$
+    Case "lsaquo", "rsaquo" : ProcedureReturn "'"
+    Case "lsquo", "rsquo" : ProcedureReturn "'"
+    Case "lt" : ProcedureReturn "<"
+    Case "mdash" : ProcedureReturn "--"
+    Case "micro" : ProcedureReturn "u"
+    Case "middot" : ProcedureReturn "-"
+    Case "minus", "ndash" : ProcedureReturn "-"
+    Case "nbsp", "thinsp", "ensp", "emsp" : ProcedureReturn " "
+    Case "para" : ProcedureReturn "P"
+    Case "plusmn" : ProcedureReturn "+/-"
+    Case "pound" : ProcedureReturn "GBP"
+    Case "quot" : ProcedureReturn #DQUOTE$
+    Case "raquo" : ProcedureReturn #DQUOTE$
+    Case "reg" : ProcedureReturn "(r)"
+    Case "sect" : ProcedureReturn "S"
+    Case "sup1" : ProcedureReturn "^1"
+    Case "sup2" : ProcedureReturn "^2"
+    Case "sup3" : ProcedureReturn "^3"
+    Case "times" : ProcedureReturn "x"
+    Case "trade" : ProcedureReturn "(TM)"
+    Case "yen" : ProcedureReturn "JPY"
+  EndSelect
+
+  ProcedureReturn ""
+EndProcedure
 
 Procedure.s DecodeHtmlEntities(text.s)
-  ; Basic Named Entities
-  text = ReplaceString(text, "&lt;", "<")
-  text = ReplaceString(text, "&gt;", ">")
-  text = ReplaceString(text, "&amp;", "&")
-  text = ReplaceString(text, "&quot;", #DQUOTE$)
-  text = ReplaceString(text, "&apos;", "'")
-  text = ReplaceString(text, "&nbsp;", " ")
-  text = ReplaceString(text, "&copy;", "(c)")
-  text = ReplaceString(text, "&reg;", "(r)")
-  
-  ; Simple Numeric Entity Support (&#123; or &#x7B;)
-  Protected pos = FindString(text, "&#")
+  Protected pos.i = FindString(text, "&")
+  Protected endPos.i
+  Protected entity.s
+  Protected replacement.s
+  Protected value.i
+
   While pos > 0
-    Protected endPos = FindString(text, ";", pos)
-    If endPos > pos And endPos - pos < 10
-      Protected entity.s = Mid(text, pos + 2, endPos - pos - 2)
-      Protected value.i = 0
-      If Left(entity, 1) = "x" Or Left(entity, 1) = "X"
-        value = Val("$" + Mid(entity, 2))
+    endPos = FindString(text, ";", pos + 1)
+    If endPos > pos And endPos - pos <= 12
+      entity = Mid(text, pos + 1, endPos - pos - 1)
+      replacement = ""
+
+      If Left(entity, 1) = "#"
+        If Left(entity, 2) = "#x" Or Left(entity, 2) = "#X"
+          value = Val("$" + Mid(entity, 3))
+        Else
+          value = Val(Mid(entity, 2))
+        EndIf
+
+        If value > 0
+          replacement = Chr(value)
+        EndIf
       Else
-        value = Val(entity)
+        replacement = DecodeNamedHtmlEntity(entity)
       EndIf
-      If value > 0
-        text = ReplaceString(text, "&#" + entity + ";", Chr(value))
+
+      If replacement <> ""
+        text = Left(text, pos - 1) + replacement + Mid(text, endPos + 1)
+        pos = FindString(text, "&", pos + Len(replacement))
+      Else
+        pos = FindString(text, "&", pos + 1)
       EndIf
+    Else
+      pos = FindString(text, "&", pos + 1)
     EndIf
-    pos = FindString(text, "&#", pos + 1)
   Wend
-  
+
+  ProcedureReturn text
+EndProcedure
+
+Procedure.b IsWhitespaceChar(char.s)
+  ProcedureReturn Bool(char = " " Or char = #TAB$ Or char = #CR$ Or char = #LF$)
+EndProcedure
+
+Procedure.b IsBlockTag(tagName.s)
+  Select tagName
+    Case "address", "article", "aside", "blockquote", "br", "dd", "div", "dl", "dt", "fieldset", "figcaption", "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main", "nav", "ol", "p", "pre", "section", "table", "td", "th", "tr", "ul"
+      ProcedureReturn #True
+  EndSelect
+
+  ProcedureReturn #False
+EndProcedure
+
+Procedure.b IsSkipTag(tagName.s)
+  Select tagName
+    Case "script", "style", "noscript"
+      ProcedureReturn #True
+  EndSelect
+
+  ProcedureReturn #False
+EndProcedure
+
+Procedure.s ExtractTagName(tagContent.s)
+  Protected tagName.s
+  Protected i.i
+  Protected currentChar.s
+
+  tagName = LCase(Trim(tagContent))
+  If tagName = ""
+    ProcedureReturn ""
+  EndIf
+
+  While Left(tagName, 1) = "/" Or Left(tagName, 1) = "!" Or Left(tagName, 1) = "?"
+    tagName = Mid(tagName, 2)
+    If tagName = ""
+      ProcedureReturn ""
+    EndIf
+  Wend
+
+  For i = 1 To Len(tagName)
+    currentChar = Mid(tagName, i, 1)
+    If IsWhitespaceChar(currentChar) Or currentChar = "/" Or currentChar = ">"
+      ProcedureReturn Left(tagName, i - 1)
+    EndIf
+  Next
+
+  ProcedureReturn tagName
+EndProcedure
+
+Procedure.s AddSeparator(text.s, separator.s)
+  Protected textLength.i
+
+  textLength = Len(text)
+  While textLength > 0 And Right(text, 1) = " "
+    text = Left(text, textLength - 1)
+    textLength - 1
+  Wend
+
+  If separator = #LF$
+    If textLength > 0 And Right(text, 1) <> #LF$
+      text + #LF$
+    EndIf
+  ElseIf separator = " "
+    If textLength > 0 And Right(text, 1) <> " " And Right(text, 1) <> #LF$
+      text + " "
+    EndIf
+  EndIf
+
+  ProcedureReturn text
+EndProcedure
+
+Procedure.s NormalizeText(text.s)
+  text = ReplaceString(text, #CRLF$, #LF$)
+  text = ReplaceString(text, #CR$, #LF$)
+  text = ReplaceString(text, #TAB$, " ")
+
+  While FindString(text, "  ")
+    text = ReplaceString(text, "  ", " ")
+  Wend
+
+  While FindString(text, #LF$ + " ")
+    text = ReplaceString(text, #LF$ + " ", #LF$)
+  Wend
+
+  While FindString(text, " " + #LF$)
+    text = ReplaceString(text, " " + #LF$, #LF$)
+  Wend
+
+  While FindString(text, #LF$ + #LF$ + #LF$)
+    text = ReplaceString(text, #LF$ + #LF$ + #LF$, #LF$ + #LF$)
+  Wend
+
+  text = Trim(text)
+  text = ReplaceString(text, #LF$, #CRLF$)
+
   ProcedureReturn text
 EndProcedure
 
 Procedure.s StripHtmlTags(html.s)
   Protected result.s = ""
-  Protected i.i, char.s, tagContent.s, tagName.s
-  Protected inTag.b = #False
-  Protected skipContent.b = #False
+  Protected i.i
   Protected length.i = Len(html)
-  
+  Protected tagEnd.i
+  Protected closePos.i
+  Protected closeEnd.i
+  Protected char.s
+  Protected tagContent.s
+  Protected tagName.s
+  Protected closeTag.s
+
   i = 1
   While i <= length
     char = Mid(html, i, 1)
-    
+
     If char = "<"
-      inTag = #True
-      tagContent = ""
-      
-      ; Peek at the tag name to see if it's a script/style block
-      Protected j = i + 1
-      tagName = ""
-      While j <= length And Mid(html, j, 1) <> " " And Mid(html, j, 1) <> ">" And Mid(html, j, 1) <> "/"
-        tagName + LCase(Mid(html, j, 1))
-        j + 1
-      Wend
-      
-      ; Handle block tags and special skip blocks
-      If tagName = "p" Or tagName = "br" Or tagName = "div" Or tagName = "li" Or tagName = "tr" Or tagName = "h1" Or tagName = "h2" Or tagName = "h3"
-        result + #CRLF$
-      EndIf
-      
-      ; Logic to skip script and style content
-      If tagName = "script" Or tagName = "style"
-        ; Find closing tag
-        Protected closeTag.s = "</" + tagName + ">"
-        Protected closePos = FindString(html, closeTag, i, #PB_String_NoCase)
-        If closePos > 0
-          i = closePos + Len(closeTag) - 1
-          inTag = #False
+      If Mid(html, i, 4) = "<!--"
+        closePos = FindString(html, "-->", i + 4)
+        If closePos = 0
+          Break
+        EndIf
+        i = closePos + 2
+      Else
+        tagEnd = FindString(html, ">", i + 1)
+        If tagEnd = 0
+          result + Mid(html, i)
+          Break
+        EndIf
+
+        tagContent = Trim(Mid(html, i + 1, tagEnd - i - 1))
+        tagName = ExtractTagName(tagContent)
+
+        If IsSkipTag(tagName)
+          closeTag = "</" + tagName
+          closePos = FindString(html, closeTag, tagEnd + 1, #PB_String_NoCase)
+          If closePos > 0
+            closeEnd = FindString(html, ">", closePos + Len(closeTag))
+            If closeEnd > 0
+              i = closeEnd
+            Else
+              i = length
+            EndIf
+          Else
+            i = tagEnd
+          EndIf
+        Else
+          Select tagName
+            Case "br", "hr", "li", "tr", "p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "section", "article", "header", "footer", "nav", "aside", "blockquote", "ul", "ol", "table", "pre"
+              result = AddSeparator(result, #LF$)
+            Case "td", "th"
+              result = AddSeparator(result, " ")
+            Default
+              If IsBlockTag(tagName)
+                result = AddSeparator(result, #LF$)
+              EndIf
+          EndSelect
+
+          i = tagEnd
         EndIf
       EndIf
-      
-    ElseIf char = ">" And inTag
-      inTag = #False
-      result + " "
-      
-    ElseIf Not inTag
+    ElseIf IsWhitespaceChar(char)
+      result = AddSeparator(result, " ")
+    Else
       result + char
     EndIf
-    
+
     i + 1
   Wend
-  
-  ; Post-processing: Normalize whitespace and line breaks
-  result = ReplaceString(result, #TAB$, " ")
-  
-  ; Remove triple newlines or more
-  While FindString(result, #CRLF$ + #CRLF$ + #CRLF$)
-    result = ReplaceString(result, #CRLF$ + #CRLF$ + #CRLF$, #CRLF$ + #CRLF$)
-  Wend
-  
-  ; Clean up multiple spaces
-  While FindString(result, "  ")
-    result = ReplaceString(result, "  ", " ")
-  Wend
-  
-  ProcedureReturn Trim(result)
+
+  ProcedureReturn NormalizeText(result)
 EndProcedure
 
-Define.i fileIn, fileOut
+Define.i fileIn, fileOut, exitCode
 Define.s inputFile, outputFile, html, text
+
+exitCode = 0
 
 If OpenConsole()
   If CountProgramParameters() >= 2
     inputFile = ProgramParameter(0)
     outputFile = ProgramParameter(1)
-    
+
     fileIn = ReadFile(#PB_Any, inputFile, #PB_UTF8)
     If fileIn
-      html = ReadString(fileIn, #PB_File_IgnoreEOL | #PB_UTF8)
+      While Eof(fileIn) = 0
+        html + ReadString(fileIn, #PB_UTF8)
+        If Eof(fileIn) = 0
+          html + #LF$
+        EndIf
+      Wend
       CloseFile(fileIn)
-      
+
       text = StripHtmlTags(html)
       text = DecodeHtmlEntities(text)
-      
+
       fileOut = CreateFile(#PB_Any, outputFile, #PB_UTF8)
       If fileOut
         WriteString(fileOut, text, #PB_UTF8)
@@ -134,29 +290,30 @@ If OpenConsole()
         PrintN(#APP_NAME + " conversion completed successfully.")
       Else
         PrintN("Error: Could not create output file: " + outputFile)
+        exitCode = 3
       EndIf
     Else
       PrintN("Error: Could not read input file: " + inputFile)
+      exitCode = 2
     EndIf
-    
+     
   Else
     PrintN("Usage: " + #APP_NAME + " <input.html> <output.txt>")
     PrintN("Version: " + version)
-    
-    MessageRequester("About " + #APP_NAME, 
-                     #APP_NAME + " " + version + #CRLF$ + 
-                     "A simple HTML to Text converter." + #CRLF$ + #CRLF$ +
-                     "Contact: " + #EMAIL_NAME + #CRLF$ +
-                     "GitHub: https://github.com/zonemaster60", 
-                     #PB_MessageRequester_Info)
+    PrintN("A simple HTML to Text converter.")
+    PrintN("Contact: " + #EMAIL_NAME)
+    PrintN("GitHub: https://github.com/zonemaster60")
+    exitCode = 1
   EndIf
+Else
+  exitCode = 4
 EndIf
 
-If hMutex : CloseHandle_(hMutex) : EndIf
+End exitCode
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 3
-; Folding = -
+; Folding = --
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -165,12 +322,12 @@ If hMutex : CloseHandle_(hMutex) : EndIf
 ; UseIcon = html_2_text.ico
 ; Executable = ..\html_2_text.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = html_2_text
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = Convert HTML documents to readable text
 ; VersionField7 = html_2_text
 ; VersionField8 = html_2_text.exe

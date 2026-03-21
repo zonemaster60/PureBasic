@@ -1,192 +1,445 @@
-﻿EnableExplicit
+EnableExplicit
 
 #APP_NAME   = "LoadWebLinks"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-#LINKS_TXT = "weblinks.txt"
+#LINKS_TXT  = "weblinks.txt"
 
-Global version.s = "v1.0.0.2"
-Global AppPath.s = GetPathPart(ProgramFilename())
-SetCurrentDirectory(AppPath)
+Enumeration
+  #Window_Main
+EndEnumeration
 
-; Improved Mutex handling
-Global hMutex.i = CreateMutex_(0, 1, #APP_NAME + "_mutex")
-If hMutex = 0 Or GetLastError_() = #ERROR_ALREADY_EXISTS
-  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
-  If hMutex : CloseHandle_(hMutex) : EndIf
-  End
-EndIf
+Enumeration 1
+  #Menu_About
+  #Menu_EditLinks
+  #Menu_ReloadLinks
+  #Menu_Exit
+EndEnumeration
+
+Enumeration
+  #Gadget_ScrollArea
+EndEnumeration
 
 Structure LinkData
   gadget.i
   url.s
+  tooltip.s
   visited.b
 EndStructure
 
+Global version.s = "v1.0.0.3"
+Global AppPath.s = GetPathPart(ProgramFilename())
+Global hMutex.i
+Global quitRequested.i
 Global NewList links.LinkData()
-Global NewMap linkMap.i() ; For fast lookup in event loop
-Global linkHeight = 25
-Global padding = 10
-Global VisitedColor = RGB(255, 0, 255) ; Magenta for visited links
+Global NewMap linkMap.i()
+Global linkHeight.i = 25
+Global padding.i = 10
+Global VisitedColor.i = RGB(255, 0, 255)
+Global DefaultLinkColor.i = RGB(0, 0, 255)
 
-Procedure Exit()
-  Protected Req.i
-  Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
-  If Req = #PB_MessageRequester_Yes
-    If hMutex : CloseHandle_(hMutex) : EndIf
-    FreeList(links())
-    FreeMap(linkMap())
-    End
+Structure LayoutMetrics
+  windowWidth.i
+  windowHeight.i
+  innerWidth.i
+  contentHeight.i
+  gadgetWidth.i
+  linkSpacing.i
+EndStructure
+
+Procedure.s LinksFilePath()
+  ProcedureReturn AppPath + #LINKS_TXT
+EndProcedure
+
+Procedure.s LogFilePath()
+  ProcedureReturn AppPath + "errorlog.txt"
+EndProcedure
+
+Procedure LogError(msg.s)
+  Protected logFile.i = OpenFile(#PB_Any, LogFilePath(), #PB_File_Append)
+
+  If logFile
+    WriteStringN(logFile, FormatDate("[%yy-%mm-%dd]-[%hh:%ii:%ss] ", Date()) + msg)
+    CloseFile(logFile)
+  EndIf
+EndProcedure
+
+Procedure.b InitializeSingleInstance()
+  hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
+
+  If hMutex = 0
+    MessageRequester("Error", "Unable to create the application mutex.", #PB_MessageRequester_Error)
+    LogError("CreateMutex failed with error code " + Str(GetLastError_()))
+    ProcedureReturn #False
+  EndIf
+
+  If GetLastError_() = #ERROR_ALREADY_EXISTS
+    MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+    CloseHandle_(hMutex)
+    hMutex = 0
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure Cleanup()
+  If IsGadget(#Gadget_ScrollArea)
+    FreeGadget(#Gadget_ScrollArea)
+  EndIf
+
+  ClearList(links())
+  ClearMap(linkMap())
+
+  If hMutex
+    CloseHandle_(hMutex)
+    hMutex = 0
   EndIf
 EndProcedure
 
 Procedure About()
-  MessageRequester("Info", #APP_NAME + " - " + version + #CRLF$ + 
+  MessageRequester("Info", #APP_NAME + " - " + version + #CRLF$ +
                            "Thank you for using this free tool!" + #CRLF$ +
                            "Contact: " + #EMAIL_NAME + #CRLF$ +
                            "Website: https://github.com/zonemaster60", #PB_MessageRequester_Info)
 EndProcedure
 
 Procedure.s EnsureProtocol(url.s)
-  If Left(LCase(url), 7) <> "http://" And Left(LCase(url), 8) <> "https://"
+  Protected lowerUrl.s = LCase(url)
+
+  If Left(lowerUrl, 7) <> "http://" And Left(lowerUrl, 8) <> "https://"
     ProcedureReturn "https://" + url
   EndIf
+
   ProcedureReturn url
 EndProcedure
 
-Procedure.i CountLines(FileName.s)
-  Protected count = 0
-  If ReadFile(1, FileName)
-    While Not Eof(1)
-      If Trim(ReadString(1)) <> ""
-        count + 1
-      EndIf
-    Wend
-    CloseFile(1)
-  EndIf
-  ProcedureReturn count
-EndProcedure
+Procedure.b IsValidWebLink(url.s)
+  Protected lowerUrl.s = LCase(url)
+  Protected hostPart.s
+  Protected separatorPos.i
+  Protected splitPos.i
 
-Procedure LogError(msg.s)
-  Protected logfile.s = "errorlog.txt"
-  If OpenFile(2, logfile, #PB_File_Append)
-    WriteStringN(2, FormatDate("[%yy-%mm-%dd]-[%hh:%ii:%ss] ", Date()) + msg)
-    CloseFile(2)
+  If Left(lowerUrl, 7) <> "http://" And Left(lowerUrl, 8) <> "https://"
+    ProcedureReturn #False
   EndIf
+
+  separatorPos = FindString(url, "://")
+  If separatorPos = 0
+    ProcedureReturn #False
+  EndIf
+
+  hostPart = Mid(url, separatorPos + 3)
+  hostPart = Trim(hostPart)
+
+  splitPos = FindString(hostPart, "/")
+  If splitPos > 0
+    hostPart = Left(hostPart, splitPos - 1)
+  EndIf
+
+  splitPos = FindString(hostPart, "?")
+  If splitPos > 0
+    hostPart = Left(hostPart, splitPos - 1)
+  EndIf
+
+  splitPos = FindString(hostPart, "#")
+  If splitPos > 0
+    hostPart = Left(hostPart, splitPos - 1)
+  EndIf
+
+  hostPart = Trim(hostPart)
+
+  If hostPart = ""
+    ProcedureReturn #False
+  EndIf
+
+  If Left(hostPart, 1) = "." Or Left(hostPart, 1) = "-"
+    ProcedureReturn #False
+  EndIf
+
+  If FindString(hostPart, " ")
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn #True
 EndProcedure
 
 Procedure ClearWebsites()
-  ClearList(links())
   ClearMap(linkMap())
-  If IsGadget(0)
-    FreeGadget(0)
+
+  If IsGadget(#Gadget_ScrollArea)
+    FreeGadget(#Gadget_ScrollArea)
+  EndIf
+
+  ClearList(links())
+EndProcedure
+
+Procedure.b IsCommentLine(line.s)
+  If Left(line, 1) = ";" Or Left(line, 1) = "#"
+    ProcedureReturn #True
+  EndIf
+
+  ProcedureReturn #False
+EndProcedure
+
+Procedure CalculateLayoutMetrics(*metrics.LayoutMetrics)
+  *metrics\windowWidth = WindowWidth(#Window_Main)
+  *metrics\windowHeight = WindowHeight(#Window_Main)
+  *metrics\linkSpacing = linkHeight + 5
+  *metrics\innerWidth = *metrics\windowWidth - 30
+
+  If *metrics\innerWidth < 120
+    *metrics\innerWidth = 120
+  EndIf
+
+  *metrics\contentHeight = (*metrics\linkSpacing * ListSize(links())) + (padding * 2)
+  If *metrics\contentHeight < *metrics\windowHeight
+    *metrics\contentHeight = *metrics\windowHeight
+  EndIf
+
+  *metrics\gadgetWidth = *metrics\innerWidth - (padding * 2)
+  If *metrics\gadgetWidth < 80
+    *metrics\gadgetWidth = 80
   EndIf
 EndProcedure
 
-Procedure LoadWebsites(FileName.s)
-  Protected linkCount = CountLines(FileName)
-  If linkCount = 0
-    MessageRequester("Info", "No valid links were found in " + #LINKS_TXT, #PB_MessageRequester_Info)
+Procedure RefreshWebsiteLayout()
+  Protected metrics.LayoutMetrics
+  Protected y.i
+
+  If IsGadget(#Gadget_ScrollArea) = 0
     ProcedureReturn
   EndIf
 
-  Protected winWidth = WindowWidth(0)
-  Protected winHeight = WindowHeight(0)
-  Protected linkSpacing = linkHeight + 5
-  Protected contentHeight = linkSpacing * linkCount + padding * 2
-  
-  ScrollAreaGadget(0, 0, 0, winWidth, winHeight, winWidth - 30, contentHeight + 10, 10)
+  CalculateLayoutMetrics(@metrics)
 
-  Protected y = padding, gID
-  If ReadFile(0, FileName)
-    While Not Eof(0)
-      Protected line.s = Trim(ReadString(0))
-      If line <> ""
-        Protected url.s, tip.s
-        If FindString(line, "|")
-          url = Trim(StringField(line, 1, "|"))
-          tip = Trim(StringField(line, 2, "|"))
-        Else
-          url = line
-          tip = "Visit: " + url
-        EndIf
-        
-        url = EnsureProtocol(url)
+  ResizeGadget(#Gadget_ScrollArea, 0, 0, metrics\windowWidth, metrics\windowHeight)
+  SetGadgetAttribute(#Gadget_ScrollArea, #PB_ScrollArea_InnerWidth, metrics\innerWidth)
+  SetGadgetAttribute(#Gadget_ScrollArea, #PB_ScrollArea_InnerHeight, metrics\contentHeight)
 
-        gID = HyperLinkGadget(#PB_Any, 10, y, winWidth - 60, linkHeight, url, RGB(0, 0, 255), #PB_HyperLink_Underline)
-        GadgetToolTip(gID, tip)
+  y = padding
+  ForEach links()
+    If IsGadget(links()\gadget)
+      ResizeGadget(links()\gadget, padding, y, metrics\gadgetWidth, linkHeight)
+    EndIf
+    y + metrics\linkSpacing
+  Next
+EndProcedure
 
-        AddElement(links())
-        links()\gadget = gID
-        links()\url = url
-        linkMap(Str(gID)) = @links() ; Store pointer for fast access
+Procedure BuildWebsiteGadgets()
+  Protected metrics.LayoutMetrics
+  Protected y.i
 
-        y + linkSpacing
-      EndIf
-    Wend
-    CloseFile(0)
-  Else
-    MessageRequester("Error", "Could not open the file: " + FileName, #PB_MessageRequester_Error)
+  If ListSize(links()) = 0
+    ProcedureReturn
   EndIf
+
+  CalculateLayoutMetrics(@metrics)
+
+  ScrollAreaGadget(#Gadget_ScrollArea, 0, 0, metrics\windowWidth, metrics\windowHeight, metrics\innerWidth, metrics\contentHeight, 10)
+
+  y = padding
+  ForEach links()
+    links()\gadget = HyperLinkGadget(#PB_Any, padding, y, metrics\gadgetWidth, linkHeight, links()\url, DefaultLinkColor, #PB_HyperLink_Underline)
+    GadgetToolTip(links()\gadget, links()\tooltip)
+
+    If links()\visited
+      SetGadgetColor(links()\gadget, #PB_Gadget_FrontColor, VisitedColor)
+    EndIf
+
+    linkMap(Str(links()\gadget)) = @links()
+    y + metrics\linkSpacing
+  Next
 
   CloseGadgetList()
 EndProcedure
 
+Procedure.i LoadWebsites(fileName.s)
+  Protected file.i
+  Protected line.s
+  Protected url.s
+  Protected tip.s
+  Protected delimiterPos.i
+  Protected validLinkCount.i
+  Protected skippedLinkCount.i
+
+  ClearWebsites()
+
+  file = ReadFile(#PB_Any, fileName)
+  If file = 0
+    MessageRequester("Error", "Could not open the file: " + fileName, #PB_MessageRequester_Error)
+    LogError("Could not open links file: " + fileName)
+    ProcedureReturn #False
+  EndIf
+
+  While Eof(file) = 0
+    line = Trim(ReadString(file))
+
+    If line = ""
+      Continue
+    EndIf
+
+    If IsCommentLine(line)
+      Continue
+    EndIf
+
+    delimiterPos = FindString(line, "|")
+    If delimiterPos > 0
+      url = Trim(Left(line, delimiterPos - 1))
+      tip = Trim(Mid(line, delimiterPos + 1))
+    Else
+      url = line
+      tip = ""
+    EndIf
+
+    If url = ""
+      skippedLinkCount + 1
+      LogError("Skipped invalid entry with blank URL: " + line)
+      Continue
+    EndIf
+
+    url = EnsureProtocol(url)
+    If IsValidWebLink(url) = 0
+      skippedLinkCount + 1
+      LogError("Skipped invalid URL: " + url)
+      Continue
+    EndIf
+
+    If tip = ""
+      tip = "Visit: " + url
+    EndIf
+
+    AddElement(links())
+    links()\gadget = 0
+    links()\url = url
+    links()\tooltip = tip
+    links()\visited = #False
+    validLinkCount + 1
+  Wend
+
+  CloseFile(file)
+
+  If validLinkCount = 0
+    MessageRequester("Info", "No valid links were found in " + #LINKS_TXT, #PB_MessageRequester_Info)
+    ProcedureReturn #False
+  EndIf
+
+  BuildWebsiteGadgets()
+
+  If skippedLinkCount > 0
+    If skippedLinkCount = 1
+      MessageRequester("Info", "1 invalid link entry was skipped.", #PB_MessageRequester_Info)
+    Else
+      MessageRequester("Info", Str(skippedLinkCount) + " invalid link entries were skipped.", #PB_MessageRequester_Info)
+    EndIf
+  EndIf
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure EditLinksFile()
+  Protected fileName.s = LinksFilePath()
+  Protected file.i
+  Protected parameters.s
+
+  If FileSize(fileName) = -1
+    file = CreateFile(#PB_Any, fileName)
+    If file
+      CloseFile(file)
+    Else
+      MessageRequester("Error", "Could not create the links file: " + fileName, #PB_MessageRequester_Error)
+      LogError("Could not create links file: " + fileName)
+      ProcedureReturn
+    EndIf
+  EndIf
+
+  parameters = Chr(34) + fileName + Chr(34)
+  If RunProgram("notepad.exe", parameters, AppPath) = 0
+    MessageRequester("Error", "Could not launch Notepad for: " + fileName, #PB_MessageRequester_Error)
+    LogError("Could not launch Notepad for: " + fileName)
+  EndIf
+EndProcedure
+
+Procedure.b ConfirmExit()
+  Protected result.i
+
+  result = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
+  ProcedureReturn Bool(result = #PB_MessageRequester_Yes)
+EndProcedure
+
 Procedure HandleEvents()
-  Protected event, gID
+  Protected event.i
+  Protected gadgetID.i
+
+  quitRequested = #False
+
   Repeat
     event = WaitWindowEvent()
-    
+
     Select event
       Case #PB_Event_Menu
         Select EventMenu()
-          Case 1 : About()
-          Case 2 : RunProgram(AppPath + #LINKS_TXT)
-          Case 3 : 
-            ClearWebsites()
-            LoadWebsites(AppPath + #LINKS_TXT)
-          Case 4 : Exit()
+          Case #Menu_About
+            About()
+
+          Case #Menu_EditLinks
+            EditLinksFile()
+
+          Case #Menu_ReloadLinks
+            LoadWebsites(LinksFilePath())
+
+          Case #Menu_Exit
+            If ConfirmExit()
+              quitRequested = #True
+            EndIf
         EndSelect
-        
+
       Case #PB_Event_Gadget
-        gID = EventGadget()
-        If FindMapElement(linkMap(), Str(gID))
+        gadgetID = EventGadget()
+
+        If FindMapElement(linkMap(), Str(gadgetID))
           ChangeCurrentElement(links(), linkMap())
-          SetGadgetColor(gID, #PB_Gadget_FrontColor, VisitedColor)
+
           If RunProgram(links()\url) = 0
             LogError("Failed to open URL: " + links()\url)
             MessageRequester("Error", "Could not open: " + links()\url, #PB_MessageRequester_Error)
+          Else
+            links()\visited = #True
+            SetGadgetColor(gadgetID, #PB_Gadget_FrontColor, VisitedColor)
           EndIf
         EndIf
-        
+
       Case #PB_Event_SizeWindow
-        If IsGadget(0)
-          ResizeGadget(0, #PB_Ignore, #PB_Ignore, WindowWidth(0), WindowHeight(0))
-        EndIf
+        RefreshWebsiteLayout()
 
       Case #PB_Event_CloseWindow
-        Exit()
+        If ConfirmExit()
+          quitRequested = #True
+        EndIf
     EndSelect
-  Until #False
+  Until quitRequested
 EndProcedure
 
-; Initial Window Setup
-If OpenWindow(0, 0, 0, 450, 500, #APP_NAME + " - " + version , #PB_Window_SystemMenu | #PB_Window_MinimizeGadget | #PB_Window_SizeGadget | #PB_Window_ScreenCentered)
-  If CreateMenu(0, WindowID(0))
-    MenuTitle("File")
-    MenuItem(1, "About")
-    MenuItem(2, "Edit Links File")
-    MenuItem(3, "Reload Links")
-    MenuBar()
-    MenuItem(4, "Exit")
+If InitializeSingleInstance()
+  If OpenWindow(#Window_Main, 0, 0, 450, 500, #APP_NAME + " - " + version, #PB_Window_SystemMenu | #PB_Window_MinimizeGadget | #PB_Window_SizeGadget | #PB_Window_ScreenCentered)
+    If CreateMenu(0, WindowID(#Window_Main))
+      MenuTitle("File")
+      MenuItem(#Menu_About, "About")
+      MenuItem(#Menu_EditLinks, "Edit Links File")
+      MenuItem(#Menu_ReloadLinks, "Reload Links")
+      MenuBar()
+      MenuItem(#Menu_Exit, "Exit")
+    EndIf
+
+    LoadWebsites(LinksFilePath())
+    HandleEvents()
   EndIf
-  LoadWebsites(AppPath + #LINKS_TXT)
-  HandleEvents()
+
+  Cleanup()
 EndIf
 
-
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 6
-; Folding = --
+; CursorPosition = 28
+; Folding = ---
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -195,13 +448,13 @@ EndIf
 ; UseIcon = loadweblinks.ico
 ; Executable = ..\loadweblinks.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = loadweblinks
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
-; VersionField6 = Loads a list of websites
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
+; VersionField6 = Loads a list of websites that you edit/enter
 ; VersionField7 = loadweblinks
 ; VersionField8 = loadweblinks.exe
 ; VersionField9 = David Scouten

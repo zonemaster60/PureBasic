@@ -12,21 +12,9 @@
 
 EnableExplicit
 
-#APP_NAME   = "Hash_Tool"
-#EMAIL_NAME = "zonemaster60@gmail.com"
+#APP_NAME = "Hash_Tool"
 
-Global version.s = "v1.0.0.2"
-Global AppPath.s = GetPathPart(ProgramFilename())
-SetCurrentDirectory(AppPath)
-
-; Prevent multiple instances (don't rely on window title text)
-Global hMutex.i
-hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
-If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
-  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
-  CloseHandle_(hMutex)
-  End
-EndIf
+Global version.s = "v1.0.0.3"
 
 #DefaultChunkSize = 1024 * 1024
 
@@ -37,13 +25,14 @@ Structure HashAlgo
   fp.i
 EndStructure
 
-Procedure Exit()
-  MessageRequester("Info", #APP_NAME + " - " + version + #CRLF$ + 
-                           "Thank you for using this free tool!" + #CRLF$ +
-                           "Contact: " + #EMAIL_NAME + #CRLF$ +
-                           "Website: https://github.com/zonemaster60", #PB_MessageRequester_Info)
-  CloseHandle_(hMutex)
-  End 1
+Procedure CleanupAndExit(ExitCode.i = 0)
+  End ExitCode
+EndProcedure
+
+Procedure PrintError(Message.s, Silent.i = #False)
+  If Not Silent
+    PrintN("ERROR: " + Message)
+  EndIf
 EndProcedure
 
 Procedure.s QuoteCSV(Field.s)
@@ -54,6 +43,37 @@ EndProcedure
 
 Procedure.s GetFileName(FilePath.s)
   ProcedureReturn GetFilePart(FilePath)
+EndProcedure
+
+Procedure.s JoinPath(Dir.s, FileName.s)
+  If Dir = "" Or Dir = "."
+    ProcedureReturn ".\\" + FileName
+  EndIf
+
+  If Right(Dir, 1) = "\\" Or Right(Dir, 1) = "/"
+    ProcedureReturn Dir + FileName
+  EndIf
+
+  ProcedureReturn Dir + "\\" + FileName
+EndProcedure
+
+Procedure ResetFingerprints(List Algos.HashAlgo())
+  ForEach Algos()
+    If Algos()\fp
+      FinishFingerprint(Algos()\fp)
+      Algos()\fp = 0
+    EndIf
+  Next
+EndProcedure
+
+Procedure AddUniqueFile(List FilesToHash.s(), Map SeenFiles.i(), FilePath.s)
+  Protected key.s = LCase(FilePath)
+
+  If FindMapElement(SeenFiles(), key) = 0
+    SeenFiles(key) = #True
+    AddElement(FilesToHash())
+    FilesToHash() = FilePath
+  EndIf
 EndProcedure
 
 Procedure.s DefaultOutputPath(List Files.s(), Format.s)
@@ -76,19 +96,18 @@ EndProcedure
 
 Procedure.i WriteCSV(OutputPath.s, List FilesToHash.s(), List Algos.HashAlgo(), Map AllHashes.s())
   Protected fileId.i
-  Protected key.s
   Protected header.s
   Protected values.s
   Protected hashKey.s
 
   fileId = CreateFile(#PB_Any, OutputPath)
   If fileId = 0
-    PrintN("ERROR: Unable to write output: " + OutputPath)
+    PrintError("Unable to write output: " + OutputPath)
     ProcedureReturn #False
   EndIf
 
   ; Header
-  header = "Filename,Size_Bytes"
+  header = "File_Path,Size_Bytes"
   ForEach Algos()
     header + "," + QuoteCSV(Algos()\name)
   Next
@@ -118,7 +137,7 @@ Procedure.i WriteTXT(OutputPath.s, List FilesToHash.s(), List Algos.HashAlgo(), 
 
   fileId = CreateFile(#PB_Any, OutputPath)
   If fileId = 0
-    PrintN("ERROR: Unable to write output: " + OutputPath)
+    PrintError("Unable to write output: " + OutputPath)
     ProcedureReturn #False
   EndIf
 
@@ -143,6 +162,7 @@ Procedure.i ComputeHashesStreaming(FilePath.s, ChunkSize.i, List Algos.HashAlgo(
   Protected *buffer
   Protected bytesRead.i
   Protected hashKey.s
+  Protected readError.i = #False
   Protected totalSize.q = FileSize(FilePath)
   Protected currentRead.q = 0
   Protected lastPercent.i = -1
@@ -172,31 +192,21 @@ Procedure.i ComputeHashesStreaming(FilePath.s, ChunkSize.i, List Algos.HashAlgo(
 
   fileId = ReadFile(#PB_Any, FilePath)
   If fileId = 0
-    ; Ensure we free any started fingerprints.
-    ForEach Algos()
-      If Algos()\fp
-        FinishFingerprint(Algos()\fp)
-        Algos()\fp = 0
-      EndIf
-    Next
+    ResetFingerprints(Algos())
     ProcedureReturn #False
   EndIf
 
   *buffer = AllocateMemory(ChunkSize)
   If *buffer = 0
     CloseFile(fileId)
-    ForEach Algos()
-      If Algos()\fp
-        FinishFingerprint(Algos()\fp)
-        Algos()\fp = 0
-      EndIf
-    Next
+    ResetFingerprints(Algos())
     ProcedureReturn #False
   EndIf
 
   While Eof(fileId) = 0
     bytesRead = ReadData(fileId, *buffer, ChunkSize)
     If bytesRead < 0
+      readError = #True
       Break
     EndIf
     If bytesRead = 0
@@ -222,6 +232,11 @@ Procedure.i ComputeHashesStreaming(FilePath.s, ChunkSize.i, List Algos.HashAlgo(
 
   FreeMemory(*buffer)
   CloseFile(fileId)
+
+  If readError
+    ResetFingerprints(Algos())
+    ProcedureReturn #False
+  EndIf
 
   ; Finish and collect results.
   ForEach Algos()
@@ -252,11 +267,6 @@ Procedure BuildAlgorithmList(List Algos.HashAlgo())
   UseSHA1Fingerprint()
   UseSHA2Fingerprint()
 
-  ; PureBasic's SHA3 plugin may not be present in older builds.
-  CompilerIf Defined(UseSHA3Fingerprint, #PB_Procedure)
-    UseSHA3Fingerprint()
-  CompilerEndIf
-
   ; Base algorithms.
   AddAlgo(Algos(), "CRC32", #PB_Cipher_CRC32)
   AddAlgo(Algos(), "MD5", #PB_Cipher_MD5)
@@ -268,14 +278,21 @@ Procedure BuildAlgorithmList(List Algos.HashAlgo())
   AddAlgo(Algos(), "SHA2-384", #PB_Cipher_SHA2, 384)
   AddAlgo(Algos(), "SHA2-512", #PB_Cipher_SHA2, 512)
 
-  ; SHA-3 variants (only if plugin + constant exist).
-  AddAlgo(Algos(), "SHA3-224", #PB_Cipher_SHA3, 224)
-  AddAlgo(Algos(), "SHA3-256", #PB_Cipher_SHA3, 256)
-  AddAlgo(Algos(), "SHA3-384", #PB_Cipher_SHA3, 384)
-  AddAlgo(Algos(), "SHA3-512", #PB_Cipher_SHA3, 512)
+  ; SHA-3 variants are only available in newer PureBasic builds.
+  CompilerIf Defined(UseSHA3Fingerprint, #PB_Procedure)
+    CompilerIf Defined(#PB_Cipher_SHA3, #PB_Constant)
+      UseSHA3Fingerprint()
+      AddAlgo(Algos(), "SHA3-224", #PB_Cipher_SHA3, 224)
+      AddAlgo(Algos(), "SHA3-256", #PB_Cipher_SHA3, 256)
+      AddAlgo(Algos(), "SHA3-384", #PB_Cipher_SHA3, 384)
+      AddAlgo(Algos(), "SHA3-512", #PB_Cipher_SHA3, 512)
+    CompilerEndIf
+  CompilerEndIf
 EndProcedure
 
 Procedure PrintUsage(ExeName.s)
+  PrintN(#APP_NAME + " " + version)
+  PrintN("")
   PrintN("Usage:")
   PrintN(" " + ExeName + " <input_file|wildcard> [--out <output_file>] [--format csv|txt] [--chunk-size <bytes>] [--silent]")
   PrintN("")
@@ -288,8 +305,7 @@ Procedure PrintUsage(ExeName.s)
   PrintN("")
   PrintN("Notes:")
   PrintN(" - Supports multiple input files and wildcards (*.exe, data\*.bin)")
-  PrintN(" - CSV output is row-based (Filename, Size, Hashes...)")
-  Exit()
+  PrintN(" - CSV output is row-based (File_Path, Size, Hashes...)")
 EndProcedure
 
 ; -----------------
@@ -302,7 +318,7 @@ EndIf
 
 If CountProgramParameters() < 1
   PrintUsage(GetFileName(ProgramFilename()))
-  Exit()
+  CleanupAndExit(1)
 EndIf
 
 Define i.i
@@ -311,15 +327,19 @@ For i = 0 To CountProgramParameters() - 1
   param = LCase(ProgramParameter(i))
   If param = "--help" Or param = "/?" Or param = "-h"
     PrintUsage(GetFileName(ProgramFilename()))
-    Exit()
+    CleanupAndExit(0)
   EndIf
 Next
 
 NewList filesToHash.s()
+NewList successfulFiles.s()
+NewMap seenFiles.i()
 Define outputPath.s = ""
 Define format.s = "csv"
 Define chunkSize.i = #DefaultChunkSize
 Define silent.i = #False
+Define failedCount.i = 0
+Define parseError.s = ""
 
 ; First pass: identify input files (supports multiple) and options
 For i = 0 To CountProgramParameters() - 1
@@ -330,19 +350,35 @@ For i = 0 To CountProgramParameters() - 1
         If i + 1 < CountProgramParameters()
           i + 1
           outputPath = ProgramParameter(i)
+        Else
+          parseError = "Missing value for --out"
+          Break
         EndIf
       Case "--format"
         If i + 1 < CountProgramParameters()
           i + 1
           format = LCase(ProgramParameter(i))
+        Else
+          parseError = "Missing value for --format"
+          Break
         EndIf
       Case "--chunk-size"
         If i + 1 < CountProgramParameters()
           i + 1
           chunkSize = Val(ProgramParameter(i))
+          If chunkSize <= 0
+            parseError = "--chunk-size must be a positive integer"
+            Break
+          EndIf
+        Else
+          parseError = "Missing value for --chunk-size"
+          Break
         EndIf
       Case "--silent", "--quiet", "-s"
         silent = #True
+      Default
+        parseError = "Unknown option: " + param
+        Break
     EndSelect
   Else
     ; Handle wildcards manually if needed, or just add the file
@@ -354,27 +390,30 @@ For i = 0 To CountProgramParameters() - 1
       If hDir
         While NextDirectoryEntry(hDir)
           If DirectoryEntryType(hDir) = #PB_DirectoryEntry_File
-            AddElement(filesToHash())
-            filesToHash() = dir + DirectoryEntryName(hDir)
+            AddUniqueFile(filesToHash(), seenFiles(), JoinPath(dir, DirectoryEntryName(hDir)))
           EndIf
         Wend
         FinishDirectory(hDir)
       EndIf
     Else
-      AddElement(filesToHash())
-      filesToHash() = param
+      AddUniqueFile(filesToHash(), seenFiles(), param)
     EndIf
   EndIf
 Next
 
+If parseError <> ""
+  PrintError(parseError, silent)
+  CleanupAndExit(1)
+EndIf
+
 If ListSize(filesToHash()) = 0
   PrintUsage(GetFileName(ProgramFilename()))
-  Exit()
+  CleanupAndExit(1)
 EndIf
 
 If format <> "csv" And format <> "txt"
-  If Not silent : PrintN("ERROR: Unsupported format: " + format) : EndIf
-  Exit()
+  PrintError("Unsupported format: " + format, silent)
+  CleanupAndExit(1)
 EndIf
 
 If outputPath = ""
@@ -388,54 +427,56 @@ NewMap hashes.s()
 ForEach filesToHash()
   If Not silent : Print("Hashing: " + GetFilePart(filesToHash()) + "... ") : EndIf
   If ComputeHashesStreaming(filesToHash(), chunkSize, algos(), hashes(), silent)
+    AddElement(successfulFiles())
+    successfulFiles() = filesToHash()
     If Not silent : PrintN(Chr(13) + "Hashing: " + GetFilePart(filesToHash()) + " ... Done.    ") : EndIf
   Else
+    failedCount + 1
     If Not silent : PrintN(Chr(13) + "Hashing: " + GetFilePart(filesToHash()) + " ... FAILED.    ") : EndIf
   EndIf
 Next
 
-If MapSize(hashes()) <= 0
-  If Not silent : PrintN("ERROR: No hashes generated.") : EndIf
-  Exit()
+If ListSize(successfulFiles()) = 0 Or MapSize(hashes()) <= 0
+  PrintError("No hashes generated.", silent)
+  CleanupAndExit(1)
 EndIf
 
 Define ok.i
 If format = "csv"
-  ok = WriteCSV(outputPath, filesToHash(), algos(), hashes())
+  ok = WriteCSV(outputPath, successfulFiles(), algos(), hashes())
 Else
-  ok = WriteTXT(outputPath, filesToHash(), algos(), hashes())
+  ok = WriteTXT(outputPath, successfulFiles(), algos(), hashes())
 EndIf
 
 If ok = #False
-  CloseHandle_(hMutex)
-  End 1
+  CleanupAndExit(1)
 EndIf
 
 If Not silent
   PrintN("")
   PrintN("Output saved to: " + outputPath)
-  PrintN("Total files: " + Str(ListSize(filesToHash())))
+  PrintN("Hashed files: " + Str(ListSize(successfulFiles())))
+  PrintN("Failed files: " + Str(failedCount))
 EndIf
 
-Exit()
+CleanupAndExit(0)
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 17
-; Folding = --
+; CursorPosition = 16
+; Folding = ---
 ; Optimizer
 ; EnableThread
 ; EnableXP
-; EnableAdmin
 ; DPIAware
 ; UseIcon = hash_tool.ico
 ; Executable = ..\hash_tool.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = hash_tool
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = Create hash tables for executable files.
 ; VersionField7 = hash_tool
 ; VersionField8 = hash_tool.exe
