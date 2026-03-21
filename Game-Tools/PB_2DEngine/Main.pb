@@ -200,6 +200,7 @@ EndProcedure
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 137
 ; FirstLine = 137
 ; Folding = ---
 ; Optimizer
@@ -207,6 +208,7 @@ Main()
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
+; UseIcon = Main.ico
 ; Executable = PB_2DEngine.exe
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,0
