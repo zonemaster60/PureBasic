@@ -25,6 +25,7 @@ EndDeclareModule
    Global g_L.i
 
    #LUA_TFUNCTION = 6
+  #LUA_GLOBALSINDEX = -10002
 
   PrototypeC.i luaL_newstate()
   PrototypeC luaL_openlibs(L.i)
@@ -38,15 +39,18 @@ EndDeclareModule
   PrototypeC lua_createtable(L.i, narr.i, nrec.i)
   PrototypeC lua_setfield(L.i, idx.i, k.s)
   PrototypeC.i lua_type(L.i, idx.i)
-  PrototypeC.i lua_tonumber(L.i, idx.i)
+  PrototypeC.d lua_tonumber(L.i, idx.i)
   PrototypeC.i lua_toboolean(L.i, idx.i)
   PrototypeC lua_pushboolean(L.i, b.i)
   PrototypeC.i lua_tolstring(L.i, idx.i, *len)
+  PrototypeC.i lua_gettop(L.i)
   PrototypeC lua_pushvalue(L.i, idx.i)
-  PrototypeC.i luaL_checknumber(L.i, arg.i)
+  PrototypeC.d luaL_checknumber(L.i, arg.i)
   PrototypeC.i luaL_checklstring(L.i, arg.i, *len)
   PrototypeC.i luaL_error(L.i, fmt.s)
   PrototypeC.i lua_pushcclosure(L.i, fn.i, n.i)
+  PrototypeC.i lua_settable(L.i, idx.i)
+  PrototypeC lua_setglobal(L.i, name.s)
 
   Global p_luaL_newstate.luaL_newstate
   Global p_luaL_openlibs.luaL_openlibs
@@ -64,11 +68,47 @@ EndDeclareModule
   Global p_lua_toboolean.lua_toboolean
   Global p_lua_pushboolean.lua_pushboolean
   Global p_lua_tolstring.lua_tolstring
+  Global p_lua_gettop.lua_gettop
   Global p_lua_pushvalue.lua_pushvalue
   Global p_luaL_checknumber.luaL_checknumber
   Global p_luaL_checklstring.luaL_checklstring
   Global p_luaL_error.luaL_error
   Global p_lua_pushcclosure.lua_pushcclosure
+
+  Procedure ClearStack()
+    If g_L And p_lua_settop
+      p_lua_settop(g_L, 0)
+    EndIf
+  EndProcedure
+
+  Procedure Pop(count.i = 1)
+    Protected newTop.i
+
+    If g_L = 0 Or p_lua_gettop = 0 Or p_lua_settop = 0 Or count <= 0
+      ProcedureReturn
+    EndIf
+
+    newTop = p_lua_gettop(g_L) - count
+    If newTop < 0
+      newTop = 0
+    EndIf
+
+    p_lua_settop(g_L, newTop)
+  EndProcedure
+
+  Procedure.i PrepareGlobalFunctionCall(functionName.s)
+    If g_L = 0
+      ProcedureReturn #False
+    EndIf
+
+    p_lua_getfield(g_L, #LUA_GLOBALSINDEX, functionName)
+    If p_lua_type(g_L, -1) <> #LUA_TFUNCTION
+      Pop()
+      ProcedureReturn #False
+    EndIf
+
+    ProcedureReturn #True
+  EndProcedure
 
   Procedure.s PeekLuaString(L.i, idx.i)
     Protected len.i
@@ -106,6 +146,7 @@ EndDeclareModule
     p_lua_toboolean = GetFunction(g_dll, "lua_toboolean")
     p_lua_pushboolean = GetFunction(g_dll, "lua_pushboolean")
     p_lua_tolstring = GetFunction(g_dll, "lua_tolstring")
+    p_lua_gettop = GetFunction(g_dll, "lua_gettop")
     p_lua_pushvalue = GetFunction(g_dll, "lua_pushvalue")
     p_luaL_checknumber = GetFunction(g_dll, "luaL_checknumber")
     p_luaL_checklstring = GetFunction(g_dll, "luaL_checklstring")
@@ -128,13 +169,14 @@ EndDeclareModule
     If p_lua_toboolean = 0 : Log::Error("Lua bind missing: lua_toboolean") : EndIf
     If p_lua_pushboolean = 0 : Log::Error("Lua bind missing: lua_pushboolean") : EndIf
     If p_lua_tolstring = 0 : Log::Error("Lua bind missing: lua_tolstring") : EndIf
+    If p_lua_gettop = 0 : Log::Error("Lua bind missing: lua_gettop") : EndIf
     If p_lua_pushvalue = 0 : Log::Error("Lua bind missing: lua_pushvalue") : EndIf
     If p_luaL_checknumber = 0 : Log::Error("Lua bind missing: luaL_checknumber") : EndIf
     If p_luaL_checklstring = 0 : Log::Error("Lua bind missing: luaL_checklstring") : EndIf
     If p_luaL_error = 0 : Log::Error("Lua bind missing: luaL_error") : EndIf
     If p_lua_pushcclosure = 0 : Log::Error("Lua bind missing: lua_pushcclosure") : EndIf
 
-    If p_luaL_newstate = 0 Or p_luaL_openlibs = 0 Or p_luaL_loadfile = 0 Or p_lua_pcall = 0 Or p_lua_close = 0 Or p_lua_getfield = 0 Or p_lua_settop = 0 Or p_lua_pushnumber = 0 Or p_lua_pushstring = 0 Or p_lua_createtable = 0 Or p_lua_setfield = 0 Or p_lua_pushvalue = 0 Or p_lua_type = 0 Or p_lua_tonumber = 0 Or p_lua_toboolean = 0 Or p_lua_pushboolean = 0 Or p_lua_tolstring = 0 Or p_luaL_checknumber = 0 Or p_luaL_checklstring = 0 Or p_luaL_error = 0 Or p_lua_pushcclosure = 0
+    If p_luaL_newstate = 0 Or p_luaL_openlibs = 0 Or p_luaL_loadfile = 0 Or p_lua_pcall = 0 Or p_lua_close = 0 Or p_lua_getfield = 0 Or p_lua_settop = 0 Or p_lua_pushnumber = 0 Or p_lua_pushstring = 0 Or p_lua_createtable = 0 Or p_lua_setfield = 0 Or p_lua_gettop = 0 Or p_lua_pushvalue = 0 Or p_lua_type = 0 Or p_lua_tonumber = 0 Or p_lua_toboolean = 0 Or p_lua_pushboolean = 0 Or p_lua_tolstring = 0 Or p_luaL_checknumber = 0 Or p_luaL_checklstring = 0 Or p_luaL_error = 0 Or p_lua_pushcclosure = 0
       Log::Error("LuaJIT function binding failed")
       CloseLibrary(g_dll)
       g_dll = 0
@@ -236,8 +278,8 @@ EndDeclareModule
     p_lua_pushcclosure(g_L, @L_LogError(), 0)
     p_lua_setfield(g_L, -2, "Error")
 
-     p_lua_pushvalue(g_L, -1)
-     p_lua_setfield(g_L, -10002, "Log")
+    p_lua_pushvalue(g_L, -1)
+    p_lua_setfield(g_L, #LUA_GLOBALSINDEX, "Log")
 
     ; Math table
     p_lua_createtable(g_L, 0, 1)
@@ -245,8 +287,8 @@ EndDeclareModule
     p_lua_pushcclosure(g_L, @L_MathClamp(), 0)
     p_lua_setfield(g_L, -2, "Clamp")
 
-     p_lua_pushvalue(g_L, -1)
-     p_lua_setfield(g_L, -10002, "Math")
+    p_lua_pushvalue(g_L, -1)
+    p_lua_setfield(g_L, #LUA_GLOBALSINDEX, "Math")
 
     ; Input table
     p_lua_createtable(g_L, 0, 4)
@@ -263,8 +305,11 @@ EndDeclareModule
     p_lua_pushcclosure(g_L, @L_InputAxis(), 0)
     p_lua_setfield(g_L, -2, "Axis")
 
-     p_lua_pushvalue(g_L, -1)
-     p_lua_setfield(g_L, -10002, "Input")
+    p_lua_pushvalue(g_L, -1)
+    p_lua_setfield(g_L, #LUA_GLOBALSINDEX, "Input")
+
+    ; Leave Lua stack in a clean state after registration.
+    ClearStack()
 
   EndProcedure
 
@@ -289,6 +334,7 @@ EndDeclareModule
     ; Pass UTF-8 C-string to LuaJIT.
     Protected *pathUtf8 = AllocateMemory(StringByteLength(normalized, #PB_UTF8) + 1)
     If *pathUtf8 = 0
+      Log::Error("Lua load error: failed to allocate script path buffer")
       ProcedureReturn #False
     EndIf
     PokeS(*pathUtf8, normalized, -1, #PB_UTF8)
@@ -297,46 +343,36 @@ EndDeclareModule
     FreeMemory(*pathUtf8)
     If rc <> 0
       Log::Error("Lua load error: " + PeekLuaString(g_L, -1))
-      p_lua_settop(g_L, 0)
+      ClearStack()
       ProcedureReturn #False
     EndIf
 
     rc = p_lua_pcall(g_L, 0, 0, 0)
     If rc <> 0
       Log::Error("Lua runtime error: " + PeekLuaString(g_L, -1))
-      p_lua_settop(g_L, 0)
+      ClearStack()
       ProcedureReturn #False
     EndIf
+
+    ClearStack()
 
     ProcedureReturn #True
   EndProcedure
 
   Procedure CallGlobalNoArgs(functionName.s)
-    If g_L = 0
-      ProcedureReturn
-    EndIf
-
-    p_lua_getfield(g_L, -10002, functionName)
-    If p_lua_type(g_L, -1) <> #LUA_TFUNCTION
-      p_lua_settop(g_L, -2)
+    If PrepareGlobalFunctionCall(functionName) = #False
       ProcedureReturn
     EndIf
 
     Protected rc = p_lua_pcall(g_L, 0, 0, 0)
     If rc <> 0
       Log::Error("Lua error calling " + functionName + ": " + PeekLuaString(g_L, -1))
-      p_lua_settop(g_L, 0)
+      ClearStack()
     EndIf
   EndProcedure
 
   Procedure CallGlobalUpdate(functionName.s, dt.f)
-    If g_L = 0
-      ProcedureReturn
-    EndIf
-
-    p_lua_getfield(g_L, -10002, functionName)
-    If p_lua_type(g_L, -1) <> #LUA_TFUNCTION
-      p_lua_settop(g_L, -2)
+    If PrepareGlobalFunctionCall(functionName) = #False
       ProcedureReturn
     EndIf
 
@@ -345,7 +381,7 @@ EndDeclareModule
     Protected rc = p_lua_pcall(g_L, 1, 0, 0)
     If rc <> 0
       Log::Error("Lua error calling " + functionName + ": " + PeekLuaString(g_L, -1))
-      p_lua_settop(g_L, 0)
+      ClearStack()
     EndIf
   EndProcedure
 

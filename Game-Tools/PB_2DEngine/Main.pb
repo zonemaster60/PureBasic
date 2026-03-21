@@ -1,4 +1,4 @@
-; PB2DEngine v0.1
+; PB_2DEngine v0.1
 ; Entry point
 
 EnableExplicit
@@ -14,6 +14,14 @@ XIncludeFile "engine/script/Lua.pb"
 XIncludeFile "game/DemoScene.pb"
 
 Procedure Main()
+  Protected gfxReady.i = #False
+  Protected inputReady.i = #False
+  Protected audioReady.i = #False
+  Protected luaReady.i = #False
+  Protected worldReady.i = #False
+  Protected demoSceneLoaded.i = #False
+  Protected luaScriptLoaded.i = #False
+
   CompilerIf Defined(HEADLESS, #PB_Constant)
     ; Write next to the executable for CI friendliness.
     Log::InitFile(GetPathPart(ProgramFilename()) + "smoke.log")
@@ -24,24 +32,32 @@ Procedure Main()
   CompilerIf Defined(HEADLESS, #PB_Constant)
     If Gfx::InitHeadless(1280, 720) = #False
       Log::Error("Failed to init headless graphics")
-      End
+      Log::Shutdown()
+      ProcedureReturn
     EndIf
   CompilerElse
-    If Gfx::Init("PB2DEngine", 1280, 720) = #False
+    If Gfx::Init("PB_2DEngine", 1280, 720) = #False
       Log::Error("Failed to init graphics")
-      End
+      Log::Shutdown()
+      ProcedureReturn
     EndIf
   CompilerEndIf
+  gfxReady = #True
 
   If Input::Init() = #False
     Log::Error("Failed to init input")
-    End
+    If gfxReady
+      Gfx::Shutdown()
+    EndIf
+    Log::Shutdown()
+    ProcedureReturn
   EndIf
+  inputReady = #True
 
   ; Optional input bindings
-  If FileSize("game\\input.json") > 0
-    If Input::LoadBindings("game\\input.json")
-      Log::Info("Loaded input bindings: game\\input.json")
+  If FileSize("game/input.json") > 0
+    If Input::LoadBindings("game/input.json")
+      Log::Info("Loaded input bindings: game/input.json")
     Else
       Log::Warn("Failed to load input bindings; using defaults")
     EndIf
@@ -49,29 +65,35 @@ Procedure Main()
 
   If Audio::Init() = #False
     Log::Warn("Audio init failed; continuing")
+  Else
+    audioReady = #True
   EndIf
 
-  If Lua::Init("luajit\\lua51.dll") = #False
+  If Lua::Init("luajit/lua51.dll") = #False
     Log::Warn("Lua init failed; continuing without scripting")
   Else
+    luaReady = #True
     ; Loads game script if present
-    If FileSize("game\\main.lua") > 0
-      If Lua::LoadFile("game\\main.lua")
+    If FileSize("game/main.lua") > 0
+      If Lua::LoadFile("game/main.lua")
+        luaScriptLoaded = #True
         Lua::CallGlobalNoArgs("OnCreate")
       Else
-        Log::Warn("Failed to load game script: game\\main.lua")
+        Log::Warn("Failed to load game script: game/main.lua")
       EndIf
     Else
-      Log::Info("No game script found: game\\main.lua")
+      Log::Info("No game script found: game/main.lua")
     EndIf
   EndIf
 
   World::Init()
+  worldReady = #True
 
   CompilerIf Defined(HEADLESS, #PB_Constant)
     Log::Info("HEADLESS enabled: skipping DemoScene visual load")
   CompilerElse
     DemoScene::Load()
+    demoSceneLoaded = #True
   CompilerEndIf
 
   Time::Init(60)
@@ -93,11 +115,6 @@ Procedure Main()
   CompilerEndIf
 
   Protected frames.i = 0
-
-  Protected hasMainLua.i = #False
-  If FileSize("game\\main.lua") > 0
-    hasMainLua = #True
-  EndIf
 
   Repeat
     Input::Poll()
@@ -128,13 +145,13 @@ Procedure Main()
 
     accumulator + frameDelta
 
-     While accumulator >= dtFixed
-       World::Update(dtFixed)
-       If hasMainLua And Lua::State()
-         Lua::CallGlobalUpdate("OnUpdate", dtFixed)
-       EndIf
-       accumulator - dtFixed
-     Wend
+    While accumulator >= dtFixed
+      World::Update(dtFixed)
+      If luaScriptLoaded And Lua::State()
+        Lua::CallGlobalUpdate("OnUpdate", dtFixed)
+      EndIf
+      accumulator - dtFixed
+    Wend
 
     CompilerIf Not Defined(HEADLESS, #PB_Constant)
       Gfx::BeginFrame()
@@ -142,7 +159,8 @@ Procedure Main()
       DemoScene::RenderUI()
       Gfx::EndFrame()
     CompilerElse
-      ; Keep render path disabled for CI/headless runs
+      ; Avoid a hot spin in CI/headless runs.
+      Delay(1)
     CompilerEndIf
 
   CompilerIf Defined(HEADLESS, #PB_Constant)
@@ -151,27 +169,55 @@ Procedure Main()
     Until quit Or Gfx::WindowClosed()
   CompilerEndIf
 
-   If hasMainLua And Lua::State()
-     Lua::CallGlobalNoArgs("OnDestroy")
-   EndIf
+  If luaScriptLoaded And Lua::State()
+    Lua::CallGlobalNoArgs("OnDestroy")
+  EndIf
 
   CompilerIf Not Defined(HEADLESS, #PB_Constant)
-    DemoScene::Unload()
+    If demoSceneLoaded
+      DemoScene::Unload()
+    EndIf
   CompilerEndIf
 
-  World::Shutdown()
-  Audio::Shutdown()
-  Lua::Shutdown()
-  Gfx::Shutdown()
+  If worldReady
+    World::Shutdown()
+  EndIf
+  If inputReady
+    Input::Shutdown()
+  EndIf
+  If audioReady
+    Audio::Shutdown()
+  EndIf
+  If luaReady
+    Lua::Shutdown()
+  EndIf
+  If gfxReady
+    Gfx::Shutdown()
+  EndIf
   Log::Shutdown()
 EndProcedure
 
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 137
+; FirstLine = 137
 ; Folding = ---
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
+; DPIAware
+; Executable = PB_2DEngine.exe
+; IncludeVersionInfo
+; VersionField0 = 1,0,0,0
+; VersionField1 = 1,0,0,0
+; VersionField2 = ZoneSoft
+; VersionField3 = PB_2DEngine
+; VersionField4 = 1.0.0.0
+; VersionField5 = 1.0.0.0
+; VersionField6 = PureBasic 2D Engine with LUA scripting
+; VersionField7 = PB_2DEngine
+; VersionField8 = PB_2DEngine.exe
+; VersionField9 = David Scouten
+; VersionField13 = zonemaster60@gmail.com
+; VersionField14 = https://github.com/zonemaster60

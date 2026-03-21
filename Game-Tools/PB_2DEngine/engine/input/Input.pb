@@ -11,6 +11,7 @@ DeclareModule Input
 
   Declare.i Init()
   Declare Poll()
+  Declare Shutdown()
 
   ; Configurable binding loader (v0.3)
   Declare.i LoadBindings(jsonFile.s)
@@ -51,6 +52,34 @@ Module Input
   Global Dim g_actionPrev.i(#Action_Down)
   Global Dim g_actionPressed.i(#Action_Down)
   Global Dim g_actionReleased.i(#Action_Down)
+
+  Procedure.i LookupDownByName(actionName.s)
+    Protected key.s = LCase(actionName)
+
+    If FindMapElement(g_downByName(), key) = 0
+      ProcedureReturn #False
+    EndIf
+
+    ProcedureReturn g_downByName()
+  EndProcedure
+
+  Procedure.i LookupFlagByName(Map source.i(), actionName.s)
+    Protected key.s = LCase(actionName)
+
+    If FindMapElement(source(), key) = 0
+      ProcedureReturn #False
+    EndIf
+
+    ProcedureReturn source()
+  EndProcedure
+
+  Procedure SyncBuiltInActionsFromBindings()
+    g_actionDown(#Action_Quit) = LookupDownByName("quit")
+    g_actionDown(#Action_Left) = LookupDownByName("left")
+    g_actionDown(#Action_Right) = LookupDownByName("right")
+    g_actionDown(#Action_Up) = LookupDownByName("up")
+    g_actionDown(#Action_Down) = LookupDownByName("down")
+  EndProcedure
 
   Procedure AddBinding(name.s, keyPrimary.i, keySecondary.i)
     Protected key.s = LCase(name)
@@ -118,17 +147,13 @@ Module Input
     CompilerElse
       ExamineKeyboard()
 
-      g_actionDown(#Action_Quit) = Bool(KeyboardPushed(#PB_Key_Escape))
-      g_actionDown(#Action_Left) = Bool(KeyboardPushed(#PB_Key_A) Or KeyboardPushed(#PB_Key_Left))
-      g_actionDown(#Action_Right) = Bool(KeyboardPushed(#PB_Key_D) Or KeyboardPushed(#PB_Key_Right))
-      g_actionDown(#Action_Up) = Bool(KeyboardPushed(#PB_Key_W) Or KeyboardPushed(#PB_Key_Up))
-      g_actionDown(#Action_Down) = Bool(KeyboardPushed(#PB_Key_S) Or KeyboardPushed(#PB_Key_Down))
-
       ; Compute down-state for all named bindings
       ResetMap(g_bindings())
       While NextMapElement(g_bindings())
         g_downByName(MapKey(g_bindings())) = Bool(KeyboardPushed(g_bindings()\keyPrimary) Or KeyboardPushed(g_bindings()\keySecondary))
       Wend
+
+      SyncBuiltInActionsFromBindings()
     CompilerEndIf
 
     For i = 0 To #Action_Down
@@ -145,6 +170,14 @@ Module Input
     Wend
   EndProcedure
 
+  Procedure Shutdown()
+    ClearMap(g_bindings())
+    ClearMap(g_downByName())
+    ClearMap(g_prevByName())
+    ClearMap(g_pressedByName())
+    ClearMap(g_releasedByName())
+  EndProcedure
+
   Procedure.i ParseKeyString(s.s)
     Protected t.s = Trim(s)
 
@@ -152,12 +185,12 @@ Module Input
       ProcedureReturn 0
     EndIf
 
-     ; Numeric keycode ("65")
-     If FindString(t, "#", 1) = 0
-       If Val(t) > 0
-         ProcedureReturn Val(t)
-       EndIf
-     EndIf
+    ; Numeric keycode ("65")
+    If FindString(t, "#", 1) = 0
+      If Val(t) > 0
+        ProcedureReturn Val(t)
+      EndIf
+    EndIf
 
     t = UCase(t)
 
@@ -310,14 +343,9 @@ Module Input
       ProcedureReturn #False
     EndIf
 
-    ClearMap(g_bindings())
-    ClearMap(g_downByName())
-    ClearMap(g_prevByName())
-    ClearMap(g_pressedByName())
-    ClearMap(g_releasedByName())
- 
-    ; PureBasic doesn't expose direct member enumeration for JSON objects,
+    ResetDefaultBindings()
 
+    ; PureBasic doesn't expose direct member enumeration for JSON objects,
     ; so we use ExamineJSONMembers().
     If ExamineJSONMembers(actions)
       While NextJSONMember(actions)
@@ -396,8 +424,8 @@ Module Input
         ProcedureReturn "Space"
       Case #PB_Key_LeftShift, #PB_Key_RightShift
         ProcedureReturn "Shift"
-       Case #PB_Key_LeftControl, #PB_Key_RightControl, 17
-         ProcedureReturn "Ctrl"
+      Case #PB_Key_LeftControl, #PB_Key_RightControl, 17
+        ProcedureReturn "Ctrl"
 
       Case #PB_Key_Return
         ProcedureReturn "Enter"
@@ -418,33 +446,15 @@ Module Input
   EndProcedure
 
   Procedure.i DownName(actionName.s)
-    Protected key.s = LCase(actionName)
-
-    If FindMapElement(g_downByName(), key) = 0
-      ProcedureReturn #False
-    EndIf
-
-    ProcedureReturn g_downByName()
+    ProcedureReturn LookupFlagByName(g_downByName(), actionName)
   EndProcedure
 
   Procedure.i PressedName(actionName.s)
-    Protected key.s = LCase(actionName)
-
-    If FindMapElement(g_pressedByName(), key) = 0
-      ProcedureReturn #False
-    EndIf
-
-    ProcedureReturn g_pressedByName()
+    ProcedureReturn LookupFlagByName(g_pressedByName(), actionName)
   EndProcedure
 
   Procedure.i ReleasedName(actionName.s)
-    Protected key.s = LCase(actionName)
-
-    If FindMapElement(g_releasedByName(), key) = 0
-      ProcedureReturn #False
-    EndIf
-
-    ProcedureReturn g_releasedByName()
+    ProcedureReturn LookupFlagByName(g_releasedByName(), actionName)
   EndProcedure
 
   Procedure GetBindingDisplay(actionName.s, *outText)
