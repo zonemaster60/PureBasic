@@ -19,8 +19,10 @@ EnableExplicit
 ;	   one "other" character. 
 ; =================================================================
 
-#APP_NAME = "PassGen"
+#APP_NAME = "PB_PassGen"
 #EMAIL_NAME = "zonemaster60@gmail.com"
+#MIN_PASSWORD_LENGTH = 8
+#ERROR_ALREADY_EXISTS = 183
 
 #HELP_TEXT = "" + #CRLF$ +
              #APP_NAME + ": F1 = Help; ESC = End" + #CRLF$ +
@@ -30,11 +32,12 @@ EnableExplicit
              "  - Can enable screen-only and no-ambiguous" + #CRLF$ +
              "" + #CRLF$ +
              "CLI mode examples:" + #CRLF$ +
-             "  passwordgenerator --site example.com --user bob --len 20 --count 5" + #CRLF$ +
-             "  passwordgenerator --site example.com --len 16 --screen-only" + #CRLF$ +
-             "  passwordgenerator --site example.com --len 16 --no-ambiguous" + #CRLF$ +
+             "  PassGen --site example.com --user bob --len 20 --count 5" + #CRLF$ +
+             "  PassGen --site example.com --len 16 --screen-only" + #CRLF$ +
+             "  PassGen --site example.com --len 16 --no-ambiguous" + #CRLF$ +
+             "  PassGen /site example.com /len 16 /screen-only" + #CRLF$ +
              "" + #CRLF$ +
-              "Options:" + #CRLF$ +
+             "Options:" + #CRLF$ +
              "  --len N, --count N, --user NAME, --site SITE" + #CRLF$ +
              "  --outfile FILE, --screen-only, --no-ambiguous" + #CRLF$ +
              "  --no-special, --copy" + #CRLF$ +
@@ -43,16 +46,15 @@ EnableExplicit
              "Tip: highlight a password and press CTRL-C" + #CRLF$ +
              "to copy from the console."
 
-Global version.s = "v1.0.0.3"
+Global version.s = "v1.0.0.4"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
-; Seed RNG once per run
+; Initialize cryptographically secure RNG once per run
 If OpenCryptRandom() = 0
   MessageRequester(#APP_NAME, "Error: Could not initialize secure random number generator.", #PB_MessageRequester_Error)
   End
 EndIf
-RandomSeed(Date() ! ElapsedMilliseconds())
 
 ; Early help/version handling (must run before mutex)
 ; Some launchers don't show console output reliably, so use a dialog.
@@ -62,18 +64,66 @@ For earlyIdx = 0 To CountProgramParameters() - 1
   earlyArg = LCase(ProgramParameter(earlyIdx))
   If earlyArg = "--help" Or earlyArg = "-h" Or earlyArg = "/help" Or earlyArg = "/h" Or earlyArg = "/?"
     MessageRequester(#APP_NAME + " " + version, #HELP_TEXT, #PB_MessageRequester_Info)
+    CloseCryptRandom()
     End
   EndIf
 Next
 
 ; Prevent multiple instances (don't rely on window title text)
 Global hMutex.i
+Global ownsMutex.b
 hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
-If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
-  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
-  CloseHandle_(hMutex)
+If hMutex = 0
+  MessageRequester("Error", "Unable to create application mutex.", #PB_MessageRequester_Error)
+  CloseCryptRandom()
   End
 EndIf
+If GetLastError_() = #ERROR_ALREADY_EXISTS
+  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  CloseHandle_(hMutex)
+  CloseCryptRandom()
+  End
+EndIf
+If hMutex
+  ownsMutex = #True
+EndIf
+
+Procedure Cleanup()
+  If ownsMutex And hMutex
+    ReleaseMutex_(hMutex)
+  EndIf
+  If hMutex
+    CloseHandle_(hMutex)
+    hMutex = 0
+  EndIf
+  CloseCryptRandom()
+EndProcedure
+
+Procedure.s CanonicalSwitch(arg.s)
+  Define s.s = LCase(Trim(arg))
+
+  If s = ""
+    ProcedureReturn ""
+  EndIf
+
+  If Left(s, 1) = "/"
+    Select s
+      Case "/?", "/h", "/help"
+        ProcedureReturn "--help"
+      Default
+        s = "--" + Mid(s, 2)
+    EndSelect
+  EndIf
+
+  Select s
+    Case "--help", "-h"
+      ProcedureReturn "--help"
+    Case "--len", "--count", "--user", "--site", "--outfile", "--screen-only", "--no-ambiguous", "--no-special", "--copy"
+      ProcedureReturn s
+  EndSelect
+
+  ProcedureReturn ""
+EndProcedure
 
 Procedure.s RandomCharFromSet(charset.s)
   Define n.i = Len(charset)
@@ -97,6 +147,7 @@ EndProcedure
 
 Procedure.s NormalizeSite(site.s)
   Define s.s = Trim(site)
+  Define cutPos.i
   If s = ""
     ProcedureReturn ""
   EndIf
@@ -105,12 +156,33 @@ Procedure.s NormalizeSite(site.s)
   ElseIf Left(LCase(s), 8) = "https://"
     s = Mid(s, 9)
   EndIf
+  If FindString(s, "@", 1)
+    s = StringField(s, 2, "@")
+  EndIf
+  cutPos = FindString(s, "/", 1)
+  If cutPos = 0
+    cutPos = FindString(s, "?", 1)
+  EndIf
+  If cutPos = 0
+    cutPos = FindString(s, "#", 1)
+  EndIf
+  If cutPos > 0
+    s = Left(s, cutPos - 1)
+  EndIf
   ProcedureReturn Trim(s)
+EndProcedure
+
+Procedure.s DefaultOutFileName()
+  ProcedureReturn "MyPasswords_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + ".txt"
+EndProcedure
+
+Procedure.b AskYesNo(prompt.s)
+  PrintN(prompt)
+  ProcedureReturn Bool(LCase(Left(Trim(Input()), 1)) = "y")
 EndProcedure
 
 Procedure.s ShuffleString(s.s)
   ; Fisher-Yates shuffle on string characters (using pointers for efficiency)
-  Define *p.Character = @s
   Define n.i = Len(s)
   Define i.i, j.i, tmp.c
   If n < 2 : ProcedureReturn s : EndIf
@@ -147,7 +219,7 @@ Procedure.s GeneratePassword(pwlen.i, excludeAmbiguous.b, noSpecial.b = #False)
 
   Define allChars.s = lower + upper + digits + other
 
-  If pwlen < 8
+  If pwlen < #MIN_PASSWORD_LENGTH
     ProcedureReturn ""
   EndIf
   If lower = "" Or upper = "" Or digits = "" Or (other = "" And noSpecial = #False)
@@ -206,7 +278,7 @@ Procedure.s InputHdl(prompt.s="")
         Case 13 ; Enter
           Break
         Case 27 ; Esc
-          txt = "0"
+          txt = ""
           Break
         Case 8 ; Backspace
           If Len(txt) > 0
@@ -235,9 +307,7 @@ Procedure.s InputLineHdl(prompt.s="")
   ; Line input with F1 help + Backspace support
   Define txt.s,
          s.s,
-         r.i,
-         hlp.s
-  hlp = GetHelpText()
+         r.i
 
   Print(prompt)
   Repeat
@@ -298,7 +368,8 @@ Define pwlen.i,
        noSpecial.b,
        copyToClipboard.b,
        arg.s,
-       nextArg.s
+       nextArg.s,
+       cliError.s
 
 ; Defaults
 pwlen = 16
@@ -319,7 +390,7 @@ If CountProgramParameters() > 0
 
   ; Normalize switch to lowercase and allow /foo == --foo
   ; Supports both "--len 16" and "--len=16" forms.
-  Define switch.s, value.s, hasValue.b
+  Define switch.s, value.s, hasValue.b, eqPos.i
 
   For i = 0 To CountProgramParameters() - 1
     arg = ProgramParameter(i)
@@ -327,29 +398,33 @@ If CountProgramParameters() > 0
     ; Split --key=value form
     hasValue = #False
     value = ""
-    If FindString(arg, "=", 1)
-      switch = StringField(arg, 1, "=")
-      value  = StringField(arg, 2, "=")
+    eqPos = FindString(arg, "=", 1)
+    If eqPos
+      switch = Left(arg, eqPos - 1)
+      value  = Mid(arg, eqPos + 1)
       hasValue = #True
     Else
       switch = arg
     EndIf
 
-    switch = LCase(switch)
-    If Left(switch, 1) = "/"
-      ; accept /len, /h, /? etc
-      switch = "/" + Mid(switch, 2)
+    switch = CanonicalSwitch(switch)
+
+    If switch = ""
+      If cliError = ""
+        cliError = "Unknown option: " + arg
+      EndIf
+      Continue
     EndIf
 
-    ; Peek next argument only when needed
     nextArg = ""
     If i + 1 < CountProgramParameters()
       nextArg = ProgramParameter(i + 1)
     EndIf
 
     Select switch
-      Case "--help", "-h", "/help", "/h", "/?"
+      Case "--help"
         MessageRequester(#APP_NAME + " " + version, #HELP_TEXT, #PB_MessageRequester_Info)
+        Cleanup()
         End
 
       Case "--screen-only"
@@ -365,37 +440,52 @@ If CountProgramParameters() > 0
         copyToClipboard = #True
 
       Case "--len"
-        If hasValue = #False And i + 1 < CountProgramParameters()
+        If hasValue = #False And i + 1 < CountProgramParameters() And CanonicalSwitch(nextArg) = ""
           value = ProgramParameter(i + 1)
           i + 1
+        EndIf
+        If value = "" And cliError = ""
+          cliError = "Missing value for --len"
         EndIf
         pwlen = Abs(Val(value))
 
       Case "--count"
-        If hasValue = #False And i + 1 < CountProgramParameters()
+        If hasValue = #False And i + 1 < CountProgramParameters() And CanonicalSwitch(nextArg) = ""
           value = ProgramParameter(i + 1)
           i + 1
+        EndIf
+        If value = "" And cliError = ""
+          cliError = "Missing value for --count"
         EndIf
         n_of_pw = Abs(Val(value))
 
       Case "--user"
-        If hasValue = #False And i + 1 < CountProgramParameters()
+        If hasValue = #False And i + 1 < CountProgramParameters() And CanonicalSwitch(nextArg) = ""
           value = ProgramParameter(i + 1)
           i + 1
+        EndIf
+        If value = "" And cliError = ""
+          cliError = "Missing value for --user"
         EndIf
         pname = value
 
       Case "--site"
-        If hasValue = #False And i + 1 < CountProgramParameters()
+        If hasValue = #False And i + 1 < CountProgramParameters() And CanonicalSwitch(nextArg) = ""
           value = ProgramParameter(i + 1)
           i + 1
+        EndIf
+        If value = "" And cliError = ""
+          cliError = "Missing value for --site"
         EndIf
         wname = value
 
       Case "--outfile"
-        If hasValue = #False And i + 1 < CountProgramParameters()
+        If hasValue = #False And i + 1 < CountProgramParameters() And CanonicalSwitch(nextArg) = ""
           value = ProgramParameter(i + 1)
           i + 1
+        EndIf
+        If value = "" And cliError = ""
+          cliError = "Missing value for --outfile"
         EndIf
         outFile = value
     EndSelect
@@ -407,7 +497,6 @@ wname = NormalizeSite(wname)
 EnableGraphicalConsole(1)
 OpenConsole(#APP_NAME + ": F1 = Help; ESC = End")
 
-Restart:
 Repeat
   If useCli = #False
     ClearConsole()
@@ -424,57 +513,49 @@ Repeat
       Break
     EndIf
 
-    pwlen = Abs(Val(InputHdl("Enter password length (#>=8): ")))
-    If pwlen < 8
-      PrintN("Length must be >= 8.")
+    arg = InputHdl("Enter password length (#>=" + Str(#MIN_PASSWORD_LENGTH) + "): ")
+    If Len(Trim(arg)) < 1
+      Break
+    EndIf
+    pwlen = Abs(Val(arg))
+    If pwlen < #MIN_PASSWORD_LENGTH
+      PrintN("Length must be >= " + Str(#MIN_PASSWORD_LENGTH) + ".")
       PrintN("(Press ENTER to continue...)")
       Input()
       Continue
     EndIf
 
-    n_of_pw = Abs(Val(InputHdl("Enter # of passwords (#>=1): ")))
+    arg = InputHdl("Enter # of passwords (#>=1): ")
+    If Len(Trim(arg)) < 1
+      Break
+    EndIf
+    n_of_pw = Abs(Val(arg))
     If n_of_pw < 1
       Break
     EndIf
 
-    PrintN("Exclude ambiguous characters (O 0 I l 1)? (y/N): ")
-    If LCase(Left(Trim(Input()), 1)) = "y"
-      excludeAmbiguous = #True
-    Else
-      excludeAmbiguous = #False
-    EndIf
-
-    PrintN("Exclude special characters (!@#$%...)? (y/N): ")
-    If LCase(Left(Trim(Input()), 1)) = "y"
-      noSpecial = #True
-    Else
-      noSpecial = #False
-    EndIf
-
-    PrintN("Copy first password to clipboard? (y/N): ")
-    If LCase(Left(Trim(Input()), 1)) = "y"
-      copyToClipboard = #True
-    Else
-      copyToClipboard = #False
-    EndIf
-
-    PrintN("Screen-only (do not write a file)? (y/N): ")
-    If LCase(Left(Trim(Input()), 1)) = "y"
-      screenOnly = #True
-    Else
-      screenOnly = #False
-    EndIf
+    excludeAmbiguous = AskYesNo("Exclude ambiguous characters (O 0 I l 1)? (y/N): ")
+    noSpecial = AskYesNo("Exclude special characters (!@#$%...)? (y/N): ")
+    copyToClipboard = AskYesNo("Copy first password to clipboard? (y/N): ")
+    screenOnly = AskYesNo("Screen-only (do not write a file)? (y/N): ")
 
     If screenOnly = #False
-      outFile = "MyPasswords_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + ".txt"
+      outFile = DefaultOutFileName()
     EndIf
   Else
-    If pwlen < 8 Or n_of_pw < 1 Or Len(wname) < 1
+    If cliError <> ""
+      PrintN(cliError)
+      PrintN("Run with --help.")
+      Cleanup()
+      End
+    EndIf
+    If pwlen < #MIN_PASSWORD_LENGTH Or n_of_pw < 1 Or Len(wname) < 1
       PrintN("Invalid arguments. Run with --help.")
+      Cleanup()
       End
     EndIf
     If screenOnly = #False And outFile = ""
-      outFile = "MyPasswords_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + ".txt"
+      outFile = DefaultOutFileName()
     EndIf
   EndIf
 
@@ -529,7 +610,7 @@ Repeat
   EndIf
 
   If useCli
-    CloseHandle_(hMutex)
+    Cleanup()
     End
   EndIf
 
@@ -541,29 +622,29 @@ MessageRequester("Info", #APP_NAME + " " + version + #CRLF$ +
                          "Thank you for using this free tool!" + #CRLF$ +
                          "Contact: " + #EMAIL_NAME + #CRLF$ +
                          "Website: https://github.com/zonemaster60", #PB_MessageRequester_Info)
-CloseHandle_(hMutex)
+Cleanup()
 End
 
   
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 45
-; FirstLine = 24
-; Folding = --
+; CursorPosition = 48
+; FirstLine = 27
+; Folding = ---
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = PassGen.ico
-; Executable = ..\PassGen.exe
+; UseIcon = PB_PassGen.ico
+; Executable = ..\PB_PassGen.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PassGen
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = Generates website passwords
 ; VersionField7 = PassGen
 ; VersionField8 = PassGen.exe
