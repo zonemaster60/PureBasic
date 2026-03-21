@@ -13,6 +13,7 @@ EnableExplicit
 #LOG_FILE_NAME            = "HandyLNKMaker.log"
 
 #CSIDL_DESKTOPDIRECTORY   = $10
+#CSIDL_STARTUP            = $07
 
 Enumeration Windows
   #MainWindow
@@ -30,12 +31,14 @@ Enumeration Gadgets
   #Btn_Exit
 EndEnumeration
 
-Global version.s = "v1.0.0.8 Wizard"
+Global version.s = "v1.0.0.9 Wizard"
 Global AppPath.s = GetPathPart(ProgramFilename())
+Global LogFilePath.s = AppPath + #LOG_FILE_NAME
 SetCurrentDirectory(AppPath)
 
 ; Prevent multiple instances (don't rely on window title text)
 Global hMutex.i
+Global QuitRequested.b
 hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
 If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
   MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
@@ -46,18 +49,23 @@ EndIf
 ; ====== Logging ======
 
 Procedure LogMessage(msg.s)
-  Protected file = OpenFile(#PB_Any, #LOG_FILE_NAME, #PB_File_Append)
+  Protected file = OpenFile(#PB_Any, LogFilePath, #PB_File_Append)
   If file
     WriteStringN(file, FormatDate("[%yy-%mm-%dd]-[%hh:%ii:%ss] ", Date()) + " - " + msg)
     CloseFile(file)
   EndIf
 EndProcedure
 
-Procedure Exit()
-  Define Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
-  If Req = #PB_MessageRequester_Yes
-    End
+Procedure ReleaseSingleInstanceMutex()
+  If hMutex
+    CloseHandle_(hMutex)
+    hMutex = 0
   EndIf
+EndProcedure
+
+Procedure.b ConfirmExit()
+  Define Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
+  ProcedureReturn Bool(Req = #PB_MessageRequester_Yes)
 EndProcedure
 
 ; ====== Modules ======
@@ -68,17 +76,16 @@ EndDeclareModule
 
 Module SpecialFolders
   Procedure.s GetSpecialFolder(id.l)
-    Protected path.s, *ItemId.ITEMIDLIST
-    If SHGetSpecialFolderLocation_(0, id, @*ItemId) = #NOERROR
-      path = Space(#MAX_PATH)
-      If SHGetPathFromIDList_(*ItemId, @path)
-        path = Trim(path)
-        If path <> ""
-          If Right(path, 1) <> "\" : path + "\" : EndIf
-          ProcedureReturn path
-        EndIf
+    Protected path.s = Space(#MAX_PATH)
+
+    If SHGetFolderPath_(0, id, 0, 0, @path) = #S_OK
+      path = PeekS(@path)
+      If path <> ""
+        If Right(path, 1) <> "\" : path + "\" : EndIf
+        ProcedureReturn path
       EndIf
     EndIf
+
     ProcedureReturn ""
   EndProcedure
 EndModule
@@ -142,6 +149,10 @@ Procedure.s GetSystemErrorMessage(ErrorCode.l)
   EndIf
 EndProcedure
 
+Procedure.b IsSuccessHResult(Result.l)
+  ProcedureReturn Bool(Result >= 0)
+EndProcedure
+
 Procedure.s GetUniqueShortcutPath(BaseDir.s, AppName.s)
   Protected Counter.l = 0
   Protected FinalPath.s = BaseDir + AppName + ".lnk"
@@ -156,7 +167,7 @@ EndProcedure
 
 ; ====== Main UI ======
 
-Procedure OpenWizard()
+Procedure.b OpenWizard()
   If OpenWindow(#MainWindow, 0, 0, 450, 280, #APP_NAME + " " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
     TextGadget(#Txt_Intro, 20, 20, 410, 40, "Welcome to the Shortcut Wizard. Please select your program and choose where you want to create the shortcuts.")
     
@@ -172,11 +183,14 @@ Procedure OpenWizard()
     ButtonGadget(#Btn_Exit, 235, 230, 100, 30, "Exit")
     
     GadgetToolTip(#Btn_Finish, "Create shortcuts for the selected EXE")
+    ProcedureReturn #True
   EndIf
+
+  ProcedureReturn #False
 EndProcedure
 
 Procedure HandleFinish()
-  Protected exePath.s = GetGadgetText(#String_Path)
+  Protected exePath.s = Trim(GetGadgetText(#String_Path))
   Protected lnkName.s = GetFilePart(exePath, #PB_FileSystem_NoExtension)
   Protected desktopDir.s, startupDir.s
   Protected res.l, success.b = #True
@@ -185,35 +199,49 @@ Procedure HandleFinish()
     MessageRequester("Error", "Please select a valid EXE file first.", #PB_MessageRequester_Error)
     ProcedureReturn
   EndIf
+
+  If LCase(GetExtensionPart(exePath)) <> "exe"
+    MessageRequester("Error", "Please select a valid EXE file first.", #PB_MessageRequester_Error)
+    ProcedureReturn
+  EndIf
   
   If GetGadgetState(#Chk_Desktop) = 0 And GetGadgetState(#Chk_Startup) = 0
     MessageRequester("Information", "Please select at least one shortcut location.", #PB_MessageRequester_Info)
     ProcedureReturn
   EndIf
-  
-  desktopDir = SpecialFolders::GetSpecialFolder(#CSIDL_DESKTOPDIRECTORY)
-  startupDir = SpecialFolders::GetSpecialFolder(#CSIDL_ALTSTARTUP)
-  
+
   ; Create the links pointing directly to the entered path with unique naming protection
   If GetGadgetState(#Chk_Desktop)
-    Protected deskLnk.s = GetUniqueShortcutPath(desktopDir, lnkName)
-    res = ShellLink::CreateShellLink(exePath, deskLnk, "", "Start " + lnkName, GetPathPart(exePath), exePath, 0)
-    If res = #S_OK
-      LogMessage("SUCCESS: Desktop shortcut created: " + deskLnk + " pointing to " + exePath)
-    Else
-      LogMessage("FAILURE: Desktop shortcut creation failed (0x" + Hex(res) + "): " + GetSystemErrorMessage(res))
+    desktopDir = SpecialFolders::GetSpecialFolder(#CSIDL_DESKTOPDIRECTORY)
+    If desktopDir = ""
+      LogMessage("FAILURE: Desktop shortcut creation failed because the desktop folder could not be resolved.")
       success = #False
+    Else
+      Protected deskLnk.s = GetUniqueShortcutPath(desktopDir, lnkName)
+      res = ShellLink::CreateShellLink(exePath, deskLnk, "", "Start " + lnkName, GetPathPart(exePath), exePath, 0)
+      If IsSuccessHResult(res)
+        LogMessage("SUCCESS: Desktop shortcut created: " + deskLnk + " pointing to " + exePath)
+      Else
+        LogMessage("FAILURE: Desktop shortcut creation failed (0x" + Hex(res) + "): " + GetSystemErrorMessage(res))
+        success = #False
+      EndIf
     EndIf
   EndIf
   
   If GetGadgetState(#Chk_Startup)
-    Protected startLnk.s = GetUniqueShortcutPath(startupDir, lnkName)
-    res = ShellLink::CreateShellLink(exePath, startLnk, "", "Start " + lnkName, GetPathPart(exePath), exePath, 0)
-    If res = #S_OK
-      LogMessage("SUCCESS: Startup shortcut created: " + startLnk + " pointing to " + exePath)
-    Else
-      LogMessage("FAILURE: Startup shortcut creation failed (0x" + Hex(res) + "): " + GetSystemErrorMessage(res))
+    startupDir = SpecialFolders::GetSpecialFolder(#CSIDL_STARTUP)
+    If startupDir = ""
+      LogMessage("FAILURE: Startup shortcut creation failed because the startup folder could not be resolved.")
       success = #False
+    Else
+      Protected startLnk.s = GetUniqueShortcutPath(startupDir, lnkName)
+      res = ShellLink::CreateShellLink(exePath, startLnk, "", "Start " + lnkName, GetPathPart(exePath), exePath, 0)
+      If IsSuccessHResult(res)
+        LogMessage("SUCCESS: Startup shortcut created: " + startLnk + " pointing to " + exePath)
+      Else
+        LogMessage("FAILURE: Startup shortcut creation failed (0x" + Hex(res) + "): " + GetSystemErrorMessage(res))
+        success = #False
+      EndIf
     EndIf
   EndIf
   
@@ -228,7 +256,11 @@ EndProcedure
 ; ====== Event Loop ======
 
 LogMessage("=== Wizard Started ===")
-OpenWizard()
+If OpenWizard() = 0
+  LogMessage("FAILURE: Main window could not be created.")
+  ReleaseSingleInstanceMutex()
+  End
+EndIf
 
 Repeat
   Define Event = WaitWindowEvent()
@@ -236,7 +268,12 @@ Repeat
     Case #PB_Event_Gadget
       Select EventGadget()
         Case #Btn_Browse
-          Define File.s = OpenFileRequester("Select Program EXE", "", "Executable (*.exe)|*.exe", 0)
+          Define InitialDirectory.s = GetPathPart(GetGadgetText(#String_Path))
+          If InitialDirectory = ""
+            InitialDirectory = AppPath
+          EndIf
+
+          Define File.s = OpenFileRequester("Select Program EXE", InitialDirectory, "Executable (*.exe)|*.exe", 0)
           If File <> ""
             SetGadgetText(#String_Path, File)
           EndIf
@@ -245,18 +282,24 @@ Repeat
           HandleFinish()
           
         Case #Btn_Exit
-          Exit()
+          If ConfirmExit()
+            QuitRequested = #True
+          EndIf
           
       EndSelect
       
     Case #PB_Event_CloseWindow
-      Exit()
+      If ConfirmExit()
+        QuitRequested = #True
+      EndIf
       
   EndSelect
-Until Event = #PB_Event_CloseWindow
+Until QuitRequested
+
+ReleaseSingleInstanceMutex()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 1
+; CursorPosition = 33
 ; FirstLine = 1
 ; Folding = ---
 ; Optimizer
@@ -267,12 +310,12 @@ Until Event = #PB_Event_CloseWindow
 ; UseIcon = HandyLNKMaker.ico
 ; Executable = ..\HandyLNKMaker.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,8
-; VersionField1 = 1,0,0,8
+; VersionField0 = 1,0,0,9
+; VersionField1 = 1,0,0,9
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyLNKMaker
-; VersionField4 = 1.0.0.8
-; VersionField5 = 1.0.0.8
+; VersionField4 = 1.0.0.9
+; VersionField5 = 1.0.0.9
 ; VersionField6 = HandyLNKMaker - Shortcut Creation Wizard
 ; VersionField7 = HandyLNKMaker
 ; VersionField8 = HandyLNKMaker.exe
