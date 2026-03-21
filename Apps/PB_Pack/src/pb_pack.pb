@@ -841,7 +841,6 @@ Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 209
-; FirstLine = 187
 ; Folding = ----
 ; Optimizer
 ; EnableThread
@@ -849,5 +848,18 @@ Main()
 ; EnableAdmin
 ; SharedUCRT
 ; UseIcon = PB_Pack.ico
-; Executable = ..\pb_pack.exe
+; Executable = pb_pack.exe
 ; DisableDebugger
+; IncludeVersionInfo
+; VersionField0 = 1,0,0,0
+; VersionField1 = 1,0,0,0
+; VersionField2 = ZoneSoft
+; VersionField3 = PB_Pack
+; VersionField4 = 1.0.0.0
+; VersionField5 = 1.0.0.0
+; VersionField6 = A exe/dll packer with UPX compatibility
+; VersionField7 = PB_Pack
+; VersionField8 = PB_Pack.exe
+; VersionField9 = David Scouten
+; VersionField13 = zonemaster60@gmail.com
+; VersionField14 = https://github.com/zonemaster60
