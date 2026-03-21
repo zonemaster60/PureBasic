@@ -3,7 +3,7 @@
 #APP_NAME = "HandyFlipBook"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
-Global version.s = "v1.0.0.8"
+Global version.s = "v1.0.0.9"
 Global AppPath.s        = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -15,16 +15,6 @@ If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
   CloseHandle_(hMutex)
   End
 EndIf
-
-; Exit procedure
-Procedure Exit()
-  Protected Req.i
-  Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
-  If Req = #PB_MessageRequester_Yes
-    CloseHandle_(hMutex)
-    End
-  EndIf
-EndProcedure
 
 DeclareModule FlipBook
    Structure FlipBook
@@ -172,9 +162,6 @@ Module FlipBook
       Protected.d nx, ny, di
       Protected.d px1, py1, px2, py2
       Protected.d midX, midY, midX1, midY1, midX2, midY2
-      Protected.d canvasW = GadgetWidth(*book\canvasID)
-      Protected.d canvasH = GadgetHeight(*book\canvasID)
-      
       If StartVectorDrawing(CanvasVectorOutput(*book\canvasID)) = 0
          ProcedureReturn
       EndIf
@@ -399,80 +386,508 @@ Module FlipBook
    DisableExplicit
 EndModule
 
-CompilerIf #PB_Compiler_IsMainFile
-  ; enter the name of the file here
-  Define filename.s = OpenFileRequester("Open a file", "",
-                                      "All Files|*.*|Script Files|*.bat;*.cmd|Source Files|*.pb;*.pbi|Text Files|*.txt",0)
-  Define filename2.s = GetFilePart(filename)
-  
-   OpenWindow(0,0,0,800,600,#APP_NAME+ " " + version + " - Viewing file: '"+filename2+"'",#PB_Window_ScreenCentered | #PB_Window_SystemMenu)
-   CanvasGadget(0,0,0,WindowWidth(0),WindowHeight(0))
-   SetGadgetAttribute(0, #PB_Canvas_Cursor, #PB_Cursor_Hand) ; <= add this line
-   
-   UseModule FlipBook
-   *book.FlipBook = New(0, (GadgetWidth(0) - 5) * 0.75, GadgetHeight(0) * 0.5, GadgetWidth(0) * 0.5 - 10, GadgetHeight(0) - 20, RGBA(32,32,32,255))
-   ; change font size here
-   LoadFont(0, "Arial", 8)
-   ; change the #PB_Compiler_File to a text file of your choosing
-   If Not ReadFile(0, filename)
-     CloseWindow(0)
-     MessageRequester("Error:","No file to read!",#PB_MessageRequester_Error)
-     End
-   Else
-      pageNr = AddPage(*book, #True,RGBA(32, 200, 32, 255), RGBA(255,255,255,255),5)
-      StartVectorDrawing(ImageVectorOutput(*book\page(pageNr)))
-      ScaleCoordinates(DesktopResolutionX(), DesktopResolutionY())
-      AddPathCircle(195,200,175)
-      VectorSourceColor(RGBA(128, 250, 128, 255))
-      StrokePath(15)
-      VectorFont(FontID(0))
-      ScaleCoordinates(2 / DesktopResolutionX(), 2 / DesktopResolutionY())
-      MovePathCursor(DesktopScaledX(-100), DesktopScaledY(250))
-      DrawVectorParagraph("Use the mouse to flip the pages!",*book\width,*book\height,#PB_VectorParagraph_Center)
-      DrawVectorParagraph("< Changes by: " + #EMAIL_NAME + ">", *book\width,*book\height,#PB_VectorParagraph_Center)
-      DrawVectorParagraph("<<< Original code by Mr. L.! >>>",*book\width,*book\height,#PB_VectorParagraph_Center)
-      ScaleCoordinates(2, 2)
-      VectorSourceColor(RGBA(255, 255, 255, 255))
-      MovePathCursor(DesktopScaledX(-145), DesktopScaledY(40))
-      DrawVectorParagraph(#APP_NAME + #CRLF$ + #CRLF$ + "'" + filename2 + "'" + #CRLF$ + #CRLF$,*book\width,*book\height,#PB_VectorParagraph_Center)     
-      StopVectorDrawing()
-      AddPage(*book, #True, RGBA(200, 200, 200, 255), RGBA(255,255,255,255), 5)
-      While Not Eof(0)
-         pageNr = AddPage(*book, #True, RGBA(Random(255,128), Random(255,128), Random(255,128), 255), RGBA(255,255,255,255),20)
-         StartVectorDrawing(ImageVectorOutput(*book\page(pageNr)))
-         VectorSourceColor(RGBA(0, 0, 0, 255))
-         VectorFont(FontID(0))
-         y = 25
-         AddPathBox(10, 10, *book\width - 20, *book\height - 20)
-         ClipPath()
-         Repeat
-            MovePathCursor(15.5, y+0.5)
-            DrawVectorText(ReplaceString(ReadString(0), Chr(9), " "))
-            y + VectorTextHeight(" ")
-         Until y > *book\height - 65 Or Eof(0)
-         MovePathCursor(0, *book\height - 30)
-         DrawVectorParagraph("Page " + Str(*book\nrPages - 2), *book\width, 30, #PB_VectorParagraph_Center)
-         StopVectorDrawing()
-      Wend
-      If (*book\nrPages & 1) = 0
-        AddPage(*book, #True, RGBA(200, 200, 200, 255), RGBA(255,255,255,255), 5)
+UseModule FlipBook
+
+#Window_Main  = 0
+#Gadget_Canvas = 0
+#Gadget_Web    = 1
+
+#ViewMode_FlipBook = 1
+#ViewMode_Web      = 2
+
+Global ColorCanvasBackground.i = RGBA(36, 32, 28, 255)
+Global ColorPageBackground.i   = RGBA(247, 242, 230, 255)
+Global ColorPageBorder.i       = RGBA(124, 108, 88, 255)
+Global ColorCoverBackground.i  = RGBA(86, 112, 80, 255)
+Global ColorCoverAccent.i      = RGBA(228, 235, 214, 255)
+Global ColorText.i             = RGBA(34, 30, 26, 255)
+
+Global CurrentViewMode.i = #ViewMode_FlipBook
+Global CurrentTempDirectory.s
+Global WebViewerAvailable.i
+
+Procedure CleanupTempDirectory()
+  If CurrentTempDirectory <> "" And FileSize(CurrentTempDirectory) = -2
+    DeleteDirectory(CurrentTempDirectory, "", #PB_FileSystem_Recursive | #PB_FileSystem_Force)
+  EndIf
+  CurrentTempDirectory = ""
+EndProcedure
+
+Procedure.i EnsureDirectoryExists(directory.s)
+  Protected normalized.s = ReplaceString(directory, "/", "\\")
+  Protected currentPath.s
+  Protected part.s
+  Protected partCount.i
+  Protected i.i
+
+  If normalized = ""
+    ProcedureReturn #True
+  EndIf
+
+  If Right(normalized, 1) = "\\"
+    normalized = Left(normalized, Len(normalized) - 1)
+  EndIf
+
+  If FileSize(normalized) = -2
+    ProcedureReturn #True
+  EndIf
+
+  If Len(normalized) >= 3 And Mid(normalized, 2, 2) = ":\\"
+    currentPath = Left(normalized, 3)
+    normalized = Mid(normalized, 4)
+  EndIf
+
+  partCount = CountString(normalized, "\\") + 1
+  For i = 1 To partCount
+    part = StringField(normalized, i, "\\")
+    If part <> ""
+      currentPath + part + "\\"
+      If FileSize(currentPath) <> -2
+        If CreateDirectory(currentPath) = 0
+          ProcedureReturn #False
+        EndIf
       EndIf
-      AddPage(*book, #True,RGBA(32, 200, 32, 255), RGBA(255,255,255,255), 5)    
-   EndIf     
-   DrawBook(*book, 0, 0, #False)
-   Repeat
+    EndIf
+  Next
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure.s CreateTempWorkspace(prefix.s)
+  Protected tempRoot.s = GetTemporaryDirectory() + #APP_NAME + "\\"
+  Protected tempDirectory.s
+
+  If EnsureDirectoryExists(tempRoot) = 0
+    ProcedureReturn ""
+  EndIf
+
+  tempDirectory = tempRoot + prefix + "-" + FormatDate("%yyyy%mm%dd-%hh%ii%ss", Date()) + "-" + Str(Random(999999)) + "\\"
+  If EnsureDirectoryExists(tempDirectory)
+    ProcedureReturn tempDirectory
+  EndIf
+
+  ProcedureReturn ""
+EndProcedure
+
+Procedure.i IsSafeArchiveEntry(entryName.s)
+  Protected normalized.s = ReplaceString(entryName, "/", "\\")
+  Protected part.s
+  Protected i.i
+  Protected partCount.i
+
+  If normalized = ""
+    ProcedureReturn #False
+  EndIf
+
+  If Left(normalized, 1) = "\\" Or FindString(normalized, ":", 1)
+    ProcedureReturn #False
+  EndIf
+
+  partCount = CountString(normalized, "\\") + 1
+  For i = 1 To partCount
+    part = StringField(normalized, i, "\\")
+    If part = ".."
+      ProcedureReturn #False
+    EndIf
+  Next
+
+  If FindString(normalized, "\\\\", 1)
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure.s ToFileUrl(fileName.s)
+  Protected url.s = ReplaceString(fileName, "\\", "/")
+
+  url = ReplaceString(url, "%", "%25")
+  url = ReplaceString(url, "#", "%23")
+  url = ReplaceString(url, "?", "%3F")
+  url = ReplaceString(url, " ", "%20")
+
+  ProcedureReturn "file:///" + url
+EndProcedure
+
+Procedure.i FindFirstNodeByName(node.i, nodeName.s)
+  Protected foundNode.i
+  Protected childNode.i
+
+  If node = 0
+    ProcedureReturn 0
+  EndIf
+
+  If LCase(GetXMLNodeName(node)) = LCase(nodeName)
+    ProcedureReturn node
+  EndIf
+
+  childNode = ChildXMLNode(node)
+  While childNode
+    foundNode = FindFirstNodeByName(childNode, nodeName)
+    If foundNode
+      ProcedureReturn foundNode
+    EndIf
+    childNode = NextXMLNode(childNode)
+  Wend
+
+  ProcedureReturn 0
+EndProcedure
+
+Procedure.s ExtractEpubStartDocument(epubFile.s)
+  Protected pack.i
+  Protected tempDirectory.s
+  Protected entryName.s
+  Protected normalizedEntry.s
+  Protected targetFile.s
+  Protected targetDirectory.s
+  Protected fallbackDocument.s
+  Protected rootFile.s
+  Protected opfFile.s
+  Protected startDocument.s
+  Protected xml.i
+  Protected manifestNode.i
+  Protected spineNode.i
+  Protected rootFileNode.i
+  Protected childNode.i
+  Protected idRef.s
+  NewMap manifestItems.s()
+
+  CleanupTempDirectory()
+  tempDirectory = CreateTempWorkspace("epub")
+  If tempDirectory = ""
+    ProcedureReturn ""
+  EndIf
+
+  UseZipPacker()
+  pack = OpenPack(#PB_Any, epubFile, #PB_PackerPlugin_Zip)
+  If pack = 0
+    CleanupTempDirectory()
+    ProcedureReturn ""
+  EndIf
+
+  CurrentTempDirectory = tempDirectory
+  If ExaminePack(pack)
+    While NextPackEntry(pack)
+      entryName = PackEntryName(pack)
+      normalizedEntry = ReplaceString(entryName, "/", "\\")
+
+      If IsSafeArchiveEntry(normalizedEntry)
+        If Right(normalizedEntry, 1) = "\\"
+          EnsureDirectoryExists(tempDirectory + normalizedEntry)
+        Else
+          targetFile = tempDirectory + normalizedEntry
+          targetDirectory = GetPathPart(targetFile)
+          If targetDirectory = "" Or EnsureDirectoryExists(targetDirectory)
+            If UncompressPackFile(pack, targetFile, entryName) <> -1 And fallbackDocument = ""
+              Select LCase(GetExtensionPart(normalizedEntry))
+                Case "html", "htm", "xhtml"
+                  fallbackDocument = targetFile
+              EndSelect
+            EndIf
+          EndIf
+        EndIf
+      EndIf
+    Wend
+  EndIf
+  ClosePack(pack)
+
+  xml = LoadXML(#PB_Any, tempDirectory + "META-INF\\container.xml")
+  If xml
+    rootFileNode = FindFirstNodeByName(MainXMLNode(xml), "rootfile")
+    If rootFileNode
+      rootFile = ReplaceString(GetXMLAttribute(rootFileNode, "full-path"), "/", "\\")
+    EndIf
+    FreeXML(xml)
+  EndIf
+
+  If rootFile <> ""
+    opfFile = tempDirectory + rootFile
+    xml = LoadXML(#PB_Any, opfFile)
+    If xml
+      manifestNode = FindFirstNodeByName(MainXMLNode(xml), "manifest")
+      If manifestNode
+        childNode = ChildXMLNode(manifestNode)
+        While childNode
+          If LCase(GetXMLNodeName(childNode)) = "item"
+            manifestItems(GetXMLAttribute(childNode, "id")) = ReplaceString(GetXMLAttribute(childNode, "href"), "/", "\\")
+          EndIf
+          childNode = NextXMLNode(childNode)
+        Wend
+      EndIf
+
+      spineNode = FindFirstNodeByName(MainXMLNode(xml), "spine")
+      If spineNode
+        childNode = ChildXMLNode(spineNode)
+        While childNode
+          If LCase(GetXMLNodeName(childNode)) = "itemref" And LCase(GetXMLAttribute(childNode, "linear")) <> "no"
+            idRef = GetXMLAttribute(childNode, "idref")
+            If FindMapElement(manifestItems(), idRef)
+              startDocument = GetPathPart(opfFile) + manifestItems()
+              Break
+            EndIf
+          EndIf
+          childNode = NextXMLNode(childNode)
+        Wend
+      EndIf
+      FreeXML(xml)
+    EndIf
+  EndIf
+
+  If startDocument = ""
+    startDocument = fallbackDocument
+  EndIf
+
+  If startDocument = ""
+    CleanupTempDirectory()
+  EndIf
+
+  ProcedureReturn startDocument
+EndProcedure
+
+Procedure UpdateWindowTitle(displayName.s, modeLabel.s)
+  SetWindowTitle(#Window_Main, #APP_NAME + " " + version + " - " + modeLabel + ": '" + displayName + "'")
+EndProcedure
+
+Procedure.i ShowWebDocument(documentPath.s, displayName.s, modeLabel.s)
+  If WebViewerAvailable = 0
+    MessageRequester("Error", "Embedded web viewing is unavailable on this system. PDF and EPUB viewing need WebView support.", #PB_MessageRequester_Error)
+    ProcedureReturn #False
+  EndIf
+
+  HideGadget(#Gadget_Canvas, #True)
+  HideGadget(#Gadget_Web, #False)
+  SetGadgetText(#Gadget_Web, ToFileUrl(documentPath))
+  CurrentViewMode = #ViewMode_Web
+  UpdateWindowTitle(displayName, modeLabel)
+  ProcedureReturn #True
+EndProcedure
+
+Procedure ResizeDocumentView(*book.FlipBook)
+  If IsWindow(#Window_Main) = 0
+    ProcedureReturn
+  EndIf
+
+  ResizeGadget(#Gadget_Canvas, 0, 0, WindowWidth(#Window_Main), WindowHeight(#Window_Main))
+  If WebViewerAvailable
+    ResizeGadget(#Gadget_Web, 0, 0, WindowWidth(#Window_Main), WindowHeight(#Window_Main))
+  EndIf
+
+  If *book
+    *book\x = DesktopScaledX((GadgetWidth(#Gadget_Canvas) - 5) * 0.75)
+    *book\y = DesktopScaledY(GadgetHeight(#Gadget_Canvas) * 0.5)
+    If CurrentViewMode = #ViewMode_FlipBook
+      DrawBook(*book, 0, 0, #False)
+    EndIf
+  EndIf
+EndProcedure
+
+Procedure ShowFlipBookDocument(*book.FlipBook, displayName.s)
+  If WebViewerAvailable
+    HideGadget(#Gadget_Web, #True)
+  EndIf
+  HideGadget(#Gadget_Canvas, #False)
+  CurrentViewMode = #ViewMode_FlipBook
+  UpdateWindowTitle(displayName, "Reading")
+  DrawBook(*book, 0, 0, #False)
+EndProcedure
+
+Procedure.i AddCoverPage(*book.FlipBook, displayName.s, footerText.s)
+  Protected pageNr.i = AddPage(*book, #True, ColorCoverBackground, ColorCoverAccent, 6)
+
+  If StartVectorDrawing(ImageVectorOutput(*book\page(pageNr)))
+    AddPathBox(30, 30, *book\width - 60, *book\height - 60)
+    VectorSourceColor(RGBA(238, 242, 226, 64))
+    FillPath()
+
+    VectorFont(FontID(0), DesktopScaledY(28))
+    VectorSourceColor(ColorCoverAccent)
+    MovePathCursor(40, 70)
+    DrawVectorParagraph(#APP_NAME, *book\width - 80, DesktopScaledY(40), #PB_VectorParagraph_Center)
+
+    VectorFont(FontID(0), DesktopScaledY(16))
+    MovePathCursor(50, 150)
+    DrawVectorParagraph(displayName, *book\width - 100, *book\height - 220, #PB_VectorParagraph_Center)
+
+    VectorFont(FontID(0), DesktopScaledY(10))
+    MovePathCursor(60, *book\height - 120)
+    DrawVectorParagraph("Use the mouse to flip pages.", *book\width - 120, 20, #PB_VectorParagraph_Center)
+    MovePathCursor(60, *book\height - 90)
+    DrawVectorParagraph(footerText, *book\width - 120, 20, #PB_VectorParagraph_Center)
+    StopVectorDrawing()
+  EndIf
+
+  ProcedureReturn pageNr
+EndProcedure
+
+Procedure.i AddTextDocumentPages(*book.FlipBook, fileName.s, displayName.s)
+  Protected fileID.i
+  Protected pageNr.i
+  Protected y.d
+  Protected lineText.s
+
+  fileID = ReadFile(#PB_Any, fileName)
+  If fileID = 0
+    MessageRequester("Error", "Unable to open '" + displayName + "'.", #PB_MessageRequester_Error)
+    ProcedureReturn #False
+  EndIf
+
+  AddCoverPage(*book, displayName, "Text document viewer")
+  AddPage(*book, #True, ColorPageBackground, ColorPageBorder, 4)
+
+  While Eof(fileID) = 0
+    pageNr = AddPage(*book, #True, ColorPageBackground, ColorPageBorder, 4)
+    If StartVectorDrawing(ImageVectorOutput(*book\page(pageNr)))
+      VectorSourceColor(ColorText)
+      VectorFont(FontID(0), DesktopScaledY(10))
+      y = 28
+      AddPathBox(24, 22, *book\width - 48, *book\height - 58)
+      ClipPath()
+
+      Repeat
+        lineText = ReplaceString(ReadString(fileID), Chr(9), "    ")
+        MovePathCursor(28, y)
+        DrawVectorText(lineText)
+        y + VectorTextHeight("Ag") + 3
+      Until y > *book\height - 70 Or Eof(fileID)
+
+      MovePathCursor(0, *book\height - 32)
+      DrawVectorParagraph("Page " + Str(*book\nrPages - 2), *book\width, 24, #PB_VectorParagraph_Center)
+      StopVectorDrawing()
+    EndIf
+  Wend
+
+  CloseFile(fileID)
+
+  If (*book\nrPages & 1) = 0
+    AddPage(*book, #True, ColorPageBackground, ColorPageBorder, 4)
+  EndIf
+  AddCoverPage(*book, displayName, "Changes by: " + #EMAIL_NAME)
+
+  *book\currentPage = 0
+  *book\cornerX = 0
+  *book\cornerY = 0
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure.i LoadDocument(*book.FlipBook, fileName.s, displayName.s)
+  Protected extension.s = LCase(GetExtensionPart(fileName))
+  Protected epubDocument.s
+
+  Select extension
+    Case "pdf"
+      ProcedureReturn ShowWebDocument(fileName, displayName, "Viewing PDF")
+
+    Case "epub"
+      epubDocument = ExtractEpubStartDocument(fileName)
+      If epubDocument = ""
+        MessageRequester("Error", "Unable to open EPUB content from '" + displayName + "'.", #PB_MessageRequester_Error)
+        ProcedureReturn #False
+      EndIf
+      ProcedureReturn ShowWebDocument(epubDocument, displayName, "Viewing EPUB")
+
+    Case "html", "htm", "xhtml"
+      ProcedureReturn ShowWebDocument(fileName, displayName, "Viewing Document")
+
+    Default
+      If AddTextDocumentPages(*book, fileName, displayName)
+        ShowFlipBookDocument(*book, displayName)
+        ProcedureReturn #True
+      EndIf
+  EndSelect
+
+  ProcedureReturn #False
+EndProcedure
+
+Procedure.i ConfirmExit(*book.FlipBook)
+  Protected req.i
+
+  req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
+  If req = #PB_MessageRequester_Yes
+    If *book
+      Free(*book)
+    EndIf
+    CleanupTempDirectory()
+    If hMutex
+      CloseHandle_(hMutex)
+      hMutex = 0
+    EndIf
+    ProcedureReturn #True
+  EndIf
+
+  ProcedureReturn #False
+EndProcedure
+
+CompilerIf #PB_Compiler_IsMainFile
+  Define filename.s
+  Define filename2.s
+  Define event.i
+  Define quit.i
+  Define *book.FlipBook
+
+  filename = OpenFileRequester("Open a document", "", "Supported Documents|*.txt;*.log;*.cfg;*.ini;*.json;*.xml;*.md;*.csv;*.bat;*.cmd;*.pb;*.pbi;*.fb2;*.html;*.htm;*.xhtml;*.pdf;*.epub|Text Documents|*.txt;*.log;*.cfg;*.ini;*.json;*.xml;*.md;*.csv;*.bat;*.cmd;*.pb;*.pbi;*.fb2|Web Documents|*.html;*.htm;*.xhtml|PDF Files|*.pdf|EPUB Files|*.epub|All Files|*.*", 0)
+  filename2 = GetFilePart(filename)
+
+  If filename = ""
+    If hMutex
+      CloseHandle_(hMutex)
+      hMutex = 0
+    EndIf
+    End
+  EndIf
+
+  If OpenWindow(#Window_Main, 0, 0, 900, 700, #APP_NAME + " " + version, #PB_Window_ScreenCentered | #PB_Window_SystemMenu | #PB_Window_SizeGadget)
+    CanvasGadget(#Gadget_Canvas, 0, 0, WindowWidth(#Window_Main), WindowHeight(#Window_Main))
+    SetGadgetAttribute(#Gadget_Canvas, #PB_Canvas_Cursor, #PB_Cursor_Hand)
+
+    WebViewerAvailable = WebGadget(#Gadget_Web, 0, 0, WindowWidth(#Window_Main), WindowHeight(#Window_Main), "about:blank", #PB_Web_Edge)
+    If WebViewerAvailable = 0
+      WebViewerAvailable = WebGadget(#Gadget_Web, 0, 0, WindowWidth(#Window_Main), WindowHeight(#Window_Main), "about:blank")
+    EndIf
+    If WebViewerAvailable
+      HideGadget(#Gadget_Web, #True)
+    EndIf
+
+    *book = New(#Gadget_Canvas, (GadgetWidth(#Gadget_Canvas) - 5) * 0.75, GadgetHeight(#Gadget_Canvas) * 0.5, GadgetWidth(#Gadget_Canvas) * 0.5 - 10, GadgetHeight(#Gadget_Canvas) - 20, ColorCanvasBackground)
+
+    If LoadFont(0, "Georgia", 9) = 0
+      LoadFont(0, "Arial", 9)
+    EndIf
+
+    If *book = 0 Or LoadDocument(*book, filename, filename2) = 0
+      If *book
+        Free(*book)
+      EndIf
+      CleanupTempDirectory()
+      If hMutex
+        CloseHandle_(hMutex)
+        hMutex = 0
+      EndIf
+      End
+    EndIf
+
+    Repeat
       event = WaitWindowEvent()
-      HandleEvent(*book, event)
-    Until event = #PB_Event_CloseWindow
-    
-   Exit()
-   
+      Select event
+        Case #PB_Event_Timer, #PB_Event_Gadget
+          If CurrentViewMode = #ViewMode_FlipBook
+            HandleEvent(*book, event)
+          EndIf
+
+        Case #PB_Event_SizeWindow
+          ResizeDocumentView(*book)
+
+        Case #PB_Event_CloseWindow
+          quit = ConfirmExit(*book)
+      EndSelect
+    Until quit
+  EndIf
+
 CompilerEndIf
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 466
-; FirstLine = 397
-; Folding = ---
+; CursorPosition = 5
+; Folding = -----
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -481,13 +896,13 @@ CompilerEndIf
 ; UseIcon = HandyFlipBook.ico
 ; Executable = ..\HandyFlipBook.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,8
-; VersionField1 = 1,0,0,8
+; VersionField0 = 1,0,0,9
+; VersionField1 = 1,0,0,9
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyFlipBook
-; VersionField4 = 1.0.0.8
-; VersionField5 = 1.0.0.8
-; VersionField6 = Handy Flip Book for viewing text files
+; VersionField4 = 1.0.0.9
+; VersionField5 = 1.0.0.9
+; VersionField6 = Handy Flip Book for viewing text, PDF, and EPUB files
 ; VersionField7 = HandyFlipBook
 ; VersionField8 = HandyFlipBook.exe
 ; VersionField9 = David Scouten
