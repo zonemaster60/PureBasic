@@ -69,10 +69,11 @@ EndStructure
 
 #APP_NAME   = "EXE-PE_Viewer"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-Global version.s = "v1.0.0.4"
+Global version.s = "v1.0.0.5"
 
 Global CurrentFile.s
 Global NewList LogLines.s()
+Global NewList WarningRows.s()
 Global AppPath.s        = GetPathPart(ProgramFilename())
 Global CurrentView.i = 0
 Global NewList Sections.IMAGE_SECTION_HEADER()
@@ -182,10 +183,26 @@ Procedure.s CharacteristicsToString(chars.w)
 EndProcedure
 
 Procedure.s TimestampToString(timestamp.l)
-  If timestamp <= 0
+  Protected value.q = timestamp & $FFFFFFFF
+
+  If value = 0
     ProcedureReturn "N/A"
   EndIf
-  ProcedureReturn FormatDate("[%yy-%mm-%dd]-[%hh:%ii:%ss] ", timestamp)
+
+  ProcedureReturn FormatDate("[%yy-%mm-%dd]-[%hh:%ii:%ss] ", value)
+EndProcedure
+
+Procedure.q UnsignedLong(value.l)
+  ProcedureReturn value & $FFFFFFFF
+EndProcedure
+
+Procedure.s Hex32(value.l)
+  ProcedureReturn RSet(Hex(UnsignedLong(value)), 8, "0")
+EndProcedure
+
+Procedure.s FormatTimestampValue(timestamp.l)
+  Protected value.q = UnsignedLong(timestamp)
+  ProcedureReturn TimestampToString(timestamp) + " (" + Str(value) + " / 0x" + Hex32(timestamp) + ")"
 EndProcedure
 
 Procedure.s SectionCharacteristicsToString(chars.l)
@@ -214,6 +231,14 @@ Procedure.q MaxQ(a.q, b.q)
     ProcedureReturn a
   EndIf
   ProcedureReturn b
+EndProcedure
+
+Procedure.q AlignUpQ(value.q, alignment.q)
+  If alignment <= 0
+    ProcedureReturn value
+  EndIf
+
+  ProcedureReturn ((value + alignment - 1) / alignment) * alignment
 EndProcedure
 
 Procedure.s GetSectionName(*section.IMAGE_SECTION_HEADER)
@@ -255,6 +280,38 @@ Procedure.b IsFileRangeValid(offset.q, size.q)
   ProcedureReturn #True
 EndProcedure
 
+Procedure.b IsDiskRangeValid(fileSize.q, offset.q, size.q)
+  If fileSize <= 0 Or offset < 0 Or size < 0
+    ProcedureReturn #False
+  EndIf
+
+  If offset > fileSize
+    ProcedureReturn #False
+  EndIf
+
+  If size > fileSize - offset
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure.b ReadExact(fileID.i, *buffer, size.q)
+  If size < 0
+    ProcedureReturn #False
+  EndIf
+
+  If size = 0
+    ProcedureReturn #True
+  EndIf
+
+  If ReadData(fileID, *buffer, size) <> size
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn #True
+EndProcedure
+
 Procedure.s PeekAsciiZ(offset.q)
   Protected length.q = 0
 
@@ -289,13 +346,47 @@ Procedure.i GetThunkEntrySize(is64.b)
 EndProcedure
 
 Procedure.s EscapeJson(value.s)
-  value = ReplaceString(value, "\\", "\\\\")
-  value = ReplaceString(value, #DQUOTE$, "\\" + #DQUOTE$)
+  value = ReplaceString(value, Chr(92), Chr(92) + Chr(92))
+  value = ReplaceString(value, #DQUOTE$, Chr(92) + #DQUOTE$)
   value = ReplaceString(value, #CRLF$, "\\r\\n")
   value = ReplaceString(value, Chr(13), "\\r")
   value = ReplaceString(value, Chr(10), "\\n")
   value = ReplaceString(value, Chr(9), "\\t")
   ProcedureReturn value
+EndProcedure
+
+Procedure.s NormalizeHexAddress(value.s)
+  value = RemoveString(Trim(value), " ")
+
+  If Left(LCase(value), 2) = "0x"
+    value = Mid(value, 3)
+  EndIf
+
+  If Left(value, 1) = "$"
+    value = Mid(value, 2)
+  EndIf
+
+  ProcedureReturn value
+EndProcedure
+
+Procedure.b IsHexAddress(value.s)
+  Protected i.i, charCode.i
+
+  value = NormalizeHexAddress(value)
+  If value = ""
+    ProcedureReturn #False
+  EndIf
+
+  For i = 1 To Len(value)
+    charCode = Asc(Mid(value, i, 1))
+    Select charCode
+      Case '0' To '9', 'A' To 'F', 'a' To 'f'
+      Default
+        ProcedureReturn #False
+    EndSelect
+  Next
+
+  ProcedureReturn #True
 EndProcedure
 
 Procedure.s EscapeCsv(value.s)
@@ -354,12 +445,12 @@ Procedure.f CalculateEntropy(*ptr, size.q)
   If size <= 0 Or *ptr = 0 : ProcedureReturn 0 : EndIf
   
   Protected Dim counts.q(255)
-  Protected i.q, byte.a
+  Protected i.q, byte.i
   Protected entropy.f = 0
   Protected p.f
   
   For i = 0 To size - 1
-    byte = PeekA(*ptr + i)
+    byte = PeekA(*ptr + i) & $FF
     counts(byte) + 1
   Next
   
@@ -466,6 +557,7 @@ EndProcedure
 Procedure ClearInfo()
   ClearGadgetItems(#Gad_List)
   ClearList(LogLines())
+  ClearList(WarningRows())
   ClearList(Sections())
   ClearList(DataDirs())
   InvalidateDerivedCaches()
@@ -483,6 +575,171 @@ Global is64Bit.b = #False
 Procedure AddInfo(key.s, value.s)
   AddElement(LogLines())
   LogLines() = key + " " + value
+EndProcedure
+
+Procedure AddWarning(message.s)
+  AddElement(WarningRows())
+  WarningRows() = message
+EndProcedure
+
+Procedure AppendWarningsToLog()
+  If ListSize(WarningRows()) = 0
+    AddInfo("Warnings:", "None detected")
+    ProcedureReturn
+  EndIf
+
+  AddInfo("Warnings:", Str(ListSize(WarningRows())) + " issue(s) flagged")
+  ForEach WarningRows()
+    AddInfo("Warning:", WarningRows())
+  Next
+EndProcedure
+
+Procedure AnalyzePEWarnings(fileSize.q, entryPointRVA.q, fileAlignment.q, sectionAlignment.q, sizeOfHeaders.q, sizeOfImage.q, importRVA.q, importSize.q, sectionHeadersOffset.q, sectionHeadersSize.q)
+  Protected firstSectionRaw.q = -1
+  Protected previousRawStart.q = -1
+  Protected previousRawEnd.q = -1
+  Protected previousRvaStart.q = -1
+  Protected previousRvaEnd.q = -1
+  Protected expectedImageEnd.q = sizeOfHeaders
+  Protected epSectionName.s = ""
+  Protected foundEntryPoint.b = #False
+  Protected entryPointExecutable.b = #False
+  Protected i.i = 0
+
+  ClearList(WarningRows())
+
+  If fileAlignment <= 0
+    AddWarning("FileAlignment is zero or invalid")
+  EndIf
+
+  If sectionAlignment <= 0
+    AddWarning("SectionAlignment is zero or invalid")
+  EndIf
+
+  If fileAlignment > 0 And sectionAlignment > 0 And sectionAlignment < fileAlignment
+    AddWarning("SectionAlignment is smaller than FileAlignment")
+  EndIf
+
+  If sizeOfHeaders > 0 And sizeOfHeaders > fileSize
+    AddWarning("SizeOfHeaders extends beyond the end of file")
+  EndIf
+
+  If sectionHeadersSize > 0 And sizeOfHeaders > 0 And sectionHeadersOffset + sectionHeadersSize > sizeOfHeaders
+    AddWarning("Section header table extends beyond SizeOfHeaders")
+  EndIf
+
+  ForEach Sections()
+    Protected sectionName.s = GetSectionName(@Sections())
+    Protected rawStart.q = UnsignedLong(Sections()\PointerToRawData)
+    Protected rawSize.q = UnsignedLong(Sections()\SizeOfRawData)
+    Protected rvaStart.q = UnsignedLong(Sections()\VirtualAddress)
+    Protected virtualSize.q = UnsignedLong(Sections()\VirtualSize)
+    Protected rvaSpan.q = MaxQ(virtualSize, rawSize)
+
+    If sectionName = ""
+      sectionName = "<unnamed>"
+    EndIf
+
+    If rawSize > 0
+      If firstSectionRaw = -1 Or rawStart < firstSectionRaw
+        firstSectionRaw = rawStart
+      EndIf
+
+      If Not IsDiskRangeValid(fileSize, rawStart, rawSize)
+        AddWarning("Section " + sectionName + " raw data extends beyond file bounds")
+      EndIf
+
+      If previousRawStart <> -1 And rawStart < previousRawStart
+        AddWarning("Section " + sectionName + " raw data begins before the previous section")
+      EndIf
+
+      If previousRawEnd <> -1 And rawStart < previousRawEnd
+        AddWarning("Section " + sectionName + " raw data overlaps a previous section")
+      EndIf
+
+      previousRawStart = rawStart
+      previousRawEnd = rawStart + rawSize
+
+      If fileAlignment > 0 And rawStart > 0 And (rawStart % fileAlignment) <> 0
+        AddWarning("Section " + sectionName + " raw pointer is not aligned to FileAlignment")
+      EndIf
+    EndIf
+
+    If rvaSpan > 0
+      If previousRvaStart <> -1 And rvaStart < previousRvaStart
+        AddWarning("Section " + sectionName + " RVA begins before the previous section")
+      EndIf
+
+      If previousRvaEnd <> -1 And rvaStart < previousRvaEnd
+        AddWarning("Section " + sectionName + " RVA range overlaps a previous section")
+      EndIf
+
+      previousRvaStart = rvaStart
+      previousRvaEnd = rvaStart + rvaSpan
+      expectedImageEnd = MaxQ(expectedImageEnd, AlignUpQ(rvaStart + rvaSpan, sectionAlignment))
+
+      If sectionAlignment > 0 And (rvaStart % sectionAlignment) <> 0
+        AddWarning("Section " + sectionName + " RVA is not aligned to SectionAlignment")
+      EndIf
+
+      If entryPointRVA > 0 And entryPointRVA >= rvaStart And entryPointRVA < rvaStart + rvaSpan
+        foundEntryPoint = #True
+        epSectionName = sectionName
+        If Sections()\Characteristics & $20000000
+          entryPointExecutable = #True
+        EndIf
+      EndIf
+    EndIf
+
+    If (Sections()\Characteristics & $20000000) And (Sections()\Characteristics & $80000000)
+      AddWarning("Section " + sectionName + " is both executable and writable")
+    EndIf
+
+    If *FileBuffer And rawSize >= 256 And rawStart > 0 And IsDiskRangeValid(fileSize, rawStart, rawSize)
+      Protected entropy.f = CalculateEntropy(*FileBuffer + rawStart, rawSize)
+      If entropy >= 7.2 And (Sections()\Characteristics & $20000000)
+        AddWarning("Section " + sectionName + " is executable and has very high entropy (" + StrF(entropy, 2) + ")")
+      EndIf
+    EndIf
+
+    i + 1
+  Next
+
+  If firstSectionRaw <> -1 And sizeOfHeaders > 0 And sizeOfHeaders > firstSectionRaw
+    AddWarning("SizeOfHeaders overlaps the first section raw data")
+  EndIf
+
+  If sizeOfImage > 0 And sectionAlignment > 0 And sizeOfImage <> AlignUpQ(sizeOfImage, sectionAlignment)
+    AddWarning("SizeOfImage is not aligned to SectionAlignment")
+  EndIf
+
+  If sizeOfImage > 0 And expectedImageEnd > sizeOfImage
+    AddWarning("SizeOfImage is smaller than the section layout requires")
+  EndIf
+
+  If entryPointRVA > 0
+    If RvaToOffset(entryPointRVA) = -1
+      AddWarning("Entry point RVA 0x" + Hex(entryPointRVA) + " does not map to file data")
+    ElseIf Not foundEntryPoint
+      AddWarning("Entry point RVA 0x" + Hex(entryPointRVA) + " is outside all sections")
+    ElseIf Not entryPointExecutable
+      AddWarning("Entry point lies in non-executable section " + epSectionName)
+    EndIf
+  EndIf
+
+  i = 0
+  ForEach DataDirs()
+    If DataDirs()\VirtualAddress > 0 And RvaToOffset(DataDirs()\VirtualAddress) = -1
+      AddWarning("Data directory " + DirectoryIndexToName(i) + " does not map to file data")
+    EndIf
+    i + 1
+  Next
+
+  If entryPointRVA > 0 And importRVA = 0 And importSize = 0
+    AddWarning("No import table is present; packed or statically linked image is possible")
+  EndIf
+
+  AppendWarningsToLog()
 EndProcedure
 
 Procedure ShowHeaders()
@@ -598,6 +855,13 @@ Procedure.b ParsePEFile(file.s)
   Protected opt64.IMAGE_OPTIONAL_HEADER64
   Protected numDataDirs.l
   Protected offset.q, sectionHeadersOffset.q, sectionHeadersSize.q
+  Protected entryPointRVA.q = 0
+  Protected fileAlignment.q = 0
+  Protected sectionAlignment.q = 0
+  Protected sizeOfHeaders.q = 0
+  Protected sizeOfImage.q = 0
+  Protected importRVA.q = 0
+  Protected importSize.q = 0
   Protected i
   
   ClearInfo()
@@ -617,7 +881,11 @@ Procedure.b ParsePEFile(file.s)
   EndIf
   
   ;--- Read DOS header
-  ReadData(fileID, @dosHeader, SizeOf(IMAGE_DOS_HEADER))
+  If Not ReadExact(fileID, @dosHeader, SizeOf(IMAGE_DOS_HEADER))
+    CloseFile(fileID)
+    SetStatus("Failed to read DOS header!")
+    ProcedureReturn #False
+  EndIf
   
   If dosHeader\e_magic <> $5A4D ; "MZ"
     CloseFile(fileID)
@@ -629,7 +897,7 @@ Procedure.b ParsePEFile(file.s)
   AddInfo("DOS_e_lfanew:", "0x" + Hex(dosHeader\e_lfanew))
   
   ; Check PE header offset
-  If dosHeader\e_lfanew <= 0 Or dosHeader\e_lfanew > fileSize - 256
+  If dosHeader\e_lfanew <= 0 Or Not IsDiskRangeValid(fileSize, dosHeader\e_lfanew, 4 + SizeOf(IMAGE_FILE_HEADER) + 2)
     CloseFile(fileID)
     SetStatus("Invalid e_lfanew, PE header out of range!")
     ProcedureReturn #False
@@ -637,7 +905,11 @@ Procedure.b ParsePEFile(file.s)
   
     ;--- Seek to PE signature
   FileSeek(fileID, dosHeader\e_lfanew)
-  peSignature = ReadLong(fileID)
+  If Not ReadExact(fileID, @peSignature, SizeOf(Long))
+    CloseFile(fileID)
+    SetStatus("Failed to read PE signature!")
+    ProcedureReturn #False
+  EndIf
   If peSignature <> $00004550 ; "PE\0\0"
     CloseFile(fileID)
     SetStatus("No valid PE signature found!")
@@ -647,11 +919,15 @@ Procedure.b ParsePEFile(file.s)
   AddInfo("PE_Signature:", "PE (0x" + Hex(peSignature) + ")")
   
   ;--- Read file (COFF) header
-  ReadData(fileID, @fileHeader, SizeOf(IMAGE_FILE_HEADER))
+  If Not ReadExact(fileID, @fileHeader, SizeOf(IMAGE_FILE_HEADER))
+    CloseFile(fileID)
+    SetStatus("Failed to read PE file header!")
+    ProcedureReturn #False
+  EndIf
   
   AddInfo("Machine:", MachineToString(fileHeader\Machine))
   AddInfo("NumberOfSections:", Str(fileHeader\NumberOfSections))
-  AddInfo("TimeDateStamp:", TimestampToString(fileHeader\TimeDateStamp) + " (" + Str(fileHeader\TimeDateStamp) + ")")
+  AddInfo("TimeDateStamp:", FormatTimestampValue(fileHeader\TimeDateStamp))
   AddInfo("SizeOfOptionalHeader:", Str(fileHeader\SizeOfOptionalHeader))
   AddInfo("Characteristics:", CharacteristicsToString(fileHeader\Characteristics) + " (0x" + Hex(fileHeader\Characteristics) + ")")
 
@@ -662,7 +938,17 @@ Procedure.b ParsePEFile(file.s)
   EndIf
   
   ;--- Read Optional Header magic
-  optionalMagic = ReadWord(fileID)
+  If fileHeader\SizeOfOptionalHeader > 0 And Not IsDiskRangeValid(fileSize, Loc(fileID), fileHeader\SizeOfOptionalHeader)
+    CloseFile(fileID)
+    SetStatus("Optional header is out of range!")
+    ProcedureReturn #False
+  EndIf
+
+  If Not ReadExact(fileID, @optionalMagic, SizeOf(Word))
+    CloseFile(fileID)
+    SetStatus("Failed to read optional header magic!")
+    ProcedureReturn #False
+  EndIf
   AddInfo("OptionalHeader_Magic:", OptionalMagicToString(optionalMagic))
   
   ;--- Seek back 2 bytes so we can read full optional header struct
@@ -673,9 +959,15 @@ Procedure.b ParsePEFile(file.s)
     Case $10B  ; PE32
       is64Bit = #False
       If fileHeader\SizeOfOptionalHeader < SizeOf(IMAGE_OPTIONAL_HEADER32)
+        CloseFile(fileID)
         SetStatus("Optional header smaller than expected for PE32!")
+        ProcedureReturn #False
       Else
-        ReadData(fileID, @opt32, SizeOf(IMAGE_OPTIONAL_HEADER32))
+        If Not ReadExact(fileID, @opt32, SizeOf(IMAGE_OPTIONAL_HEADER32))
+          CloseFile(fileID)
+          SetStatus("Failed to read PE32 optional header!")
+          ProcedureReturn #False
+        EndIf
         AddInfo("AddressOfEntryPoint:", "0x" + Hex(opt32\AddressOfEntryPoint))
         AddInfo("ImageBase:", "0x" + Hex(opt32\ImageBase))
         AddInfo("SectionAlignment:", Str(opt32\SectionAlignment))
@@ -684,6 +976,11 @@ Procedure.b ParsePEFile(file.s)
         AddInfo("SizeOfHeaders:", Str(opt32\SizeOfHeaders))
         AddInfo("Subsystem:", SubsystemToString(opt32\Subsystem) + " (0x" + Hex(opt32\Subsystem) + ")")
         AddInfo("NumberOfRvaAndSizes:", Str(opt32\NumberOfRvaAndSizes))
+        entryPointRVA = UnsignedLong(opt32\AddressOfEntryPoint)
+        sectionAlignment = UnsignedLong(opt32\SectionAlignment)
+        fileAlignment = UnsignedLong(opt32\FileAlignment)
+        sizeOfImage = UnsignedLong(opt32\SizeOfImage)
+        sizeOfHeaders = UnsignedLong(opt32\SizeOfHeaders)
         ImageHeadersSize = opt32\SizeOfHeaders
         numDataDirs = opt32\NumberOfRvaAndSizes
         LoadDataDirectoriesFromHeader(@opt32, SizeOf(IMAGE_OPTIONAL_HEADER32), numDataDirs)
@@ -692,9 +989,15 @@ Procedure.b ParsePEFile(file.s)
     Case $20B  ; PE32+
       is64Bit = #True
       If fileHeader\SizeOfOptionalHeader < SizeOf(IMAGE_OPTIONAL_HEADER64)
+        CloseFile(fileID)
         SetStatus("Optional header smaller than expected for PE32+!")
+        ProcedureReturn #False
       Else
-        ReadData(fileID, @opt64, SizeOf(IMAGE_OPTIONAL_HEADER64))
+        If Not ReadExact(fileID, @opt64, SizeOf(IMAGE_OPTIONAL_HEADER64))
+          CloseFile(fileID)
+          SetStatus("Failed to read PE32+ optional header!")
+          ProcedureReturn #False
+        EndIf
         AddInfo("AddressOfEntryPoint:", "0x" + Hex(opt64\AddressOfEntryPoint))
         AddInfo("ImageBase:", "0x" + Hex(opt64\ImageBase))
         AddInfo("SectionAlignment:", Str(opt64\SectionAlignment))
@@ -703,6 +1006,11 @@ Procedure.b ParsePEFile(file.s)
         AddInfo("SizeOfHeaders:", Str(opt64\SizeOfHeaders))
         AddInfo("Subsystem:", SubsystemToString(opt64\Subsystem) + " (0x" + Hex(opt64\Subsystem) + ")")
         AddInfo("NumberOfRvaAndSizes:", Str(opt64\NumberOfRvaAndSizes))
+        entryPointRVA = UnsignedLong(opt64\AddressOfEntryPoint)
+        sectionAlignment = UnsignedLong(opt64\SectionAlignment)
+        fileAlignment = UnsignedLong(opt64\FileAlignment)
+        sizeOfImage = UnsignedLong(opt64\SizeOfImage)
+        sizeOfHeaders = UnsignedLong(opt64\SizeOfHeaders)
         ImageHeadersSize = opt64\SizeOfHeaders
         numDataDirs = opt64\NumberOfRvaAndSizes
         LoadDataDirectoriesFromHeader(@opt64, SizeOf(IMAGE_OPTIONAL_HEADER64), numDataDirs)
@@ -726,7 +1034,11 @@ Procedure.b ParsePEFile(file.s)
 
   For i = 0 To fileHeader\NumberOfSections - 1
     AddElement(Sections())
-    ReadData(fileID, @Sections(), SizeOf(IMAGE_SECTION_HEADER))
+    If Not ReadExact(fileID, @Sections(), SizeOf(IMAGE_SECTION_HEADER))
+      CloseFile(fileID)
+      SetStatus("Failed to read section headers!")
+      ProcedureReturn #False
+    EndIf
   Next
   
   ;--- Add section summary to log (not the ListIcon yet)
@@ -751,9 +1063,25 @@ Procedure.b ParsePEFile(file.s)
   FileSeek(fileID, 0)
   FileBufferSize = fileSize
   *FileBuffer = AllocateMemory(FileBufferSize)
-  If *FileBuffer
-    ReadData(fileID, *FileBuffer, FileBufferSize)
+  If *FileBuffer = 0
+    CloseFile(fileID)
+    SetStatus("Failed to allocate memory for file buffer!")
+    ProcedureReturn #False
   EndIf
+
+  If Not ReadExact(fileID, *FileBuffer, FileBufferSize)
+    CloseFile(fileID)
+    ClearInfo()
+    SetStatus("Failed to read the full file into memory!")
+    ProcedureReturn #False
+  EndIf
+
+  If ListSize(DataDirs()) > 1 And SelectElement(DataDirs(), 1)
+    importRVA = UnsignedLong(DataDirs()\VirtualAddress)
+    importSize = UnsignedLong(DataDirs()\Size)
+  EndIf
+
+  AnalyzePEWarnings(fileSize, entryPointRVA, fileAlignment, sectionAlignment, sizeOfHeaders, sizeOfImage, importRVA, importSize, sectionHeadersOffset, sectionHeadersSize)
   
   CloseFile(fileID)
   SetStatus("Parsed successfully: " + GetFilePart(file))
@@ -864,7 +1192,7 @@ Procedure ShowHexDump(startOffset.q = 0)
   ; Ensure startOffset is aligned to 16 bytes
   offset = (startOffset / 16) * 16
   If offset < 0 : offset = 0 : EndIf
-  If offset >= size : offset = (size / 16) * 16 : EndIf
+  If offset >= size : offset = ((size - 1) / 16) * 16 : EndIf
   CurrentHexOffset = offset
   
   endOffset = offset + chunkSize
@@ -880,8 +1208,8 @@ Procedure ShowHexDump(startOffset.q = 0)
     
     For i = 0 To bytesPerLine - 1
       If offset + i < size
-        Protected byte.a = PeekA(*buffer + offset + i)
-        hexPart + RSet(Hex(byte, #PB_Ascii), 2, "0") + " "
+        Protected byte.i = PeekA(*buffer + offset + i) & $FF
+        hexPart + RSet(Hex(byte), 2, "0") + " "
         
         If byte >= 32 And byte <= 126
           asciiPart + Chr(byte)
@@ -905,8 +1233,15 @@ Procedure ShowHexDump(startOffset.q = 0)
 EndProcedure
 
 Procedure GoToAddress(hexAddr.s)
-  Protected addr.q = Val("$" + hexAddr)
+  Protected addr.q
   Protected i, count, lineAddr.q
+
+  If Not IsHexAddress(hexAddr)
+    SetStatus("Enter a valid hexadecimal address.")
+    ProcedureReturn
+  EndIf
+
+  addr = Val("$" + NormalizeHexAddress(hexAddr))
   
   If CurrentView <> #View_Hex
     SetStatus("Go to Address only works in Hex View.")
@@ -998,7 +1333,7 @@ Procedure ShowImports()
   Protected descriptorOffset.q = offset
   Protected importEndOffset.q = offset + importSize
   Protected dllName.s, funcName.s
-  Protected thunkOffset.q, nameOffset.q, nameDataOffset.q
+  Protected thunkOffset.q, thunkTableOffset.q, currentThunkRVA.q, nameOffset.q, nameDataOffset.q
   Protected thunkValue.q, ordinalMask.q
   Protected thunkEntrySize.i
   Protected is64.b = is64Bit
@@ -1023,11 +1358,17 @@ Procedure ShowImports()
       ; OriginalFirstThunk (ILT) is preferred, fallback to FirstThunk (IAT)
       Protected thunkRVA = *importDesc\OriginalFirstThunk
       If thunkRVA = 0 : thunkRVA = *importDesc\FirstThunk : EndIf
-      
-      thunkOffset = RvaToOffset(thunkRVA)
+
+      If thunkRVA > 0
+        thunkOffset = RvaToOffset(thunkRVA)
+      Else
+        thunkOffset = -1
+      EndIf
+
       If thunkOffset <> -1
+        thunkTableOffset = thunkOffset
         thunkEntrySize = GetThunkEntrySize(is64)
-        While IsFileRangeValid(thunkOffset, thunkEntrySize)
+        While thunkOffset + thunkEntrySize <= importEndOffset And IsFileRangeValid(thunkOffset, thunkEntrySize)
           thunkValue = ReadThunkValue(*FileBuffer + thunkOffset, is64)
           If thunkValue = 0
             Break
@@ -1064,7 +1405,8 @@ Procedure ShowImports()
             EndIf
           EndIf
 
-          Protected thunkInfo.s = "Thunk RVA: 0x" + Hex(thunkRVA) + " | File Offset: 0x" + Hex(thunkOffset)
+          currentThunkRVA = thunkRVA + (thunkOffset - thunkTableOffset)
+          Protected thunkInfo.s = "Thunk RVA: 0x" + Hex(currentThunkRVA) + " | File Offset: 0x" + Hex(thunkOffset)
           If nameDataOffset <> -1
             thunkInfo + " | Name Offset: 0x" + Hex(nameDataOffset)
           EndIf
@@ -1108,6 +1450,7 @@ Procedure ShowExports()
   Protected exportNamesShown.i = 0
   Protected invalidExportNameCount.i = 0
   Protected invalidExportOrdinalCount.i = 0
+  Protected forwarderCount.i = 0
   Protected exportLimitHit.b = #False
   Protected exportName.s
   Protected exportNameOffset.q
@@ -1158,29 +1501,34 @@ Procedure ShowExports()
   Protected *exportDir.My_IMAGE_EXPORT_DIRECTORY = *FileBuffer + offset
   Protected i
   Protected nameOffset.q, funcOffset.q, ordOffset.q
+  Protected nameBytes.q, ordinalBytes.q, functionBytes.q
   
   ; Get names and ordinals
   Protected *names.Long = 0
   Protected *ordinals.Word = 0
   Protected *functions.Long = 0
   
+  nameBytes = UnsignedLong(*exportDir\NumberOfNames) * 4
+  ordinalBytes = UnsignedLong(*exportDir\NumberOfNames) * 2
+  functionBytes = UnsignedLong(*exportDir\NumberOfFunctions) * 4
+  
   If *exportDir\AddressOfNames > 0
     nameOffset = RvaToOffset(*exportDir\AddressOfNames)
-    If nameOffset <> -1 And IsFileRangeValid(nameOffset, *exportDir\NumberOfNames * 4)
+    If nameOffset <> -1 And IsFileRangeValid(nameOffset, nameBytes)
       *names = *FileBuffer + nameOffset
     EndIf
   EndIf
   
   If *exportDir\AddressOfNameOrdinals > 0
     ordOffset = RvaToOffset(*exportDir\AddressOfNameOrdinals)
-    If ordOffset <> -1 And IsFileRangeValid(ordOffset, *exportDir\NumberOfNames * 2)
+    If ordOffset <> -1 And IsFileRangeValid(ordOffset, ordinalBytes)
       *ordinals = *FileBuffer + ordOffset
     EndIf
   EndIf
   
   If *exportDir\AddressOfFunctions > 0
     funcOffset = RvaToOffset(*exportDir\AddressOfFunctions)
-    If funcOffset <> -1 And IsFileRangeValid(funcOffset, *exportDir\NumberOfFunctions * 4)
+    If funcOffset <> -1 And IsFileRangeValid(funcOffset, functionBytes)
       *functions = *FileBuffer + funcOffset
     EndIf
   EndIf
@@ -1207,6 +1555,7 @@ Procedure ShowExports()
         Protected expName.s = PeekAsciiZ(nOffset)
         Protected ordinal = PeekW(*ordinals + (i * 2))
         Protected funcRVA = 0
+        Protected exportDetail.s
         If *functions And ordinal >= 0 And ordinal < *exportDir\NumberOfFunctions
           funcRVA = PeekL(*functions + (ordinal * 4))
         Else
@@ -1216,7 +1565,24 @@ Procedure ShowExports()
           expName = "<Unnamed Export>"
           invalidExportNameCount + 1
         EndIf
-        AddCachedRow(ExportRows(), expName, "Ordinal: " + Str(ordinal + *exportDir\Base) + " | RVA: 0x" + Hex(funcRVA) + " | Name Offset: 0x" + Hex(nOffset))
+
+        exportDetail = "Ordinal: " + Str(ordinal + *exportDir\Base)
+        If funcRVA >= exportRVA And funcRVA < exportRVA + exportSize
+          Protected forwarderOffset.q = RvaToOffset(funcRVA)
+          Protected forwarderName.s = "<Invalid Forwarder>"
+          If forwarderOffset <> -1 And IsFileRangeValid(forwarderOffset, 1)
+            forwarderName = PeekAsciiZ(forwarderOffset)
+            If forwarderName = ""
+              forwarderName = "<Empty Forwarder>"
+            EndIf
+          EndIf
+          exportDetail + " | Forwarder -> " + forwarderName + " | Name Offset: 0x" + Hex(nOffset)
+          forwarderCount + 1
+        Else
+          exportDetail + " | RVA: 0x" + Hex(funcRVA) + " | Name Offset: 0x" + Hex(nOffset)
+        EndIf
+
+        AddCachedRow(ExportRows(), expName, exportDetail)
         exportNamesShown + 1
       Else
         invalidExportNameCount + 1
@@ -1226,7 +1592,11 @@ Procedure ShowExports()
     AddCachedRow(ExportRows(), "Unnamed exports", "Export table exists but has no readable named export list")
   EndIf
 
-  AddCachedRow(ExportRows(), "Summary", "Named exports shown: " + Str(exportNamesShown) + " | Declared names: " + Str(*exportDir\NumberOfNames) + " | Functions: " + Str(*exportDir\NumberOfFunctions) + " | Name issues: " + Str(invalidExportNameCount) + " | Ordinal issues: " + Str(invalidExportOrdinalCount))
+  If *exportDir\NumberOfNames > *exportDir\NumberOfFunctions
+    AddCachedRow(ExportRows(), "Warning", "Export table declares more names than functions")
+  EndIf
+
+  AddCachedRow(ExportRows(), "Summary", "Named exports shown: " + Str(exportNamesShown) + " | Declared names: " + Str(*exportDir\NumberOfNames) + " | Functions: " + Str(*exportDir\NumberOfFunctions) + " | Forwarders: " + Str(forwarderCount) + " | Name issues: " + Str(invalidExportNameCount) + " | Ordinal issues: " + Str(invalidExportOrdinalCount))
   If exportLimitHit
     AddCachedRow(ExportRows(), "Notice", "Export display was capped to keep the UI responsive")
   EndIf
@@ -1264,8 +1634,108 @@ Procedure.s ResourceIdToString(id.l)
   EndSelect
 EndProcedure
 
+Procedure.b ResourceNameIsString(nameField.l)
+  ProcedureReturn Bool(nameField & $80000000)
+EndProcedure
+
+Procedure.b ResourceEntryIsDirectory(offsetField.l)
+  ProcedureReturn Bool(offsetField & $80000000)
+EndProcedure
+
+Procedure.q ResourceEntryOffset(value.l)
+  ProcedureReturn value & $7FFFFFFF
+EndProcedure
+
+Procedure.b IsResourceRelativeOffsetValid(resBaseOffset.q, resSize.q, relativeOffset.q, bytesNeeded.q)
+  If relativeOffset < 0 Or bytesNeeded < 0
+    ProcedureReturn #False
+  EndIf
+
+  If relativeOffset > resSize
+    ProcedureReturn #False
+  EndIf
+
+  If bytesNeeded > resSize - relativeOffset
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn IsFileRangeValid(resBaseOffset + relativeOffset, bytesNeeded)
+EndProcedure
+
+Procedure.s ReadResourceDirString(resBaseOffset.q, resSize.q, nameField.l)
+  Protected stringOffset.q = ResourceEntryOffset(nameField)
+  Protected charCount.q
+
+  If Not IsResourceRelativeOffsetValid(resBaseOffset, resSize, stringOffset, SizeOf(Word))
+    ProcedureReturn "<Invalid Name>"
+  EndIf
+
+  charCount = PeekW(*FileBuffer + resBaseOffset + stringOffset) & $FFFF
+  If charCount = 0
+    ProcedureReturn "<Empty Name>"
+  EndIf
+
+  If Not IsResourceRelativeOffsetValid(resBaseOffset, resSize, stringOffset + SizeOf(Word), charCount * SizeOf(Word))
+    ProcedureReturn "<Invalid Name>"
+  EndIf
+
+  ProcedureReturn PeekS(*FileBuffer + resBaseOffset + stringOffset + SizeOf(Word), charCount, #PB_Unicode)
+EndProcedure
+
+Procedure.s PrimaryLangName(primary.w)
+  Select primary
+    Case 0  : ProcedureReturn "Neutral"
+    Case 1  : ProcedureReturn "Arabic"
+    Case 4  : ProcedureReturn "Chinese"
+    Case 7  : ProcedureReturn "German"
+    Case 9  : ProcedureReturn "English"
+    Case 10 : ProcedureReturn "Spanish"
+    Case 12 : ProcedureReturn "French"
+    Case 16 : ProcedureReturn "Italian"
+    Case 17 : ProcedureReturn "Japanese"
+    Case 18 : ProcedureReturn "Korean"
+    Case 19 : ProcedureReturn "Dutch"
+    Case 21 : ProcedureReturn "Polish"
+    Case 22 : ProcedureReturn "Portuguese"
+    Case 25 : ProcedureReturn "Russian"
+    Case 29 : ProcedureReturn "Swedish"
+    Case 31 : ProcedureReturn "Turkish"
+    Case 34 : ProcedureReturn "Ukrainian"
+    Default : ProcedureReturn "Unknown"
+  EndSelect
+EndProcedure
+
+Procedure.s LangIdToString(langId.w)
+  Protected langValue.i = langId & $FFFF
+  Protected primary.i = langValue & $03FF
+  Protected sublang.i = (langValue >> 10) & $003F
+
+  ProcedureReturn "0x" + RSet(Hex(langValue), 4, "0") + " (" + PrimaryLangName(primary) + ", sub " + Str(sublang) + ")"
+EndProcedure
+
+Procedure.s ResourceEntryNameToString(*entry.My_IMAGE_RESOURCE_DIRECTORY_ENTRY, resBaseOffset.q, resSize.q, isTypeLevel.b)
+  Protected idValue.i
+
+  If *entry = 0
+    ProcedureReturn "<Invalid Entry>"
+  EndIf
+
+  If ResourceNameIsString(*entry\Name)
+    ProcedureReturn ReadResourceDirString(resBaseOffset, resSize, *entry\Name)
+  EndIf
+
+  idValue = *entry\Name & $FFFF
+  If isTypeLevel
+    ProcedureReturn ResourceIdToString(idValue)
+  EndIf
+
+  ProcedureReturn "ID " + Str(idValue)
+EndProcedure
+
 Procedure ShowResources()
   Protected resourceCount.i = 0
+  Protected namedTypeCount.i = 0
+  Protected namedEntryCount.i = 0
 
   If ResourceCacheReady
     RenderCachedRows(ResourceRows())
@@ -1320,52 +1790,68 @@ Procedure ShowResources()
   ; Root level: Types
   Protected *typeEntry.My_IMAGE_RESOURCE_DIRECTORY_ENTRY = *root + SizeOf(My_IMAGE_RESOURCE_DIRECTORY)
   For i = 0 To rootEntries - 1
-    If Not IsFileRangeValid(offset + SizeOf(My_IMAGE_RESOURCE_DIRECTORY) + (i * SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY)), SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY))
+    If Not IsResourceRelativeOffsetValid(offset, resSize, SizeOf(My_IMAGE_RESOURCE_DIRECTORY) + (i * SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY)), SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY))
       Break
     EndIf
 
-    Protected typeName.s = ""
-    ; Check high bit of Name (NameIsString)
-    If *typeEntry\Name & $80000000
-      ; String name...
-    Else
-      typeName = ResourceIdToString(*typeEntry\Id)
+    Protected typeName.s = ResourceEntryNameToString(*typeEntry, offset, resSize, #True)
+    If ResourceNameIsString(*typeEntry\Name)
+      namedTypeCount + 1
     EndIf
     
-    ; Check high bit of Offset (DataIsDirectory)
-    If *typeEntry\OffsetToDirectory & $80000000
-      Protected nameDirOffset.q = offset + (*typeEntry\OffsetToDirectory & $7FFFFFFF)
-      If IsFileRangeValid(nameDirOffset, SizeOf(My_IMAGE_RESOURCE_DIRECTORY))
+    If ResourceEntryIsDirectory(*typeEntry\OffsetToDirectory)
+      Protected nameDirRel.q = ResourceEntryOffset(*typeEntry\OffsetToDirectory)
+      Protected nameDirOffset.q = offset + nameDirRel
+      If IsResourceRelativeOffsetValid(offset, resSize, nameDirRel, SizeOf(My_IMAGE_RESOURCE_DIRECTORY))
         Protected *nameDir.My_IMAGE_RESOURCE_DIRECTORY = *FileBuffer + nameDirOffset
         Protected *nameEntry.My_IMAGE_RESOURCE_DIRECTORY_ENTRY = *nameDir + SizeOf(My_IMAGE_RESOURCE_DIRECTORY)
         Protected nameEntries.i = *nameDir\NumberOfNamedEntries + *nameDir\NumberOfIdEntries
         If nameEntries > #MaxResourceEntries : nameEntries = #MaxResourceEntries : EndIf
         
         For j = 0 To nameEntries - 1
-          If Not IsFileRangeValid(nameDirOffset + SizeOf(My_IMAGE_RESOURCE_DIRECTORY) + (j * SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY)), SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY))
+          If Not IsResourceRelativeOffsetValid(offset, resSize, nameDirRel + SizeOf(My_IMAGE_RESOURCE_DIRECTORY) + (j * SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY)), SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY))
             Break
           EndIf
 
-          ; Level 2: Names/IDs
-          If *nameEntry\OffsetToDirectory & $80000000
-            Protected langDirOffset.q = offset + (*nameEntry\OffsetToDirectory & $7FFFFFFF)
-            If IsFileRangeValid(langDirOffset, SizeOf(My_IMAGE_RESOURCE_DIRECTORY))
+          Protected resourceName.s = ResourceEntryNameToString(*nameEntry, offset, resSize, #False)
+          If ResourceNameIsString(*nameEntry\Name)
+            namedEntryCount + 1
+          EndIf
+
+          If ResourceEntryIsDirectory(*nameEntry\OffsetToDirectory)
+            Protected langDirRel.q = ResourceEntryOffset(*nameEntry\OffsetToDirectory)
+            Protected langDirOffset.q = offset + langDirRel
+            If IsResourceRelativeOffsetValid(offset, resSize, langDirRel, SizeOf(My_IMAGE_RESOURCE_DIRECTORY))
               Protected *langDir.My_IMAGE_RESOURCE_DIRECTORY = *FileBuffer + langDirOffset
               Protected *langEntry.My_IMAGE_RESOURCE_DIRECTORY_ENTRY = *langDir + SizeOf(My_IMAGE_RESOURCE_DIRECTORY)
               Protected langEntries.i = *langDir\NumberOfNamedEntries + *langDir\NumberOfIdEntries
               If langEntries > #MaxResourceEntries : langEntries = #MaxResourceEntries : EndIf
               
               For k = 0 To langEntries - 1
-                If Not IsFileRangeValid(langDirOffset + SizeOf(My_IMAGE_RESOURCE_DIRECTORY) + (k * SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY)), SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY))
+                If Not IsResourceRelativeOffsetValid(offset, resSize, langDirRel + SizeOf(My_IMAGE_RESOURCE_DIRECTORY) + (k * SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY)), SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY))
                   Break
                 EndIf
 
-                ; Level 3: Languages
-                If Not (*langEntry\OffsetToDirectory & $80000000)
-                  Protected dataEntryOffset.q = offset + *langEntry\OffsetToData
-                  If IsFileRangeValid(dataEntryOffset, SizeOf(My_IMAGE_RESOURCE_DATA_ENTRY))
+                If Not ResourceEntryIsDirectory(*langEntry\OffsetToData)
+                  Protected dataEntryRel.q = ResourceEntryOffset(*langEntry\OffsetToData)
+                  Protected dataEntryOffset.q = offset + dataEntryRel
+                  Protected langName.s = "ID " + Str(*langEntry\Name & $FFFF)
+
+                  If Not ResourceNameIsString(*langEntry\Name)
+                    langName = LangIdToString(*langEntry\Name & $FFFF)
+                  EndIf
+
+                  If IsResourceRelativeOffsetValid(offset, resSize, dataEntryRel, SizeOf(My_IMAGE_RESOURCE_DATA_ENTRY))
                     Protected *dataEntry.My_IMAGE_RESOURCE_DATA_ENTRY = *FileBuffer + dataEntryOffset
-                    AddCachedRow(ResourceRows(), typeName, "RVA: 0x" + Hex(*dataEntry\OffsetToData) + " | File Offset: 0x" + Hex(RvaToOffset(*dataEntry\OffsetToData)) + " | Size: " + Str(*dataEntry\Size))
+                    Protected dataFileOffset.q = RvaToOffset(*dataEntry\OffsetToData)
+                    Protected detail.s = "Name: " + resourceName + " | Lang: " + langName + " | RVA: 0x" + Hex(*dataEntry\OffsetToData)
+                    If dataFileOffset <> -1
+                      detail + " | File Offset: 0x" + Hex(dataFileOffset)
+                    Else
+                      detail + " | File Offset: N/A"
+                    EndIf
+                    detail + " | Size: " + Str(*dataEntry\Size)
+                    AddCachedRow(ResourceRows(), typeName, detail)
                     resourceCount + 1
                   EndIf
                 EndIf
@@ -1383,7 +1869,7 @@ Procedure ShowResources()
   If resourceCount = 0
     AddCachedRow(ResourceRows(), "No resources", "No readable resource data entries were found")
   Else
-    AddCachedRow(ResourceRows(), "Summary", "Readable resource entries: " + Str(resourceCount))
+    AddCachedRow(ResourceRows(), "Summary", "Readable resource entries: " + Str(resourceCount) + " | Named types: " + Str(namedTypeCount) + " | Named entries: " + Str(namedEntryCount))
   EndIf
 
   ResourceCacheReady = #True
@@ -1481,7 +1967,7 @@ Procedure CreateMainWindow()
     ListIconGadget(#Gad_List, 10, 82, 800, 370, "Field", 220, #PB_ListIcon_AlwaysShowSelection | #PB_ListIcon_FullRowSelect)
     AddGadgetColumn(#Gad_List, 1, "Value", 555)
     
-    ; Add a search field and Go to Address for the hex view/headers
+    ; Add a search field and Go to Address for the hex view
     TextGadget(#PB_Any, 10, 465, 45, 20, "Search:")
     Gad_Search = StringGadget(#PB_Any, 58, 462, 140, 22, "")
     
@@ -1581,21 +2067,21 @@ ForEver
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 71
 ; FirstLine = 51
-; Folding = -------
+; Folding = -----------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = EXE-PE_Viewer.ico
+; UseIcon = exe-pe_viewer.ico
 ; Executable = ..\EXE-PE_Viewer.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,4
-; VersionField1 = 1,0,0,4
+; VersionField0 = 1,0,0,5
+; VersionField1 = 1,0,0,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = EXE/PE-Viewer
-; VersionField4 = 1.0.0.4
-; VersionField5 = 1.0.0.4
+; VersionField4 = 1.0.0.5
+; VersionField5 = 1.0.0.5
 ; VersionField6 = View PE/EXE/DLL files and log info
 ; VersionField7 = EXE/PE-Viewer
 ; VersionField8 = EXE/PE-Viewer.exe
