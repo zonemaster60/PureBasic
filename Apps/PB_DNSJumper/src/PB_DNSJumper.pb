@@ -15,7 +15,9 @@ EnableExplicit
 
 #APP_NAME        = "PB_DNSJumper"
 #EMAIL_NAME      = "zonemaster60@gmail.com"
-Global version.s = "v1.0.0.2"
+#AUTO_START_BENCHMARK_DELAY_MS = 120000
+#WORKER_EXIT_WAIT_MS           = 10000
+Global version.s = "v1.0.0.3"
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 If AppPath = "" : AppPath = GetCurrentDirectory() : EndIf
@@ -30,6 +32,7 @@ Enumeration MenuItems
   #Tray_StartTest
   #Tray_ApplyBest
   #Tray_RunAtStartup
+  #Tray_StopTest
   #Tray_Exit
   #Tray_ProviderBase = 1000
 EndEnumeration
@@ -102,6 +105,17 @@ Import "kernel32.lib"
   GetEnvironmentVariableW(*lpName, *lpBuffer, nSize.l)
 EndImport
 
+Global gMutex.i
+Global gStopFlag.l
+Global gWorkerRunning.l
+Global gWorkerDone.l
+Global gWorkerTotalSteps.l
+Global gWorkerStepsDone.l
+Global gLastPowerShellOutput.s
+Global gLastPowerShellExitCode.l = -1
+Global gWorkerCancelled.b = #False
+Global gWorkerThread.i
+
 ; ----------------------------
 ; Helper Procedures
 ; ----------------------------
@@ -161,16 +175,6 @@ Procedure.i SetRunAtStartup(state.b)
   EndIf
 EndProcedure
 
-; Exit procedure
-Procedure Exit()
-  Protected Req.i
-  Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
-  If Req = #PB_MessageRequester_Yes
-    CloseHandle_(hMutex)
-    End
-  EndIf
-EndProcedure
-
 Procedure.w htons(v.w)
   ProcedureReturn ((v & $FF) << 8) | ((v >> 8) & $FF)
 EndProcedure
@@ -184,40 +188,84 @@ Procedure.s QuotePS(s.s)
   ProcedureReturn "'" + ReplaceString(s, "'", "''") + "'"
 EndProcedure
 
-; QuoteArg(): Wraps a string in double quotes if it contains spaces.
-Procedure.s QuoteArg(s.s)
-  If FindString(s, " ")
-    ProcedureReturn #DQUOTE$ + s + #DQUOTE$
+Procedure.s RunProgramCaptureUtf8(exe.s, args.s, *exitCode.Integer)
+  Protected out.s = ""
+  Protected program.i = RunProgram(exe, args, "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Error | #PB_Program_Hide)
+
+  If program = 0
+    If *exitCode
+      *exitCode\i = -1
+    EndIf
+    ProcedureReturn ""
   EndIf
-  ProcedureReturn s
+
+  While ProgramRunning(program)
+    Protected sawData.b = #False
+    Protected errLine.s
+
+    While AvailableProgramOutput(program)
+      out + ReadProgramString(program, #PB_UTF8) + #CRLF$
+      sawData = #True
+    Wend
+
+    Repeat
+      errLine = ReadProgramError(program, #PB_UTF8)
+      If errLine = "" : Break : EndIf
+      out + errLine + #CRLF$
+      sawData = #True
+    ForEver
+
+    If sawData = #False
+      Delay(1)
+    EndIf
+  Wend
+
+  While AvailableProgramOutput(program)
+    out + ReadProgramString(program, #PB_UTF8) + #CRLF$
+  Wend
+
+  Repeat
+    errLine = ReadProgramError(program, #PB_UTF8)
+    If errLine = "" : Break : EndIf
+    out + errLine + #CRLF$
+  ForEver
+
+  If *exitCode
+    *exitCode\i = ProgramExitCode(program)
+  EndIf
+
+  CloseProgram(program)
+  ProcedureReturn out
 EndProcedure
 
-; ExecPowerShell(): Executes a PowerShell command and returns its UTF-8 output.
-Procedure.s ExecPowerShell(cmd.s)
+; ExecPowerShell(): Executes a PowerShell command and returns success/failure.
+Procedure.i ExecPowerShell(cmd.s)
   Protected psCmd.s
-  ; Force UTF-8 output so ReadProgramString(#PB_UTF8) works reliably.
-  psCmd = "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); $OutputEncoding=[System.Text.UTF8Encoding]::new(); " + cmd
+  Protected exitCode.Integer
 
-  Protected out.s = ""
-  Protected p = RunProgram("powershell.exe",
-                           "-NoLogo -NoProfile -ExecutionPolicy Bypass -Command " + #DQUOTE$ + psCmd + #DQUOTE$,
-                           "",
-                           #PB_Program_Open | #PB_Program_Read | #PB_Program_Hide)
-  If p
-    While ProgramRunning(p)
-      If AvailableProgramOutput(p)
-        out + ReadProgramString(p, #PB_UTF8) + #CRLF$
-      Else
-        Delay(1)
-      EndIf
-    Wend
-    ; Drain remaining output
-    While AvailableProgramOutput(p)
-      out + ReadProgramString(p, #PB_UTF8) + #CRLF$
-    Wend
-    CloseProgram(p)
+  ; Force UTF-8 output so ReadProgramString(#PB_UTF8) works reliably.
+  psCmd = "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); $OutputEncoding=[System.Text.UTF8Encoding]::new(); $ErrorActionPreference='Stop'; try { " + cmd + " } catch { $_ | Out-String -Width 4096 | Write-Error; exit 1 }"
+
+  gLastPowerShellOutput = RunProgramCaptureUtf8("powershell.exe",
+                                                "-NoLogo -NoProfile -ExecutionPolicy Bypass -Command " + #DQUOTE$ + psCmd + #DQUOTE$,
+                                                @exitCode)
+  gLastPowerShellExitCode = exitCode\i
+
+  ProcedureReturn Bool(exitCode\i = 0)
+EndProcedure
+
+Procedure.s LastPowerShellMessage()
+  Protected msg.s = Trim(gLastPowerShellOutput)
+
+  If msg <> ""
+    ProcedureReturn msg
   EndIf
-  ProcedureReturn out
+
+  If gLastPowerShellExitCode >= 0
+    ProcedureReturn "PowerShell exit code: " + Str(gLastPowerShellExitCode)
+  EndIf
+
+  ProcedureReturn "PowerShell could not be started."
 EndProcedure
 
 Procedure.i AllocAsciiZ(s.s)
@@ -310,9 +358,44 @@ Procedure.b ValidDnsResponse(*resp, respLen.l, txid.w)
   ProcedureReturn #True
 EndProcedure
 
-Procedure.d DnsRTTms(serverIP.s, domain.s, timeoutMs.l, *stopFlag.Long)
+Procedure.b WorkerStopRequested()
+  Protected stopRequested.b
+
+  LockMutex(gMutex)
+  stopRequested = Bool(gStopFlag <> 0)
+  UnlockMutex(gMutex)
+
+  ProcedureReturn stopRequested
+EndProcedure
+
+Procedure RequestWorkerStop()
+  LockMutex(gMutex)
+  gStopFlag = 1
+  UnlockMutex(gMutex)
+EndProcedure
+
+Procedure.b WaitForWorkerStop(timeoutMs.l)
+  Protected startTime.l = ElapsedMilliseconds()
+  Protected running.l
+
+  Repeat
+    LockMutex(gMutex)
+    running = gWorkerRunning
+    UnlockMutex(gMutex)
+
+    If running = 0
+      ProcedureReturn #True
+    EndIf
+
+    Delay(10)
+  Until timeoutMs >= 0 And ElapsedMilliseconds() - startTime >= timeoutMs
+
+  ProcedureReturn #False
+EndProcedure
+
+Procedure.d DnsRTTms(serverIP.s, domain.s, timeoutMs.l)
   ; Returns RTT (ms) or -1 on failure/stop.
-  If *stopFlag And *stopFlag\l <> 0
+  If WorkerStopRequested()
     ProcedureReturn -1.0
   EndIf
 
@@ -379,7 +462,7 @@ Procedure.d DnsRTTms(serverIP.s, domain.s, timeoutMs.l, *stopFlag.Long)
   FreeMemory(*buf)
   closesocket(s)
 
-  If *stopFlag And *stopFlag\l <> 0
+  If WorkerStopRequested()
     ProcedureReturn -1.0
   EndIf
 
@@ -413,14 +496,7 @@ EndStructure
 
 Global NewList Providers.Provider()
 Global NewList Results.BenchResult()
-
-Global gMutex.i
 Global NewList gQueue.BenchResult()
-Global gStopFlag.l
-Global gWorkerRunning.l
-Global gWorkerDone.l
-Global gWorkerTotalSteps.l
-Global gWorkerStepsDone.l
 
 Global gTries.l = 3
 Global gTimeoutMs.l = 800
@@ -512,9 +588,8 @@ Procedure.i LoadProvidersFromJsonFile(filePath.s)
 
 EndProcedure
 
-Procedure.d MedianFromArray(Array a.d(1), n.l)
+Procedure.d MedianFromSortedArray(Array a.d(1), n.l)
   If n <= 0 : ProcedureReturn 1e30 : EndIf
-  SortArray(a(), #PB_Sort_Ascending)
   If (n % 2) = 1
     ProcedureReturn a(n/2)
   Else
@@ -522,9 +597,8 @@ Procedure.d MedianFromArray(Array a.d(1), n.l)
   EndIf
 EndProcedure
 
-Procedure.d P90FromArray(Array a.d(1), n.l)
+Procedure.d P90FromSortedArray(Array a.d(1), n.l)
   If n <= 0 : ProcedureReturn 1e30 : EndIf
-  SortArray(a(), #PB_Sort_Ascending)
   Protected k.d = (n - 1) * 0.90
   Protected f.l = Int(k)
   Protected c.l = f + 1
@@ -533,22 +607,39 @@ Procedure.d P90FromArray(Array a.d(1), n.l)
   ProcedureReturn a(f) + (a(c) - a(f)) * (k - f)
 EndProcedure
 
-Procedure BenchOne(providerName.s, ip.s, tries.l, timeoutMs.l, domains.s, *stopFlag.Long)
+Procedure BenchProvider(providerName.s, ip1.s, ip2.s, tries.l, timeoutMs.l, domains.s)
   Protected domainCount = CountString(domains, "|") + 1
-  Protected total.l = tries * domainCount
+  Protected total.l = tries * domainCount * 2
   Protected ok.l = 0
 
   Dim samples.d(total - 1)
   Protected si.l = 0
 
-  Protected pass, i, d.s
+  Protected pass, i, d.s, rtt.d
   For pass = 1 To tries
     For i = 1 To domainCount
-      If *stopFlag And *stopFlag\l <> 0
+      If WorkerStopRequested()
         ProcedureReturn
       EndIf
+
       d = StringField(domains, i, "|")
-      Protected rtt.d = DnsRTTms(ip, d, timeoutMs, *stopFlag)
+
+      rtt = DnsRTTms(ip1, d, timeoutMs)
+      If rtt >= 0
+        samples(si) = rtt
+        si + 1
+        ok + 1
+      EndIf
+
+      LockMutex(gMutex)
+      gWorkerStepsDone + 1
+      UnlockMutex(gMutex)
+
+      If WorkerStopRequested()
+        ProcedureReturn
+      EndIf
+
+      rtt = DnsRTTms(ip2, d, timeoutMs)
       If rtt >= 0
         samples(si) = rtt
         si + 1
@@ -564,9 +655,9 @@ Procedure BenchOne(providerName.s, ip.s, tries.l, timeoutMs.l, domains.s, *stopF
   Protected med.d, p90.d, best.d
   If ok > 0
     ReDim samples(ok - 1)
-    med = MedianFromArray(samples(), ok)
-    p90 = P90FromArray(samples(), ok)
     SortArray(samples(), #PB_Sort_Ascending)
+    med = MedianFromSortedArray(samples(), ok)
+    p90 = P90FromSortedArray(samples(), ok)
     best = samples(0)
   Else
     med = 1e30 : p90 = 1e30 : best = 1e30
@@ -578,7 +669,7 @@ Procedure BenchOne(providerName.s, ip.s, tries.l, timeoutMs.l, domains.s, *stopF
   LockMutex(gMutex)
   AddElement(gQueue())
   gQueue()\provider = providerName
-  gQueue()\ip = ip
+  gQueue()\ip = ip1 + " / " + ip2
   gQueue()\ok = ok
   gQueue()\total = total
   gQueue()\median = med
@@ -589,7 +680,9 @@ Procedure BenchOne(providerName.s, ip.s, tries.l, timeoutMs.l, domains.s, *stopF
 EndProcedure
 
 Procedure WorkerThread(*dummy)
-
+  Protected tries.l
+  Protected timeoutMs.l
+  Protected domains.s
   Protected wsa.DNSJ_WSAData
   If WSAStartup($0202, @wsa) <> 0
     LockMutex(gMutex)
@@ -604,6 +697,9 @@ Procedure WorkerThread(*dummy)
 
   Protected NewList localProviders.Provider()
   LockMutex(gMutex)
+  tries = gTries
+  timeoutMs = gTimeoutMs
+  domains = gDomains
   
   ForEach Providers()
     AddElement(localProviders())
@@ -613,17 +709,11 @@ Procedure WorkerThread(*dummy)
   UnlockMutex(gMutex)
 
   ForEach localProviders()
-    If gStopFlag <> 0 : Break : EndIf
+    If WorkerStopRequested() : Break : EndIf
     LockMutex(gMutex)
-    gCurrentTest = "Testing: " + localProviders()\name + "  " + localProviders()\ip1
+    gCurrentTest = "Testing: " + localProviders()\name + "  [" + localProviders()\ip1 + ", " + localProviders()\ip2 + "]"
     UnlockMutex(gMutex)
-    BenchOne(localProviders()\name, localProviders()\ip1, gTries, gTimeoutMs, gDomains, @gStopFlag)
-
-    If gStopFlag <> 0 : Break : EndIf
-    LockMutex(gMutex)
-    gCurrentTest = "Testing: " + localProviders()\name + "  " + localProviders()\ip2
-    UnlockMutex(gMutex)
-    BenchOne(localProviders()\name, localProviders()\ip2, gTries, gTimeoutMs, gDomains, @gStopFlag)
+    BenchProvider(localProviders()\name, localProviders()\ip1, localProviders()\ip2, tries, timeoutMs, domains)
   Next
 
   WSACleanup()
@@ -683,9 +773,10 @@ Procedure RefreshListIcon(listGadget.i, bestLabelGadget.i)
   EndIf
 EndProcedure
 
-Procedure ApplyProviderByName(name.s, adapter.s)
+Procedure.s GetProviderPair(name.s)
   Protected dns1.s = ""
   Protected dns2.s = ""
+
   LockMutex(gMutex)
   ForEach Providers()
     If Providers()\name = name
@@ -696,10 +787,33 @@ Procedure ApplyProviderByName(name.s, adapter.s)
   Next
   UnlockMutex(gMutex)
 
-  If dns1 <> "" And dns2 <> ""
-    Protected psCmd.s = "Set-DnsClientServerAddress -InterfaceAlias " + QuotePS(adapter) + " -ServerAddresses @(" + QuotePS(dns1) + "," + QuotePS(dns2) + "); Register-DnsClient"
-    ExecPowerShell(psCmd)
+  If dns1 = "" Or dns2 = ""
+    ProcedureReturn ""
   EndIf
+
+  ProcedureReturn dns1 + "|" + dns2
+EndProcedure
+
+Procedure.b ApplyDnsServers(adapter.s, dns1.s, dns2.s)
+  If adapter = "" Or dns1 = "" Or dns2 = ""
+    gLastPowerShellOutput = "DNS server pair is incomplete."
+    gLastPowerShellExitCode = -1
+    ProcedureReturn #False
+  EndIf
+
+  Protected psCmd.s = "Set-DnsClientServerAddress -InterfaceAlias " + QuotePS(adapter) + " -ServerAddresses @(" + QuotePS(dns1) + "," + QuotePS(dns2) + ") -ErrorAction Stop; Register-DnsClient -ErrorAction Stop"
+  ProcedureReturn ExecPowerShell(psCmd)
+EndProcedure
+
+Procedure.b ApplyProviderByName(name.s, adapter.s)
+  Protected pair.s = GetProviderPair(name)
+  If pair = ""
+    gLastPowerShellOutput = "DNS provider not found: " + name
+    gLastPowerShellExitCode = -1
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn ApplyDnsServers(adapter, StringField(pair, 1, "|"), StringField(pair, 2, "|"))
 EndProcedure
 
 Procedure.b IsRunAtStartup()
@@ -720,7 +834,7 @@ Procedure UpdateTrayMenu()
     LockMutex(gMutex)
     Protected isRunning = gWorkerRunning
     If isRunning
-      MenuItem(#G_Stop, "Stop Testing")
+      MenuItem(#Tray_StopTest, "Stop Testing")
     Else
       MenuItem(#Tray_StartTest, "Start Benchmark")
     EndIf
@@ -768,7 +882,10 @@ Procedure LoadAdapters(combo.i)
   ClearGadgetItems(combo)
   ; Prefer physical hardware interfaces (Wi-Fi/Ethernet) and only those that are currently Up.
   ; We still return the interface Alias (Name) since Apply uses -InterfaceAlias.
-  Protected out.s = ExecPowerShell("Get-NetAdapter | Where-Object { $_.HardwareInterface -eq $true -and $_.Status -eq 'Up' } | Select-Object -ExpandProperty Name | Sort-Object -Unique")
+  Protected out.s = ""
+  If ExecPowerShell("Get-NetAdapter | Where-Object { $_.HardwareInterface -eq $true -and $_.Status -eq 'Up' } | Select-Object -ExpandProperty Name | Sort-Object -Unique")
+    out = gLastPowerShellOutput
+  EndIf
   Protected i, line.s, n = CountString(out, #CRLF$) + 1
   For i = 1 To n
     line = Trim(StringField(out, i, #CRLF$))
@@ -778,23 +895,25 @@ Procedure LoadAdapters(combo.i)
   Next
   ; Fallback: if nothing is Up (e.g., disconnected Ethernet), show physical adapters regardless of status.
   If CountGadgetItems(combo) = 0
-    out = ExecPowerShell("Get-NetAdapter | Where-Object { $_.HardwareInterface -eq $true } | Select-Object -ExpandProperty Name | Sort-Object -Unique")
-    n = CountString(out, #CRLF$) + 1
-    For i = 1 To n
-      line = Trim(StringField(out, i, #CRLF$))
-      If line <> ""
-        AddGadgetItem(combo, -1, line)
-      EndIf
-    Next
+    out = ""
+    If ExecPowerShell("Get-NetAdapter | Where-Object { $_.HardwareInterface -eq $true } | Select-Object -ExpandProperty Name | Sort-Object -Unique")
+      out = gLastPowerShellOutput
+      n = CountString(out, #CRLF$) + 1
+      For i = 1 To n
+        line = Trim(StringField(out, i, #CRLF$))
+        If line <> ""
+          AddGadgetItem(combo, -1, line)
+        EndIf
+      Next
+    EndIf
   EndIf
   If CountGadgetItems(combo) > 0
     SetGadgetState(combo, 0)
   EndIf
 EndProcedure
 
-Procedure ApplyBest(adapter.s)
-  ; apply best provider pair using PowerShell
-  If ListSize(Results()) = 0 : ProcedureReturn : EndIf
+Procedure.s GetBestProviderName()
+  If ListSize(Results()) = 0 : ProcedureReturn "" : EndIf
 
   ; find best by score
   Protected bestScore.d = 1e30
@@ -806,25 +925,14 @@ Procedure ApplyBest(adapter.s)
     EndIf
   Next
 
-  If bestProvider = "" : ProcedureReturn : EndIf
+  ProcedureReturn bestProvider
+EndProcedure
 
-  Protected dns1.s = ""
-  Protected dns2.s = ""
-  LockMutex(gMutex)
-  ForEach Providers()
-    If Providers()\name = bestProvider
-      dns1 = Providers()\ip1
-      dns2 = Providers()\ip2
-      Break
-    EndIf
-  Next
-  UnlockMutex(gMutex)
+Procedure.b ApplyBest(adapter.s)
+  Protected bestProvider.s = GetBestProviderName()
+  If bestProvider = "" : ProcedureReturn #False : EndIf
 
-  If dns1 = "" Or dns2 = "" : ProcedureReturn : EndIf
-
-  ; Using -PassThru and Register-DnsClient to force Windows to acknowledge the change immediately
-  Protected psCmd.s = "Set-DnsClientServerAddress -InterfaceAlias " + QuotePS(adapter) + " -ServerAddresses @(" + QuotePS(dns1) + "," + QuotePS(dns2) + "); Register-DnsClient"
-  ExecPowerShell(psCmd)
+  ProcedureReturn ApplyProviderByName(bestProvider, adapter)
 EndProcedure
 
 ; ----------------------------
@@ -937,9 +1045,9 @@ EndIf
   Repeat
     Define ev = WaitWindowEvent(20)
     
-    ; Auto-Start Benchmark logic (2 minutes after app start)
+    ; Auto-start benchmark logic (2 minutes after app start)
     If gAutoStartDone = #False And gWorkerRunning = 0
-      If ElapsedMilliseconds() - gStartTime > 90000 ; 90,000ms = 1.5 minutes
+      If ElapsedMilliseconds() - gStartTime > #AUTO_START_BENCHMARK_DELAY_MS
         ; Check if we have an adapter
         If GetGadgetText(#G_AdapterCombo) <> ""
           ; Mark as done immediately so we don't re-trigger
@@ -985,15 +1093,15 @@ EndIf
         Case #Tray_RunAtStartup
           SetRunAtStartup(Bool(Not IsRunAtStartup()))
           UpdateTrayMenu() ; Refresh menu state immediately
+
+        Case #Tray_StopTest
+          PostEvent(#PB_Event_Gadget, #WinMain, #G_Stop)
           
         Case #Tray_Exit
           If MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info) = #PB_MessageRequester_Yes
             quitApp = #True
           EndIf
-          
-        Case #G_Stop
-          PostEvent(#PB_Event_Gadget, #WinMain, #G_Stop)
-          
+
         Default
           If EventMenu() >= #Tray_ProviderBase
             Define pIdx = EventMenu() - #Tray_ProviderBase
@@ -1004,8 +1112,12 @@ EndIf
               Define adapter.s = GetGadgetText(#G_AdapterCombo)
               If adapter <> ""
                 SetGadgetText(#G_Status, "Applying " + pName + " from tray...")
-                ApplyProviderByName(pName, adapter)
-                SetGadgetText(#G_Status, pName + " applied.")
+                If ApplyProviderByName(pName, adapter)
+                  SetGadgetText(#G_Status, pName + " applied.")
+                Else
+                  SetGadgetText(#G_Status, "Failed to apply " + pName + ".")
+                  MessageRequester("Apply DNS", "Failed to apply " + pName + "." + #CRLF$ + #CRLF$ + LastPowerShellMessage())
+                EndIf
               EndIf
             Else
               UnlockMutex(gMutex)
@@ -1046,7 +1158,9 @@ EndIf
           gStopFlag = 0
           gWorkerRunning = 1
           gWorkerDone = 0
+          gWorkerCancelled = 0
           gWorkerStepsDone = 0
+          ClearList(gQueue())
           ; steps = (providers * 2 IPs) * (tries * domains)
           Define domainCount = CountString(gDomains, "|") + 1
           gWorkerTotalSteps = ListSize(Providers()) * 2 * gTries * domainCount
@@ -1063,12 +1177,13 @@ EndIf
           DisableGadget(#G_Exit, #True)
           SetGadgetState(#G_Progress, 0)
 
-          CreateThread(@WorkerThread(), 0)
+          gWorkerThread = CreateThread(@WorkerThread(), 0)
 
         Case #G_Stop
           LockMutex(gMutex)
-          gStopFlag = 1
+          gWorkerCancelled = 1
           UnlockMutex(gMutex)
+          RequestWorkerStop()
           SetGadgetText(#G_Status, "Stopping...")
           ; Note: Re-enabling happens in the timer event when gWorkerRunning becomes 0
 
@@ -1088,8 +1203,12 @@ EndIf
 
             If bestName <> ""
               SetGadgetText(#G_Status, "Applying best: " + bestName + " (requires Administrator)...")
-              ApplyBest(adapter)
-              SetGadgetText(#G_Status, "Best DNS (" + bestName + ") applied. Check status as Administrator.")
+              If ApplyBest(adapter)
+                SetGadgetText(#G_Status, "Best DNS (" + bestName + ") applied.")
+              Else
+                SetGadgetText(#G_Status, "Failed to apply best DNS (" + bestName + ").")
+                MessageRequester("Apply Best", "Failed to apply best DNS (" + bestName + ")." + #CRLF$ + #CRLF$ + LastPowerShellMessage())
+              EndIf
             Else
               MessageRequester("Apply Best", "Run the test first to find the best provider.")
             EndIf
@@ -1102,6 +1221,7 @@ EndIf
       LockMutex(gMutex)
       Define running = gWorkerRunning
       Define done = gWorkerDone
+      Define wasCancelled = gWorkerCancelled
       Define stepsDone = gWorkerStepsDone
       Define totalSteps = gWorkerTotalSteps
       UnlockMutex(gMutex)
@@ -1127,43 +1247,58 @@ EndIf
       If done And running = 0
         DisableGadget(#G_Start, #False)
         DisableGadget(#G_Stop, #True)
-        DisableGadget(#G_Apply, #False)
+        DisableGadget(#G_Apply, Bool(ListSize(Results()) = 0))
         DisableGadget(#G_ReloadAdapters, #False)
         DisableGadget(#G_AdapterCombo, #False)
         DisableGadget(#G_TriesSpin, #False)
         DisableGadget(#G_TimeoutSpin, #False)
         DisableGadget(#G_Exit, #False)
-        SetGadgetText(#G_Status, "Done. (Apply requires Administrator)")
+        If wasCancelled
+          SetGadgetText(#G_Status, "Stopped.")
+        Else
+          SetGadgetText(#G_Status, "Done. (Apply requires Administrator)")
+        EndIf
         
         ; Show notification when benchmark finishes
-        SysTrayIconToolTip(#SysTray, #APP_NAME + " - Benchmark Complete")
+        If wasCancelled
+          SysTrayIconToolTip(#SysTray, #APP_NAME + " - Benchmark Stopped")
+        Else
+          SysTrayIconToolTip(#SysTray, #APP_NAME + " - Benchmark Complete")
+        EndIf
         
         LockMutex(gMutex)
         gWorkerDone = 0
+        gWorkerThread = 0
         UnlockMutex(gMutex)
 
         ; If this was an automatic benchmark (timer), apply the best DNS now
-        If gAutoStartDone = #True And gQueueApplied = #False
+        If gAutoStartDone = #True And gQueueApplied = #False And wasCancelled = #False
           gQueueApplied = #True
           Define adapter.s = GetGadgetText(#G_AdapterCombo)
           If adapter <> ""
             SetGadgetText(#G_Status, "Auto-Applying best DNS...")
-            ApplyBest(adapter)
-            SetGadgetText(#G_Status, "Auto-Apply complete.")
-            SysTrayIconToolTip(#SysTray, #APP_NAME + " - Auto-Apply Complete")
+            If ApplyBest(adapter)
+              SetGadgetText(#G_Status, "Auto-Apply complete.")
+              SysTrayIconToolTip(#SysTray, #APP_NAME + " - Auto-Apply Complete")
+            Else
+              SetGadgetText(#G_Status, "Auto-Apply failed.")
+              MessageRequester("Auto-Apply", "Failed to apply the best DNS automatically." + #CRLF$ + #CRLF$ + LastPowerShellMessage())
+            EndIf
           EndIf
         EndIf
       EndIf
     EndIf
 
   Until quitApp = #True
+    RequestWorkerStop()
+    WaitForWorkerStop(#WORKER_EXIT_WAIT_MS)
     CloseHandle_(hMutex)
     End
 EndIf
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 17
+; CursorPosition = 19
 ; FirstLine = 5
-; Folding = ------
+; Folding = -------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1172,12 +1307,12 @@ EndIf
 ; UseIcon = PB_DNSJumper.ico
 ; Executable = ..\PB_DNSJumper.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_DNSJumper
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = An automatic DNS changer similar to DNSJumper
 ; VersionField7 = PB_DNSJumper
 ; VersionField8 = PB_DNSJumper.exe
