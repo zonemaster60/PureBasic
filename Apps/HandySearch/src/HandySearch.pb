@@ -4,7 +4,7 @@ EnableExplicit
 
 #APP_NAME   = "HandySearch"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-Global version.s = "v1.0.1.3"
+Global version.s = "v1.0.1.4"
 
 ; Crash logging (best-effort)
 Declare InitCrashLogging()
@@ -17,6 +17,8 @@ Structure IndexRecord
   Dir.s
   Size.q
   MTime.q
+  IsDir.i
+  ScanId.q
 EndStructure
 
 Procedure.b HasArg(arg$)
@@ -61,9 +63,11 @@ Declare SyncUiState()
 Declare.i GetFileIconIndex(path.s)
 Declare DbWriterThreadProc(dummy.i)
 Declare FlushIndexBatchToDb(List batch.IndexRecord())
+Declare FinalizeCompletedScan()
 Declare.b ConfirmExit()
 Declare.i PendingResultsCount()
 Declare SaveSettingsIni()
+Declare.s NormalizePath(path.s)
 
 ; Startup (run at login) helpers
 Declare.i IsInStartup()
@@ -129,6 +133,7 @@ Global StopSearch.i
 Global SearchActive.i ; legacy
 Global ResultMutex.i
 Global ProgressMutex.i
+Global ExcludeMutex.i
 
 ; System tray + window behavior
 Global AppStartMinimized.i = 0
@@ -168,6 +173,7 @@ Global SearchMaxResults.i = 10000
 Global SearchDebounceMS.i = 120
 Global ConfigThreadCount.i = 0
 Global ConfigBatchSize.i = 200
+Global CurrentScanId.q
 
 ; Global state duplicates removed
 Global CompactSavedW.i = 0
@@ -213,6 +219,7 @@ Global NewList DbWriterQueue.IndexRecord()
 Global NewList PendingResults.s()
 Global NewMap ExcludeDirNames.i()
 Global NewMap ExcludeFileNames.i()
+Global NewMap ExcludePathPrefixes.i()
 
 ; Exit confirmation
 Procedure.b ConfirmExit()
@@ -227,14 +234,61 @@ Procedure.b ConfirmExit()
 EndProcedure
 
 Procedure ClearExcludes()
+  If ExcludeMutex : LockMutex(ExcludeMutex) : EndIf
   ClearMap(ExcludeDirNames())
   ClearMap(ExcludeFileNames())
+  ClearMap(ExcludePathPrefixes())
+  If ExcludeMutex : UnlockMutex(ExcludeMutex) : EndIf
 EndProcedure
 
 Procedure.i IsExcludedFileName(fileName.s)
   Protected key.s = LCase(Trim(fileName))
   If key = "" : ProcedureReturn 0 : EndIf
-  ProcedureReturn FindMapElement(ExcludeFileNames(), key)
+  If ExcludeMutex : LockMutex(ExcludeMutex) : EndIf
+  Protected found.i = FindMapElement(ExcludeFileNames(), key)
+  If ExcludeMutex : UnlockMutex(ExcludeMutex) : EndIf
+  ProcedureReturn found
+EndProcedure
+
+Procedure.i IsExcludedPathPrefix(path.s)
+  Protected normalized.s = LCase(NormalizePath(Trim(path)))
+  Protected rootRelative.s
+  Protected prefix.s
+  Protected slashPos.i
+  Protected found.i
+
+  If normalized = ""
+    ProcedureReturn 0
+  EndIf
+
+  rootRelative = normalized
+  If FindString(normalized, ":\\", 1) = 2
+    rootRelative = Mid(normalized, 3)
+  ElseIf Left(normalized, 2) = "\\"
+    slashPos = FindString(normalized, "\\", 3)
+    If slashPos > 0
+      slashPos = FindString(normalized, "\\", slashPos + 1)
+      If slashPos > 0
+        rootRelative = Mid(normalized, slashPos)
+      EndIf
+    EndIf
+  EndIf
+
+  If ExcludeMutex : LockMutex(ExcludeMutex) : EndIf
+  ForEach ExcludePathPrefixes()
+    prefix = MapKey(ExcludePathPrefixes())
+    If Left(normalized, Len(prefix)) = prefix
+      found = #True
+      Break
+    EndIf
+    If Left(prefix, 1) = "\\" And Left(rootRelative, Len(prefix)) = prefix
+      found = #True
+      Break
+    EndIf
+  Next
+  If ExcludeMutex : UnlockMutex(ExcludeMutex) : EndIf
+
+  ProcedureReturn found
 EndProcedure
 
 Procedure WriteDefaultExcludesIni(filePath.s)
@@ -255,6 +309,7 @@ Procedure WriteDefaultExcludesIni(filePath.s)
   WriteStringN(f, ";   [Performance] - performance tuning")
   WriteStringN(f, ";   [ExcludeDirs]  - folder names to skip")
   WriteStringN(f, ";   [ExcludeFiles] - file names to skip")
+  WriteStringN(f, ";   [ExcludePaths] - full path prefixes to skip")
   WriteStringN(f, "")
 
   WriteStringN(f, "[App]")
@@ -301,6 +356,20 @@ Procedure WriteDefaultExcludesIni(filePath.s)
   WriteStringN(f, "desktop.ini")
   WriteStringN(f, "pagefile.sys")
   WriteStringN(f, "swapfile.sys")
+  WriteStringN(f, "hiberfil.sys")
+  WriteStringN(f, "dumpstack.log.tmp")
+  WriteStringN(f, "memory.dmp")
+  WriteStringN(f, "")
+
+  WriteStringN(f, "[ExcludePaths]")
+  WriteStringN(f, "; Skip very noisy or virtual system locations by full prefix.")
+  WriteStringN(f, "; Entries starting with \\ apply from any drive root.")
+  WriteStringN(f, "$extend")
+  WriteStringN(f, "\$extend")
+  WriteStringN(f, "config.msi")
+  WriteStringN(f, "\config.msi")
+  WriteStringN(f, "msocache")
+  WriteStringN(f, "\msocache")
 
   CloseFile(f)
 EndProcedure
@@ -341,6 +410,10 @@ Procedure LoadExcludesIni(filePath.s)
   Protected pos.i, f.i
   Protected key.s, value.s
   Protected vLower.s
+  Protected normalizedPath.s
+  Protected appDataLower.s
+  Protected localAppDataLower.s
+  Protected tempLower.s
 
   ClearExcludes()
 
@@ -475,10 +548,53 @@ Procedure LoadExcludesIni(filePath.s)
           ExcludeFileNames(item) = 1
         EndIf
 
+      Case "excludepaths", "excludepath"
+        item = ""
+        If key <> ""
+          vLower = LCase(Trim(value))
+          Select vLower
+            Case "", "1", "true", "yes", "on"
+              item = key
+            Case "0", "false", "no", "off"
+              item = ""
+            Default
+              item = value
+          EndSelect
+        Else
+          item = value
+        EndIf
+
+        normalizedPath = LCase(NormalizePath(Trim(item)))
+        If normalizedPath <> ""
+          If Left(normalizedPath, 1) <> "\" And FindString(normalizedPath, ":\", 1) = 0 And Left(normalizedPath, 2) <> "\\"
+            normalizedPath = "\" + normalizedPath
+          EndIf
+          ExcludePathPrefixes(normalizedPath) = 1
+        EndIf
+
     EndSelect
   Wend
 
   CloseFile(f)
+
+  appDataLower = LCase(NormalizePath(GetEnvironmentVariable("APPDATA")))
+  If appDataLower <> ""
+    If Right(appDataLower, 1) <> "\" : appDataLower + "\" : EndIf
+    ExcludePathPrefixes(appDataLower + "microsoft\search\") = 1
+  EndIf
+
+  localAppDataLower = LCase(NormalizePath(GetEnvironmentVariable("LOCALAPPDATA")))
+  If localAppDataLower <> ""
+    If Right(localAppDataLower, 1) <> "\" : localAppDataLower + "\" : EndIf
+    ExcludePathPrefixes(localAppDataLower + "microsoft\windows\temporary internet files\") = 1
+  EndIf
+
+  tempLower = LCase(NormalizePath(GetEnvironmentVariable("TEMP")))
+  If tempLower <> ""
+    If Right(tempLower, 1) <> "\" : tempLower + "\" : EndIf
+    ExcludePathPrefixes(tempLower) = 1
+  EndIf
+
   ClampConfigValues()
 EndProcedure
 
@@ -519,7 +635,10 @@ EndProcedure
 Procedure.i IsExcludedDirName(dirName.s)
   Protected key.s = LCase(Trim(dirName))
   If key = "" : ProcedureReturn 0 : EndIf
-  ProcedureReturn FindMapElement(ExcludeDirNames(), key)
+  If ExcludeMutex : LockMutex(ExcludeMutex) : EndIf
+  Protected found.i = FindMapElement(ExcludeDirNames(), key)
+  If ExcludeMutex : UnlockMutex(ExcludeMutex) : EndIf
+  ProcedureReturn found
 EndProcedure
 
 Procedure.s StartupTaskName()
@@ -892,6 +1011,36 @@ Procedure.s NormalizePath(path.s)
   ProcedureReturn prefix + p
 EndProcedure
 
+Procedure.s DirectoryEntryLabel(path.s)
+  Protected p.s = NormalizePath(path)
+  Protected name.s
+
+  If Right(p, 1) = "\" And Len(p) > 1
+    p = Left(p, Len(p) - 1)
+  EndIf
+
+  If Len(p) = 2 And Right(p, 1) = ":"
+    ProcedureReturn p
+  EndIf
+
+  name = GetFilePart(p)
+  If name = ""
+    ProcedureReturn p
+  EndIf
+
+  ProcedureReturn name
+EndProcedure
+
+Procedure.b IsMatchAllQuery(query.s)
+  Protected q.s = LCase(Trim(query))
+
+  If q = "" Or q = "*" Or q = "*.*"
+    ProcedureReturn #True
+  EndIf
+
+  ProcedureReturn #False
+EndProcedure
+
 Procedure AddProgressFiles(scannedFiles.q, matches.q)
   If ProgressMutex = 0
     ProcedureReturn
@@ -1015,6 +1164,7 @@ Procedure IndexDirectoryWorker(dir.s, List batch.IndexRecord())
   Protected dirID.i, entryName.s, fullpath.s
   Protected localFiles.q
   Protected retryCount.i
+  Protected parentDir.s
 
   If WorkStop Or StopSearch
     ProcedureReturn
@@ -1023,6 +1173,12 @@ Procedure IndexDirectoryWorker(dir.s, List batch.IndexRecord())
   If Right(dir, 1) <> "\"
     dir = dir + "\"
   EndIf
+
+  If IsExcludedPathPrefix(dir)
+    ProcedureReturn
+  EndIf
+
+  parentDir = GetPathPart(Left(dir, Len(dir) - 1))
 
   SetProgressFolder(dir)
   AddProgressDir()
@@ -1037,8 +1193,19 @@ Procedure IndexDirectoryWorker(dir.s, List batch.IndexRecord())
   VisitedFolders(canonical) = 1
   UnlockMutex(VisitedFoldersMutex)
 
+  If parentDir = ""
+    AddElement(batch())
+    batch()\Path = dir
+    batch()\Name = DirectoryEntryLabel(dir)
+    batch()\Dir = parentDir
+    batch()\Size = 0
+    batch()\MTime = 0
+    batch()\IsDir = 1
+    batch()\ScanId = CurrentScanId
+  EndIf
+
   Repeat
-    dirID = ExamineDirectory(#PB_Any, dir, "*.*")
+    dirID = ExamineDirectory(#PB_Any, dir, "*")
     If dirID = 0
       If retryCount < 2 And (WorkStop = 0 And StopSearch = 0)
         LogLine("Retrying directory access: " + dir)
@@ -1073,6 +1240,8 @@ Procedure IndexDirectoryWorker(dir.s, List batch.IndexRecord())
           batch()\Dir = dir
           batch()\Size = DirectoryEntrySize(dirID)
           batch()\MTime = DirectoryEntryDate(dirID, #PB_Date_Modified)
+          batch()\IsDir = 0
+          batch()\ScanId = CurrentScanId
         EndIf
         
         ; Update counters more frequently for smooth status bar
@@ -1083,6 +1252,19 @@ Procedure IndexDirectoryWorker(dir.s, List batch.IndexRecord())
 
       Case #PB_DirectoryEntry_Directory
         If IsExcludedDirName(entryName) = 0
+          If IsExcludedPathPrefix(fullpath + "\")
+            Continue
+          EndIf
+
+          AddElement(batch())
+          batch()\Path = fullpath + "\"
+          batch()\Name = entryName
+          batch()\Dir = dir
+          batch()\Size = 0
+          batch()\MTime = DirectoryEntryDate(dirID, #PB_Date_Modified)
+          batch()\IsDir = 1
+          batch()\ScanId = CurrentScanId
+
           ; Avoid junction loops. Best-effort: check the directory entry itself.
           If IsReparsePoint(fullpath) = 0
             PushDirectory(fullpath + "\")
@@ -1429,7 +1611,7 @@ Procedure FlushIndexBatchToDb(List batch.IndexRecord())
   If rowCount = 0
     ProcedureReturn
   EndIf
- 
+
   ; Build a single INSERT with many VALUES to reduce SQLite parse overhead.
   ; Chunk so the SQL statement doesn't grow unbounded.
   LockMutex(DbMutex)
@@ -1441,18 +1623,18 @@ Procedure FlushIndexBatchToDb(List batch.IndexRecord())
   ForEach batch()
     If values <> "" : values + "," : EndIf
     values + "('" + DbEscape(batch()\Path) + "','" + DbEscape(batch()\Name) + "','" + DbEscape(batch()\Dir) + "'," +
-              Str(batch()\Size) + "," + Str(batch()\MTime) + ")"
+              Str(batch()\Size) + "," + Str(batch()\MTime) + "," + Str(Bool(batch()\IsDir)) + "," + Str(batch()\ScanId) + ")"
  
     ; Stream paths to the UI so results can appear as indexing runs.
     AddElement(pathsForUi())
     pathsForUi() = batch()\Path
- 
+
     IndexTotalFiles + 1
     cnt + 1
  
     ; ~500 rows per statement keeps it snappy and avoids huge SQL strings.
     If cnt >= 500
-      sql = "INSERT OR REPLACE INTO files(path,name,dir,size,mtime) VALUES" + values + ";"
+      sql = "INSERT OR REPLACE INTO files(path,name,dir,size,mtime,is_dir,scan_id) VALUES" + values + ";"
       DatabaseUpdate(IndexDbId, sql)
       values = ""
       cnt = 0
@@ -1460,10 +1642,10 @@ Procedure FlushIndexBatchToDb(List batch.IndexRecord())
   Next
  
   If values <> ""
-    sql = "INSERT OR REPLACE INTO files(path,name,dir,size,mtime) VALUES" + values + ";"
+    sql = "INSERT OR REPLACE INTO files(path,name,dir,size,mtime,is_dir,scan_id) VALUES" + values + ";"
     DatabaseUpdate(IndexDbId, sql)
   EndIf
- 
+
   ; Persist the running count so showing it is instant.
   DatabaseUpdate(IndexDbId, "INSERT OR REPLACE INTO meta(key,value) VALUES('indexed_count','" + Str(IndexTotalFiles) + "');")
  
@@ -1473,6 +1655,26 @@ Procedure FlushIndexBatchToDb(List batch.IndexRecord())
   EnqueueResultsBatch(pathsForUi())
  
   ClearList(batch())
+EndProcedure
+
+Procedure.i DatabaseColumnExists(tableName.s, columnName.s)
+  Protected found.i
+
+  If IndexDbId = 0
+    ProcedureReturn #False
+  EndIf
+
+  If DatabaseQuery(IndexDbId, "PRAGMA table_info(" + tableName + ");")
+    While NextDatabaseRow(IndexDbId)
+      If LCase(GetDatabaseString(IndexDbId, 1)) = LCase(columnName)
+        found = #True
+        Break
+      EndIf
+    Wend
+    FinishDatabaseQuery(IndexDbId)
+  EndIf
+
+  ProcedureReturn found
 EndProcedure
 
 Procedure EnqueueDbBatch(List batch.IndexRecord())
@@ -1537,6 +1739,11 @@ Procedure WorkerThreadProc(*params.WorkerParams)
     ; Prevent CPU pinning by yielding frequently
     Delay(1)
   Wend
+
+  If ListSize(batch()) > 0
+    EnqueueDbBatch(batch())
+    ClearList(batch())
+  EndIf
 EndProcedure
 
 Procedure.i GetCpuCount()
@@ -1547,13 +1754,14 @@ Procedure.i GetCpuCount()
   ProcedureReturn cpu
 EndProcedure
 
-Procedure GetAllFixedDriveRoots(List roots.s())
+Procedure GetAllIndexableDriveRoots(List roots.s())
   ; GetLogicalDriveStrings_ returns a MULTI_SZ in TCHARs (Unicode on modern PB).
   Protected bufChars.i = 4096
   Protected *buf
   Protected posChars.i
   Protected drive.s
   Protected dt.i
+  Protected probe.i
  
   ClearList(roots())
  
@@ -1573,10 +1781,15 @@ Procedure GetAllFixedDriveRoots(List roots.s())
     posChars + Len(drive) + 1
  
     dt = GetDriveType_(drive)
-    If dt = 3 ; DRIVE_FIXED
-      AddElement(roots())
-      roots() = drive
-    EndIf
+    Select dt
+      Case 2, 3, 4, 5, 6 ; removable, fixed, remote, CD-ROM, RAM disk
+        probe = ExamineDirectory(#PB_Any, drive, "*")
+        If probe
+          FinishDirectory(probe)
+          AddElement(roots())
+          roots() = drive
+        EndIf
+    EndSelect
   Wend
  
   FreeMemory(*buf)
@@ -1595,6 +1808,7 @@ Procedure StartIndexingAllFixedDrives()
   StopSearch = 0
   WorkStop = 0
   IndexTotalFiles = 0
+  CurrentScanId = Date()
   WorkerCount = -1 ; diagnostics: thread entered
 
   ; Start DB writer thread
@@ -1638,7 +1852,7 @@ Procedure StartIndexingAllFixedDrives()
   ActiveDirCount = 0
   UnlockMutex(ScanStateMutex)
 
-  GetAllFixedDriveRoots(roots())
+  GetAllIndexableDriveRoots(roots())
   If ListSize(roots()) = 0
     AddElement(roots()) : roots() = "C:\"
   EndIf
@@ -1701,6 +1915,10 @@ Procedure StartIndexingAllFixedDrives()
   If IsThread(DbWriterThread)
     WaitThread(DbWriterThread)
     DbWriterThread = 0
+  EndIf
+
+  If StopSearch = 0 And WorkStop = 0
+    FinalizeCompletedScan()
   EndIf
 
   ; Signal search results drain to finish
@@ -1849,7 +2067,8 @@ Procedure.i ClampSettingInt(*changed.Integer, currentValue.i, newValue.i, minVal
 EndProcedure
 
 Procedure EditExcludeLists()
-  Protected newDirs.s, newFiles.s, currentDirs.s, currentFiles.s
+  Protected newDirs.s, newFiles.s, newPaths.s
+  Protected currentDirs.s, currentFiles.s, currentPaths.s
   Protected changed.i = #False
   
   ; 1. Build current comma-separated strings for the UI
@@ -1861,6 +2080,11 @@ Procedure EditExcludeLists()
   ForEach ExcludeFileNames()
     If currentFiles <> "" : currentFiles + ", " : EndIf
     currentFiles + MapKey(ExcludeFileNames())
+  Next
+
+  ForEach ExcludePathPrefixes()
+    If currentPaths <> "" : currentPaths + ", " : EndIf
+    currentPaths + MapKey(ExcludePathPrefixes())
   Next
   
   ; 2. Ask user for new lists
@@ -1882,6 +2106,22 @@ Procedure EditExcludeLists()
     For i = 1 To count
       part = LCase(Trim(StringField(newFiles, i, ",")))
       If part <> "" : ExcludeFileNames(part) = 1 : EndIf
+    Next
+    changed = #True
+  EndIf
+
+  newPaths = InputRequester("Edit Exclude Paths", "Enter full path prefixes to skip (comma-separated):", currentPaths)
+  If newPaths <> currentPaths
+    ClearMap(ExcludePathPrefixes())
+    count = CountString(newPaths, ",") + 1
+    For i = 1 To count
+      part = LCase(NormalizePath(Trim(StringField(newPaths, i, ","))))
+      If part <> ""
+        If Left(part, 1) <> "\" And FindString(part, ":\", 1) = 0 And Left(part, 2) <> "\\"
+          part = "\" + part
+        EndIf
+        ExcludePathPrefixes(part) = 1
+      EndIf
     Next
     changed = #True
   EndIf
@@ -1927,6 +2167,12 @@ Procedure SaveSettingsIni()
     PreferenceGroup("ExcludeFiles")
     ForEach ExcludeFileNames()
       WritePreferenceString(MapKey(ExcludeFileNames()), "")
+    Next
+
+    RemovePreferenceGroup("ExcludePaths")
+    PreferenceGroup("ExcludePaths")
+    ForEach ExcludePathPrefixes()
+      WritePreferenceString(MapKey(ExcludePathPrefixes()), "")
     Next
 
     ClosePreferences()
@@ -2176,6 +2422,7 @@ Procedure ShowDiagnostics()
   msg = "INI path: " + iniPath + #CRLF$ +
         "ExcludeDirs: " + Str(exDirCount) + " (has 'windows': " + Str(hasWindows) + ")" + #CRLF$ +
         "ExcludeFiles: " + Str(exFileCount) + #CRLF$ +
+        "ExcludePaths: " + Str(MapSize(ExcludePathPrefixes())) + #CRLF$ +
         "DB path: " + dbPath + #CRLF$ +
         "DB open: " + Str(Bool(IndexDbId <> 0)) + #CRLF$ +
         "IndexingActive: " + Str(IndexingActive) + #CRLF$ +
@@ -2192,8 +2439,8 @@ EndProcedure
 
 Procedure.s QueryToLikePattern(query.s)
   Protected p.s = Trim(query)
-  If p = ""
-    p = "*.*"
+  If IsMatchAllQuery(p)
+    ProcedureReturn "%"
   EndIf
 
   ; If plain text (no wildcards), do contains.
@@ -2342,7 +2589,7 @@ Procedure RefreshResultsFromDb(query.s)
       sql = "SELECT name, path FROM files"
       If hint <> ""
         hint = ReplaceString(hint, "'", "''")
-        sql + " WHERE name LIKE '%" + hint + "%' COLLATE NOCASE"
+        sql + " WHERE name LIKE '%" + hint + "%' COLLATE NOCASE OR path LIKE '%" + hint + "%' COLLATE NOCASE"
       EndIf
       sql + " LIMIT " + Str(candidateLimit) + ";"
 
@@ -2352,7 +2599,7 @@ Procedure RefreshResultsFromDb(query.s)
           rowName = GetDatabaseString(IndexDbId, 0)
           rowPath = GetDatabaseString(IndexDbId, 1)
 
-          If MatchRegularExpression(regexID, rowName)
+          If MatchRegularExpression(regexID, rowName) Or MatchRegularExpression(regexID, rowPath)
             rowImg = GetFileIconIndex(rowPath)
             If rowImg
               AddGadgetItem(#Gadget_ResultsList, -1, rowPath, ImageID(rowImg))
@@ -2382,11 +2629,11 @@ Procedure RefreshResultsFromDb(query.s)
     EndIf
   EndIf
 
-  ; Default LIKE-based name search.
+  ; Default LIKE-based path/name search.
   likePattern = QueryToLikePattern(query)
 
   LockMutex(DbMutex)
-  sql = "SELECT path FROM files WHERE name LIKE '" + likePattern + "' COLLATE NOCASE LIMIT " + Str(SearchMaxResults) + ";"
+  sql = "SELECT path FROM files WHERE name LIKE '" + likePattern + "' COLLATE NOCASE OR path LIKE '" + likePattern + "' COLLATE NOCASE LIMIT " + Str(SearchMaxResults) + ";"
   If DatabaseQuery(IndexDbId, sql)
     While NextDatabaseRow(IndexDbId)
       rowPath = GetDatabaseString(IndexDbId, 0)
@@ -2448,7 +2695,10 @@ Procedure PumpPendingResults(maxItems.i)
     ; Determine matcher type for live filtering.
     ignoreCase = 1
     regexPattern = ParseRegexQueryPattern(query, @ignoreCase)
-    If regexPattern <> "" And Trim(regexPattern) <> ""
+    If IsMatchAllQuery(query)
+      LiveMatcherMode = 0
+      LiveMatcherNeedle = ""
+    ElseIf regexPattern <> "" And Trim(regexPattern) <> ""
       LiveMatcherMode = 2
       If ignoreCase
         LiveMatcherRegexID = CreateRegularExpression(#PB_Any, regexPattern, #PB_RegularExpression_NoCase)
@@ -2624,6 +2874,7 @@ Procedure.b RebuildIndexDatabase()
   ; Ensure a clean slate even if file deletion fails.
   LockMutex(DbMutex)
   DatabaseUpdate(IndexDbId, "DELETE FROM files;")
+  DatabaseUpdate(IndexDbId, "DELETE FROM meta WHERE key='last_scan_id';")
   UnlockMutex(DbMutex)
 
   ; Ensure meta starts at 0 for instant count.
@@ -2635,6 +2886,29 @@ Procedure.b RebuildIndexDatabase()
   CachedIndexedCount = 0
   CachedIndexedCountAtMS = ElapsedMilliseconds()
   ProcedureReturn #True
+EndProcedure
+
+Procedure FinalizeCompletedScan()
+  If IndexDbId = 0 Or DbMutex = 0 Or CurrentScanId <= 0
+    ProcedureReturn
+  EndIf
+
+  LockMutex(DbMutex)
+  DatabaseUpdate(IndexDbId, "BEGIN TRANSACTION;")
+  DatabaseUpdate(IndexDbId, "DELETE FROM files WHERE scan_id <> " + Str(CurrentScanId) + ";")
+  If DatabaseQuery(IndexDbId, "SELECT COUNT(*) FROM files;")
+    If NextDatabaseRow(IndexDbId)
+      IndexTotalFiles = GetDatabaseQuad(IndexDbId, 0)
+    EndIf
+    FinishDatabaseQuery(IndexDbId)
+  EndIf
+  DatabaseUpdate(IndexDbId, "INSERT OR REPLACE INTO meta(key,value) VALUES('indexed_count','" + Str(IndexTotalFiles) + "');")
+  DatabaseUpdate(IndexDbId, "INSERT OR REPLACE INTO meta(key,value) VALUES('last_scan_id','" + Str(CurrentScanId) + "');")
+  DatabaseUpdate(IndexDbId, "COMMIT;")
+  UnlockMutex(DbMutex)
+
+  CachedIndexedCount = IndexTotalFiles
+  CachedIndexedCountAtMS = ElapsedMilliseconds()
 EndProcedure
 
 Procedure StartIndexing(rebuild.i)
@@ -2966,9 +3240,17 @@ Procedure InitDatabase()
   DatabaseUpdate(IndexDbId, "PRAGMA temp_store=MEMORY;")
   DatabaseUpdate(IndexDbId, "PRAGMA mmap_size=268435456;")
   DatabaseUpdate(IndexDbId, "PRAGMA cache_size=-200000;")
-  DatabaseUpdate(IndexDbId, "CREATE TABLE IF NOT EXISTS files(path TEXT PRIMARY KEY, name TEXT, dir TEXT, size INTEGER, mtime INTEGER);")
+  DatabaseUpdate(IndexDbId, "CREATE TABLE IF NOT EXISTS files(path TEXT PRIMARY KEY, name TEXT, dir TEXT, size INTEGER, mtime INTEGER, is_dir INTEGER NOT NULL DEFAULT 0, scan_id INTEGER NOT NULL DEFAULT 0);")
+  If DatabaseColumnExists("files", "is_dir") = 0
+    DatabaseUpdate(IndexDbId, "ALTER TABLE files ADD COLUMN is_dir INTEGER NOT NULL DEFAULT 0;")
+  EndIf
+  If DatabaseColumnExists("files", "scan_id") = 0
+    DatabaseUpdate(IndexDbId, "ALTER TABLE files ADD COLUMN scan_id INTEGER NOT NULL DEFAULT 0;")
+  EndIf
   DatabaseUpdate(IndexDbId, "CREATE INDEX IF NOT EXISTS idx_files_name ON files(name);")
   DatabaseUpdate(IndexDbId, "CREATE INDEX IF NOT EXISTS idx_files_dir ON files(dir);")
+  DatabaseUpdate(IndexDbId, "CREATE INDEX IF NOT EXISTS idx_files_is_dir ON files(is_dir);")
+  DatabaseUpdate(IndexDbId, "CREATE INDEX IF NOT EXISTS idx_files_scan_id ON files(scan_id);")
   DatabaseUpdate(IndexDbId, "CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);")
   UnlockMutex(DbMutex)
 EndProcedure
@@ -2991,6 +3273,7 @@ RemoveLegacyStartupRegistryEntry()
 
 ResultMutex = CreateMutex()
 ProgressMutex = CreateMutex()
+ExcludeMutex = CreateMutex()
 DbMutex = CreateMutex()
 IconMutex = CreateMutex()
 VisitedFoldersMutex = CreateMutex()
@@ -3037,6 +3320,7 @@ If LiveMatcherRegexID : FreeRegularExpression(LiveMatcherRegexID) : LiveMatcherR
 If IndexDbId : CloseDatabase(IndexDbId) : EndIf
 If ResultMutex : FreeMutex(ResultMutex) : EndIf
 If ProgressMutex : FreeMutex(ProgressMutex) : EndIf
+If ExcludeMutex : FreeMutex(ExcludeMutex) : EndIf
 If DbMutex : FreeMutex(DbMutex) : EndIf
 If IconMutex : FreeMutex(IconMutex) : EndIf
 If VisitedFoldersMutex : FreeMutex(VisitedFoldersMutex) : EndIf
@@ -3050,7 +3334,7 @@ If hMutex : CloseHandle_(hMutex) : EndIf
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 6
-; Folding = --------------
+; Folding = ---------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -3059,12 +3343,12 @@ If hMutex : CloseHandle_(hMutex) : EndIf
 ; UseIcon = HandySearch.ico
 ; Executable = ..\HandySearch.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,3
-; VersionField1 = 1,0,1,3
+; VersionField0 = 1,0,1,4
+; VersionField1 = 1,0,1,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandySearch
-; VersionField4 = 1.0.1.3
-; VersionField5 = 1.0.1.3
+; VersionField4 = 1.0.1.4
+; VersionField5 = 1.0.1.4
 ; VersionField6 = Everything-like search tool for desktop and web
 ; VersionField7 = HandySearch
 ; VersionField8 = HandySearch.exe
