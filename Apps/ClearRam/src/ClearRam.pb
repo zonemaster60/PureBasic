@@ -20,8 +20,11 @@ Global gNtdll.i, NtSetSystemInformation.ProtoNtSetSystemInformation, RtlAdjustPr
 #MENU_RELOADSETTINGS = 15
 #MENU_ABOUT      = 16
 #MENU_EXIT       = 17
-#ICON_IDLE       = 100
-#ICON_ACTIVE     = 101
+#ICON_GREEN_BASE  = 101
+#ICON_RED_BASE    = 102
+#ICON_YELLOW_BASE = 103
+#ICON_ACTIVE_BASE = 104
+
 
 Global quitProgram      = #False
 Global startupEnabled   = #False ; desired startup state
@@ -39,7 +42,7 @@ Global gTooltipOverrideText.s = ""
 
 ; Logging toggle
 Global loggingEnabled   = #True
-Global version.s = "v1.0.1.0"
+Global version.s = "v1.0.1.1"
 
 ; Memory threshold (auto-clean when available RAM <= threshold)
 Global gMemThresholdEnabled.i = #False
@@ -55,6 +58,9 @@ Global gLogMutex.i = CreateMutex()
 Global gRunStateMutex.i = CreateMutex()
 Global gTimerThread.i = 0
 Global gWorkerThread.i = 0
+Global gTrayBusy.i = #False
+Global gTrayIconReady.i = #False
+Global gTrayBaseImageForPct.i = 0
 
 ; Paths / config
 #INI_FILE        = "ClearRam.ini"
@@ -63,6 +69,7 @@ Global gWorkerThread.i = 0
 
 Declare.i GetTotalPhysMB()
 Declare.i GetAvailPhysMB()
+Declare.i GetUsedMemPercent()
 
 Procedure.b HasArg(arg$)
   Protected i
@@ -590,9 +597,19 @@ Procedure Exit()
     RemoveWindowTimer(0, 2)
     RemoveSysTrayIcon(#TRAY_ICON)
     FreeMenu(#TRAY_MENU)
-    FreeImage(#ICON_IDLE)
-    FreeImage(#ICON_ACTIVE)
-    
+    If IsImage(#ICON_GREEN_BASE)
+      FreeImage(#ICON_GREEN_BASE)
+    EndIf
+    If IsImage(#ICON_RED_BASE)
+      FreeImage(#ICON_RED_BASE)
+    EndIf
+    If IsImage(#ICON_YELLOW_BASE)
+      FreeImage(#ICON_YELLOW_BASE)
+    EndIf
+    If IsImage(#ICON_ACTIVE_BASE)
+      FreeImage(#ICON_ACTIVE_BASE)
+    EndIf
+
     If IsLibrary(gNtdll)
       CloseLibrary(gNtdll)
     EndIf
@@ -630,6 +647,63 @@ Procedure UpdateLogMenuLabel()
   Else
     SetMenuItemText(#TRAY_MENU, #MENU_LOGTOGGLE, "Enable Logging")
   EndIf
+EndProcedure
+
+Procedure.i ClampPercent(value.i)
+  If value < 0
+    ProcedureReturn 0
+  EndIf
+
+  If value > 100
+    ProcedureReturn 100
+  EndIf
+
+  ProcedureReturn value
+EndProcedure
+
+Procedure.i GetCurrentTrayImageNumber()
+  If gTrayBusy
+    ProcedureReturn #ICON_ACTIVE_BASE
+  EndIf
+
+  If gTrayBaseImageForPct
+    ProcedureReturn gTrayBaseImageForPct
+  EndIf
+
+  ProcedureReturn #ICON_GREEN_BASE
+EndProcedure
+
+Procedure.i GetTrayBaseImageForUsage(usedPct.i)
+  usedPct = ClampPercent(usedPct)
+
+  If usedPct >= 75
+    ProcedureReturn #ICON_RED_BASE
+  EndIf
+
+  If usedPct >= 50
+    ProcedureReturn #ICON_YELLOW_BASE
+  EndIf
+
+  ProcedureReturn #ICON_GREEN_BASE
+EndProcedure
+
+Procedure UpdateTrayIconVisual(usedPct.i, force.i)
+  Protected nextImage.i = GetTrayBaseImageForUsage(usedPct)
+
+  If force = #False And gTrayBusy = #False And nextImage = gTrayBaseImageForPct
+    ProcedureReturn
+  EndIf
+
+  gTrayBaseImageForPct = nextImage
+
+  If gTrayIconReady
+    ChangeSysTrayIcon(#TRAY_ICON, ImageID(GetCurrentTrayImageNumber()))
+  EndIf
+EndProcedure
+
+Procedure SetTrayBusyState(isBusy.i)
+  gTrayBusy = Bool(isBusy <> 0)
+  UpdateTrayIconVisual(GetUsedMemPercent(), #True)
 EndProcedure
 
 ; ---------------------------------------------------------
@@ -725,12 +799,14 @@ EndProcedure
 Procedure.i GetUsedMemPercent()
   Protected ms.MEMORYSTATUSEX
   If GetMemoryStatus(@ms)
-    Protected totalMB.i = ms\ullTotalPhys / 1024 / 1024
-    If totalMB <= 0 : ProcedureReturn 0 : EndIf
-    Protected availMB.i = ms\ullAvailPhys / 1024 / 1024
-    Protected usedMB.i = totalMB - availMB
-    If usedMB < 0 : usedMB = 0 : EndIf
-    ProcedureReturn (usedMB * 100) / totalMB
+    Protected totalPhys.q = ms\ullTotalPhys
+    If totalPhys <= 0
+      ProcedureReturn 0
+    EndIf
+
+    Protected usedPhys.q = totalPhys - ms\ullAvailPhys
+    If usedPhys < 0 : usedPhys = 0 : EndIf
+    ProcedureReturn ClampPercent((usedPhys * 100) / totalPhys)
   EndIf
   ProcedureReturn 0
 EndProcedure
@@ -781,7 +857,7 @@ EndProcedure
 
 Procedure.l RunClearRamInternal(showUi.i)
   If showUi
-    ChangeSysTrayIcon(#TRAY_ICON, ImageID(#ICON_ACTIVE))
+    SetTrayBusyState(#True)
     UpdateTrayTooltip("Clearing RAM...")
   EndIf
 
@@ -814,7 +890,7 @@ Procedure.l RunClearRamInternal(showUi.i)
     Else
       UpdateTrayTooltip("No change (try Run as Admin)")
     EndIf
-    ChangeSysTrayIcon(#TRAY_ICON, ImageID(#ICON_IDLE))
+    SetTrayBusyState(#False)
   EndIf
 
   If okModified And okStandby And okLow And okWs
@@ -1062,20 +1138,36 @@ LogMessage(#APP_NAME + " starting up...")
 
 
 ; load the icons
-Global IconIdlePath.s   = AppPath + "files\" + #APP_NAME + "-idle.ico"
-Global IconActivePath.s = AppPath + "files\" + #APP_NAME + "-active.ico"
+Global IconYellowPath.s   = AppPath + "files\CRL-Yellow.ico"
+Global IconGreenPath.s  = AppPath + "files\CRL-Green.ico"
+Global IconRedPath.s    = AppPath + "files\CRL-Red.ico"
+Global IconActivePath.s = AppPath + "files\CRL-Blue.ico"
 
-If LoadImage(#ICON_IDLE, IconIdlePath) = 0
-  MessageRequester("Error", "Failed to load idle icon at: " + IconIdlePath, #PB_MessageRequester_Error)
+If LoadImage(#ICON_YELLOW_BASE, IconYellowPath) = 0
+  MessageRequester("Error", "Failed to load tray icon at: " + IconYellowPath, #PB_MessageRequester_Error)
   CloseHandle_(hMutex)
   End
 EndIf
 
-If LoadImage(#ICON_ACTIVE, IconActivePath) = 0
+If LoadImage(#ICON_GREEN_BASE, IconGreenPath) = 0
+  MessageRequester("Error", "Failed to load tray icon at: " + IconGreenPath, #PB_MessageRequester_Error)
+  CloseHandle_(hMutex)
+  End
+EndIf
+
+If LoadImage(#ICON_RED_BASE, IconRedPath) = 0
+  MessageRequester("Error", "Failed to load tray icon at: " + IconRedPath, #PB_MessageRequester_Error)
+  CloseHandle_(hMutex)
+  End
+EndIf
+
+If LoadImage(#ICON_ACTIVE_BASE, IconActivePath) = 0
   MessageRequester("Error", "Failed to load active icon at: " + IconActivePath, #PB_MessageRequester_Error)
   CloseHandle_(hMutex)
   End
 EndIf
+
+UpdateTrayIconVisual(GetUsedMemPercent(), #True)
 
 ; Hidden window
 OpenWindow(0, 0, 0, 10, 10, #APP_NAME, #PB_Window_Invisible)
@@ -1084,7 +1176,8 @@ OpenWindow(0, 0, 0, 10, 10, #APP_NAME, #PB_Window_Invisible)
 AddWindowTimer(0, 2, 1000)
 
 ; Tray icon
-AddSysTrayIcon(#TRAY_ICON, WindowID(0), ImageID(#ICON_IDLE))
+AddSysTrayIcon(#TRAY_ICON, WindowID(0), ImageID(GetCurrentTrayImageNumber()))
+gTrayIconReady = #True
 UpdateTrayTooltip("Idle")
 
 ; Tray menu
@@ -1134,10 +1227,13 @@ Repeat
 
     Case #PB_Event_Timer
       If EventTimer() = 2
+        Define usedPct.i = GetUsedMemPercent()
+        UpdateTrayIconVisual(usedPct, #False)
+
         ; If we recently showed a "Freed" message, hold it briefly.
         If gTooltipOverrideUntil > ElapsedMilliseconds()
           SysTrayIconToolTip(#TRAY_ICON, gTooltipOverrideText)
-        Else
+        ElseIf gTrayBusy = #False
           gTooltipOverrideUntil = 0
           remaining = g_TimerNextRun - ElapsedMilliseconds()
           If remaining < 0 : remaining = 0 : EndIf
@@ -1145,14 +1241,13 @@ Repeat
 
           ; Tray icon tooltips are length-limited (often ~64 chars).
           ; Keep it compact + single-line so it doesn't truncate.
-          Define usedPct.i = GetUsedMemPercent()
           text = "A:" + Str(availMB) + "MB U:" + Str(usedPct) + "%"
           If gMemThresholdEnabled
             text = text + " T<=" + Str(gMemThresholdAvailMB) + "MB"
           Else
             text = text + " T:off"
           EndIf
-          text = text + " N:" + FormatCountdown(remaining) + " L:Run"
+          text = text + " N:" + FormatCountdown(remaining)
 
           SysTrayIconToolTip(#TRAY_ICON, text)
         EndIf
@@ -1214,24 +1309,24 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 41
-; FirstLine = 33
-; Folding = -------
+; CursorPosition = 622
+; FirstLine = 783
+; Folding = --------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = ClearRam.ico
+; UseIcon = ..\files\CRL-Blue.ico
 ; Executable = ..\ClearRam.exe
 ; DisableDebugger
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,0
-; VersionField1 = 1,0,1,0
+; VersionField0 = 1,0,1,1
+; VersionField1 = 1,0,1,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = ClearRam
-; VersionField4 = 1.0.1.0
-; VersionField5 = 1.0.1.0
+; VersionField4 = 1.0.1.1
+; VersionField5 = 1.0.1.1
 ; VersionField6 = Clears RAM using native Windows APIs
 ; VersionField7 = ClearRam
 ; VersionField8 = ClearRam.exe
