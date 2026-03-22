@@ -16,14 +16,25 @@ Procedure.i LoadShipDataFromDat(path.s)
     ProcedureReturn 0
   EndIf
 
+  If len > 1024 * 1024
+    CloseFile(f)
+    gShipDatErr = "file too large!"
+    ProcedureReturn 0
+  EndIf
+
   Protected *m = AllocateMemory(len)
   If *m = 0
     CloseFile(f)
     gShipDatErr = "alloc failed!"
     ProcedureReturn 0
   EndIf
-  ReadData(f, *m, len)
+  Protected gotLen.i = ReadData(f, *m, len)
   CloseFile(f)
+  If gotLen <> len
+    FreeMemory(*m)
+    gShipDatErr = "read failed!"
+    ProcedureReturn 0
+  EndIf
 
   Protected magic.s = PeekS(*m, 8, #PB_Ascii)
   If magic <> "SSIMDAT1"
@@ -91,13 +102,21 @@ EndProcedure
 Procedure.i IniGetLong(section.s, key.s, defaultValue.i)
   Protected t.s = IniGet(section, key, "")
   If t = "" : ProcedureReturn defaultValue : EndIf
-  ProcedureReturn Val(t)
+  Protected out.Integer
+  If TryParseLong(t, @out)
+    ProcedureReturn out\i
+  EndIf
+  ProcedureReturn defaultValue
 EndProcedure
 
 Procedure.f IniGetFloat(section.s, key.s, defaultValue.f)
   Protected t.s = IniGet(section, key, "")
   If t = "" : ProcedureReturn defaultValue : EndIf
-  ProcedureReturn ValF(t)
+  Protected out.Float
+  If TryParseFloat(t, @out)
+    ProcedureReturn out\f
+  EndIf
+  ProcedureReturn defaultValue
 EndProcedure
 
 Procedure LoadAllocOverrides(section.s, *s.Ship)
@@ -205,17 +224,30 @@ Procedure.i PackShipsDatFromIni()
   Protected seed.i = (Date() & $7FFFFFFF) ! $13579BDF
   XorScramble(*p, plainLen, seed)
 
-  Protected f.i = CreateFile(#PB_Any, gDatPath)
+  Protected tmpPath.s = gDatPath + ".tmp"
+  Protected f.i = CreateFile(#PB_Any, tmpPath)
   If f = 0
     FreeMemory(*p)
     ProcedureReturn 0
   EndIf
-  WriteString(f, "SSIMDAT1", #PB_Ascii)
-  WriteLong(f, seed)
-  WriteLong(f, plainLen)
-  WriteLong(f, fnv)
-  WriteData(f, *p, plainLen)
+  Protected ok.i = 1
+  If WriteString(f, "SSIMDAT1", #PB_Ascii) <> 8 : ok = 0 : EndIf
+  If ok And WriteLong(f, seed) <> 4 : ok = 0 : EndIf
+  If ok And WriteLong(f, plainLen) <> 4 : ok = 0 : EndIf
+  If ok And WriteLong(f, fnv) <> 4 : ok = 0 : EndIf
+  If ok And WriteData(f, *p, plainLen) <> plainLen : ok = 0 : EndIf
   CloseFile(f)
   FreeMemory(*p)
+  If ok = 0
+    DeleteFile(tmpPath)
+    ProcedureReturn 0
+  EndIf
+  If FileSize(gDatPath) >= 0
+    DeleteFile(gDatPath)
+  EndIf
+  If RenameFile(tmpPath, gDatPath) = 0
+    DeleteFile(tmpPath)
+    ProcedureReturn 0
+  EndIf
   ProcedureReturn 1
 EndProcedure

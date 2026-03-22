@@ -8,6 +8,152 @@ Procedure InitMacroFolder()
   EndIf
 EndProcedure
 
+Procedure.i NormalizeMacroName(name.s, *outName.String)
+  Protected trimmed.s = Trim(name)
+  If trimmed = "" : ProcedureReturn 0 : EndIf
+  If IsSafeFileToken(trimmed) = 0
+    ProcedureReturn 0
+  EndIf
+  *outName\s = trimmed
+  ProcedureReturn 1
+EndProcedure
+
+Procedure CompactMacroQueue()
+  Protected remaining.i = gMacroQueueSize - gMacroQueuePos
+  Protected i.i
+  If remaining <= 0
+    gMacroQueueSize = 0
+    gMacroQueuePos = 0
+    ProcedureReturn
+  EndIf
+  If gMacroQueuePos <= 0 : ProcedureReturn : EndIf
+  For i = 0 To remaining - 1
+    gMacroQueue(i) = gMacroQueue(gMacroQueuePos + i)
+  Next
+  For i = remaining To #MACRO_QUEUE_MAX - 1
+    gMacroQueue(i) = ""
+  Next
+  gMacroQueueSize = remaining
+  gMacroQueuePos = 0
+EndProcedure
+
+Procedure FinishMacroPlaybackIfDone(*completed.String = 0)
+  If gMacroQueuePos >= gMacroQueueSize
+    If *completed
+      *completed\s = gMacroPlaybackName
+    EndIf
+    gMacroPlaybackActive = 0
+    gMacroQueueSize = 0
+    gMacroQueuePos = 0
+  EndIf
+EndProcedure
+
+Procedure.i LoadMacroLines(name.s, Array outLines.s(1), *outCount.Integer, allowRepeat.i)
+  Protected safeName.String
+  Protected fpath.s
+  Protected fid.i
+  Protected rawCount.i = 0
+  Protected overflow.i = 0
+  Protected line.s
+  Protected Dim rawLines.s(#MACRO_FILE_LINE_MAX - 1)
+  Protected ri.i
+  Protected rj.i
+  Protected rk.i
+  Protected repeatN.i
+  Protected repeatStart.i
+  Protected repeatEnd.i
+  Protected outCount.i = 0
+
+  *outCount\i = 0
+  If NormalizeMacroName(name, @safeName) = 0
+    PrintN("Invalid macro name. Use letters, numbers, . _ or -")
+    ProcedureReturn 0
+  EndIf
+
+  fpath = MacroPath + safeName\s + ".txt"
+  If FileSize(fpath) < 0
+    PrintN("Macro '" + safeName\s + "' not found. Use MACRO LIST to see saved macros.")
+    ProcedureReturn 0
+  EndIf
+
+  fid = ReadFile(#PB_Any, fpath)
+  If fid = 0
+    PrintN("ERROR: Could not open macro file: " + fpath)
+    ProcedureReturn 0
+  EndIf
+
+  While Not Eof(fid) And rawCount < #MACRO_FILE_LINE_MAX
+    line = Trim(ReadString(fid))
+    If line <> "" And Left(line, 1) <> ";"
+      rawLines(rawCount) = line
+      rawCount + 1
+    EndIf
+  Wend
+  If Eof(fid) = 0
+    overflow = 1
+  EndIf
+  CloseFile(fid)
+
+  If allowRepeat = 0
+    For ri = 0 To rawCount - 1
+      outLines(ri) = rawLines(ri)
+    Next
+    outCount = rawCount
+  Else
+    ri = 0
+    While ri < rawCount
+      If TrimLower(TokenAt(rawLines(ri), 1)) = "repeat"
+        repeatN = ClampInt(ParseIntSafe(TokenAt(rawLines(ri), 2), 1), 1, 20)
+        repeatStart = ri + 1
+        repeatEnd = -1
+        rj = ri + 1
+        While rj < rawCount
+          If TrimLower(rawLines(rj)) = "end_repeat"
+            repeatEnd = rj
+            Break
+          EndIf
+          rj + 1
+        Wend
+        If repeatEnd >= 0
+          For rk = 1 To repeatN
+            For rj = repeatStart To repeatEnd - 1
+              If outCount < #MACRO_FILE_LINE_MAX
+                outLines(outCount) = rawLines(rj)
+                outCount + 1
+              Else
+                overflow = 1
+              EndIf
+            Next
+          Next
+          ri = repeatEnd + 1
+        Else
+          overflow = 1
+          ri + 1
+        EndIf
+      ElseIf TrimLower(rawLines(ri)) = "end_repeat"
+        overflow = 1
+        ri + 1
+      Else
+        If outCount < #MACRO_FILE_LINE_MAX
+          outLines(outCount) = rawLines(ri)
+          outCount + 1
+        Else
+          overflow = 1
+        EndIf
+        ri + 1
+      EndIf
+    Wend
+  EndIf
+
+  *outCount\i = outCount
+  If overflow
+    ConsoleColor(#C_YELLOW, #C_BLACK)
+    PrintN("[MACRO] Warning: '" + safeName\s + "' exceeded parsing limits; extra/invalid lines were skipped.")
+    ResetColor()
+  EndIf
+  ProcedureReturn 1
+EndProcedure
+
 ;==============================================================================
 ; GetNextInput()
 ; Replaces Input() in the main CMD> loop. When a macro is playing back, returns
@@ -24,14 +170,11 @@ Procedure.s GetNextInput()
   Protected delayMs.i    = 0
   Protected mtok.i       = 0
   Protected mtokStr.s    = ""
+  Protected completedName.s = ""
 
   While gMacroPlaybackActive = 1 And gMacroQueuePos < gMacroQueueSize
     nextCmd  = gMacroQueue(gMacroQueuePos)
     gMacroQueuePos + 1
-
-    If gMacroQueuePos >= gMacroQueueSize
-      gMacroPlaybackActive = 0
-    EndIf
 
     metaVerb = TrimLower(TokenAt(nextCmd, 1))
 
@@ -52,6 +195,7 @@ Procedure.s GetNextInput()
         gMacroPlaybackName = ""
         ProcedureReturn "end"
       EndIf
+      FinishMacroPlaybackIfDone(@completedName)
       Continue
     EndIf
 
@@ -62,12 +206,14 @@ Procedure.s GetNextInput()
       PrintN("[MACRO] Delay " + Str(delayMs) + "ms")
       ResetColor()
       Delay(delayMs)
+      FinishMacroPlaybackIfDone(@completedName)
       Continue
     EndIf
 
     ; ---- CHAIN <macroname> ----
     If metaVerb = "chain"
       MacroChainInsert(TrimLower(TokenAt(nextCmd, 2)))
+      FinishMacroPlaybackIfDone(@completedName)
       Continue
     EndIf
 
@@ -109,6 +255,7 @@ Procedure.s GetNextInput()
         PrintN("[MACRO] COND FALSE: " + nextCmd)
         ResetColor()
       EndIf
+      FinishMacroPlaybackIfDone(@completedName)
       Continue
     EndIf
 
@@ -119,11 +266,17 @@ Procedure.s GetNextInput()
     PrintN(nextCmd)
     Delay(350)
     LogLine("[MACRO] " + nextCmd)
+    FinishMacroPlaybackIfDone(@completedName)
     ProcedureReturn nextCmd
   Wend
 
   ; Macro finished naturally
-  If gMacroPlaybackActive = 0 And gMacroPlaybackName <> ""
+  If completedName <> ""
+    ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
+    PrintN("[MACRO] '" + completedName + "' completed.")
+    ResetColor()
+    gMacroPlaybackName = ""
+  ElseIf gMacroPlaybackActive = 0 And gMacroPlaybackName <> ""
     ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
     PrintN("[MACRO] '" + gMacroPlaybackName + "' completed.")
     ResetColor()
@@ -191,9 +344,7 @@ EndProcedure
 ; Interactive line-by-line macro creation. Saves to macros/<name>.txt
 ;==============================================================================
 Procedure MacroCreate(name.s)
-  Protected safeName.s  = ""
-  Protected ci.i        = 0
-  Protected ch.s        = ""
+  Protected safeName.String
   Protected fpath.s     = ""
   Protected resp.s      = ""
   Protected fid.i       = 0
@@ -205,25 +356,17 @@ Procedure MacroCreate(name.s)
     ProcedureReturn
   EndIf
 
-  ; Sanitize: letters, digits, underscore, hyphen only
-  For ci = 1 To Len(name)
-    ch = Mid(name, ci, 1)
-    If (ch >= "a" And ch <= "z") Or (ch >= "A" And ch <= "Z") Or
-       (ch >= "0" And ch <= "9") Or ch = "_" Or ch = "-"
-      safeName + ch
-    EndIf
-  Next ci
-  If safeName = ""
-    PrintN("Invalid macro name. Use letters, numbers, _ or -")
+  If NormalizeMacroName(name, @safeName) = 0
+    PrintN("Invalid macro name. Use letters, numbers, . _ or -")
     ProcedureReturn
   EndIf
 
   InitMacroFolder()
-  fpath = MacroPath + safeName + ".txt"
+  fpath = MacroPath + safeName\s + ".txt"
 
   If FileSize(fpath) >= 0
     ConsoleColor(#C_YELLOW, #C_BLACK)
-    Print("Macro '" + safeName + "' already exists. Overwrite? (YES) > ")
+    Print("Macro '" + safeName\s + "' already exists. Overwrite? (YES) > ")
     ResetColor()
     resp = TrimLower(Trim(Input()))
     resp = ReplaceString(ReplaceString(resp, Chr(13), ""), Chr(10), "")
@@ -243,7 +386,7 @@ Procedure MacroCreate(name.s)
 
   ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
   PrintDivider()
-  PrintN("  Creating macro: " + safeName)
+  PrintN("  Creating macro: " + safeName\s)
   PrintN("  Enter one game command per line (NAV, SCAN, WARP, MINE, STATUS, etc.)")
   PrintN("  Lines starting with ; are comments.  PAUSE = pause playback for input.")
   PrintN("  Press Enter on an empty line or type END to finish.")
@@ -261,8 +404,8 @@ Procedure MacroCreate(name.s)
     EndIf
     WriteStringN(fid, entry)
     lineCount + 1
-    If lineCount >= 50
-      PrintN("  Maximum 50 lines reached.")
+    If lineCount >= #MACRO_FILE_LINE_MAX
+      PrintN("  Maximum " + Str(#MACRO_FILE_LINE_MAX) + " lines reached.")
       Break
     EndIf
   ForEver
@@ -274,10 +417,10 @@ Procedure MacroCreate(name.s)
     PrintN("  No commands entered. Macro not saved.")
   Else
     ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
-    PrintN("  Macro '" + safeName + "' saved " + Str(lineCount) + " command(s)")
+    PrintN("  Macro '" + safeName\s + "' saved " + Str(lineCount) + " command(s)")
     PrintN("  File: " + fpath)
     ResetColor()
-    LogLine("MACRO CREATE: " + safeName + " (" + Str(lineCount) + " lines)")
+    LogLine("MACRO CREATE: " + safeName\s + " (" + Str(lineCount) + " lines)")
   EndIf
 EndProcedure
 
@@ -287,111 +430,52 @@ EndProcedure
 ; will feed each command automatically on subsequent turns.
 ;==============================================================================
 Procedure MacroRun(name.s)
-  ; Variables for file I/O
-  Protected fpath.s       = ""
-  Protected fid.i         = 0
-  Protected fline.s       = ""
-  ; Variables for REPEAT expansion
-  Protected rawCount.i    = 0
-  Protected ri.i          = 0
-  Protected rj.i          = 0
-  Protected rk.i          = 0
-  Protected rl.i          = 0
-  Protected repeatN.i     = 0
-  Protected repeatStart.i = 0
-  Protected repeatEnd.i   = 0
-  Protected Dim rawLines.s(99)   ; temp storage for raw file lines (max 100)
+  Protected safeName.String
+  Protected loadedCount.Integer
+  Protected i.i
+  Protected Dim loadedLines.s(#MACRO_FILE_LINE_MAX - 1)
 
   If name = ""
     PrintN("Usage: MACRO RUN <name>")
     ProcedureReturn
   EndIf
 
-  fpath = MacroPath + name + ".txt"
-  If FileSize(fpath) < 0
-    ConsoleColor(#C_LIGHTRED, #C_BLACK)
-    PrintN("Macro '" + name + "' not found. Use MACRO LIST to see saved macros.")
-    ResetColor()
+  If NormalizeMacroName(name, @safeName) = 0
+    PrintN("Invalid macro name. Use letters, numbers, . _ or -")
     ProcedureReturn
   EndIf
 
-  fid = ReadFile(#PB_Any, fpath)
-  If fid = 0
-    ConsoleColor(#C_LIGHTRED, #C_BLACK)
-    PrintN("ERROR: Could not open macro file: " + fpath)
-    ResetColor()
+  If LoadMacroLines(safeName\s, loadedLines(), @loadedCount, 1) = 0
     ProcedureReturn
   EndIf
 
-  ; Phase 1 read raw lines (comments stripped, blank lines skipped)
-  rawCount = 0
-  While Not Eof(fid) And rawCount < 100
-    fline = Trim(ReadString(fid))
-    If fline <> "" And Left(fline, 1) <> ";"
-      rawLines(rawCount) = fline
-      rawCount + 1
-    EndIf
-  Wend
-  CloseFile(fid)
-
-  ; Phase 2 expand REPEAT <n> / END_REPEAT blocks into the queue
   gMacroQueueSize = 0
   gMacroQueuePos  = 0
-  ri = 0
-
-  While ri < rawCount
-    If TrimLower(TokenAt(rawLines(ri), 1)) = "repeat"
-      repeatN     = ClampInt(ParseIntSafe(TokenAt(rawLines(ri), 2), 1), 1, 20)
-      repeatStart = ri + 1
-      repeatEnd   = -1
-      ; Scan forward for matching END_REPEAT
-      rj = ri + 1
-      While rj < rawCount
-        If TrimLower(rawLines(rj)) = "end_repeat"
-          repeatEnd = rj
-          Break
-        EndIf
-        rj + 1
-      Wend
-      If repeatEnd >= 0
-        ; Expand: copy inner block repeatN times
-        For rk = 1 To repeatN
-          For rl = repeatStart To repeatEnd - 1
-            If gMacroQueueSize < #MACRO_QUEUE_MAX
-              gMacroQueue(gMacroQueueSize) = rawLines(rl)
-              gMacroQueueSize + 1
-            EndIf
-          Next rl
-        Next rk
-        ri = repeatEnd + 1
-      Else
-        ; No matching END_REPEAT treat REPEAT line as a normal (skipped) line
-        ri + 1
-      EndIf
-    ElseIf TrimLower(rawLines(ri)) = "end_repeat"
-      ri + 1   ; orphan END_REPEAT skip
+  For i = 0 To loadedCount\i - 1
+    If gMacroQueueSize < #MACRO_QUEUE_MAX
+      gMacroQueue(gMacroQueueSize) = loadedLines(i)
+      gMacroQueueSize + 1
     Else
-      If gMacroQueueSize < #MACRO_QUEUE_MAX
-        gMacroQueue(gMacroQueueSize) = rawLines(ri)
-        gMacroQueueSize + 1
-      EndIf
-      ri + 1
+      ConsoleColor(#C_YELLOW, #C_BLACK)
+      PrintN("[MACRO] '" + safeName\s + "' exceeds queue capacity; only first " + Str(#MACRO_QUEUE_MAX) + " commands loaded.")
+      ResetColor()
+      Break
     EndIf
-  Wend
+  Next
 
   If gMacroQueueSize = 0
-    PrintN("Macro '" + name + "' has no runnable commands.")
+    PrintN("Macro '" + safeName\s + "' has no runnable commands.")
     ProcedureReturn
   EndIf
 
   gMacroPlaybackActive = 1
-  gMacroPlaybackName   = name
+  gMacroPlaybackName   = safeName\s
 
   ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
-  PrintN("[MACRO] Running '" + name + "' " + Str(gMacroQueueSize) + " command(s) queued.")
+  PrintN("[MACRO] Running '" + safeName\s + "' " + Str(gMacroQueueSize) + " command(s) queued.")
   PrintN("[MACRO] Commands execute automatically. PAUSE to pause, MACRO STOP to abort.")
   ResetColor()
-  LogLine("MACRO RUN: " + name + " (" + Str(gMacroQueueSize) + " commands)")
+  LogLine("MACRO RUN: " + safeName\s + " (" + Str(gMacroQueueSize) + " commands)")
 EndProcedure
 
 ;==============================================================================
@@ -401,13 +485,11 @@ EndProcedure
 ; current playback position, so they run next before the remaining commands.
 ;==============================================================================
 Procedure MacroChainInsert(name.s)
-  Protected fpath.s      = ""
-  Protected fid.i        = 0
-  Protected fline.s      = ""
-  Protected subCount.i   = 0
+  Protected safeName.String
+  Protected subCount.Integer
   Protected spaceAvail.i = 0
   Protected si.i         = 0
-  Protected Dim subLines.s(49)   ; temp: up to 50 lines from sub-macro
+  Protected Dim subLines.s(#MACRO_FILE_LINE_MAX - 1)
 
   If name = ""
     ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
@@ -416,54 +498,46 @@ Procedure MacroChainInsert(name.s)
     ProcedureReturn
   EndIf
 
-  fpath = MacroPath + name + ".txt"
-  If FileSize(fpath) < 0
+  If NormalizeMacroName(name, @safeName) = 0
     ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
-    PrintN("[MACRO] CHAIN: '" + name + "' not found, skipping.")
+    PrintN("[MACRO] CHAIN: invalid macro name, skipping.")
     ResetColor()
     ProcedureReturn
   EndIf
 
-  fid = ReadFile(#PB_Any, fpath)
-  If fid = 0 : ProcedureReturn : EndIf
+  If LoadMacroLines(safeName\s, subLines(), @subCount, 1) = 0
+    ProcedureReturn
+  EndIf
 
-  subCount = 0
-  While Not Eof(fid) And subCount < 50
-    fline = Trim(ReadString(fid))
-    If fline <> "" And Left(fline, 1) <> ";"
-      subLines(subCount) = fline
-      subCount + 1
-    EndIf
-  Wend
-  CloseFile(fid)
+  If subCount\i = 0 : ProcedureReturn : EndIf
 
-  If subCount = 0 : ProcedureReturn : EndIf
+  CompactMacroQueue()
 
   ; Clamp to available space
   spaceAvail = #MACRO_QUEUE_MAX - gMacroQueueSize
-  If subCount > spaceAvail
-    subCount = spaceAvail
+  If subCount\i > spaceAvail
+    subCount\i = spaceAvail
     ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
-    PrintN("[MACRO] CHAIN: queue nearly full, '" + name + "' truncated to " + Str(subCount) + " command(s).")
+    PrintN("[MACRO] CHAIN: queue nearly full, '" + safeName\s + "' truncated to " + Str(subCount\i) + " command(s).")
     ResetColor()
   EndIf
 
-  If subCount <= 0 : ProcedureReturn : EndIf
+  If subCount\i <= 0 : ProcedureReturn : EndIf
 
   ; Shift remaining queued commands forward to open a gap at gMacroQueuePos
   For si = gMacroQueueSize - 1 To gMacroQueuePos Step -1
-    gMacroQueue(si + subCount) = gMacroQueue(si)
+    gMacroQueue(si + subCount\i) = gMacroQueue(si)
   Next si
 
   ; Splice sub-macro lines into the gap
-  For si = 0 To subCount - 1
+  For si = 0 To subCount\i - 1
     gMacroQueue(gMacroQueuePos + si) = subLines(si)
   Next si
 
-  gMacroQueueSize + subCount
+  gMacroQueueSize + subCount\i
 
   ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
-  PrintN("[MACRO] CHAIN: spliced '" + name + "' (" + Str(subCount) + " commands) at position " + Str(gMacroQueuePos))
+  PrintN("[MACRO] CHAIN: spliced '" + safeName\s + "' (" + Str(subCount\i) + " commands) at position " + Str(gMacroQueuePos))
   ResetColor()
 EndProcedure
 
@@ -472,6 +546,7 @@ EndProcedure
 ; Displays the contents of a macro file with line numbers.
 ;==============================================================================
 Procedure MacroShow(name.s)
+  Protected safeName.String
   Protected fpath.s   = ""
   Protected fid.i     = 0
   Protected lineNum.i = 0
@@ -482,10 +557,15 @@ Procedure MacroShow(name.s)
     ProcedureReturn
   EndIf
 
-  fpath = MacroPath + name + ".txt"
+  If NormalizeMacroName(name, @safeName) = 0
+    PrintN("Invalid macro name. Use letters, numbers, . _ or -")
+    ProcedureReturn
+  EndIf
+
+  fpath = MacroPath + safeName\s + ".txt"
   If FileSize(fpath) < 0
     ConsoleColor(#C_LIGHTRED, #C_BLACK)
-    PrintN("Macro '" + name + "' not found.")
+    PrintN("Macro '" + safeName\s + "' not found.")
     ResetColor()
     ProcedureReturn
   EndIf
@@ -500,7 +580,7 @@ Procedure MacroShow(name.s)
 
   ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
   PrintDivider()
-  PrintN("  MACRO: " + name)
+  PrintN("  MACRO: " + safeName\s)
   PrintDivider()
   ResetColor()
 
@@ -530,6 +610,7 @@ EndProcedure
 ; Shows existing macro, confirms replacement, then re-enters interactively.
 ;==============================================================================
 Procedure MacroEdit(name.s)
+  Protected safeName.String
   Protected fpath.s     = ""
   Protected rfid.i      = 0
   Protected wfid.i      = 0
@@ -544,12 +625,17 @@ Procedure MacroEdit(name.s)
     ProcedureReturn
   EndIf
 
+  If NormalizeMacroName(name, @safeName) = 0
+    PrintN("Invalid macro name. Use letters, numbers, . _ or -")
+    ProcedureReturn
+  EndIf
+
   InitMacroFolder()
-  fpath = MacroPath + name + ".txt"
+  fpath = MacroPath + safeName\s + ".txt"
 
   ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
   PrintDivider()
-  PrintN("  Editing macro: " + name)
+  PrintN("  Editing macro: " + safeName\s)
   ResetColor()
 
   If FileSize(fpath) >= 0
@@ -612,8 +698,8 @@ Procedure MacroEdit(name.s)
     EndIf
     WriteStringN(wfid, entry)
     lineCount + 1
-    If lineCount >= 50
-      PrintN("  Maximum 50 lines reached.")
+    If lineCount >= #MACRO_FILE_LINE_MAX
+      PrintN("  Maximum " + Str(#MACRO_FILE_LINE_MAX) + " lines reached.")
       Break
     EndIf
   ForEver
@@ -622,12 +708,12 @@ Procedure MacroEdit(name.s)
 
   If lineCount = 0
     DeleteFile(fpath)
-    PrintN("  No commands entered. Macro '" + name + "' removed.")
+    PrintN("  No commands entered. Macro '" + safeName\s + "' removed.")
   Else
     ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
-    PrintN("  Macro '" + name + "' updated " + Str(lineCount) + " command(s).")
+    PrintN("  Macro '" + safeName\s + "' updated " + Str(lineCount) + " command(s).")
     ResetColor()
-    LogLine("MACRO EDIT: " + name + " (" + Str(lineCount) + " lines)")
+    LogLine("MACRO EDIT: " + safeName\s + " (" + Str(lineCount) + " lines)")
   EndIf
 EndProcedure
 
@@ -636,6 +722,7 @@ EndProcedure
 ; Confirms and deletes a macro file.
 ;==============================================================================
 Procedure MacroDelete(name.s)
+  Protected safeName.String
   Protected fpath.s = ""
   Protected resp.s  = ""
 
@@ -644,16 +731,21 @@ Procedure MacroDelete(name.s)
     ProcedureReturn
   EndIf
 
-  fpath = MacroPath + name + ".txt"
+  If NormalizeMacroName(name, @safeName) = 0
+    PrintN("Invalid macro name. Use letters, numbers, . _ or -")
+    ProcedureReturn
+  EndIf
+
+  fpath = MacroPath + safeName\s + ".txt"
   If FileSize(fpath) < 0
     ConsoleColor(#C_LIGHTRED, #C_BLACK)
-    PrintN("Macro '" + name + "' not found. Use MACRO LIST to see saved macros.")
+    PrintN("Macro '" + safeName\s + "' not found. Use MACRO LIST to see saved macros.")
     ResetColor()
     ProcedureReturn
   EndIf
 
   ConsoleColor(#C_YELLOW, #C_BLACK)
-  Print("Delete macro '" + name + "'? (YES) > ")
+  Print("Delete macro '" + safeName\s + "'? (YES) > ")
   ResetColor()
   resp = TrimLower(Trim(Input()))
   resp = ReplaceString(ReplaceString(resp, Chr(13), ""), Chr(10), "")
@@ -661,9 +753,9 @@ Procedure MacroDelete(name.s)
   If resp = "yes"
     If DeleteFile(fpath)
       ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
-      PrintN("Macro '" + name + "' deleted.")
+      PrintN("Macro '" + safeName\s + "' deleted.")
       ResetColor()
-      LogLine("MACRO DELETE: " + name)
+      LogLine("MACRO DELETE: " + safeName\s)
     Else
       ConsoleColor(#C_LIGHTRED, #C_BLACK)
       PrintN("ERROR: Could not delete macro file.")

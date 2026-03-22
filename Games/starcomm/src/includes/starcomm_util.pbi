@@ -33,8 +33,12 @@ Procedure.s ReadAllText(path.s)
     CloseFile(f)
     ProcedureReturn ""
   EndIf
-  ReadData(f, *m, len)
+  Protected readLen.i = ReadData(f, *m, len)
   CloseFile(f)
+  If readLen <> len
+    FreeMemory(*m)
+    ProcedureReturn ""
+  EndIf
   PokeB(*m + len, 0)
   Protected out.s = PeekS(*m, len, #PB_UTF8)
   FreeMemory(*m)
@@ -87,6 +91,66 @@ Procedure.i ParseIntSafe(s.s, defaultValue.i)
   Protected t.s = Trim(s)
   If t = "" : ProcedureReturn defaultValue : EndIf
   ProcedureReturn Val(t)
+EndProcedure
+
+Procedure.i IsSafeFileToken(token.s)
+  Protected ch.s
+  Protected i.i
+  token = Trim(token)
+  If token = "" : ProcedureReturn 0 : EndIf
+  If FindString(token, "..", 1) > 0 : ProcedureReturn 0 : EndIf
+  If FindString(token, "/", 1) > 0 Or FindString(token, "\\", 1) > 0 : ProcedureReturn 0 : EndIf
+  If FindString(token, ":", 1) > 0 : ProcedureReturn 0 : EndIf
+  For i = 1 To Len(token)
+    ch = Mid(token, i, 1)
+    If (ch >= "a" And ch <= "z") Or (ch >= "A" And ch <= "Z") Or (ch >= "0" And ch <= "9") Or ch = "_" Or ch = "-" Or ch = "."
+      Continue
+    EndIf
+    ProcedureReturn 0
+  Next
+  ProcedureReturn 1
+EndProcedure
+
+Procedure.i TryParseLong(t.s, *out.Integer)
+  Protected text.s = Trim(t)
+  Protected i.i
+  Protected ch.s
+  If text = "" : ProcedureReturn 0 : EndIf
+  For i = 1 To Len(text)
+    ch = Mid(text, i, 1)
+    If i = 1 And (ch = "+" Or ch = "-")
+      If Len(text) = 1 : ProcedureReturn 0 : EndIf
+    ElseIf ch < "0" Or ch > "9"
+      ProcedureReturn 0
+    EndIf
+  Next
+  *out\i = Val(text)
+  ProcedureReturn 1
+EndProcedure
+
+Procedure.i TryParseFloat(t.s, *out.Float)
+  Protected text.s = Trim(t)
+  Protected i.i
+  Protected ch.s
+  Protected seenDigit.i = 0
+  Protected seenDot.i = 0
+  If text = "" : ProcedureReturn 0 : EndIf
+  For i = 1 To Len(text)
+    ch = Mid(text, i, 1)
+    If i = 1 And (ch = "+" Or ch = "-")
+      If Len(text) = 1 : ProcedureReturn 0 : EndIf
+    ElseIf ch >= "0" And ch <= "9"
+      seenDigit = 1
+    ElseIf ch = "."
+      If seenDot : ProcedureReturn 0 : EndIf
+      seenDot = 1
+    Else
+      ProcedureReturn 0
+    EndIf
+  Next
+  If seenDigit = 0 : ProcedureReturn 0 : EndIf
+  *out\f = ValF(text)
+  ProcedureReturn 1
 EndProcedure
 
 Procedure.s TokenAt(line.s, idx.i)

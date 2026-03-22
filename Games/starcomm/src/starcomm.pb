@@ -8,10 +8,11 @@ EnableExplicit
 #APP_NAME = "starcomm"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 #MACRO_QUEUE_MAX = 500  ; max commands queued (large to accommodate REPEAT expansion)
+#MACRO_FILE_LINE_MAX = 100
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.1.5.0"
+Global version.s = "v1.1.5.5"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -407,7 +408,7 @@ EndStructure
 
 Global LogPath.s   = AppPath + "logs"   + #PS$
 Global DataPath.s  = AppPath + "data"   + #PS$
-Global SavePath.s  = AppPath + "save"   + #PS$
+Global SavePath.s  = AppPath + "saves"  + #PS$
 Global MacroPath.s = AppPath + "macros" + #PS$
 
 Global gIniPath.s = DataPath + #APP_NAME + "_ships.ini"
@@ -711,22 +712,21 @@ XIncludeFile "includes/starcomm_main.pbi"
 Main()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 13
+; CursorPosition = 14
 ; Folding = -
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
-; DPIAware
 ; UseIcon = starcomm.ico
 ; Executable = ..\starcomm.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,1,5,0
-; VersionField1 = 1,1,5,0
+; VersionField0 = 1,1,5,5
+; VersionField1 = 1,1,5,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarComm
-; VersionField4 = 1.1.5.0
-; VersionField5 = 1.1.5.0
+; VersionField4 = 1.1.5.5
+; VersionField5 = 1.1.5.5
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarComm
 ; VersionField8 = StarComm.exe

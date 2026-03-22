@@ -3,7 +3,7 @@ EnableExplicit
 #APP_NAME1 = "shipeditor"
 #APP_NAME2 = "starcomm"
 
-Global version.s = "v1.0.0.0"
+Global version.s = "v1.0.0.1"
 Global AppPath.s = GetFilePart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -776,23 +776,21 @@ EndIf
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; ExecutableFormat = Console
-; CursorPosition = 245
-; FirstLine = 224
+; CursorPosition = 5
 ; Folding = ----
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
-; DPIAware
 ; UseIcon = shipeditor.ico
 ; Executable = ..\shipeditor.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = shipeditor
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = A ship editor for the game starcomm
 ; VersionField7 = shipeditor
 ; VersionField8 = shipeditor.exe

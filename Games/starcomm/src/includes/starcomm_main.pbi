@@ -30,6 +30,7 @@ Procedure ResetGameState(*p.Ship)
   ; 6. Reset World State
   gHQMissionsCompleted = 0
   gRecallArmed = 0
+  gDocked = 0
   gWarpCooldown = 0
   gIonStormTurns = 0
   gRadiationTurns = 0
@@ -47,12 +48,50 @@ Procedure ResetGameState(*p.Ship)
   
   ; 8. Reset Logging
   gCaptainLogCount = 0
+  gCurrentArchive = 0
+  gTotalArchives = 0
   Dim gCaptainLog.s(1000)
-  
-  ; 9. Reset Galaxy
+  Dim gCaptainArchive1.s(1000)
+  Dim gCaptainArchive2.s(1000)
+  Dim gCaptainArchive3.s(1000)
+  Dim gCaptainArchive4.s(1000)
+  Dim gCaptainArchive5.s(1000)
+  Dim gCaptainArchive6.s(1000)
+  Dim gCaptainArchive7.s(1000)
+  Dim gCaptainArchive8.s(1000)
+  Dim gCaptainArchive9.s(1000)
+  Dim gCaptainArchive10.s(1000)
+  Dim gArchive1Count.i(10)
+
+  ; 9. Reset transient command/session state
+  gUndoAvailable = 0
+  gUndoMapX = 0 : gUndoMapY = 0 : gUndoX = 0 : gUndoY = 0
+  gUndoFuel = 0 : gUndoHull = 0 : gUndoShields = 0
+  gUndoCredits = 0 : gUndoMode = 0
+  gUndoOre = 0 : gUndoDilithium = 0
+  gUndoIron = 0 : gUndoAluminum = 0 : gUndoCopper = 0 : gUndoTin = 0 : gUndoBronze = 0
+  gMacroPlaybackActive = 0
+  gMacroPlaybackName = ""
+  gMacroQueueSize = 0
+  gMacroQueuePos = 0
+  Dim gMacroQueue.s(#MACRO_QUEUE_MAX - 1)
+  gShuttleLaunched = 0
+  gShuttleCrew = 2
+  gShuttleCargoOre = 0
+  gShuttleCargoDilithium = 0
+  gShuttleMaxCargo = 10
+  gShuttleMaxCrew = 6
+  gShuttleAttackRange = 10
+  gTransporterPower = 50
+  gTransporterRange = 5
+  gTransporterCrew = 2
+  gProbeRange = 3
+  gProbeAccuracy = 75
+
+  ; 10. Reset Galaxy
   GenerateGalaxy()
-  
-  ; 10. Re-initialize basic data
+
+  ; 11. Re-initialize basic data
   InitRecruitNames()
   GenerateRecruits()
   
@@ -144,7 +183,9 @@ Procedure Main()
     ResetColor()
     Protected startupChoice.s = Trim(Input())
     Protected skipInit.i = #False
-    If startupChoice = "2"
+    If startupChoice = "1"
+      ; start new game
+    ElseIf startupChoice = "2"
       If SaveGameManager(@player)
         skipInit = #True
       Else
@@ -161,6 +202,10 @@ Procedure Main()
       Else
         Continue ; Return to startup menu
       EndIf
+    Else
+      PrintN("Invalid option. Choose 1, 2, 3, or 4.")
+      Delay(700)
+      Continue
     EndIf
 
     ; If we reach here, we are starting or continuing a game
@@ -178,6 +223,8 @@ Procedure Main()
     RedrawGalaxy(@player)
 
     While IsAlive(@player)
+      Protected loopTurnStart.i = gGameTurn
+      Protected loopStardateStart.f = gStardate
       ; Refresh macro conditional mirrors so GetNextInput() can check ship state
       If player\fuelMax    > 0 : gMacroFuelPct    = (player\fuel    * 100) / player\fuelMax    : EndIf
       If player\hullMax    > 0 : gMacroHullPct    = (player\hull    * 100) / player\hullMax    : EndIf
@@ -1439,8 +1486,10 @@ Procedure Main()
       EndIf
     EndIf  ; End of If gMode = #MODE_GALAXY command dispatch
 
-      ; Handle autoclear and autosave (run even if mode changed to tactical during command)
-      If gAutoclearInterval > 0
+      Protected turnConsumed.i = Bool(gGameTurn <> loopTurnStart Or gStardate <> loopStardateStart)
+
+      ; Handle autoclear and autosave after commands that consume a turn.
+      If turnConsumed And gAutoclearInterval > 0
         gAutoclearCounter + 1
         If gAutoclearCounter >= gAutoclearInterval
           ClearLog()
@@ -1450,7 +1499,7 @@ Procedure Main()
         EndIf
       EndIf
       
-      If gAutosaveInterval > 0
+      If turnConsumed And gAutosaveInterval > 0
         gAutosaveCounter + 1
         If gAutosaveCounter >= gAutosaveInterval
           SaveGame(@player)
@@ -1459,8 +1508,8 @@ Procedure Main()
         EndIf
       EndIf
 
-      ; Mission housekeeping after any galaxy command that consumes a turn.
-      If gMode = #MODE_GALAXY
+      ; Mission housekeeping after commands that consume a turn.
+      If turnConsumed And gMode = #MODE_GALAXY
         GenerateMission(@player)
         
         ; Refinery price volatility
@@ -1837,82 +1886,6 @@ Procedure Main()
       EndIf
 
       If gMode = #MODE_TACTICAL And IsAlive(@player)
-        ; Handle enemy killed by player's attack this turn (no Goto across block boundaries)
-        If enemy\hull <= 0
-          PlayExplosionSound()
-          PrintDivider()
-          PrintN("Enemy destroyed!")
-          PrintDivider()
-          gMode = #MODE_GALAXY ; Ensure we return to galaxy mode on victory
-          
-          ; Log victory
-          AddCaptainLog("COMBAT: Destroyed " + enemy\name)
-          gTotalKills + 1
-
-          ; Mission: bounty progress
-          If gMission\active And gMission\type = #MIS_BOUNTY
-            gMission\killsDone + 1
-            If gMission\killsDone >= gMission\killsRequired
-              gCredits + gMission\rewardCredits
-              gTotalCreditsEarned + gMission\rewardCredits
-              ; ORDERS Tier 2: +5% bonus on all bounty rewards
-              If HQOrdersTier() >= 2
-                Protected bonusTier2.i = Int(gMission\rewardCredits * 0.05)
-                gCredits + bonusTier2
-                gTotalCreditsEarned + bonusTier2
-                If bonusTier2 > 0
-                  PrintN("Standing Orders bonus: +" + Str(bonusTier2) + " credits (Tier 2).")
-                EndIf
-              EndIf
-              ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
-              PrintDivider()
-              PrintN("*** MISSION COMPLETE: Bounty claimed! (+" + Str(gMission\rewardCredits) + " credits) ***")
-              PrintDivider()
-              ResetColor()
-              LogLine("MISSION COMPLETE: bounty (+" + Str(gMission\rewardCredits) + " credits)")
-              ; Track HQ Priority Bounty completion for Standing Orders
-              If gMission\title = "HQ Priority Bounty"
-                gHQMissionsCompleted + 1
-                LogLine("HQ MISSION: completed #" + Str(gHQMissionsCompleted))
-                ; Tier 3 unlock: one-time permanent sensor bonus
-                If gHQMissionsCompleted = 6
-                  player\sensorRange + 1
-                  ConsoleColor(#C_YELLOW, #C_BLACK)
-                  PrintN("*** STANDING ORDERS TIER 3 UNLOCKED: Sensor range +1 (permanent)! ***")
-                  ResetColor()
-                  AddCaptainLog("ORDERS Tier 3 unlocked: sensor +1")
-                EndIf
-              EndIf
-              ClearStructure(@gMission, Mission)
-              gMission\type = #MIS_NONE
-              gTotalMissions + 1
-            Else
-              LogLine("BOUNTY: " + Str(gMission\killsDone) + "/" + Str(gMission\killsRequired))
-            EndIf
-          EndIf
-
-          ; Mission: Planet Killer hunt
-          If gMission\active And gMission\type = #MIS_PLANETKILLER
-            ; check if it was the Planet Killer
-            If enemy\name = "Planet Killer"
-              gCredits + gMission\rewardCredits
-              gTotalCreditsEarned + gMission\rewardCredits
-              ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
-              PrintDivider()
-              PrintN("*** MISSION COMPLETE: Planet Killer destroyed! (+" + Str(gMission\rewardCredits) + " credits) ***")
-              PrintDivider()
-              ResetColor()
-              LogLine("MISSION COMPLETE: Planet Killer hunt (+" + Str(gMission\rewardCredits) + " credits)")
-              ClearStructure(@gMission, Mission)
-              gMission\type = #MIS_NONE
-              gTotalMissions + 1
-            EndIf
-          EndIf
-          
-          RedrawGalaxy(@player)
-          Continue
-        EndIf
-
         ; Enemy killed by player's attack this turn (no Goto across block boundaries)
         If enemy\hull <= 0
           PlayExplosionSound()
@@ -2120,5 +2093,3 @@ Procedure Main()
   EndIf
   ForEver ; Loop back to Startup Menu
 EndProcedure
-
-

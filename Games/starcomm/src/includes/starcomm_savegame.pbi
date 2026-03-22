@@ -1,52 +1,180 @@
 ; SaveGame / LoadGame procedures
 ; Supports multi-slot saving and loading.
 
-Procedure.s GetSavePath(slotName.s)
-  Protected path.s = GetCurrentDirectory() + "saves/"
-  If FileSize(path) <> -2
-    CreateDirectory(path)
+Procedure.s SaveFolderPath()
+  ProcedureReturn SavePath
+EndProcedure
+
+Procedure.i NormalizeSaveSlot(slotName.s, *outSlot.String, allowExtension.i = 0)
+  Protected trimmed.s = Trim(slotName)
+  If trimmed = "" : ProcedureReturn 0 : EndIf
+  If allowExtension
+    Protected ext.s = LCase(GetExtensionPart(trimmed))
+    If ext = "sav" Or ext = "txt"
+      trimmed = GetFilePart(trimmed, #PB_FileSystem_NoExtension)
+    EndIf
   EndIf
-  ProcedureReturn path + slotName + ".sav"
+  If IsSafeFileToken(trimmed) = 0
+    ProcedureReturn 0
+  EndIf
+  *outSlot\s = trimmed
+  ProcedureReturn 1
+EndProcedure
+
+Procedure.i EnsureSaveFolder()
+  Protected path.s = SaveFolderPath()
+  If FileSize(path) <> -2
+    ProcedureReturn CreateDirectory(path)
+  EndIf
+  ProcedureReturn 1
+EndProcedure
+
+Procedure.s GetSavePath(slotName.s)
+  Protected safeSlot.String
+  If NormalizeSaveSlot(slotName, @safeSlot, 1) = 0
+    ProcedureReturn ""
+  EndIf
+  If EnsureSaveFolder() = 0
+    ProcedureReturn ""
+  EndIf
+  ProcedureReturn SaveFolderPath() + safeSlot\s + ".sav"
+EndProcedure
+
+Procedure.s GetLegacySavePath(slotName.s)
+  Protected safeSlot.String
+  If NormalizeSaveSlot(slotName, @safeSlot, 1) = 0
+    ProcedureReturn ""
+  EndIf
+  ProcedureReturn SaveFolderPath() + safeSlot\s + ".txt"
+EndProcedure
+
+Procedure.i SaveFileLine(f.i, line.s)
+  ProcedureReturn Bool(WriteStringN(f, line) > 0)
+EndProcedure
+
+Procedure.i SaveShipLine(f.i, prefix.s, idx.i, *s.Ship)
+  Protected line.s = prefix + "|" + Str(idx) + "|" + SafeField(*s\name) + "|" + SafeField(*s\class) + "|" +
+                     Str(*s\hullMax) + "|" + Str(*s\hull) + "|" +
+                     Str(*s\shieldsMax) + "|" + Str(*s\shields) + "|" +
+                     Str(*s\reactorMax) + "|" + StrF(*s\warpMax) + "|" + StrF(*s\impulseMax) + "|" +
+                     Str(*s\phaserBanks) + "|" + Str(*s\torpTubes) + "|" +
+                     Str(*s\torpMax) + "|" + Str(*s\torp) + "|" +
+                     Str(*s\sensorRange) + "|" +
+                     Str(*s\weaponCapMax) + "|" + Str(*s\weaponCap) + "|" +
+                     Str(*s\fuelMax) + "|" + Str(*s\fuel) + "|" +
+                     Str(*s\oreMax) + "|" + Str(*s\ore) + "|" +
+                     Str(*s\dilithiumMax) + "|" + Str(*s\dilithium) + "|" +
+                     Str(*s\probesMax) + "|" + Str(*s\probes) + "|" +
+                     Str(*s\allocShields) + "|" + Str(*s\allocWeapons) + "|" + Str(*s\allocEngines) + "|" +
+                     Str(*s\sysEngines) + "|" + Str(*s\sysWeapons) + "|" + Str(*s\sysShields) + "|" + Str(*s\sysTractor) + "|" +
+                     SafeField(*s\crew1\name) + "|" + Str(*s\crew1\role) + "|" + Str(*s\crew1\rank) + "|" + Str(*s\crew1\xp) + "|" + Str(*s\crew1\level) + "|" +
+                     SafeField(*s\crew2\name) + "|" + Str(*s\crew2\role) + "|" + Str(*s\crew2\rank) + "|" + Str(*s\crew2\xp) + "|" + Str(*s\crew2\level) + "|" +
+                     SafeField(*s\crew3\name) + "|" + Str(*s\crew3\role) + "|" + Str(*s\crew3\rank) + "|" + Str(*s\crew3\xp) + "|" + Str(*s\crew3\level) + "|" +
+                     SafeField(*s\crew4\name) + "|" + Str(*s\crew4\role) + "|" + Str(*s\crew4\rank) + "|" + Str(*s\crew4\xp) + "|" + Str(*s\crew4\level)
+  If SaveFileLine(f, line) = 0
+    ProcedureReturn 0
+  EndIf
+  ProcedureReturn 1
+EndProcedure
+
+Procedure LoadShipFields(*s.Ship, line.s, startField.i)
+  *s\name         = StringField(line, startField, "|")
+  *s\class        = StringField(line, startField + 1, "|")
+  *s\hullMax      = Val(StringField(line, startField + 2, "|"))
+  *s\hull         = Val(StringField(line, startField + 3, "|"))
+  *s\shieldsMax   = Val(StringField(line, startField + 4, "|"))
+  *s\shields      = Val(StringField(line, startField + 5, "|"))
+  *s\reactorMax   = Val(StringField(line, startField + 6, "|"))
+  *s\warpMax      = ValF(StringField(line, startField + 7, "|"))
+  *s\impulseMax   = ValF(StringField(line, startField + 8, "|"))
+  *s\phaserBanks  = Val(StringField(line, startField + 9, "|"))
+  *s\torpTubes    = Val(StringField(line, startField + 10, "|"))
+  *s\torpMax      = Val(StringField(line, startField + 11, "|"))
+  *s\torp         = Val(StringField(line, startField + 12, "|"))
+  *s\sensorRange  = Val(StringField(line, startField + 13, "|"))
+  *s\weaponCapMax = Val(StringField(line, startField + 14, "|"))
+  *s\weaponCap    = Val(StringField(line, startField + 15, "|"))
+  *s\fuelMax      = Val(StringField(line, startField + 16, "|"))
+  *s\fuel         = Val(StringField(line, startField + 17, "|"))
+  *s\oreMax       = Val(StringField(line, startField + 18, "|"))
+  *s\ore          = Val(StringField(line, startField + 19, "|"))
+  *s\dilithiumMax = Val(StringField(line, startField + 20, "|"))
+  *s\dilithium    = Val(StringField(line, startField + 21, "|"))
+  *s\probesMax    = Val(StringField(line, startField + 22, "|"))
+  *s\probes       = Val(StringField(line, startField + 23, "|"))
+  *s\allocShields = Val(StringField(line, startField + 24, "|"))
+  *s\allocWeapons = Val(StringField(line, startField + 25, "|"))
+  *s\allocEngines = Val(StringField(line, startField + 26, "|"))
+  *s\sysEngines   = Val(StringField(line, startField + 27, "|"))
+  *s\sysWeapons   = Val(StringField(line, startField + 28, "|"))
+  *s\sysShields   = Val(StringField(line, startField + 29, "|"))
+  *s\sysTractor   = Val(StringField(line, startField + 30, "|"))
+  *s\crew1\name   = StringField(line, startField + 31, "|")
+  *s\crew1\role   = Val(StringField(line, startField + 32, "|"))
+  *s\crew1\rank   = Val(StringField(line, startField + 33, "|"))
+  *s\crew1\xp     = Val(StringField(line, startField + 34, "|"))
+  *s\crew1\level  = Val(StringField(line, startField + 35, "|"))
+  *s\crew2\name   = StringField(line, startField + 36, "|")
+  *s\crew2\role   = Val(StringField(line, startField + 37, "|"))
+  *s\crew2\rank   = Val(StringField(line, startField + 38, "|"))
+  *s\crew2\xp     = Val(StringField(line, startField + 39, "|"))
+  *s\crew2\level  = Val(StringField(line, startField + 40, "|"))
+  *s\crew3\name   = StringField(line, startField + 41, "|")
+  *s\crew3\role   = Val(StringField(line, startField + 42, "|"))
+  *s\crew3\rank   = Val(StringField(line, startField + 43, "|"))
+  *s\crew3\xp     = Val(StringField(line, startField + 44, "|"))
+  *s\crew3\level  = Val(StringField(line, startField + 45, "|"))
+  *s\crew4\name   = StringField(line, startField + 46, "|")
+  *s\crew4\role   = Val(StringField(line, startField + 47, "|"))
+  *s\crew4\rank   = Val(StringField(line, startField + 48, "|"))
+  *s\crew4\xp     = Val(StringField(line, startField + 49, "|"))
+  *s\crew4\level  = Val(StringField(line, startField + 50, "|"))
 EndProcedure
 
 Procedure.i SaveGame(*p.Ship, slotName.s = "autosave")
   Protected fullPath.s = GetSavePath(slotName)
-  Protected f.i = CreateFile(#PB_Any, fullPath)
+  If fullPath = ""
+    PrintN("Invalid save slot name. Use letters, numbers, . _ or -")
+    ProcedureReturn 0
+  EndIf
+  Protected tmpPath.s = fullPath + ".tmp"
+  Protected f.i = CreateFile(#PB_Any, tmpPath)
   If f = 0
     LogLine("SAVE: failed to write " + GetFilePart(fullPath))
     ProcedureReturn 0
   EndIf
+  Protected ok.i = 1
+  Protected playerExtLine.s
 
-  WriteStringN(f, "version|1")
-  WriteStringN(f, "mode|" + Str(gMode))
-  WriteStringN(f, "pos|" + Str(gMapX) + "|" + Str(gMapY) + "|" + Str(gx) + "|" + Str(gy))
-  WriteStringN(f, "credits|" + Str(gCredits))
-  WriteStringN(f, "bank|" + Str(gBankBalance))
-  WriteStringN(f, "stardate|" + StrF(gStardate) + "|" + Str(gGameDay))
-  WriteStringN(f, "metals|" + Str(gIron) + "|" + Str(gAluminum) + "|" + Str(gCopper) + "|" + Str(gTin) + "|" + Str(gBronze))
-  WriteStringN(f, "settings|" + Str(gAutosaveInterval) + "|" + Str(gAutoclearInterval))
-  WriteStringN(f, "transporter|" + Str(gTransporterPower) + "|" + Str(gTransporterRange) + "|" + Str(gTransporterCrew))
-  WriteStringN(f, "probesys|" + Str(gProbeRange) + "|" + Str(gProbeAccuracy))
-  WriteStringN(f, "sound|" + Str(gSoundEnabled))
-  WriteStringN(f, "shuttle|" + Str(gShuttleLaunched) + "|" + Str(gShuttleCrew) + "|" + Str(gShuttleCargoOre) + "|" + Str(gShuttleCargoDilithium) + "|" + Str(gShuttleMaxCargo) + "|" + Str(gShuttleMaxCrew) + "|" + Str(gShuttleAttackRange))
-  WriteStringN(f, "upgrades|" + Str(gUpgradeHull) + "|" + Str(gUpgradeShields) + "|" + Str(gUpgradeWeapons) + "|" + Str(gUpgradePropulsion) + "|" + Str(gUpgradePowerCargo) + "|" + Str(gUpgradeProbes) + "|" + Str(gUpgradeShuttle))
-  WriteStringN(f, "cheats|" + Str(gCheatsUnlocked) + "|" + gCheatCode)
-  WriteStringN(f, "powerbuff|" + Str(gPowerBuff) + "|" + Str(gPowerBuffTurns))
-  WriteStringN(f, "hq|" + Str(gHQMapX) + "|" + Str(gHQMapY) + "|" + Str(gHQX) + "|" + Str(gHQY))
-  WriteStringN(f, "hqmissions|" + Str(gHQMissionsCompleted) + "|" + Str(gRecallArmed))
-  WriteStringN(f, "manifest|" + Str(gTotalKills) + "|" + Str(gTotalMissions) + "|" + Str(gTotalCreditsEarned))
-  WriteStringN(f, "lastheading|" + Str(gLastHeading))
+  ok = SaveFileLine(f, "version|2")
+  If ok : ok = SaveFileLine(f, "mode|" + Str(gMode)) : EndIf
+  If ok : ok = SaveFileLine(f, "pos|" + Str(gMapX) + "|" + Str(gMapY) + "|" + Str(gx) + "|" + Str(gy)) : EndIf
+  If ok : ok = SaveFileLine(f, "credits|" + Str(gCredits)) : EndIf
+  If ok : ok = SaveFileLine(f, "bank|" + Str(gBankBalance)) : EndIf
+  If ok : ok = SaveFileLine(f, "stardate|" + StrF(gStardate) + "|" + Str(gGameDay)) : EndIf
+  If ok : ok = SaveFileLine(f, "metals|" + Str(gIron) + "|" + Str(gAluminum) + "|" + Str(gCopper) + "|" + Str(gTin) + "|" + Str(gBronze)) : EndIf
+  If ok : ok = SaveFileLine(f, "settings|" + Str(gAutosaveInterval) + "|" + Str(gAutoclearInterval)) : EndIf
+  If ok : ok = SaveFileLine(f, "transporter|" + Str(gTransporterPower) + "|" + Str(gTransporterRange) + "|" + Str(gTransporterCrew)) : EndIf
+  If ok : ok = SaveFileLine(f, "probesys|" + Str(gProbeRange) + "|" + Str(gProbeAccuracy)) : EndIf
+  If ok : ok = SaveFileLine(f, "sound|" + Str(gSoundEnabled)) : EndIf
+  If ok : ok = SaveFileLine(f, "dock|" + Str(gDocked)) : EndIf
+  If ok : ok = SaveFileLine(f, "shuttle|" + Str(gShuttleLaunched) + "|" + Str(gShuttleCrew) + "|" + Str(gShuttleCargoOre) + "|" + Str(gShuttleCargoDilithium) + "|" + Str(gShuttleMaxCargo) + "|" + Str(gShuttleMaxCrew) + "|" + Str(gShuttleAttackRange)) : EndIf
+  If ok : ok = SaveFileLine(f, "upgrades|" + Str(gUpgradeHull) + "|" + Str(gUpgradeShields) + "|" + Str(gUpgradeWeapons) + "|" + Str(gUpgradePropulsion) + "|" + Str(gUpgradePowerCargo) + "|" + Str(gUpgradeProbes) + "|" + Str(gUpgradeShuttle)) : EndIf
+  If ok : ok = SaveFileLine(f, "cheats|" + Str(gCheatsUnlocked) + "|" + gCheatCode) : EndIf
+  If ok : ok = SaveFileLine(f, "powerbuff|" + Str(gPowerBuff) + "|" + Str(gPowerBuffTurns)) : EndIf
+  If ok : ok = SaveFileLine(f, "hq|" + Str(gHQMapX) + "|" + Str(gHQMapY) + "|" + Str(gHQX) + "|" + Str(gHQY)) : EndIf
+  If ok : ok = SaveFileLine(f, "hqmissions|" + Str(gHQMissionsCompleted) + "|" + Str(gRecallArmed)) : EndIf
+  If ok : ok = SaveFileLine(f, "manifest|" + Str(gTotalKills) + "|" + Str(gTotalMissions) + "|" + Str(gTotalCreditsEarned)) : EndIf
+  If ok : ok = SaveFileLine(f, "lastheading|" + Str(gLastHeading)) : EndIf
 
   ; Save player fleet
-  WriteStringN(f, "playerfleet|" + Str(gPlayerFleetCount))
+  If ok : ok = SaveFileLine(f, "playerfleet|" + Str(gPlayerFleetCount)) : EndIf
   Protected pf.i
   For pf = 1 To gPlayerFleetCount
-    WriteStringN(f, "pfleet|" + Str(pf) + "|" + SafeField(gPlayerFleet(pf)\name) + "|" + SafeField(gPlayerFleet(pf)\class) + "|" +
-                    Str(gPlayerFleet(pf)\hullMax) + "|" + Str(gPlayerFleet(pf)\hull) + "|" +
-                    Str(gPlayerFleet(pf)\shieldsMax) + "|" + Str(gPlayerFleet(pf)\shields))
+    If ok : ok = SaveShipLine(f, "pfleet", pf, @gPlayerFleet(pf)) : EndIf
   Next
 
-  WriteStringN(f, "player|" + SafeField(*p\name) + "|" + SafeField(*p\class) + "|" +
+  If ok : ok = SaveFileLine(f, "player|" + SafeField(*p\name) + "|" + SafeField(*p\class) + "|" +
                   Str(*p\hullMax) + "|" + Str(*p\hull) + "|" +
                   Str(*p\shieldsMax) + "|" + Str(*p\shields) + "|" +
                   Str(*p\reactorMax) + "|" + StrF(*p\warpMax) + "|" + StrF(*p\impulseMax) + "|" +
@@ -59,34 +187,38 @@ Procedure.i SaveGame(*p.Ship, slotName.s = "autosave")
                   Str(*p\dilithiumMax) + "|" + Str(*p\dilithium) + "|" +
                   Str(*p\probesMax) + "|" + Str(*p\probes) + "|" +
                   Str(*p\allocShields) + "|" + Str(*p\allocWeapons) + "|" + Str(*p\allocEngines) + "|" +
-                  Str(*p\sysEngines) + "|" + Str(*p\sysWeapons) + "|" + Str(*p\sysShields))
+                  Str(*p\sysEngines) + "|" + Str(*p\sysWeapons) + "|" + Str(*p\sysShields)) : EndIf
+  If ok
+    playerExtLine = "playerext|" + Str(*p\sysTractor)
+    ok = SaveFileLine(f, playerExtLine)
+  EndIf
   
-  WriteStringN(f, "crew|0|" + SafeField(*p\crew1\name) + "|" + Str(*p\crew1\role) + "|" + Str(*p\crew1\rank) + "|" + Str(*p\crew1\xp) + "|" + Str(*p\crew1\level))
-  WriteStringN(f, "crew|1|" + SafeField(*p\crew2\name) + "|" + Str(*p\crew2\role) + "|" + Str(*p\crew2\rank) + "|" + Str(*p\crew2\xp) + "|" + Str(*p\crew2\level))
-  WriteStringN(f, "crew|2|" + SafeField(*p\crew3\name) + "|" + Str(*p\crew3\role) + "|" + Str(*p\crew3\rank) + "|" + Str(*p\crew3\xp) + "|" + Str(*p\crew3\level))
-  WriteStringN(f, "crew|3|" + SafeField(*p\crew4\name) + "|" + Str(*p\crew4\role) + "|" + Str(*p\crew4\rank) + "|" + Str(*p\crew4\xp) + "|" + Str(*p\crew4\level))
+  If ok : ok = SaveFileLine(f, "crew|0|" + SafeField(*p\crew1\name) + "|" + Str(*p\crew1\role) + "|" + Str(*p\crew1\rank) + "|" + Str(*p\crew1\xp) + "|" + Str(*p\crew1\level)) : EndIf
+  If ok : ok = SaveFileLine(f, "crew|1|" + SafeField(*p\crew2\name) + "|" + Str(*p\crew2\role) + "|" + Str(*p\crew2\rank) + "|" + Str(*p\crew2\xp) + "|" + Str(*p\crew2\level)) : EndIf
+  If ok : ok = SaveFileLine(f, "crew|2|" + SafeField(*p\crew3\name) + "|" + Str(*p\crew3\role) + "|" + Str(*p\crew3\rank) + "|" + Str(*p\crew3\xp) + "|" + Str(*p\crew3\level)) : EndIf
+  If ok : ok = SaveFileLine(f, "crew|3|" + SafeField(*p\crew4\name) + "|" + Str(*p\crew4\role) + "|" + Str(*p\crew4\rank) + "|" + Str(*p\crew4\xp) + "|" + Str(*p\crew4\level)) : EndIf
 
   ; Save recruits
-  WriteStringN(f, "recruits|" + Str(gRecruitCount))
+  If ok : ok = SaveFileLine(f, "recruits|" + Str(gRecruitCount)) : EndIf
   Protected r.i
   For r = 0 To gRecruitCount - 1
-    WriteStringN(f, "recruit|" + Str(r) + "|" + SafeField(gRecruitNames(r)) + "|" + SafeField(gRecruitRoles(r)))
+    If ok : ok = SaveFileLine(f, "recruit|" + Str(r) + "|" + SafeField(gRecruitNames(r)) + "|" + SafeField(gRecruitRoles(r))) : EndIf
   Next
 
-  WriteStringN(f, "mission|" + Str(gMission\active) + "|" + Str(gMission\type) + "|" +
+  If ok : ok = SaveFileLine(f, "mission|" + Str(gMission\active) + "|" + Str(gMission\type) + "|" +
                   SafeField(gMission\title) + "|" + SafeField(gMission\desc) + "|" +
                   Str(gMission\oreRequired) + "|" +
                   Str(gMission\killsRequired) + "|" + Str(gMission\killsDone) + "|" +
                   Str(gMission\destMapX) + "|" + Str(gMission\destMapY) + "|" + Str(gMission\destX) + "|" + Str(gMission\destY) + "|" +
                   Str(gMission\destEntType) + "|" + SafeField(gMission\destName) + "|" +
                   Str(gMission\rewardCredits) + "|" +
-                  Str(gMission\turnsLeft) + "|" + Str(gMission\yardHP) + "|" + Str(gMission\threatLevel))
+                  Str(gMission\turnsLeft) + "|" + Str(gMission\yardHP) + "|" + Str(gMission\threatLevel)) : EndIf
 
   ; Save captain's log
-  WriteStringN(f, "caplog|" + Str(gCaptainLogCount))
+  If ok : ok = SaveFileLine(f, "caplog|" + Str(gCaptainLogCount)) : EndIf
   Protected c.i
   For c = 0 To gCaptainLogCount - 1
-    WriteStringN(f, "capentry|" + SafeField(gCaptainLog(c)))
+    If ok : ok = SaveFileLine(f, "capentry|" + SafeField(gCaptainLog(c))) : EndIf
   Next
 
   ; Galaxy cells: store all non-empty cells.
@@ -96,12 +228,12 @@ Procedure.i SaveGame(*p.Ship, slotName.s = "autosave")
       For y = 0 To #MAP_H - 1
         For x = 0 To #MAP_W - 1
           If gGalaxy(mx, my, x, y)\entType <> #ENT_EMPTY
-            WriteStringN(f, "cell|" + Str(mx) + "|" + Str(my) + "|" + Str(x) + "|" + Str(y) + "|" +
+            If ok : ok = SaveFileLine(f, "cell|" + Str(mx) + "|" + Str(my) + "|" + Str(x) + "|" + Str(y) + "|" +
                             Str(gGalaxy(mx, my, x, y)\entType) + "|" +
                             Str(gGalaxy(mx, my, x, y)\richness) + "|" +
                             Str(gGalaxy(mx, my, x, y)\enemyLevel) + "|" +
                             SafeField(gGalaxy(mx, my, x, y)\name) + "|" +
-                            Str(gGalaxy(mx, my, x, y)\spawned))
+                            Str(gGalaxy(mx, my, x, y)\spawned) + "|" + Str(gGalaxy(mx, my, x, y)\ore) + "|" + Str(gGalaxy(mx, my, x, y)\dilithium)) : EndIf
           EndIf
         Next
       Next
@@ -109,17 +241,34 @@ Procedure.i SaveGame(*p.Ship, slotName.s = "autosave")
   Next
 
   CloseFile(f)
+  If ok = 0
+    DeleteFile(tmpPath)
+    LogLine("SAVE: failed while writing " + GetFilePart(fullPath))
+    ProcedureReturn 0
+  EndIf
+  If FileSize(fullPath) >= 0
+    DeleteFile(fullPath)
+  EndIf
+  If RenameFile(tmpPath, fullPath) = 0
+    DeleteFile(tmpPath)
+    LogLine("SAVE: failed to finalize " + GetFilePart(fullPath))
+    ProcedureReturn 0
+  EndIf
   LogLine("SAVE: wrote " + GetFilePart(fullPath))
   ProcedureReturn 1
 EndProcedure
 
 Procedure.i LoadGame(*p.Ship, slotName.s = "autosave")
-  Protected fullPath.s
-  ; Handle cases where user types the full filename or legacy name
-  If LCase(Right(slotName, 4)) = ".sav" Or LCase(Right(slotName, 4)) = ".txt"
-    fullPath = GetCurrentDirectory() + "saves/" + slotName
-  Else
-    fullPath = GetSavePath(slotName)
+  Protected fullPath.s = GetSavePath(slotName)
+  If fullPath = ""
+    PrintN("Invalid save slot name. Use letters, numbers, . _ or -")
+    ProcedureReturn 0
+  EndIf
+  If FileSize(fullPath) < 0
+    Protected legacyPath.s = GetLegacySavePath(slotName)
+    If legacyPath <> "" And FileSize(legacyPath) >= 0
+      fullPath = legacyPath
+    EndIf
   EndIf
   
   Protected f.i = ReadFile(#PB_Any, fullPath)
@@ -173,6 +322,12 @@ Procedure.i LoadGame(*p.Ship, slotName.s = "autosave")
       Case "settings"
         gAutosaveInterval  = Val(StringField(line, 2, "|"))
         gAutoclearInterval = Val(StringField(line, 3, "|"))
+      Case "sound"
+        gSoundEnabled = Val(StringField(line, 2, "|"))
+        If gSoundEnabled <> 0 And gSoundEnabled <> 1 : gSoundEnabled = 1 : EndIf
+      Case "dock"
+        gDocked = Val(StringField(line, 2, "|"))
+        If gDocked <> 0 And gDocked <> 1 : gDocked = 0 : EndIf
       Case "transporter"
         gTransporterPower = Val(StringField(line, 2, "|"))
         gTransporterRange = Val(StringField(line, 3, "|"))
@@ -253,12 +408,7 @@ Procedure.i LoadGame(*p.Ship, slotName.s = "autosave")
       Case "pfleet"
         Protected pfLoad.i = Val(StringField(line, 2, "|"))
         If pfLoad >= 1 And pfLoad <= 5
-          gPlayerFleet(pfLoad)\name     = StringField(line, 3, "|")
-          gPlayerFleet(pfLoad)\class    = StringField(line, 4, "|")
-          gPlayerFleet(pfLoad)\hullMax   = Val(StringField(line, 5, "|"))
-          gPlayerFleet(pfLoad)\hull      = Val(StringField(line, 6, "|"))
-          gPlayerFleet(pfLoad)\shieldsMax = Val(StringField(line, 7, "|"))
-          gPlayerFleet(pfLoad)\shields   = Val(StringField(line, 8, "|"))
+          LoadShipFields(@gPlayerFleet(pfLoad), line, 3)
         EndIf
       Case "player"
         *p\name        = StringField(line, 2, "|")
@@ -291,12 +441,15 @@ Procedure.i LoadGame(*p.Ship, slotName.s = "autosave")
         *p\sysEngines  = Val(StringField(line, 29, "|"))
         *p\sysWeapons  = Val(StringField(line, 30, "|"))
         *p\sysShields  = Val(StringField(line, 31, "|"))
+        *p\sysTractor  = 0
         ; Backward compatibility: ensure dilithium fields exist
         If *p\dilithiumMax <= 0 : *p\dilithiumMax = 20 : EndIf
         If *p\dilithium > *p\dilithiumMax : *p\dilithium = *p\dilithiumMax : EndIf
         ; Backward compatibility: ensure probes exist
         If *p\probesMax <= 0 : *p\probesMax = 5 : EndIf
         If *p\probes > *p\probesMax : *p\probes = *p\probesMax : EndIf
+      Case "playerext"
+        *p\sysTractor = Val(StringField(line, 2, "|"))
       Case "crew"
         Protected crewIdx.i = Val(StringField(line, 2, "|"))
         Select crewIdx
@@ -336,7 +489,7 @@ Procedure.i LoadGame(*p.Ship, slotName.s = "autosave")
           gRecruitNames(recIdx) = StringField(line, 3, "|")
           gRecruitRoles(recIdx) = StringField(line, 4, "|")
         EndIf
-      Case "missions"
+      Case "mission", "missions"
         gMission\active        = Val(StringField(line, 2, "|"))
         gMission\type          = Val(StringField(line, 3, "|"))
         gMission\title         = StringField(line, 4, "|")
@@ -372,6 +525,8 @@ Procedure.i LoadGame(*p.Ship, slotName.s = "autosave")
           gGalaxy(cx, cy, sx, sy)\enemyLevel = Val(StringField(line, 8, "|"))
           gGalaxy(cx, cy, sx, sy)\name       = StringField(line, 9, "|")
           gGalaxy(cx, cy, sx, sy)\spawned    = Val(StringField(line, 10, "|"))
+          gGalaxy(cx, cy, sx, sy)\ore        = Val(StringField(line, 11, "|"))
+          gGalaxy(cx, cy, sx, sy)\dilithium  = Val(StringField(line, 12, "|"))
         EndIf
     EndSelect
   Wend
@@ -400,7 +555,7 @@ Procedure.i LoadGame(*p.Ship, slotName.s = "autosave")
 EndProcedure
 
 Procedure ListSaveGames()
-  Protected path.s = GetCurrentDirectory() + "saves/"
+  Protected path.s = SaveFolderPath()
   
   ; First, check for the legacy save file and offer to rename it if it exists
   Protected legacyPath.s = path + "starcomm_save.txt"
@@ -441,6 +596,10 @@ EndProcedure
 
 Procedure DeleteSaveGame(slotName.s)
   Protected fullPath.s = GetSavePath(slotName)
+  If fullPath = ""
+    PrintN("Invalid save slot name.")
+    ProcedureReturn
+  EndIf
   If FileSize(fullPath) >= 0
     If DeleteFile(fullPath)
       LogLine("DELETE: removed " + GetFilePart(fullPath))
@@ -511,18 +670,15 @@ Procedure.i SaveGameManager(*p.Ship)
       PrintN("< Press ENTER >") : Input()
     ElseIf cmd = "rename"
       If slot <> "" And slot2 <> ""
-        Protected oldPath.s, newPath.s
-        ; Handle full filenames or slot names
-        If LCase(Right(slot, 4)) = ".sav" Or LCase(Right(slot, 4)) = ".txt"
-          oldPath = GetCurrentDirectory() + "saves/" + slot
-        Else
-          oldPath = GetSavePath(slot)
+        Protected oldPath.s = GetSavePath(slot)
+        Protected newPath.s = GetSavePath(slot2)
+        If oldPath = "" Or newPath = ""
+          PrintN("Invalid save slot name.")
+          PrintN("< Press ENTER >") : Input()
+          Continue
         EndIf
-        
-        If LCase(Right(slot2, 4)) = ".sav"
-          newPath = GetCurrentDirectory() + "saves/" + slot2
-        Else
-          newPath = GetSavePath(slot2)
+        If FileSize(oldPath) < 0
+          oldPath = GetLegacySavePath(slot)
         EndIf
         
         If FileSize(oldPath) >= 0
