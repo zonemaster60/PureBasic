@@ -1,10 +1,10 @@
-# Minimalist Tower Defense
+# 3D Tower Defense
 
 This workspace includes a self-contained PureBasic 6.30 x64 tower defense game built with the built-in OGRE-backed `Engine3D` library.
 
 Files:
 
-- `PB_MTD.pb` - main entry point, globals, declarations, and main loop
+- `PB_3DTD.pb` - main entry point, globals, declarations, and main loop
 - `td_ui.pbi` - sidebar UI, overlays, sounds, and gadget handling
 - `td_scene.pbi` - path/grid helpers, materials, meshes, and scene setup
 - `td_towers.pbi` - tower selection, stats, build, upgrade, and sell logic
@@ -13,14 +13,14 @@ Files:
 
 How to run:
 
-1. Open `PB_MTD.pb` in PureBasic 6.30 x64.
+1. Open `PB_3DTD.pb` in PureBasic 6.30 x64.
 2. Compile for 64-bit on Windows.
-3. Keep all `.pbi` include files in the same folder as `PB_MTD.pb`.
+3. Keep all `.pbi` include files in the same folder as `PB_3DTD.pb`.
 4. Make sure the standard PureBasic `Engine3D` runtime is available from your normal PureBasic installation.
 
 Game overview:
 
-- Minimalist 3D tower defense played on a fixed lane map.
+- 3D tower defense played on a fixed lane map.
 - Warm-toned path tiles show the enemy route; lighter tiles are buildable.
 - A start screen, end-state overlay, wave forecast panel, and right-side control UI are included.
 - The codebase is split into small include modules so UI, combat, towers, scene setup, and input are easier to extend.
@@ -28,7 +28,7 @@ Game overview:
 
 Architecture:
 
-- `PB_MTD.pb` defines shared constants, enums, structures, globals, procedure declarations, include links, and the main loop.
+- `PB_3DTD.pb` defines shared constants, enums, structures, globals, procedure declarations, include links, and the main loop.
 - `td_scene.pbi` owns the board, path, materials, meshes, and 3D scene bootstrap.
 - `td_ui.pbi` owns sidebar text/buttons, overlays, restart flow, and simple sound hooks.
 - `td_towers.pbi` owns tower definitions, selection, costs, upgrades, selling, and build visuals.
@@ -37,7 +37,7 @@ Architecture:
 
 How to add a new tower:
 
-1. Add a new `#TowerType_*` value in `PB_MTD.pb`.
+1. Add a new `#TowerType_*` value in `PB_3DTD.pb`.
 2. Add cost/name handling in `TowerBaseCost()` and `TowerName()` in `td_scene.pbi`.
 3. Add stats in `ConfigureTowerStats()` in `td_towers.pbi`.
 4. Add build visuals in `BuildTower()` in `td_towers.pbi`.
@@ -136,7 +136,7 @@ Debug tools:
 
 Balance config:
 
-- The game creates `PB_MTD/balance.cfg` automatically if it does not exist.
+- The game creates `PB_3DTD/balance.cfg` automatically if it does not exist.
 - You can tune global balance values there without editing source.
 - Supported keys:
   - `tower_damage_scale`

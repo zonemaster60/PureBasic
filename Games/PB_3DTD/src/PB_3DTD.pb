@@ -200,7 +200,7 @@ Structure Projectile
   special.i
 EndStructure
 
-Global version.s = "v1.0.0.0"
+Global version.s = "v1.0.0.1"
 Global AppPath.s = GetFilePart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -512,24 +512,24 @@ Repeat
 ForEver
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 3
+; CursorPosition = 479
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = PB_MTD.ico
-; Executable = ..\PB_MTD.exe
+; UseIcon = PB_3DTD.ico
+; Executable = ..\PB_3DTD.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
-; VersionField3 = PB_MTD
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
-; VersionField6 = A minimalist 3D tower defense game
-; VersionField7 = PB_MTD
-; VersionField8 = PB_MTD.exe
+; VersionField3 = PB_3DTD
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
+; VersionField6 = A 3D Tower Defense game with levels
+; VersionField7 = PB_3DTD
+; VersionField8 = PB_3DTD.exe
 ; VersionField9 = David Scouten
 ; VersionField13 = zonemaster60@gmail.com
 ; VersionField14 = https://github.com/zonemaster60

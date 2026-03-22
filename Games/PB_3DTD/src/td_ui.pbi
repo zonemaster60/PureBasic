@@ -1,5 +1,5 @@
 
-#APP_NAME = "PB_MTD"
+#APP_NAME = "PB_3DTD"
 
 ; Prevent multiple instances (don't rely on window title text)
 ; Allow helper modes to run even if the tray app is running.
@@ -295,7 +295,7 @@ Procedure RestartGame()
 
   RebuildBoard()
 
-  SetGadgetText(#Gadget_MenuTitle, "MINIMALIST" + #LF$ + "TOWER DEFENSE" + #LF$ + version)
+  SetGadgetText(#Gadget_MenuTitle, "3D TOWER DEFENSE" + #LF$ + version)
   SetGadgetText(#Gadget_MenuInfo, LevelName(CurrentLevel) + #LF$ + LevelDescription(CurrentLevel) + #LF$ + #LF$ + "Run Mode: " + RunModeName() + #LF$ + "Challenge: " + ChallengeModeName(ChallengeMode) + #LF$ + "Build around the route, reroute with blocks when needed, protect the core, and survive 12 waves." + #LF$ + #LF$ + "Shortcuts: 1-7 choose builds, Space launches a wave, U upgrades, S sells, Esc quits.")
   SetGadgetText(#Gadget_MenuStart, "Deploy Run")
   SetGadgetText(#Gadget_MenuContinue, "")
@@ -343,7 +343,7 @@ Procedure CreateSidebar()
   Protected SidebarLeft.i = #SidebarX + 12
   Protected SidebarInnerWidth.i = #SidebarWidth - 24
 
-  TextGadget(#Gadget_Title, #SidebarX, 18, #SidebarWidth - 16, 36, "MINIMALIST" + #LF$ + "TOWER DEFENSE", #PB_Text_Center)
+  TextGadget(#Gadget_Title, #SidebarX, 18, #SidebarWidth - 16, 36, "3D TOWER DEFENSE", #PB_Text_Center)
   TextGadget(#Gadget_Info, SidebarLeft, 64, SidebarInnerWidth, 136, "")
   TextGadget(#Gadget_Forecast, SidebarLeft, 204, SidebarInnerWidth, 34, "")
   ButtonGadget(#Gadget_LevelCycle, SidebarLeft, 244, SidebarInnerWidth, 20, "")
@@ -366,7 +366,7 @@ Procedure CreateSidebar()
   EditorGadget(#Gadget_Message, SidebarLeft, 684, SidebarInnerWidth, 54, #PB_Editor_ReadOnly)
   TextGadget(#Gadget_Controls, SidebarLeft, 742, SidebarInnerWidth, 30, "1-7 builds, Level cycles maps." + #LF$ + "Space wave, U upgrade, S sell")
 
-  TextGadget(#Gadget_MenuTitle, 190, 138, 560, 110, "MINIMALIST" + #LF$ + "TOWER DEFENSE" + #LF$ + version, #PB_Text_Center)
+  TextGadget(#Gadget_MenuTitle, 190, 138, 560, 110, "3D TOWER DEFENSE" + #LF$ + version, #PB_Text_Center)
   TextGadget(#Gadget_MenuInfo, 230, 260, 480, 156, LevelName(CurrentLevel) + #LF$ + LevelDescription(CurrentLevel) + #LF$ + #LF$ + "Run Mode: " + RunModeName() + #LF$ + "Challenge: " + ChallengeModeName(ChallengeMode) + #LF$ + "Build around the route, reroute with blocks when needed, protect the core, and survive 12 waves." + #LF$ + #LF$ + "Shortcuts: 1-7 choose builds, Space launches a wave, U upgrades, S sells, Esc quits.")
   ButtonGadget(#Gadget_MenuLevel, 350, 428, 240, 28, "")
   ButtonGadget(#Gadget_MenuRunMode, 350, 464, 240, 28, "Run Mode: " + RunModeName())
@@ -823,8 +823,8 @@ Procedure HandleGadget(Gadget.i)
 EndProcedure
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 374
-; FirstLine = 351
+; CursorPosition = 297
+; FirstLine = 282
 ; Folding = ----
 ; EnableXP
 ; DPIAware

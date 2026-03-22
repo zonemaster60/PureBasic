@@ -1,4 +1,4 @@
-#APP_NAME = "PB_MTD"
+#APP_NAME = "PB_3DTD"
 
 Procedure.f WorldXFromGrid(GX.i)
   ProcedureReturn ((GX + 0.5) - #GridWidth / 2.0) * #CellSize
@@ -942,7 +942,7 @@ Procedure CreateScene()
     End
   EndIf
 
-  If OpenWindow(#Window_Main, 0, 0, #WindowWidth, #WindowHeight, "Minimalist Tower Defense" + " - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered) = 0
+  If OpenWindow(#Window_Main, 0, 0, #WindowWidth, #WindowHeight, "3D TOWER DEFENSE" + " - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered) = 0
     End
   EndIf
 
@@ -970,6 +970,8 @@ Procedure CreateScene()
 EndProcedure
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; Folding = -----
+; CursorPosition = 944
+; FirstLine = 937
+; Folding = ------
 ; EnableXP
 ; DPIAware
