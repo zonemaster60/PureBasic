@@ -82,6 +82,7 @@ Declare.i GetTotalPhysMB()
 Declare.i GetAvailPhysMB()
 Declare.i GetUsedMemPercent()
 Declare NormalizeTrayUsageThresholds()
+Declare.b OpenOrCreateSettingsPreferences(iniFile.s)
 Declare.i LoadTrayIconHandle(iconLibraryPath.s, iconIndex.i)
 Declare.b LoadTrayIconsFromLibrary(iconLibraryPath.s)
 Declare DestroyTrayIcons()
@@ -281,10 +282,20 @@ Procedure LoadSettings()
 
 EndProcedure
 
+Procedure.b OpenOrCreateSettingsPreferences(iniFile.s)
+  If FileSize(iniFile) >= 0
+    If OpenPreferences(iniFile)
+      ProcedureReturn #True
+    EndIf
+  EndIf
+
+  ProcedureReturn Bool(CreatePreferences(iniFile))
+EndProcedure
+
 Procedure SaveSettings()
   Protected iniFile.s = AppPath + #INI_FILE
 
-  If CreatePreferences(iniFile)
+  If OpenOrCreateSettingsPreferences(iniFile)
     WritePreferenceInteger("IntervalMinutes", IntervalMinutes)
     WritePreferenceInteger("LoggingEnabled", loggingEnabled)
     WritePreferenceInteger("RunAtStartup", startupEnabled)
@@ -297,6 +308,8 @@ Procedure SaveSettings()
     WritePreferenceInteger("TrayRedThresholdPct", gTrayRedThresholdPct)
     ClosePreferences()
     LogMessage("Settings saved.")
+  Else
+    LogMessage("Failed to save settings to: " + iniFile)
   EndIf
 EndProcedure
 
