@@ -1346,13 +1346,13 @@ Repeat
 
           ; Tray icon tooltips are length-limited (often ~64 chars).
           ; Keep it compact + single-line so it doesn't truncate.
-          text = "Avl:" + Str(availMB) + "MB Usage:" + Str(usedPct) + "%"
+          text = "Avl:" + Str(availMB) + "MB Usg:" + Str(usedPct) + "% "
           If gMemThresholdEnabled
-            text = text + " Trig<=" + Str(gMemThresholdAvailMB) + "MB"
+            text = text + "Trg<=" + Str(gMemThresholdAvailMB) + "MB "
           Else
-            text = text + " Trig:off"
+            text = text + "Trg:off"
           EndIf
-          text = text + " Next:" + FormatCountdown(remaining)
+          text = text + "Nxt:" + FormatCountdown(remaining)
 
           SysTrayIconToolTip(#TRAY_ICON, text)
         EndIf
@@ -1414,8 +1414,8 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 1354
-; FirstLine = 1330
+; CursorPosition = 1348
+; FirstLine = 1324
 ; Folding = ---------
 ; Optimizer
 ; EnableThread

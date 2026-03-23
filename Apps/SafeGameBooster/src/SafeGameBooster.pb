@@ -17,7 +17,7 @@ LogPath = DataDir + #APP_NAME + ".log"
 
 Global FontUI.i, FontTitle.i, FontSmall.i
 Global MainStatusBar.i
-Global version.s = "v1.0.0.4"
+Global version.s = "v1.0.0.5"
 Global BrowseExePath.s, BeforeCount.i, LaunchUiPulse.i
 
 Global hMutex.i
@@ -66,6 +66,11 @@ CompilerEndIf
 #TH32CS_SNAPPROCESS  = $00000002
 #TH32CS_SNAPMODULE   = $00000008
 #TH32CS_SNAPMODULE32 = $00000010
+
+#LVM_FIRST   = $1000
+#LVM_HITTEST = #LVM_FIRST + 18
+
+#PRIVATE_DROP_GAME = 1001
 
 Structure GameEntry
   Name.s
@@ -127,6 +132,18 @@ Structure OC_MODULEENTRY32
   szExePath.u[#MAX_PATH]
 EndStructure
 
+Structure OC_POINT
+  x.l
+  y.l
+EndStructure
+
+Structure OC_LVHITTESTINFO
+  pt.OC_POINT
+  flags.l
+  iItem.l
+  iSubItem.l
+EndStructure
+
 Global NewList Games.GameEntry()
 Global LaunchActive.i, LaunchState.i, AppQuitting.i
 Global LaunchGame.GameEntry
@@ -135,6 +152,7 @@ Global LaunchProcess.i, LaunchDetectDeadline.i
 Global LaunchOrigPriority.l
 Global LaunchProcessAffinity.q, LaunchSystemAffinity.q
 Global LaunchGotAffinity.i
+Global DragGameIndex.i = -1
 Global LaunchGameRoot.s
 Global NewMap LaunchBaseline.i()
 
@@ -142,8 +160,16 @@ Enumeration Gadgets
   #G_List
   #G_Title
   #G_Subtitle
+  #G_Tool_Add
+  #G_Tool_BrowseExe
+  #G_Tool_AddFolder
+  #G_Tool_ImportSteamGame
   #G_LaunchState
   #G_CancelWait
+  #G_OpenFolder
+  #G_MoveUp
+  #G_MoveDown
+  #G_Remove
   #G_Edit
   #G_Launch
 EndEnumeration
@@ -156,10 +182,12 @@ Enumeration MenuItems
   #MI_File_Add
   #MI_File_BrowseExe
   #MI_File_AddFolder
-  #MI_File_ImportSteam
+  #MI_File_ImportSteamGame
   #MI_File_Exit
   #MI_Game_Run
   #MI_Game_Edit
+  #MI_Game_MoveUp
+  #MI_Game_MoveDown
   #MI_Game_Remove
   #MI_Game_OpenFolder
   #MI_Tools_ViewLog
@@ -192,12 +220,12 @@ RunApplication()
 ; UseIcon = SafeGameBooster.ico
 ; Executable = ..\SafeGameBooster.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,4
-; VersionField1 = 1,0,0,4
+; VersionField0 = 1,0,0,5
+; VersionField1 = 1,0,0,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = SafeGameBooster
-; VersionField4 = 1.0.0.4
-; VersionField5 = 1.0.0.4
+; VersionField4 = 1.0.0.5
+; VersionField5 = 1.0.0.5
 ; VersionField6 = A Safe Game Booster made with PureBasic
 ; VersionField7 = SafeGameBooster
 ; VersionField8 = SafeGameBooster.exe

@@ -50,10 +50,11 @@ Procedure.s HelpText()
   t + "   - Add: prompts for name + EXE + args" + #CRLF$
   t + "   - Browse EXE: adds one EXE quickly (deduped)" + #CRLF$
   t + "   - Add Folder: scans a folder and tries to pick the main EXE per game folder" + #CRLF$
-  t + "   - Import Steam: imports installed Steam games and launches via AppID" + #CRLF$
+  t + "   - Import Steam Game: opens a picker for one installed Steam game and launches via AppID" + #CRLF$
   t + "2) Edit a game:" + #CRLF$
   t + "   - Select a game -> Edit -> set priority + pick services" + #CRLF$
   t + "   - In the services picker you can also right-click selected rows to Start/Stop now." + #CRLF$
+  t + "   - Drag games in the main list to reorder them, or use Move Up / Move Down." + #CRLF$
   t + "3) Run:" + #CRLF$
   t + "   - Select a game -> Run" + #CRLF$ + #CRLF$
   t + "Services (important)" + #CRLF$

@@ -50,6 +50,14 @@ EndProcedure
 Procedure SetLaunchUiState(active.i, statusText.s = "")
   Protected pulse.s
 
+  DisableGadget(#G_Tool_Add, active)
+  DisableGadget(#G_Tool_BrowseExe, active)
+  DisableGadget(#G_Tool_AddFolder, active)
+  DisableGadget(#G_Tool_ImportSteamGame, active)
+  DisableGadget(#G_OpenFolder, active)
+  DisableGadget(#G_MoveUp, active)
+  DisableGadget(#G_MoveDown, active)
+  DisableGadget(#G_Remove, active)
   DisableGadget(#G_Edit, active)
   DisableGadget(#G_Launch, active)
   DisableGadget(#G_List, active)
@@ -61,9 +69,11 @@ Procedure SetLaunchUiState(active.i, statusText.s = "")
     DisableMenuItem(#Menu_Main, #MI_File_Add, active)
     DisableMenuItem(#Menu_Main, #MI_File_BrowseExe, active)
     DisableMenuItem(#Menu_Main, #MI_File_AddFolder, active)
-    DisableMenuItem(#Menu_Main, #MI_File_ImportSteam, active)
+    DisableMenuItem(#Menu_Main, #MI_File_ImportSteamGame, active)
     DisableMenuItem(#Menu_Main, #MI_Game_Run, active)
     DisableMenuItem(#Menu_Main, #MI_Game_Edit, active)
+    DisableMenuItem(#Menu_Main, #MI_Game_MoveUp, active)
+    DisableMenuItem(#Menu_Main, #MI_Game_MoveDown, active)
     DisableMenuItem(#Menu_Main, #MI_Game_Remove, active)
     DisableMenuItem(#Menu_Main, #MI_Game_OpenFolder, active)
   EndIf
@@ -92,6 +102,18 @@ Procedure SetLaunchUiState(active.i, statusText.s = "")
 
   If IsGadget(#G_CancelWait)
     HideGadget(#G_CancelWait, Bool(active = 0 Or LaunchState <> 1))
+  EndIf
+EndProcedure
+
+Procedure UpdateListHint()
+  If IsGadget(#G_Subtitle) = 0
+    ProcedureReturn
+  EndIf
+
+  If DragGameIndex >= 0
+    SetGadgetText(#G_Subtitle, "Drag a game to a new position in the list to reorder it")
+  Else
+    SetGadgetText(#G_Subtitle, "Safer game launching with temporary boosts, Steam support, per-game service control, and drag-to-reorder")
   EndIf
 EndProcedure
 
@@ -215,7 +237,7 @@ Procedure BeginSteamLaunch(*g.GameEntry)
   LaunchGameRoot = ResolveSteamGameRoot(@LaunchGame)
   If LaunchGameRoot = ""
     MessageRequester(#APP_NAME, "Could not resolve Steam install folder for this game." + #LF$ + #LF$ +
-                              "Try: Import Steam again (so appmanifest_*.acf is available) and make sure the game is installed.")
+                              "Try: import the Steam game again so appmanifest_*.acf is available and make sure the game is installed.")
     ProcedureReturn
   EndIf
 
@@ -333,15 +355,25 @@ EndProcedure
 Procedure UpdateSelectionUI()
   Protected idxSel.i = GetGadgetState(#G_List)
   Protected canAct.i = Bool(idxSel >= 0)
+  Protected canMoveUp.i = Bool(idxSel > 0)
+  Protected canMoveDown.i = Bool(idxSel >= 0 And idxSel < CountGadgetItems(#G_List) - 1)
   If IsLaunchActive()
     canAct = 0
+    canMoveUp = 0
+    canMoveDown = 0
   EndIf
+  DisableGadget(#G_OpenFolder, Bool(canAct = 0))
+  DisableGadget(#G_MoveUp, Bool(canMoveUp = 0))
+  DisableGadget(#G_MoveDown, Bool(canMoveDown = 0))
+  DisableGadget(#G_Remove, Bool(canAct = 0))
   DisableGadget(#G_Edit, Bool(canAct = 0))
   DisableGadget(#G_Launch, Bool(canAct = 0))
 
   If IsMenu(#Menu_Main)
     DisableMenuItem(#Menu_Main, #MI_Game_Run, Bool(canAct = 0))
     DisableMenuItem(#Menu_Main, #MI_Game_Edit, Bool(canAct = 0))
+    DisableMenuItem(#Menu_Main, #MI_Game_MoveUp, Bool(canMoveUp = 0))
+    DisableMenuItem(#Menu_Main, #MI_Game_MoveDown, Bool(canMoveDown = 0))
     DisableMenuItem(#Menu_Main, #MI_Game_Remove, Bool(canAct = 0))
     DisableMenuItem(#Menu_Main, #MI_Game_OpenFolder, Bool(canAct = 0))
   EndIf
@@ -359,6 +391,7 @@ Procedure UpdateSelectionUI()
       StatusBarText(MainStatusBar, 0, "Ready")
     EndIf
   EndIf
+  UpdateListHint()
 EndProcedure
 
 Procedure OpenSelectedGameFolder(idxSel.i)
@@ -395,20 +428,23 @@ EndProcedure
 Procedure RunApplication()
   Protected launchIdx.i
   Protected selectedLaunchGame.GameEntry
+  Protected newIndex.i
 
-  If OpenWindow(0, 0, 0, ScaleX(980), ScaleY(510), "SafeGameBooster - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget)
+  If OpenWindow(0, 0, 0, ScaleX(1080), ScaleY(600), "SafeGameBooster - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget)
     If CreateMenu(#Menu_Main, WindowID(0))
       MenuTitle("File")
-      MenuItem(#MI_File_Add, "Add...")
-      MenuItem(#MI_File_BrowseExe, "Browse EXE...")
-      MenuItem(#MI_File_AddFolder, "Add Folder...")
-      MenuItem(#MI_File_ImportSteam, "Import Steam")
+      MenuItem(#MI_File_Add, "Add Game")
+      MenuItem(#MI_File_BrowseExe, "Browse EXE")
+      MenuItem(#MI_File_AddFolder, "Add Folder")
+      MenuItem(#MI_File_ImportSteamGame, "Import Steam Game")
       MenuBar()
       MenuItem(#MI_File_Exit, "Exit")
 
       MenuTitle("Game")
       MenuItem(#MI_Game_Run, "Run")
       MenuItem(#MI_Game_Edit, "Edit...")
+      MenuItem(#MI_Game_MoveUp, "Move Up")
+      MenuItem(#MI_Game_MoveDown, "Move Down")
       MenuItem(#MI_Game_Remove, "Remove")
       MenuBar()
       MenuItem(#MI_Game_OpenFolder, "Open Install Folder")
@@ -421,33 +457,53 @@ Procedure RunApplication()
       MenuItem(#MI_Help_About, "About")
     EndIf
 
-    TextGadget(#G_Title, ScaleX(10), ScaleY(10), ScaleX(960), ScaleY(28), #APP_NAME)
-    TextGadget(#G_Subtitle, ScaleX(10), ScaleY(38), ScaleX(960), ScaleY(18), "Safe, temporary boosts: power plan + priority/affinity + optional service stop/start")
-    TextGadget(#G_LaunchState, ScaleX(10), ScaleY(56), ScaleX(700), ScaleY(16), "")
-    ButtonGadget(#G_CancelWait, ScaleX(720), ScaleY(52), ScaleX(110), ScaleY(24), "Cancel Wait")
-    ListIconGadget(#G_List, ScaleX(10), ScaleY(70), ScaleX(960), ScaleY(340), "Game", ScaleX(260), #PB_ListIcon_FullRowSelect | #PB_ListIcon_GridLines)
-    AddGadgetColumn(#G_List, 1, "Type", ScaleX(70))
-    AddGadgetColumn(#G_List, 2, "Path / AppID", ScaleX(460))
+    TextGadget(#G_Title, ScaleX(18), ScaleY(14), ScaleX(1040), ScaleY(30), #APP_NAME)
+    TextGadget(#G_Subtitle, ScaleX(18), ScaleY(44), ScaleX(1040), ScaleY(20), "Safer game launching with temporary boosts, Steam support, per-game service control, and drag-to-reorder")
+
+    ButtonGadget(#G_Tool_Add, ScaleX(18), ScaleY(78), ScaleX(120), ScaleY(32), "Add Game")
+    ButtonGadget(#G_Tool_BrowseExe, ScaleX(146), ScaleY(78), ScaleX(120), ScaleY(32), "Browse EXE")
+    ButtonGadget(#G_Tool_AddFolder, ScaleX(274), ScaleY(78), ScaleX(120), ScaleY(32), "Add Folder")
+    ButtonGadget(#G_Tool_ImportSteamGame, ScaleX(402), ScaleY(78), ScaleX(178), ScaleY(32), "Import Steam Game")
+
+    TextGadget(#G_LaunchState, ScaleX(18), ScaleY(122), ScaleX(860), ScaleY(18), "")
+    ButtonGadget(#G_CancelWait, ScaleX(900), ScaleY(116), ScaleX(160), ScaleY(30), "Cancel Wait")
+
+    ListIconGadget(#G_List, ScaleX(18), ScaleY(154), ScaleX(1042), ScaleY(350), "Game", ScaleX(290), #PB_ListIcon_FullRowSelect | #PB_ListIcon_GridLines)
+    AddGadgetColumn(#G_List, 1, "Type", ScaleX(90))
+    AddGadgetColumn(#G_List, 2, "Path / AppID", ScaleX(490))
     AddGadgetColumn(#G_List, 3, "Services", ScaleX(150))
 
     If FontTitle : SetGadgetFont(#G_Title, FontID(FontTitle)) : EndIf
     If FontSmall : SetGadgetFont(#G_Subtitle, FontID(FontSmall)) : EndIf
     If FontSmall : SetGadgetFont(#G_LaunchState, FontID(FontSmall)) : EndIf
     If FontUI : SetGadgetFont(#G_List, FontID(FontUI)) : EndIf
+    If FontUI : SetGadgetFont(#G_Tool_Add, FontID(FontUI)) : EndIf
+    If FontUI : SetGadgetFont(#G_Tool_BrowseExe, FontID(FontUI)) : EndIf
+    If FontUI : SetGadgetFont(#G_Tool_AddFolder, FontID(FontUI)) : EndIf
+    If FontUI : SetGadgetFont(#G_Tool_ImportSteamGame, FontID(FontUI)) : EndIf
     If FontUI : SetGadgetFont(#G_CancelWait, FontID(FontUI)) : EndIf
     HideGadget(#G_LaunchState, 1)
     HideGadget(#G_CancelWait, 1)
+    EnableGadgetDrop(#G_List, #PB_Drop_Private, #PB_Drag_Move, #PRIVATE_DROP_GAME)
 
-    ButtonGadget(#G_Edit, ScaleX(740), ScaleY(420), ScaleX(110), ScaleY(34), "Edit")
-    ButtonGadget(#G_Launch, ScaleX(860), ScaleY(420), ScaleX(110), ScaleY(34), "Run")
+    ButtonGadget(#G_OpenFolder, ScaleX(18), ScaleY(520), ScaleX(146), ScaleY(36), "Open Folder")
+    ButtonGadget(#G_MoveUp, ScaleX(620), ScaleY(520), ScaleX(100), ScaleY(36), "Move Up")
+    ButtonGadget(#G_MoveDown, ScaleX(728), ScaleY(520), ScaleX(110), ScaleY(36), "Move Down")
+    ButtonGadget(#G_Remove, ScaleX(846), ScaleY(520), ScaleX(90), ScaleY(36), "Remove")
+    ButtonGadget(#G_Edit, ScaleX(944), ScaleY(520), ScaleX(96), ScaleY(36), "Edit")
+    ButtonGadget(#G_Launch, ScaleX(944), ScaleY(560), ScaleX(96), ScaleY(32), "Run")
     If FontUI
+      SetGadgetFont(#G_OpenFolder, FontID(FontUI))
+      SetGadgetFont(#G_MoveUp, FontID(FontUI))
+      SetGadgetFont(#G_MoveDown, FontID(FontUI))
+      SetGadgetFont(#G_Remove, FontID(FontUI))
       SetGadgetFont(#G_Edit, FontID(FontUI))
       SetGadgetFont(#G_Launch, FontID(FontUI))
     EndIf
 
     MainStatusBar = CreateStatusBar(#PB_Any, WindowID(0))
     If MainStatusBar
-      AddStatusBarField(ScaleX(980))
+      AddStatusBarField(ScaleX(1080))
       StatusBarText(MainStatusBar, 0, "Ready")
     EndIf
 
@@ -460,6 +516,64 @@ Procedure RunApplication()
         Case #PB_Event_Gadget
           Select EventGadget()
             Case #G_List
+              If EventType() = #PB_EventType_DragStart
+                If IsLaunchActive() = 0
+                  DragGameIndex = GetGadgetState(#G_List)
+                  If DragGameIndex >= 0
+                    UpdateListHint()
+                    DragPrivate(#PRIVATE_DROP_GAME, #PB_Drag_Move)
+                    DragGameIndex = -1
+                    UpdateListHint()
+                  EndIf
+                EndIf
+              Else
+                UpdateSelectionUI()
+              EndIf
+            Case #G_Tool_Add
+              AddGameSimple()
+            Case #G_Tool_BrowseExe
+              BrowseExePath = OpenFileRequester("Select game exe", "", "Executables (*.exe)|*.exe|All files (*.*)|*.*", 0)
+              If BrowseExePath <> ""
+                BeforeCount = ListSize(Games())
+                AddExeEntry(BrowseExePath)
+                If ListSize(Games()) > BeforeCount
+                  SaveGames()
+                  RefreshList()
+                  SetGadgetState(#G_List, CountGadgetItems(#G_List) - 1)
+                  SetGadgetItemState(#G_List, CountGadgetItems(#G_List) - 1, #PB_ListIcon_Selected)
+                  SetActiveGadget(#G_List)
+                EndIf
+              EndIf
+            Case #G_Tool_AddFolder
+              ImportFolderGames()
+            Case #G_Tool_ImportSteamGame
+              BeforeCount = CountGadgetItems(#G_List)
+              ImportSingleSteamGame()
+              If CountGadgetItems(#G_List) > BeforeCount
+                SetGadgetState(#G_List, CountGadgetItems(#G_List) - 1)
+                SetGadgetItemState(#G_List, CountGadgetItems(#G_List) - 1, #PB_ListIcon_Selected)
+                SetActiveGadget(#G_List)
+              EndIf
+            Case #G_OpenFolder
+              OpenSelectedGameFolder(GetGadgetState(#G_List))
+            Case #G_MoveUp
+              newIndex = GetGadgetState(#G_List) - 1
+              If MoveGameByIndex(GetGadgetState(#G_List), -1)
+                SetGadgetState(#G_List, newIndex)
+                SetGadgetItemState(#G_List, newIndex, #PB_ListIcon_Selected)
+                SetActiveGadget(#G_List)
+              EndIf
+            Case #G_MoveDown
+              newIndex = GetGadgetState(#G_List) + 1
+              If MoveGameByIndex(GetGadgetState(#G_List), 1)
+                SetGadgetState(#G_List, newIndex)
+                SetGadgetItemState(#G_List, newIndex, #PB_ListIcon_Selected)
+                SetActiveGadget(#G_List)
+              EndIf
+            Case #G_Remove
+              If GetGadgetState(#G_List) >= 0
+                RemoveGameByIndex(GetGadgetState(#G_List))
+              EndIf
               UpdateSelectionUI()
             Case #G_Edit
               If GetGadgetState(#G_List) >= 0
@@ -484,34 +598,27 @@ Procedure RunApplication()
         Case #PB_Event_Menu
           Select EventMenu()
             Case #MI_File_Add
-              AddGameSimple()
+              PostEvent(#PB_Event_Gadget, 0, #G_Tool_Add)
             Case #MI_File_BrowseExe
-              BrowseExePath = OpenFileRequester("Select game exe", "", "Executables (*.exe)|*.exe|All files (*.*)|*.*", 0)
-              If BrowseExePath <> ""
-                BeforeCount = ListSize(Games())
-                AddExeEntry(BrowseExePath)
-                If ListSize(Games()) > BeforeCount
-                  SaveGames()
-                  RefreshList()
-                EndIf
-              EndIf
+              PostEvent(#PB_Event_Gadget, 0, #G_Tool_BrowseExe)
             Case #MI_File_AddFolder
-              ImportFolderGames()
-            Case #MI_File_ImportSteam
-              ImportSteamGames()
+              PostEvent(#PB_Event_Gadget, 0, #G_Tool_AddFolder)
+            Case #MI_File_ImportSteamGame
+              PostEvent(#PB_Event_Gadget, 0, #G_Tool_ImportSteamGame)
             Case #MI_File_Exit
               Exit()
             Case #MI_Game_Run
               PostEvent(#PB_Event_Gadget, 0, #G_Launch)
             Case #MI_Game_Edit
               PostEvent(#PB_Event_Gadget, 0, #G_Edit)
+            Case #MI_Game_MoveUp
+              PostEvent(#PB_Event_Gadget, 0, #G_MoveUp)
+            Case #MI_Game_MoveDown
+              PostEvent(#PB_Event_Gadget, 0, #G_MoveDown)
             Case #MI_Game_Remove
-              If GetGadgetState(#G_List) >= 0
-                RemoveGameByIndex(GetGadgetState(#G_List))
-              EndIf
-              UpdateSelectionUI()
+              PostEvent(#PB_Event_Gadget, 0, #G_Remove)
             Case #MI_Game_OpenFolder
-              OpenSelectedGameFolder(GetGadgetState(#G_List))
+              PostEvent(#PB_Event_Gadget, 0, #G_OpenFolder)
             Case #MI_Tools_ViewLog
               ViewLog()
             Case #MI_Help_Help
@@ -526,7 +633,29 @@ Procedure RunApplication()
 
         Case #PB_Event_CloseWindow
           Exit()
+
+        Case #PB_Event_GadgetDrop
+          If EventGadget() = #G_List And EventDropType() = #PB_Drop_Private And IsLaunchActive() = 0 And DragGameIndex >= 0
+            newIndex = ListIndexFromCursor(#G_List)
+            If newIndex < 0
+              newIndex = CountGadgetItems(#G_List) - 1
+            EndIf
+            If MoveGameToIndex(DragGameIndex, newIndex)
+              SetGadgetState(#G_List, newIndex)
+              SetGadgetItemState(#G_List, newIndex, #PB_ListIcon_Selected)
+              SetActiveGadget(#G_List)
+            EndIf
+            DragGameIndex = -1
+            UpdateSelectionUI()
+          EndIf
       EndSelect
     ForEver
   EndIf
 EndProcedure
+
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 435
+; FirstLine = 426
+; Folding = ---
+; EnableXP
+; DPIAware

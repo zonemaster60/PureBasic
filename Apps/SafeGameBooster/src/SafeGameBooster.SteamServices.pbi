@@ -164,21 +164,124 @@ Procedure.s ResolveSteamGameRoot(*g.GameEntry)
   ProcedureReturn *g\GameRoot
 EndProcedure
 
-Procedure ImportSteamGames()
+Structure SteamImportOption
+  AppId.i
+  Name.s
+  InstallDir.s
+  LibraryRoot.s
+EndStructure
+
+Procedure.i PickSteamGameDialog(List options.SteamImportOption())
+  Enumeration _SteamPickerWindows 4000
+    #W_SteamPick
+  EndEnumeration
+  Enumeration _SteamPickerGadgets 4100
+    #SP_Info
+    #SP_List
+    #SP_Import
+    #SP_ImportAll
+    #SP_Cancel
+  EndEnumeration
+
+  Protected w.i, ev.i, selectedRow.i, selectedAppId.i
+
+  w = OpenWindow(#W_SteamPick, 0, 0, 860, 520, "Import Steam Game", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  If w = 0
+    ProcedureReturn 0
+  EndIf
+
+  If IsWindow(0)
+    DisableWindow(0, 1)
+  EndIf
+
+  TextGadget(#SP_Info, 12, 12, 836, 36, "Select one installed Steam game to import, or use Import All. Only games not already in your list are shown. Double-click a row to import it immediately.")
+  ListIconGadget(#SP_List, 12, 58, 836, 404, "Game", 290, #PB_ListIcon_FullRowSelect | #PB_ListIcon_GridLines)
+  AddGadgetColumn(#SP_List, 1, "AppID", 90)
+  AddGadgetColumn(#SP_List, 2, "Install Folder", 420)
+  ButtonGadget(#SP_Import, 544, 474, 96, 30, "Import")
+  ButtonGadget(#SP_ImportAll, 648, 474, 96, 30, "Import All")
+  ButtonGadget(#SP_Cancel, 752, 474, 96, 30, "Cancel")
+
+  If FontUI
+    SetGadgetFont(#SP_Info, FontID(FontUI))
+    SetGadgetFont(#SP_List, FontID(FontUI))
+    SetGadgetFont(#SP_Import, FontID(FontUI))
+    SetGadgetFont(#SP_ImportAll, FontID(FontUI))
+    SetGadgetFont(#SP_Cancel, FontID(FontUI))
+  EndIf
+
+  ForEach options()
+    AddGadgetItem(#SP_List, -1, options()\Name + Chr(10) + Str(options()\AppId) + Chr(10) + options()\InstallDir)
+  Next
+
+  If CountGadgetItems(#SP_List) > 0
+    SetGadgetState(#SP_List, 0)
+    SetGadgetItemState(#SP_List, 0, #PB_ListIcon_Selected)
+    SetActiveGadget(#SP_List)
+  EndIf
+  DisableGadget(#SP_Import, Bool(CountGadgetItems(#SP_List) = 0))
+  DisableGadget(#SP_ImportAll, Bool(CountGadgetItems(#SP_List) = 0))
+
+  Repeat
+    ev = WaitWindowEvent()
+    Select ev
+      Case #PB_Event_Gadget
+        Select EventGadget()
+          Case #SP_List
+            If EventType() = #PB_EventType_LeftDoubleClick
+              selectedRow = GetGadgetState(#SP_List)
+              If selectedRow >= 0 And SelectElement(options(), selectedRow)
+                selectedAppId = options()\AppId
+                Break
+              EndIf
+            Else
+              DisableGadget(#SP_Import, Bool(GetGadgetState(#SP_List) < 0))
+            EndIf
+          Case #SP_Import
+            selectedRow = GetGadgetState(#SP_List)
+            If selectedRow >= 0 And SelectElement(options(), selectedRow)
+              selectedAppId = options()\AppId
+              Break
+            EndIf
+          Case #SP_ImportAll
+            selectedAppId = -1
+            Break
+          Case #SP_Cancel
+            Break
+        EndSelect
+
+      Case #PB_Event_CloseWindow
+        If EventWindow() = #W_SteamPick
+          Break
+        EndIf
+    EndSelect
+  ForEver
+
+  CloseWindow(#W_SteamPick)
+  If IsWindow(0)
+    DisableWindow(0, 0)
+  EndIf
+  ProcedureReturn selectedAppId
+EndProcedure
+
+Procedure ImportSingleSteamGame()
   Protected steamExe.s = FindSteamExe()
   If steamExe = ""
     MessageRequester(#APP_NAME, "Steam not found (registry).")
     ProcedureReturn
   EndIf
-  LogLine("Import Steam requested")
+  LogLine("Import single Steam game requested")
 
   Protected steamRoot.s = EnsureTrailingSlash(GetPathPart(steamExe))
   Protected NewList libs.s()
+  Protected NewList options.SteamImportOption()
+  Protected NewMap seenApp.i()
   GetSteamLibraries(steamRoot, libs())
 
   Protected lib.s, steamapps.s, file.s, appId.i, name.s, installdir.s
   Protected commonRoot.s
-  Protected added.i
+  Protected added.i, selectedAppId.i
+
   ForEach libs()
     lib = EnsureTrailingSlash(libs())
     steamapps = PathJoin(lib, "steamapps\\")
@@ -191,27 +294,16 @@ Procedure ImportSteamGames()
         If DirectoryEntryType(#DIRID_STEAM_MANIFESTS) = #PB_DirectoryEntry_File
           file = DirectoryEntryName(#DIRID_STEAM_MANIFESTS)
           appId = Val(ReplaceString(ReplaceString(file, "appmanifest_", ""), ".acf", ""))
-          If appId > 0 And GamesHasSteamApp(appId) = 0
+          If appId > 0 And GamesHasSteamApp(appId) = 0 And FindMapElement(seenApp(), Str(appId)) = 0
             name = ReadAcfField(PathJoin(steamapps, file), "name")
             installdir = ReadAcfField(PathJoin(steamapps, file), "installdir")
             If name <> "" And installdir <> ""
-              AddElement(Games())
-              Games()\Name = name
-              Games()\ExePath = ""
-              Games()\Args = ""
-              Games()\WorkDir = ""
-              Games()\Priority = #ABOVE_NORMAL_PRIORITY_CLASS
-              Games()\Affinity = 0
-              Games()\Services = ""
-              Games()\LaunchMode = 1
-              Games()\SteamAppId = appId
-              Games()\SteamExe = steamExe
-              Games()\SteamClientArgs = ""
-              Games()\SteamGameArgs = ""
-              Games()\SteamDetectTimeoutMs = ClampSteamDetectTimeout(60000)
-              commonRoot = PathJoin(lib, "steamapps\\common\\")
-              Games()\GameRoot = EnsureTrailingSlash(PathJoin(commonRoot, installdir))
-              added + 1
+              AddElement(options())
+              options()\AppId = appId
+              options()\Name = name
+              options()\InstallDir = installdir
+              options()\LibraryRoot = lib
+              seenApp(Str(appId)) = 1
             EndIf
           EndIf
         EndIf
@@ -220,10 +312,55 @@ Procedure ImportSteamGames()
     EndIf
   Next
 
-  SaveGames()
-  RefreshList()
-  MessageRequester(#APP_NAME, "Imported " + Str(added) + " Steam game(s).")
-  LogLine("Imported Steam games: " + Str(added))
+  If ListSize(options()) = 0
+    MessageRequester(#APP_NAME, "No new Steam games are available to import.")
+    ProcedureReturn
+  EndIf
+
+  selectedAppId = PickSteamGameDialog(options())
+  If selectedAppId = 0
+    ProcedureReturn
+  EndIf
+
+  ForEach options()
+    If selectedAppId = -1 Or options()\AppId = selectedAppId
+      AddElement(Games())
+      Games()\Name = options()\Name
+      Games()\ExePath = ""
+      Games()\Args = ""
+      Games()\WorkDir = ""
+      Games()\Priority = #ABOVE_NORMAL_PRIORITY_CLASS
+      Games()\Affinity = 0
+      Games()\Services = ""
+      Games()\LaunchMode = 1
+      Games()\SteamAppId = options()\AppId
+      Games()\SteamExe = steamExe
+      Games()\SteamClientArgs = ""
+      Games()\SteamGameArgs = ""
+      Games()\SteamDetectTimeoutMs = ClampSteamDetectTimeout(60000)
+      commonRoot = PathJoin(options()\LibraryRoot, "steamapps\\common\\")
+      Games()\GameRoot = EnsureTrailingSlash(PathJoin(commonRoot, options()\InstallDir))
+      added + 1
+      If name <> "" : name + ", " : EndIf
+      name + options()\Name
+      If selectedAppId <> -1
+        Break
+      EndIf
+    EndIf
+  Next
+
+  If added
+    SaveGames()
+    RefreshList()
+    If selectedAppId = -1
+      MessageRequester(#APP_NAME, "Imported " + Str(added) + " Steam game(s).")
+    Else
+      MessageRequester(#APP_NAME, "Imported Steam game: " + name)
+    EndIf
+  Else
+    MessageRequester(#APP_NAME, "That Steam game could not be imported.")
+  EndIf
+  LogLine("Imported Steam game picker count: " + Str(added) + " | Selection=" + Str(selectedAppId))
 EndProcedure
 
 Procedure.s RunPowerShellAndCapture(ps.s)

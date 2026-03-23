@@ -248,7 +248,7 @@ Procedure ImportFolderGames()
   LogLine("Folder import added=" + Str(added))
   If looksSteam
     MessageRequester(#APP_NAME, "Added " + Str(added) + " game(s) from folder." + #LF$ + #LF$ +
-                     "Note: Steam install/library detected. Steam folders are skipped here; use 'Import Steam' for Steam titles.")
+                     "Note: Steam install/library detected. Steam folders are skipped here; use 'Import Steam Game' for Steam titles.")
   Else
     MessageRequester(#APP_NAME, "Added " + Str(added) + " game(s) from folder.")
   EndIf
@@ -412,6 +412,113 @@ Procedure.i SelectGameByIndex(idx.i, *out.GameEntry)
     i + 1
   Next
   ProcedureReturn 0
+EndProcedure
+
+Procedure.i MoveGameByIndex(idx.i, direction.i)
+  Protected count.i = ListSize(Games())
+  Protected newIndex.i = idx + direction
+  Protected moved.GameEntry
+  Protected cur.GameEntry
+  Protected i.i
+  Protected NewList reordered.GameEntry()
+
+  If idx < 0 Or idx >= count
+    ProcedureReturn 0
+  EndIf
+  If direction <> -1 And direction <> 1
+    ProcedureReturn 0
+  EndIf
+  If newIndex < 0 Or newIndex >= count
+    ProcedureReturn 0
+  EndIf
+  If SelectGameByIndex(idx, @moved) = 0
+    ProcedureReturn 0
+  EndIf
+
+  For i = 0 To count - 1
+    If i = newIndex
+      AddElement(reordered())
+      reordered() = moved
+    EndIf
+    If i <> idx And SelectGameByIndex(i, @cur)
+      AddElement(reordered())
+      reordered() = cur
+    EndIf
+  Next
+
+  ClearList(Games())
+  ForEach reordered()
+    AddElement(Games())
+    Games() = reordered()
+  Next
+
+  SaveGames()
+  RefreshList()
+  ProcedureReturn 1
+EndProcedure
+
+Procedure.i MoveGameToIndex(fromIdx.i, toIdx.i)
+  Protected count.i = ListSize(Games())
+  Protected moved.GameEntry
+  Protected cur.GameEntry
+  Protected i.i
+  Protected inserted.i
+  Protected NewList reordered.GameEntry()
+
+  If fromIdx < 0 Or fromIdx >= count
+    ProcedureReturn 0
+  EndIf
+  If toIdx < 0
+    toIdx = 0
+  EndIf
+  If toIdx >= count
+    toIdx = count - 1
+  EndIf
+  If fromIdx = toIdx
+    ProcedureReturn 0
+  EndIf
+  If SelectGameByIndex(fromIdx, @moved) = 0
+    ProcedureReturn 0
+  EndIf
+
+  For i = 0 To count - 1
+    If i = toIdx
+      AddElement(reordered())
+      reordered() = moved
+      inserted = 1
+    EndIf
+    If i <> fromIdx And SelectGameByIndex(i, @cur)
+      AddElement(reordered())
+      reordered() = cur
+    EndIf
+  Next
+
+  If inserted = 0
+    AddElement(reordered())
+    reordered() = moved
+  EndIf
+
+  ClearList(Games())
+  ForEach reordered()
+    AddElement(Games())
+    Games() = reordered()
+  Next
+
+  SaveGames()
+  RefreshList()
+  ProcedureReturn 1
+EndProcedure
+
+Procedure.i ListIndexFromCursor(listGadget.i)
+  Protected ht.OC_LVHITTESTINFO
+
+  If IsGadget(listGadget) = 0
+    ProcedureReturn -1
+  EndIf
+
+  GetCursorPos_(@ht\pt)
+  ScreenToClient_(GadgetID(listGadget), @ht\pt)
+  ProcedureReturn SendMessage_(GadgetID(listGadget), #LVM_HITTEST, 0, @ht)
 EndProcedure
 
 Procedure AddGameSimple()
