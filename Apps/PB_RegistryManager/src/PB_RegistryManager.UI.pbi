@@ -7,7 +7,7 @@ Procedure CreateGUI()
   
   LogInfo("CreateGUI", "Creating main window and GUI")
   
-  window = OpenWindow(#WINDOW_MAIN, 0, 0, 1024, 768, "Registry Manager " + AppVersion + " - Editor | Cleaner | Backup | Restore | Compactor", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_MaximizeGadget | #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered)
+  window = OpenWindow(#WINDOW_MAIN, 0, 0, 1024, 768, "PB_Registry Manager " + AppVersion + " - Editor | Cleaner | Backup | Restore | Compactor | Hex Editor", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_MaximizeGadget | #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered)
   
   If window
     ; Create Address Bar (at the top)
@@ -730,18 +730,18 @@ Procedure HandleHelpMenu(menuID.i)
   Select menuID
     Case #MENU_HELP_ONLINE
       LogInfo("Main", "Opening help system")
-      helpPath = GetCurrentDirectory() + "RegistryManager_Help.html"
+      helpPath = GetCurrentDirectory() + "PB_RegistryManager_Help.html"
       If FileSize(helpPath) > 0
         RunProgram(helpPath, "", "", #PB_Program_Open)
         UpdateStatusBar("Help opened in browser")
       Else
-        MessageRequester("Help Not Found", "Help file not found: " + helpPath + #CRLF$ + #CRLF$ + "Please ensure RegistryManager_Help.html is in the same folder as RegistryManager.exe", #PB_MessageRequester_Warning)
+        MessageRequester("Help Not Found", "Help file not found: " + helpPath + #CRLF$ + #CRLF$ + "Please ensure PB_RegistryManager_Help.html is in the same folder as PB_RegistryManager.exe", #PB_MessageRequester_Warning)
         LogWarning("Main", "Help file not found: " + helpPath)
       EndIf
 
     Case #MENU_HELP_ABOUT
       LogInfo("Main", "Displaying About dialog")
-      MessageRequester("About Registry Manager", "Registry Manager " + AppVersion + #CRLF$ + #CRLF$ + "All-in-One Registry Tool with Auto-Backup" + #CRLF$ + #CRLF$ + "Features:" + #CRLF$ + "Registry Editor" + #CRLF$ + "Registry Cleaner" + #CRLF$ + "Backup & Restore" + #CRLF$ + "Registry Compactor" + #CRLF$ + "Automatic Safety Backups" + #CRLF$ + "Real-Time Registry Monitor" + #CRLF$ + "Snapshot Manager & Comparison" + #CRLF$ + #CRLF$ + "Built with PureBasic 6.30+" + #CRLF$ + #CRLF$ + "Log file: " + ErrorLogPath + #CRLF$ + "Backup directory: " + GetBackupDirectory() + #CRLF$ + "Snapshot directory: " + GetSnapshotDirectory() + #CRLF$ + "Last backup: " + AutoBackupPath + #CRLF$ + "Monitor events: " + Str(MonitorEventCount) + #CRLF$ + "Snapshots: " + Str(ListSize(Snapshots())), #PB_MessageRequester_Info)
+      MessageRequester("About PB_RegistryManager", "PB_Registry Manager " + AppVersion + #CRLF$ + #CRLF$ + "All-in-One Registry Tool with Auto-Backup" + #CRLF$ + #CRLF$ + "Features:" + #CRLF$ + "Registry Editor" + #CRLF$ + "Registry Cleaner" + #CRLF$ + "Backup & Restore" + #CRLF$ + "Registry Compactor" + #CRLF$ + "Automatic Safety Backups" + #CRLF$ + "Real-Time Registry Monitor" + #CRLF$ + "Snapshot Manager & Comparison" + #CRLF$ + #CRLF$ + "Built with PureBasic 6.30+" + #CRLF$ + #CRLF$ + "Log file: " + ErrorLogPath + #CRLF$ + "Backup directory: " + GetBackupDirectory() + #CRLF$ + "Snapshot directory: " + GetSnapshotDirectory() + #CRLF$ + "Last backup: " + AutoBackupPath + #CRLF$ + "Monitor events: " + Str(MonitorEventCount) + #CRLF$ + "Snapshots: " + Str(ListSize(Snapshots())), #PB_MessageRequester_Info)
 
   EndSelect
 EndProcedure
@@ -1183,3 +1183,10 @@ Procedure HandleSizeWindowEvent()
   EndSelect
 EndProcedure
 
+
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 732
+; FirstLine = 729
+; Folding = ----
+; EnableXP
+; DPIAware

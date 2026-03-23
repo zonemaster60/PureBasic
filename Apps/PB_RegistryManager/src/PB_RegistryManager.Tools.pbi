@@ -675,7 +675,7 @@ Procedure.s GetSnapshotDirectory()
       LogInfo("GetSnapshotDirectory", "Created snapshot directory: " + snapshotDir)
     Else
       LogError("GetSnapshotDirectory", "Failed to create snapshot directory")
-      snapshotDir = GetTemporaryDirectory() + "RegistryManager_Snapshots\"
+      snapshotDir = GetTemporaryDirectory() + "PB_RegistryManager_Snapshots\"
       CreateDirectory(snapshotDir)
     EndIf
   EndIf
@@ -1077,7 +1077,7 @@ EndProcedure
 Procedure StressThread(param.i)
   Protected ret.Registry::RegValue
   Protected i.i = 0
-  Protected keyPath.s = "Software\RegistryManager_StressTest"
+  Protected keyPath.s = "Software\PB_RegistryManager_StressTest"
   Protected wow64.i = GetRegistryWow64Flag()
   
   LogInfo("StressThread", "Starting stress test thread")
@@ -1121,3 +1121,10 @@ Procedure ToggleStressTest()
   EndIf
 EndProcedure
 
+
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 677
+; FirstLine = 674
+; Folding = -----
+; EnableXP
+; DPIAware

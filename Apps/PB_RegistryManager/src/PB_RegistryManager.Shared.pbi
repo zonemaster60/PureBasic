@@ -20,7 +20,7 @@ EndImport
 
 ;- Core Types
 
-#APP_NAME = "RegistryManager"
+#APP_NAME = "PB_RegistryManager"
 
 Structure RegKeyInfo
   Name.s
@@ -375,7 +375,7 @@ Declare.i StartBackupProcess(fileName.s, reason.s, isAuto.i, mode.s = "full", ro
 ;- Logging, App Lifecycle, and Shared Helpers
 
 Procedure.i InitErrorLog()
-  ErrorLogPath = AppPath + "RegistryManager.log"
+  ErrorLogPath = AppPath + "PB_RegistryManager.log"
   If Not LogMutex
     LogMutex = CreateMutex()
   EndIf
@@ -666,8 +666,8 @@ Procedure.i StartBackupProcess(fileName.s, reason.s, isAuto.i, mode.s = "full", 
     entryCount = ArraySize(hiveNames()) + 1
   EndIf
 
-  scriptFile = GetTemporaryDirectory() + "RegistryManager_Backup_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + ".ps1"
-  statusFile = GetTemporaryDirectory() + "RegistryManager_BackupStatus_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + ".txt"
+  scriptFile = GetTemporaryDirectory() + "PB_RegistryManager_Backup_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + ".ps1"
+  statusFile = GetTemporaryDirectory() + "PB_RegistryManager_BackupStatus_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + ".txt"
   script + "$ErrorActionPreference = 'Stop'" + #CRLF$
   script + "$status = '" + EscapePowerShellLiteral(statusFile) + "'" + #CRLF$
   script + "$entries = @(" + #CRLF$
@@ -746,7 +746,7 @@ Procedure.i ExportRegistryHives(fileName.s)
   hiveShortNames(4) = "HKCC"
 
   For i = 0 To ArraySize(hiveNames())
-    tempFile = GetTemporaryDirectory() + "RegistryManager_" + hiveShortNames(i) + "_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + "_" + Str(i) + ".reg"
+    tempFile = GetTemporaryDirectory() + "PB_RegistryManager_" + hiveShortNames(i) + "_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + "_" + Str(i) + ".reg"
     tempFiles(i) = tempFile
     If FileSize(tempFile) >= 0
       DeleteFile(tempFile)
@@ -770,7 +770,7 @@ Procedure.i ExportRegistryHives(fileName.s)
     EndIf
   Next
 
-  scriptFile = GetTemporaryDirectory() + "RegistryManager_Merge_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + ".ps1"
+  scriptFile = GetTemporaryDirectory() + "PB_RegistryManager_Merge_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + ".ps1"
   script = "$files = @(" + #CRLF$
   For i = 0 To ArraySize(tempFiles())
     script + "  '" + EscapePowerShellLiteral(tempFiles(i)) + "'"
@@ -835,7 +835,7 @@ Procedure.s GetBackupDirectory()
       LogInfo("GetBackupDirectory", "Created backup directory: " + backupDir)
     Else
       LogError("GetBackupDirectory", "Failed to create backup directory: " + backupDir)
-      backupDir = GetTemporaryDirectory() + "RegistryManager_Backups\"
+      backupDir = GetTemporaryDirectory() + "PB_RegistryManager_Backups\"
       CreateDirectory(backupDir)
     EndIf
   EndIf
@@ -897,7 +897,7 @@ Procedure.i EnsureBackupBeforeChange(operation.s)
 
   If AutoBackupPath = "" Or (ElapsedMilliseconds() - LastBackupTime) > #AUTO_BACKUP_INTERVAL
     LogInfo("EnsureBackupBeforeChange", "Creating new backup (reason: " + operation + ")")
-    result = MessageRequester("Safety Backup Required", "Registry Manager will create a full registry backup before:" + #CRLF$ + operation + #CRLF$ + #CRLF$ + "This backup can be used to restore your registry if needed." + #CRLF$ + #CRLF$ + "Continue?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
+    result = MessageRequester("Safety Backup Required", "PB_Registry Manager will create a full registry backup before:" + #CRLF$ + operation + #CRLF$ + #CRLF$ + "This backup can be used to restore your registry if needed." + #CRLF$ + #CRLF$ + "Continue?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
 
     If result = #PB_MessageRequester_Yes
       If Not CreateAutoBackup(operation)
@@ -1306,8 +1306,8 @@ Procedure HandleCustomEvent(eventID.i)
 EndProcedure
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 154
-; FirstLine = 141
+; CursorPosition = 899
+; FirstLine = 1274
 ; Folding = -----
 ; EnableXP
 ; DPIAware

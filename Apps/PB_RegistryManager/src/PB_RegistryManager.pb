@@ -8,11 +8,10 @@ XIncludeFile "Registry.pbi"
 
 EnableExplicit
 
-XIncludeFile "RegistryManager.Shared.pbi"
-
-XIncludeFile "RegistryManager.Editor.pbi"
-XIncludeFile "RegistryManager.Tools.pbi"
-XIncludeFile "RegistryManager.UI.pbi"
+XIncludeFile "PB_RegistryManager.Shared.pbi"
+XIncludeFile "PB_RegistryManager.Editor.pbi"
+XIncludeFile "PB_RegistryManager.Tools.pbi"
+XIncludeFile "PB_RegistryManager.UI.pbi"
 
 Define fileName.s, helpPath.s
 
@@ -69,25 +68,24 @@ LogInfo("Main", "Registry Manager shutting down")
 Exit()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 69
-; FirstLine = 36
+; CursorPosition = 10
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = RegistryManager.ico
-; Executable = ..\RegistryManager.exe
+; UseIcon = PB_RegistryManager.ico
+; Executable = ..\PB_RegistryManager.exe
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,1,4
 ; VersionField1 = 1,0,1,4
 ; VersionField2 = ZoneSoft
-; VersionField3 = RegistryManager
+; VersionField3 = PB_RegistryManager
 ; VersionField4 = 1.0.1.4
 ; VersionField5 = 1.0.1.4
-; VersionField6 = A full featured Registry Manager
-; VersionField7 = RegistryManager
-; VersionField8 = RegistryManager.exe
+; VersionField6 = A full featured Registry Manager built with PureBasic
+; VersionField7 = PB_RegistryManager
+; VersionField8 = PB_RegistryManager.exe
 ; VersionField9 = David Scouten
 ; VersionField13 = zonemaster60@gmail.com
 ; VersionField14 = https://github.com/zonemaster60
