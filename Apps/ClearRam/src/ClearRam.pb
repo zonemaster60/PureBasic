@@ -24,6 +24,10 @@ Global gNtdll.i, NtSetSystemInformation.ProtoNtSetSystemInformation, RtlAdjustPr
 #ICON_RED_BASE    = 102
 #ICON_YELLOW_BASE = 103
 #ICON_ACTIVE_BASE = 104
+#ICON_LIBRARY_INDEX_ACTIVE = 0
+#ICON_LIBRARY_INDEX_GREEN  = 1
+#ICON_LIBRARY_INDEX_RED    = 2
+#ICON_LIBRARY_INDEX_YELLOW = 3
 
 
 Global quitProgram      = #False
@@ -42,12 +46,13 @@ Global gTooltipOverrideText.s = ""
 
 ; Logging toggle
 Global loggingEnabled   = #True
-Global version.s = "v1.0.1.1"
+Global version.s = "v1.0.1.2"
 
 ; Memory threshold (auto-clean when available RAM <= threshold)
 Global gMemThresholdEnabled.i = #False
 Global gMemThresholdAvailMB.i = 1024
 Global gMemThresholdWasBelow.i = #False
+
 ; Logging paths + rotation
 #LOG_FILE        = "ClearRam.log"
 Global gLogPath.s = ""
@@ -61,6 +66,12 @@ Global gWorkerThread.i = 0
 Global gTrayBusy.i = #False
 Global gTrayIconReady.i = #False
 Global gTrayBaseImageForPct.i = 0
+Global gTrayYellowThresholdPct.i = 50
+Global gTrayRedThresholdPct.i = 75
+Global gTrayGreenIconHandle.i = 0
+Global gTrayRedIconHandle.i = 0
+Global gTrayYellowIconHandle.i = 0
+Global gTrayActiveIconHandle.i = 0
 
 ; Paths / config
 #INI_FILE        = "ClearRam.ini"
@@ -70,6 +81,11 @@ Global gTrayBaseImageForPct.i = 0
 Declare.i GetTotalPhysMB()
 Declare.i GetAvailPhysMB()
 Declare.i GetUsedMemPercent()
+Declare NormalizeTrayUsageThresholds()
+Declare.i LoadTrayIconHandle(iconLibraryPath.s, iconIndex.i)
+Declare.b LoadTrayIconsFromLibrary(iconLibraryPath.s)
+Declare DestroyTrayIcons()
+Declare.i GetTrayIconHandle(iconNumber.i)
 
 Procedure.b HasArg(arg$)
   Protected i
@@ -176,6 +192,8 @@ Procedure LoadSettings()
   gLogRotateKeep = 3
   gMemThresholdEnabled = #False
   gMemThresholdAvailMB = 1024
+  gTrayYellowThresholdPct = 50
+  gTrayRedThresholdPct = 75
 
   If OpenPreferences(iniFile)
     IntervalMinutes = ReadPreferenceInteger("IntervalMinutes", IntervalMinutes)
@@ -228,6 +246,9 @@ Procedure LoadSettings()
     If gMemThresholdAvailMB < 64 : gMemThresholdAvailMB = 64 : EndIf
     If totalPhysMB > 0 And gMemThresholdAvailMB > totalPhysMB : gMemThresholdAvailMB = totalPhysMB : EndIf
 
+    gTrayYellowThresholdPct = ReadPreferenceInteger("TrayYellowThresholdPct", gTrayYellowThresholdPct)
+    gTrayRedThresholdPct = ReadPreferenceInteger("TrayRedThresholdPct", gTrayRedThresholdPct)
+
     ClosePreferences()
   Else
     ; Create INI with defaults
@@ -240,9 +261,13 @@ Procedure LoadSettings()
       WritePreferenceInteger("LogRotateMaxKB", 1024)
       WritePreferenceInteger("MemThresholdEnabled", 0)
       WritePreferenceInteger("MemThresholdAvailMB", 1024)
+      WritePreferenceInteger("TrayYellowThresholdPct", gTrayYellowThresholdPct)
+      WritePreferenceInteger("TrayRedThresholdPct", gTrayRedThresholdPct)
       ClosePreferences()
     EndIf
   EndIf
+
+  NormalizeTrayUsageThresholds()
 
   IntervalMS = IntervalMinutes * 60000
 
@@ -251,7 +276,8 @@ Procedure LoadSettings()
 
    LogMessage("Loaded settings: Interval=" + Str(IntervalMinutes) + " minutes, Logging=" + Str(loggingEnabled) +
               ", Rotate=" + Str(gLogRotateEnabled) + " keep=" + Str(gLogRotateKeep) + " maxKB=" + Str(gLogRotateMaxBytes / 1024) +
-              ", MemThreshold=" + Str(gMemThresholdEnabled) + "@" + Str(gMemThresholdAvailMB) + "MB(avail)")
+              ", MemThreshold=" + Str(gMemThresholdEnabled) + "@" + Str(gMemThresholdAvailMB) + "MB(avail)" +
+              ", TrayThresholds yellow=" + Str(gTrayYellowThresholdPct) + "% red=" + Str(gTrayRedThresholdPct) + "%")
 
 EndProcedure
 
@@ -267,6 +293,8 @@ Procedure SaveSettings()
     WritePreferenceInteger("LogRotateMaxKB", gLogRotateMaxBytes / 1024)
     WritePreferenceInteger("MemThresholdEnabled", gMemThresholdEnabled)
     WritePreferenceInteger("MemThresholdAvailMB", gMemThresholdAvailMB)
+    WritePreferenceInteger("TrayYellowThresholdPct", gTrayYellowThresholdPct)
+    WritePreferenceInteger("TrayRedThresholdPct", gTrayRedThresholdPct)
     ClosePreferences()
     LogMessage("Settings saved.")
   EndIf
@@ -569,6 +597,83 @@ EndProcedure
 ; Tray helpers
 ; ---------------------------------------------------------
 
+Procedure NormalizeTrayUsageThresholds()
+  If gTrayYellowThresholdPct < 1 : gTrayYellowThresholdPct = 1 : EndIf
+  If gTrayYellowThresholdPct > 99 : gTrayYellowThresholdPct = 99 : EndIf
+  If gTrayRedThresholdPct < 2 : gTrayRedThresholdPct = 2 : EndIf
+  If gTrayRedThresholdPct > 100 : gTrayRedThresholdPct = 100 : EndIf
+
+  If gTrayRedThresholdPct <= gTrayYellowThresholdPct
+    gTrayRedThresholdPct = gTrayYellowThresholdPct + 1
+    If gTrayRedThresholdPct > 100
+      gTrayRedThresholdPct = 100
+      gTrayYellowThresholdPct = 99
+    EndIf
+  EndIf
+EndProcedure
+
+Procedure.i LoadTrayIconHandle(iconLibraryPath.s, iconIndex.i)
+  Protected smallIcon.i
+
+  If ExtractIconEx_(iconLibraryPath, iconIndex, 0, @smallIcon, 1) <> 1
+    ProcedureReturn 0
+  EndIf
+
+  ProcedureReturn smallIcon
+EndProcedure
+
+Procedure DestroyTrayIcons()
+  If gTrayGreenIconHandle
+    DestroyIcon_(gTrayGreenIconHandle)
+    gTrayGreenIconHandle = 0
+  EndIf
+  If gTrayRedIconHandle
+    DestroyIcon_(gTrayRedIconHandle)
+    gTrayRedIconHandle = 0
+  EndIf
+  If gTrayYellowIconHandle
+    DestroyIcon_(gTrayYellowIconHandle)
+    gTrayYellowIconHandle = 0
+  EndIf
+  If gTrayActiveIconHandle
+    DestroyIcon_(gTrayActiveIconHandle)
+    gTrayActiveIconHandle = 0
+  EndIf
+EndProcedure
+
+Procedure.b LoadTrayIconsFromLibrary(iconLibraryPath.s)
+  DestroyTrayIcons()
+
+  If FileSize(iconLibraryPath) < 0
+    ProcedureReturn #False
+  EndIf
+
+  gTrayActiveIconHandle = LoadTrayIconHandle(iconLibraryPath, #ICON_LIBRARY_INDEX_ACTIVE)
+  gTrayRedIconHandle = LoadTrayIconHandle(iconLibraryPath, #ICON_LIBRARY_INDEX_RED)
+  gTrayGreenIconHandle = LoadTrayIconHandle(iconLibraryPath, #ICON_LIBRARY_INDEX_GREEN)
+  gTrayYellowIconHandle = LoadTrayIconHandle(iconLibraryPath, #ICON_LIBRARY_INDEX_YELLOW)
+
+  If gTrayActiveIconHandle = 0 Or gTrayRedIconHandle = 0 Or gTrayGreenIconHandle = 0 Or gTrayYellowIconHandle = 0
+    DestroyTrayIcons()
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure.i GetTrayIconHandle(iconNumber.i)
+  Select iconNumber
+    Case #ICON_RED_BASE
+      ProcedureReturn gTrayRedIconHandle
+    Case #ICON_YELLOW_BASE
+      ProcedureReturn gTrayYellowIconHandle
+    Case #ICON_ACTIVE_BASE
+      ProcedureReturn gTrayActiveIconHandle
+    Default
+      ProcedureReturn gTrayGreenIconHandle
+  EndSelect
+EndProcedure
+
 ; Exit procedure
 Procedure Exit()
   Protected Req.i
@@ -597,18 +702,7 @@ Procedure Exit()
     RemoveWindowTimer(0, 2)
     RemoveSysTrayIcon(#TRAY_ICON)
     FreeMenu(#TRAY_MENU)
-    If IsImage(#ICON_GREEN_BASE)
-      FreeImage(#ICON_GREEN_BASE)
-    EndIf
-    If IsImage(#ICON_RED_BASE)
-      FreeImage(#ICON_RED_BASE)
-    EndIf
-    If IsImage(#ICON_YELLOW_BASE)
-      FreeImage(#ICON_YELLOW_BASE)
-    EndIf
-    If IsImage(#ICON_ACTIVE_BASE)
-      FreeImage(#ICON_ACTIVE_BASE)
-    EndIf
+    DestroyTrayIcons()
 
     If IsLibrary(gNtdll)
       CloseLibrary(gNtdll)
@@ -676,11 +770,11 @@ EndProcedure
 Procedure.i GetTrayBaseImageForUsage(usedPct.i)
   usedPct = ClampPercent(usedPct)
 
-  If usedPct >= 75
+  If usedPct >= gTrayRedThresholdPct
     ProcedureReturn #ICON_RED_BASE
   EndIf
 
-  If usedPct >= 50
+  If usedPct >= gTrayYellowThresholdPct
     ProcedureReturn #ICON_YELLOW_BASE
   EndIf
 
@@ -697,7 +791,7 @@ Procedure UpdateTrayIconVisual(usedPct.i, force.i)
   gTrayBaseImageForPct = nextImage
 
   If gTrayIconReady
-    ChangeSysTrayIcon(#TRAY_ICON, ImageID(GetCurrentTrayImageNumber()))
+    ChangeSysTrayIcon(#TRAY_ICON, GetTrayIconHandle(GetCurrentTrayImageNumber()))
   EndIf
 EndProcedure
 
@@ -990,13 +1084,14 @@ Procedure ReloadSettingsFromFile()
   gMemThresholdWasBelow = Bool(gMemThresholdEnabled And GetAvailPhysMB() <= gMemThresholdAvailMB)
   UpdateStartupMenuLabel()
   UpdateLogMenuLabel()
+  UpdateTrayIconVisual(GetUsedMemPercent(), #True)
   MessageRequester("Settings Reloaded", "Settings have been reloaded from " + #INI_FILE, #PB_MessageRequester_Info)
   LogMessage("Settings manually reloaded from INI file")
 EndProcedure
 
 Procedure EditSettings()
   Protected w = 350
-  Protected h = 260
+  Protected h = 320
   Protected win = OpenWindow(#PB_Any, 0, 0, w, h, "Edit Settings", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
   If win = 0 : ProcedureReturn : EndIf
 
@@ -1019,6 +1114,14 @@ Procedure EditSettings()
   ly + 30
   TextGadget(#PB_Any, 15, ly, 150, 20, "Rotate Max KB:")
   Protected gadRotMax = StringGadget(#PB_Any, 170, ly, 150, 20, Str(gLogRotateMaxBytes / 1024), #PB_String_Numeric)
+
+  ly + 30
+  TextGadget(#PB_Any, 15, ly, 150, 20, "Yellow At Used %:")
+  Protected gadTrayYellow = StringGadget(#PB_Any, 170, ly, 150, 20, Str(gTrayYellowThresholdPct), #PB_String_Numeric)
+
+  ly + 30
+  TextGadget(#PB_Any, 15, ly, 150, 20, "Red At Used %:")
+  Protected gadTrayRed = StringGadget(#PB_Any, 170, ly, 150, 20, Str(gTrayRedThresholdPct), #PB_String_Numeric)
 
   ly + 50
   Protected gadOk = ButtonGadget(#PB_Any, w - 180, h - 40, 80, 25, "OK")
@@ -1062,9 +1165,19 @@ Procedure EditSettings()
           changed = #True
         EndIf
 
+        Protected oldTrayYellow.i = gTrayYellowThresholdPct
+        Protected oldTrayRed.i = gTrayRedThresholdPct
+        gTrayYellowThresholdPct = Val(GetGadgetText(gadTrayYellow))
+        gTrayRedThresholdPct = Val(GetGadgetText(gadTrayRed))
+        NormalizeTrayUsageThresholds()
+        If gTrayYellowThresholdPct <> oldTrayYellow Or gTrayRedThresholdPct <> oldTrayRed
+          changed = #True
+        EndIf
+
         If changed
           SaveSettings()
           UpdateLogMenuLabel()
+          UpdateTrayIconVisual(GetUsedMemPercent(), #True)
           LogMessage("Settings updated via dialog")
         EndIf
         done = #True
@@ -1138,31 +1251,10 @@ LogMessage(#APP_NAME + " starting up...")
 
 
 ; load the icons
-Global IconYellowPath.s   = AppPath + "files\CRL-Yellow.ico"
-Global IconGreenPath.s  = AppPath + "files\CRL-Green.ico"
-Global IconRedPath.s    = AppPath + "files\CRL-Red.ico"
-Global IconActivePath.s = AppPath + "files\CRL-Blue.ico"
+Global IconLibraryPath.s = AppPath + "files\ClearRam.icl"
 
-If LoadImage(#ICON_YELLOW_BASE, IconYellowPath) = 0
-  MessageRequester("Error", "Failed to load tray icon at: " + IconYellowPath, #PB_MessageRequester_Error)
-  CloseHandle_(hMutex)
-  End
-EndIf
-
-If LoadImage(#ICON_GREEN_BASE, IconGreenPath) = 0
-  MessageRequester("Error", "Failed to load tray icon at: " + IconGreenPath, #PB_MessageRequester_Error)
-  CloseHandle_(hMutex)
-  End
-EndIf
-
-If LoadImage(#ICON_RED_BASE, IconRedPath) = 0
-  MessageRequester("Error", "Failed to load tray icon at: " + IconRedPath, #PB_MessageRequester_Error)
-  CloseHandle_(hMutex)
-  End
-EndIf
-
-If LoadImage(#ICON_ACTIVE_BASE, IconActivePath) = 0
-  MessageRequester("Error", "Failed to load active icon at: " + IconActivePath, #PB_MessageRequester_Error)
+If LoadTrayIconsFromLibrary(IconLibraryPath) = 0
+  MessageRequester("Error", "Failed to load tray icons from: " + IconLibraryPath, #PB_MessageRequester_Error)
   CloseHandle_(hMutex)
   End
 EndIf
@@ -1176,7 +1268,7 @@ OpenWindow(0, 0, 0, 10, 10, #APP_NAME, #PB_Window_Invisible)
 AddWindowTimer(0, 2, 1000)
 
 ; Tray icon
-AddSysTrayIcon(#TRAY_ICON, WindowID(0), ImageID(GetCurrentTrayImageNumber()))
+AddSysTrayIcon(#TRAY_ICON, WindowID(0), GetTrayIconHandle(GetCurrentTrayImageNumber()))
 gTrayIconReady = #True
 UpdateTrayTooltip("Idle")
 
@@ -1309,24 +1401,24 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 622
-; FirstLine = 783
-; Folding = --------
+; CursorPosition = 48
+; FirstLine = 27
+; Folding = ---------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = ..\files\CRL-Blue.ico
+; UseIcon = ..\files\ClearRam.ico
 ; Executable = ..\ClearRam.exe
 ; DisableDebugger
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,1
-; VersionField1 = 1,0,1,1
+; VersionField0 = 1,0,1,2
+; VersionField1 = 1,0,1,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = ClearRam
-; VersionField4 = 1.0.1.1
-; VersionField5 = 1.0.1.1
+; VersionField4 = 1.0.1.2
+; VersionField5 = 1.0.1.2
 ; VersionField6 = Clears RAM using native Windows APIs
 ; VersionField7 = ClearRam
 ; VersionField8 = ClearRam.exe
