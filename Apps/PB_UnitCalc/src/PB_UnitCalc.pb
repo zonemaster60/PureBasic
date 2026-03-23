@@ -3,7 +3,7 @@
 
 EnableExplicit
 
-#APP_NAME = "UnitCalc"
+#APP_NAME = "PB_UnitCalc"
 #SYSTEM_ENGLISH = 0
 #SYSTEM_METRIC = 1
 
@@ -903,15 +903,14 @@ CloseConsole()
 End
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 9
+; CursorPosition = 5
 ; Folding = -------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
-; DPIAware
-; UseIcon = UnitCalc.ico
-; Executable = ..\UnitCalc.exe
+; UseIcon = PB_UnitCalc.ico
+; Executable = ..\PB_UnitCalc.exe
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,2
 ; VersionField1 = 1,0,0,2
