@@ -1,24 +1,33 @@
 ; PureBasic 6.30 x64 - Safe Game Booster (MVP)
 ; - Launch EXE directly or via Steam
 ; - Set priority + optional affinity
-; - Always switch to High performance while boosting and restore after
+; - Per-game power mode with automatic restore after launch
 
 EnableExplicit
 
-#APP_NAME = "SafeGameBooster"
+#APP_NAME = "MyGameBooster"
 #APP_MUTEX_NAME = #APP_NAME + "_mutex"
 
-Global DataDir.s, GamesIni.s, SessionIni.s
+Global DataDir.s, GamesIni.s, SessionIni.s, SettingsIni.s, ArtworkDir.s
 DataDir = GetPathPart(ProgramFilename())
-GamesIni = DataDir + "games.ini"
-SessionIni = DataDir + "session.ini"
+GamesIni = DataDir + #APP_NAME + "_games.ini"
+SessionIni = DataDir + #APP_NAME + "_session.ini"
+SettingsIni = DataDir + #APP_NAME + "_settings.ini"
+ArtworkDir = DataDir + "artwork\\"
 Global LogPath.s
 LogPath = DataDir + #APP_NAME + ".log"
 
 Global FontUI.i, FontTitle.i, FontSmall.i
 Global MainStatusBar.i
-Global version.s = "v1.0.0.5"
+Global version.s = "v1.0.0.6"
 Global BrowseExePath.s, BeforeCount.i, LaunchUiPulse.i
+Global LaunchStartedAt.q
+Global FilterQuery.s, SortMode.i, LibraryView.i
+Global DefaultPreset.i
+Global ThumbnailSize.i = 18
+Global RememberLastView.i = 1
+Global HistoryDepth.i = 10
+Global UndoLabel.s, RedoLabel.s
 
 Global hMutex.i
 
@@ -40,6 +49,7 @@ EndProcedure
 ; ---------- Windows constants ----------
 
 #NORMAL_PRIORITY_CLASS      = $00000020
+#BELOW_NORMAL_PRIORITY_CLASS= $00004000
 #ABOVE_NORMAL_PRIORITY_CLASS= $00008000
 #HIGH_PRIORITY_CLASS        = $00000080
 
@@ -57,6 +67,32 @@ CompilerEndIf
 #KEY_READ           = $20019
 #REG_SZ             = 1
 #REG_EXPAND_SZ      = 2
+
+#POWERMODE_KEEP     = 0
+#POWERMODE_HIGH     = 1
+#POWERMODE_ULTIMATE = 2
+
+#PRESET_SAFE       = 0
+#PRESET_BALANCED   = 1
+#PRESET_AGGRESSIVE = 2
+
+#SORT_NAME_ASC      = 0
+#SORT_LAST_PLAYED   = 1
+#SORT_RUNS_DESC     = 2
+
+#LIBRARY_ALL        = 0
+#LIBRARY_STEAM      = 1
+#LIBRARY_EXE        = 2
+#LIBRARY_RECENT     = 3
+#LIBRARY_MOSTPLAYED = 4
+#LIBRARY_TAGGED     = 5
+
+DefaultPreset = #PRESET_BALANCED
+
+#POWER_GUID_HIGH     = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
+#POWER_GUID_ULTIMATE = "e9a42b02-d5df-448d-aa00-03f14749eb61"
+#POWER_GUID_BALANCED = "381b4222-f694-41f0-9685-ff5bb260df2e"
+#POWER_GUID_SAVER    = "a1841308-3541-4fab-bc81-f71556f20b4a"
 
 #DIRID_STEAM_MANIFESTS = 1
 #DIRID_FOLDER_SCAN_ROOT = 2
@@ -87,14 +123,40 @@ Structure GameEntry
   SteamGameArgs.s
   SteamDetectTimeoutMs.i
   GameRoot.s
+  Preset.i
+  PowerMode.i
+  OptimizeBackground.i
+  Notes.s
+  Tags.s
+  LaunchCount.i
+  LastPlayed.q
+  LastDurationSec.i
 EndStructure
 
 Structure OC_TOKEN_ELEVATION
   TokenIsElevated.l
 EndStructure
 
+Structure OC_FILETIME
+  dwLowDateTime.l
+  dwHighDateTime.l
+EndStructure
+
+Structure OC_MEMORYSTATUSEX
+  dwLength.l
+  dwMemoryLoad.l
+  ullTotalPhys.q
+  ullAvailPhys.q
+  ullTotalPageFile.q
+  ullAvailPageFile.q
+  ullTotalVirtual.q
+  ullAvailVirtual.q
+  ullAvailExtendedVirtual.q
+EndStructure
+
 Structure BoostSessionContext
   PrevPowerGuid.s
+  AppliedPowerGuid.s
   DidSwitchPower.i
   StoppedServices.s
 EndStructure
@@ -104,6 +166,14 @@ Structure ServiceInfo
   DisplayName.s
   Status.s
   StartType.s
+EndStructure
+
+Structure GameViewRow
+  SourceIndex.i
+  Name.s
+  LaunchCount.i
+  LastPlayed.q
+  ItemText.s
 EndStructure
 
 Structure OC_PROCESSENTRY32
@@ -155,6 +225,15 @@ Global LaunchGotAffinity.i
 Global DragGameIndex.i = -1
 Global LaunchGameRoot.s
 Global NewMap LaunchBaseline.i()
+Global NewMap LaunchTunedPriority.l()
+Global NewMap LaunchTunedName.s()
+Global NewList VisibleGameIndex.i()
+Global NewMap GameThumbnail.i()
+Global NewList UndoStates.s()
+Global NewList UndoLabels.s()
+Global NewList RedoStates.s()
+Global NewList RedoLabels.s()
+Global NewList HistoryActions.s()
 
 Enumeration Gadgets
   #G_List
@@ -164,6 +243,9 @@ Enumeration Gadgets
   #G_Tool_BrowseExe
   #G_Tool_AddFolder
   #G_Tool_ImportSteamGame
+  #G_Library
+  #G_Filter
+  #G_Sort
   #G_LaunchState
   #G_CancelWait
   #G_OpenFolder
@@ -183,6 +265,12 @@ Enumeration MenuItems
   #MI_File_BrowseExe
   #MI_File_AddFolder
   #MI_File_ImportSteamGame
+  #MI_File_ImportProfiles
+  #MI_File_ExportProfiles
+  #MI_File_CreateSnapshot
+  #MI_File_RestoreSnapshot
+  #MI_File_Undo
+  #MI_File_Redo
   #MI_File_Exit
   #MI_Game_Run
   #MI_Game_Edit
@@ -191,25 +279,30 @@ Enumeration MenuItems
   #MI_Game_Remove
   #MI_Game_OpenFolder
   #MI_Tools_ViewLog
+  #MI_Tools_Diagnostics
+  #MI_Tools_History
+  #MI_Tools_Settings
   #MI_Help_Help
   #MI_Help_About
 EndEnumeration
 
-XIncludeFile "SafeGameBooster.Declarations.pbi"
-XIncludeFile "SafeGameBooster.Core.pbi"
-XIncludeFile "SafeGameBooster.SteamServices.pbi"
-XIncludeFile "SafeGameBooster.Games.pbi"
-XIncludeFile "SafeGameBooster.App.pbi"
+XIncludeFile "MyGameBooster.Declarations.pbi"
+XIncludeFile "MyGameBooster.Core.pbi"
+XIncludeFile "MyGameBooster.SteamServices.pbi"
+XIncludeFile "MyGameBooster.Games.pbi"
+XIncludeFile "MyGameBooster.App.pbi"
 
 EnsureElevatedOrRelaunch()
 AcquireSingleInstanceMutex()
 RestoreIfDirtySession()
+LoadSettings()
 LoadGames()
 InitFonts()
 RunApplication()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 19
+; CursorPosition = 14
+; FirstLine = 2
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -217,18 +310,18 @@ RunApplication()
 ; EnableAdmin
 ; DPIAware
 ; DllProtection
-; UseIcon = SafeGameBooster.ico
-; Executable = ..\SafeGameBooster.exe
+; UseIcon = MyGameBooster.ico
+; Executable = ..\MyGameBooster.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,5
-; VersionField1 = 1,0,0,5
+; VersionField0 = 1,0,0,6
+; VersionField1 = 1,0,0,6
 ; VersionField2 = ZoneSoft
-; VersionField3 = SafeGameBooster
-; VersionField4 = 1.0.0.5
-; VersionField5 = 1.0.0.5
-; VersionField6 = A Safe Game Booster made with PureBasic
-; VersionField7 = SafeGameBooster
-; VersionField8 = SafeGameBooster.exe
+; VersionField3 = MyGameBooster
+; VersionField4 = 1.0.0.6
+; VersionField5 = 1.0.0.6
+; VersionField6 = A Game Booster for boosting your games
+; VersionField7 = MyGameBooster
+; VersionField8 = MyGameBooster.exe
 ; VersionField9 = David Scouten
 ; VersionField13 = zonemaster60@gmail.com
 ; VersionField14 = https://github.com/zonemaster60

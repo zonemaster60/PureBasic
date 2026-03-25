@@ -340,6 +340,12 @@ Procedure ImportSingleSteamGame()
       Games()\SteamDetectTimeoutMs = ClampSteamDetectTimeout(60000)
       commonRoot = PathJoin(options()\LibraryRoot, "steamapps\\common\\")
       Games()\GameRoot = EnsureTrailingSlash(PathJoin(commonRoot, options()\InstallDir))
+      ApplyPresetDefaults(@Games(), DefaultPreset)
+      Games()\Notes = ""
+      Games()\Tags = "steam"
+      Games()\LaunchCount = 0
+      Games()\LastPlayed = 0
+      Games()\LastDurationSec = 0
       added + 1
       If name <> "" : name + ", " : EndIf
       name + options()\Name
@@ -933,28 +939,189 @@ Procedure.l ChoiceToPriority(choice.i)
   ProcedureReturn #ABOVE_NORMAL_PRIORITY_CLASS
 EndProcedure
 
+Procedure.i OpenEditGameDialog(*cur.GameEntry, *autoRun.Integer)
+  Enumeration _EditWindows 5000
+    #W_EditGame
+  EndEnumeration
+  Enumeration _EditGadgets 5100
+    #E_Name
+    #E_Mode
+    #E_Path
+    #E_GameArgs
+    #E_SteamArgs
+    #E_Timeout
+    #E_Priority
+    #E_Preset
+    #E_PowerMode
+    #E_Background
+    #E_Tags
+    #E_Notes
+    #E_Services
+    #E_AutoRun
+    #E_Save
+    #E_Cancel
+  EndEnumeration
+
+  Protected w.i, ev.i
+  Protected saved.i
+  Protected modeLabel.s
+
+  w = OpenWindow(#W_EditGame, 0, 0, 640, 520, "Edit Game", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  If w = 0
+    ProcedureReturn 0
+  EndIf
+
+  If IsWindow(0)
+    DisableWindow(0, 1)
+  EndIf
+
+  TextGadget(#PB_Any, 16, 16, 110, 20, "Game name")
+  StringGadget(#E_Name, 140, 12, 480, 24, *cur\Name)
+  TextGadget(#PB_Any, 16, 48, 110, 20, "Launch type")
+  modeLabel = "EXE"
+  If *cur\LaunchMode = 1 : modeLabel = "Steam" : EndIf
+  StringGadget(#E_Mode, 140, 44, 160, 24, modeLabel, #PB_String_ReadOnly)
+  TextGadget(#PB_Any, 16, 80, 110, 20, "Path / App")
+  If *cur\LaunchMode = 1
+    StringGadget(#E_Path, 140, 76, 480, 24, "AppID " + Str(*cur\SteamAppId) + " | " + *cur\SteamExe, #PB_String_ReadOnly)
+  Else
+    StringGadget(#E_Path, 140, 76, 480, 24, *cur\ExePath, #PB_String_ReadOnly)
+  EndIf
+  TextGadget(#PB_Any, 16, 112, 110, 20, "Game args")
+  If *cur\LaunchMode = 1
+    StringGadget(#E_GameArgs, 140, 108, 480, 24, *cur\SteamGameArgs)
+  Else
+    StringGadget(#E_GameArgs, 140, 108, 480, 24, *cur\Args)
+  EndIf
+  TextGadget(#PB_Any, 16, 144, 110, 20, "Steam args")
+  StringGadget(#E_SteamArgs, 140, 140, 480, 24, *cur\SteamClientArgs)
+  DisableGadget(#E_SteamArgs, Bool(*cur\LaunchMode = 0))
+  TextGadget(#PB_Any, 16, 176, 110, 20, "Detect timeout")
+  StringGadget(#E_Timeout, 140, 172, 120, 24, Str(*cur\SteamDetectTimeoutMs))
+  DisableGadget(#E_Timeout, Bool(*cur\LaunchMode = 0))
+
+  TextGadget(#PB_Any, 16, 208, 110, 20, "Priority")
+  ComboBoxGadget(#E_Priority, 140, 204, 180, 24)
+  AddGadgetItem(#E_Priority, -1, "Don't change")
+  AddGadgetItem(#E_Priority, -1, "Normal")
+  AddGadgetItem(#E_Priority, -1, "Above normal")
+  AddGadgetItem(#E_Priority, -1, "High")
+  SetGadgetState(#E_Priority, PriorityToChoice(*cur\Priority))
+
+  TextGadget(#PB_Any, 336, 176, 110, 20, "Preset")
+  ComboBoxGadget(#E_Preset, 440, 172, 180, 24)
+  AddGadgetItem(#E_Preset, -1, "Safe")
+  AddGadgetItem(#E_Preset, -1, "Balanced")
+  AddGadgetItem(#E_Preset, -1, "Aggressive")
+  SetGadgetState(#E_Preset, *cur\Preset)
+
+  TextGadget(#PB_Any, 336, 208, 110, 20, "Power mode")
+  ComboBoxGadget(#E_PowerMode, 440, 204, 180, 24)
+  AddGadgetItem(#E_PowerMode, -1, "Keep current")
+  AddGadgetItem(#E_PowerMode, -1, "High performance")
+  AddGadgetItem(#E_PowerMode, -1, "Ultimate Performance")
+  SetGadgetState(#E_PowerMode, *cur\PowerMode)
+
+  CheckBoxGadget(#E_Background, 140, 240, 250, 22, "Deprioritize safe background processes")
+  SetGadgetState(#E_Background, Bool(*cur\OptimizeBackground))
+
+  TextGadget(#PB_Any, 16, 274, 110, 20, "Tags")
+  StringGadget(#E_Tags, 140, 270, 480, 24, *cur\Tags)
+  TextGadget(#PB_Any, 16, 306, 110, 20, "Notes")
+  EditorGadget(#E_Notes, 140, 302, 480, 84)
+  SetGadgetText(#E_Notes, *cur\Notes)
+
+  ButtonGadget(#E_Services, 140, 398, 180, 30, "Pick Services...")
+  CheckBoxGadget(#E_AutoRun, 140, 438, 220, 22, "Auto-run game after save")
+  If *autoRun
+    SetGadgetState(#E_AutoRun, Bool(*autoRun\i))
+  EndIf
+
+  ButtonGadget(#E_Save, 430, 472, 90, 32, "Save")
+  ButtonGadget(#E_Cancel, 530, 472, 90, 32, "Cancel")
+
+  If FontUI
+    SetWindowTitle(#W_EditGame, "Edit Game")
+    SetGadgetFont(#E_Name, FontID(FontUI))
+    SetGadgetFont(#E_Mode, FontID(FontUI))
+    SetGadgetFont(#E_Path, FontID(FontUI))
+    SetGadgetFont(#E_GameArgs, FontID(FontUI))
+    SetGadgetFont(#E_SteamArgs, FontID(FontUI))
+    SetGadgetFont(#E_Timeout, FontID(FontUI))
+    SetGadgetFont(#E_Priority, FontID(FontUI))
+    SetGadgetFont(#E_Preset, FontID(FontUI))
+    SetGadgetFont(#E_PowerMode, FontID(FontUI))
+    SetGadgetFont(#E_Background, FontID(FontUI))
+    SetGadgetFont(#E_Tags, FontID(FontUI))
+    SetGadgetFont(#E_Notes, FontID(FontUI))
+    SetGadgetFont(#E_Services, FontID(FontUI))
+    SetGadgetFont(#E_AutoRun, FontID(FontUI))
+    SetGadgetFont(#E_Save, FontID(FontUI))
+    SetGadgetFont(#E_Cancel, FontID(FontUI))
+  EndIf
+
+  Repeat
+    ev = WaitWindowEvent()
+    Select ev
+      Case #PB_Event_Gadget
+        Select EventGadget()
+          Case #E_Services
+            *cur\Services = ServicesPickDialog(*cur\Services, *autoRun)
+            If *autoRun
+              SetGadgetState(#E_AutoRun, Bool(*autoRun\i))
+            EndIf
+          Case #E_Preset
+            ApplyPresetDefaults(*cur, GetGadgetState(#E_Preset))
+            SetGadgetState(#E_Priority, PriorityToChoice(*cur\Priority))
+            SetGadgetState(#E_PowerMode, *cur\PowerMode)
+            SetGadgetState(#E_Background, Bool(*cur\OptimizeBackground))
+          Case #E_Save
+            *cur\Name = Trim(GetGadgetText(#E_Name))
+            If *cur\Name = ""
+              MessageRequester(#APP_NAME, "Game name is required.")
+              Continue
+            EndIf
+            If *cur\LaunchMode = 1
+              *cur\SteamGameArgs = GetGadgetText(#E_GameArgs)
+              *cur\SteamClientArgs = GetGadgetText(#E_SteamArgs)
+              *cur\SteamDetectTimeoutMs = ClampSteamDetectTimeout(Val(GetGadgetText(#E_Timeout)))
+            Else
+              *cur\Args = GetGadgetText(#E_GameArgs)
+            EndIf
+            *cur\Preset = GetGadgetState(#E_Preset)
+            *cur\Priority = ChoiceToPriority(GetGadgetState(#E_Priority))
+            *cur\PowerMode = GetGadgetState(#E_PowerMode)
+            *cur\OptimizeBackground = Bool(GetGadgetState(#E_Background))
+            *cur\Tags = Trim(GetGadgetText(#E_Tags))
+            *cur\Notes = GetGadgetText(#E_Notes)
+            If *autoRun
+              *autoRun\i = GetGadgetState(#E_AutoRun)
+            EndIf
+            saved = 1
+            Break
+          Case #E_Cancel
+            Break
+        EndSelect
+
+      Case #PB_Event_CloseWindow
+        Break
+    EndSelect
+  ForEver
+
+  CloseWindow(#W_EditGame)
+  If IsWindow(0)
+    DisableWindow(0, 0)
+  EndIf
+  ProcedureReturn saved
+EndProcedure
+
 Procedure.i EditGameByIndex(idx.i, listGadget.i)
   Protected cur.GameEntry
   If SelectGameByIndex(idx, @cur) = 0 : ProcedureReturn 0 : EndIf
   Protected autoRun.i
-  Protected newName.s = InputRequester(#APP_NAME, "Game name:", cur\Name)
-  If newName = "" : ProcedureReturn 0 : EndIf
-  cur\Name = newName
-
-  If cur\LaunchMode = 0
-    cur\Args = InputRequester(#APP_NAME, "Launch arguments (optional):", cur\Args)
-  Else
-    cur\SteamGameArgs = InputRequester(#APP_NAME, "Game launch arguments (Steam - optional):", cur\SteamGameArgs)
-    cur\SteamClientArgs = InputRequester(#APP_NAME, "Steam client arguments (optional):", cur\SteamClientArgs)
-    cur\SteamDetectTimeoutMs = ClampSteamDetectTimeout(Val(InputRequester(#APP_NAME, "Steam game detect timeout (ms):", Str(cur\SteamDetectTimeoutMs))))
+  If OpenEditGameDialog(@cur, @autoRun) = 0
+    ProcedureReturn 0
   EndIf
-
-  Protected pChoice.i = PriorityToChoice(cur\Priority)
-  pChoice = Val(InputRequester(#APP_NAME, "Priority (0=Don't change, 1=Normal, 2=Above normal, 3=High):", Str(pChoice)))
-  If pChoice < 0 : pChoice = 0 : EndIf
-  If pChoice > 3 : pChoice = 3 : EndIf
-  cur\Priority = ChoiceToPriority(pChoice)
-  cur\Services = ServicesPickDialog(cur\Services, @autoRun)
 
   Protected i.i = 0
   ForEach Games()
@@ -962,6 +1129,7 @@ Procedure.i EditGameByIndex(idx.i, listGadget.i)
       Games() = cur
       SaveGames()
       RefreshList()
+      idx = VisibleIndexFromGameIndex(i)
       If idx >= 0 And idx < CountGadgetItems(listGadget)
         SetGadgetState(listGadget, idx)
         SetGadgetItemState(listGadget, idx, #PB_ListIcon_Selected)

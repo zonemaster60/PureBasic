@@ -36,6 +36,12 @@ Procedure AddExeEntry(exePath.s)
   ge\SteamGameArgs = ""
   ge\SteamDetectTimeoutMs = ClampSteamDetectTimeout(60000)
   ge\GameRoot = ""
+  ApplyPresetDefaults(@ge, DefaultPreset)
+  ge\Notes = ""
+  ge\Tags = "manual"
+  ge\LaunchCount = 0
+  ge\LastPlayed = 0
+  ge\LastDurationSec = 0
 
   AddElement(Games())
   Games() = ge
@@ -330,22 +336,37 @@ Procedure LoadGames()
       g\LaunchMode = ReadPreferenceInteger("launchMode", 0)
       g\SteamAppId  = ReadPreferenceInteger("steamAppId", 0)
       g\SteamExe    = ReadPreferenceString("steamExe", "")
-      g\SteamClientArgs = ReadPreferenceString("steamClientArgs", "")
-      g\SteamGameArgs   = ReadPreferenceString("steamGameArgs", "")
-      g\SteamDetectTimeoutMs = ReadPreferenceInteger("steamTimeoutMs", 60000)
-      g\GameRoot    = ReadPreferenceString("gameRoot", "")
-      If g\LaunchMode <> 1
-        g\LaunchMode = 0
-        g\SteamAppId = 0
+       g\SteamClientArgs = ReadPreferenceString("steamClientArgs", "")
+       g\SteamGameArgs   = ReadPreferenceString("steamGameArgs", "")
+       g\SteamDetectTimeoutMs = ReadPreferenceInteger("steamTimeoutMs", 60000)
+       g\GameRoot    = ReadPreferenceString("gameRoot", "")
+       g\Preset      = ReadPreferenceInteger("preset", #PRESET_BALANCED)
+       g\PowerMode   = ReadPreferenceInteger("powerMode", #POWERMODE_HIGH)
+       g\OptimizeBackground = ReadPreferenceInteger("optimizeBackground", 1)
+       g\Notes = ReadPreferenceString("notes", "")
+       g\Tags = ReadPreferenceString("tags", "")
+       g\LaunchCount = ReadPreferenceInteger("launchCount", 0)
+       g\LastPlayed  = ReadPreferenceQuad("lastPlayed", 0)
+       g\LastDurationSec = ReadPreferenceInteger("lastDurationSec", 0)
+       If g\LaunchMode <> 1
+         g\LaunchMode = 0
+         g\SteamAppId = 0
         g\SteamExe = ""
         g\SteamClientArgs = ""
-        g\SteamGameArgs = ""
-        g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(60000)
-        g\GameRoot = ""
-      EndIf
-      If g\LaunchMode = 1
-        g\GameRoot = ""
-        g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(g\SteamDetectTimeoutMs)
+         g\SteamGameArgs = ""
+         g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(60000)
+         g\GameRoot = ""
+       EndIf
+       If g\Preset < #PRESET_SAFE Or g\Preset > #PRESET_AGGRESSIVE
+         g\Preset = #PRESET_BALANCED
+       EndIf
+       If g\PowerMode < #POWERMODE_KEEP Or g\PowerMode > #POWERMODE_ULTIMATE
+         g\PowerMode = #POWERMODE_HIGH
+       EndIf
+       g\OptimizeBackground = Bool(g\OptimizeBackground)
+       If g\LaunchMode = 1
+         g\GameRoot = ""
+         g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(g\SteamDetectTimeoutMs)
       EndIf
       If g\Name <> "" And g\ExePath <> ""
         AddElement(Games())
@@ -379,13 +400,21 @@ Procedure SaveGames()
       WritePreferenceInteger("launchMode", Games()\LaunchMode)
       WritePreferenceInteger("steamAppId", Games()\SteamAppId)
       WritePreferenceString("steamExe", CollapseBackslashes(Games()\SteamExe))
-      WritePreferenceString("steamClientArgs", Games()\SteamClientArgs)
-      WritePreferenceString("steamGameArgs", Games()\SteamGameArgs)
-      WritePreferenceInteger("steamTimeoutMs", Games()\SteamDetectTimeoutMs)
-      WritePreferenceString("gameRoot", CollapseBackslashes(Games()\GameRoot))
-      i + 1
-    Next
-    ClosePreferences()
+       WritePreferenceString("steamClientArgs", Games()\SteamClientArgs)
+       WritePreferenceString("steamGameArgs", Games()\SteamGameArgs)
+       WritePreferenceInteger("steamTimeoutMs", Games()\SteamDetectTimeoutMs)
+       WritePreferenceString("gameRoot", CollapseBackslashes(Games()\GameRoot))
+       WritePreferenceInteger("preset", Games()\Preset)
+       WritePreferenceInteger("powerMode", Games()\PowerMode)
+       WritePreferenceInteger("optimizeBackground", Games()\OptimizeBackground)
+       WritePreferenceString("notes", Games()\Notes)
+       WritePreferenceString("tags", Games()\Tags)
+       WritePreferenceInteger("launchCount", Games()\LaunchCount)
+       WritePreferenceQuad("lastPlayed", Games()\LastPlayed)
+       WritePreferenceInteger("lastDurationSec", Games()\LastDurationSec)
+       i + 1
+     Next
+     ClosePreferences()
   EndIf
 EndProcedure
 
@@ -407,6 +436,14 @@ Procedure.i SelectGameByIndex(idx.i, *out.GameEntry)
       *out\SteamGameArgs   = Games()\SteamGameArgs
       *out\SteamDetectTimeoutMs = Games()\SteamDetectTimeoutMs
       *out\GameRoot    = Games()\GameRoot
+      *out\Preset      = Games()\Preset
+      *out\PowerMode   = Games()\PowerMode
+      *out\OptimizeBackground = Games()\OptimizeBackground
+      *out\Notes       = Games()\Notes
+      *out\Tags        = Games()\Tags
+      *out\LaunchCount = Games()\LaunchCount
+      *out\LastPlayed  = Games()\LastPlayed
+      *out\LastDurationSec = Games()\LastDurationSec
       ProcedureReturn 1
     EndIf
     i + 1
@@ -545,11 +582,271 @@ Procedure AddGameSimple()
   g\SteamGameArgs = ""
   g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(60000)
   g\GameRoot = ""
+  ApplyPresetDefaults(@g, DefaultPreset)
+  g\Notes = ""
+  g\Tags = "manual"
+  g\LaunchCount = 0
+  g\LastPlayed = 0
+  g\LastDurationSec = 0
 
   AddElement(Games())
   Games() = g
   SaveGames()
   RefreshList()
+EndProcedure
+
+Procedure ApplyPresetDefaults(*g.GameEntry, preset.i)
+  *g\Preset = preset
+  Select preset
+    Case #PRESET_SAFE
+      *g\Priority = #NORMAL_PRIORITY_CLASS
+      *g\PowerMode = #POWERMODE_KEEP
+      *g\OptimizeBackground = 0
+    Case #PRESET_AGGRESSIVE
+      *g\Priority = #HIGH_PRIORITY_CLASS
+      *g\PowerMode = #POWERMODE_ULTIMATE
+      *g\OptimizeBackground = 1
+    Default
+      *g\Priority = #ABOVE_NORMAL_PRIORITY_CLASS
+      *g\PowerMode = #POWERMODE_HIGH
+      *g\OptimizeBackground = 1
+  EndSelect
+EndProcedure
+
+Procedure.i MatchesFilter(*g.GameEntry, query.s)
+  Protected haystack.s
+  query = LCase(Trim(query))
+  If query = ""
+    ProcedureReturn 1
+  EndIf
+  haystack = LCase(*g\Name + " " + *g\ExePath + " " + *g\Tags + " " + *g\Notes)
+  If *g\LaunchMode = 1
+    haystack + " steam appid " + Str(*g\SteamAppId)
+  EndIf
+  ProcedureReturn Bool(FindString(haystack, query, 1) > 0)
+EndProcedure
+
+Procedure CompareGames(*a.GameEntry, *b.GameEntry, sortMode.i)
+  Select sortMode
+    Case #SORT_LAST_PLAYED
+      If *a\LastPlayed < *b\LastPlayed : ProcedureReturn 1 : EndIf
+      If *a\LastPlayed > *b\LastPlayed : ProcedureReturn -1 : EndIf
+    Case #SORT_RUNS_DESC
+      If *a\LaunchCount < *b\LaunchCount : ProcedureReturn 1 : EndIf
+      If *a\LaunchCount > *b\LaunchCount : ProcedureReturn -1 : EndIf
+  EndSelect
+  If LCase(*a\Name) > LCase(*b\Name) : ProcedureReturn 1 : EndIf
+  If LCase(*a\Name) < LCase(*b\Name) : ProcedureReturn -1 : EndIf
+  ProcedureReturn 0
+EndProcedure
+
+Procedure.i MatchesLibraryView(*g.GameEntry, view.i)
+  Select view
+    Case #LIBRARY_STEAM
+      ProcedureReturn Bool(*g\LaunchMode = 1)
+    Case #LIBRARY_EXE
+      ProcedureReturn Bool(*g\LaunchMode = 0)
+    Case #LIBRARY_RECENT
+      ProcedureReturn Bool(*g\LastPlayed > 0)
+    Case #LIBRARY_MOSTPLAYED
+      ProcedureReturn Bool(*g\LaunchCount > 0)
+    Case #LIBRARY_TAGGED
+      ProcedureReturn Bool(Trim(*g\Tags) <> "")
+  EndSelect
+  ProcedureReturn 1
+EndProcedure
+
+Procedure.s GameIdentity(*g.GameEntry)
+  If *g\LaunchMode = 1
+    ProcedureReturn "steam:" + Str(*g\SteamAppId)
+  EndIf
+  ProcedureReturn "exe:" + LCase(CollapseBackslashes(*g\ExePath))
+EndProcedure
+
+Procedure.i MergeOrAddGame(*g.GameEntry)
+  Protected identity.s = GameIdentity(*g)
+
+  ForEach Games()
+    If GameIdentity(@Games()) = identity
+      If *g\Name <> "" : Games()\Name = *g\Name : EndIf
+      If *g\Args <> "" : Games()\Args = *g\Args : EndIf
+      If *g\WorkDir <> "" : Games()\WorkDir = *g\WorkDir : EndIf
+      If *g\SteamExe <> "" : Games()\SteamExe = *g\SteamExe : EndIf
+      If *g\SteamClientArgs <> "" : Games()\SteamClientArgs = *g\SteamClientArgs : EndIf
+      If *g\SteamGameArgs <> "" : Games()\SteamGameArgs = *g\SteamGameArgs : EndIf
+      If *g\GameRoot <> "" : Games()\GameRoot = *g\GameRoot : EndIf
+      Games()\Priority = *g\Priority
+      Games()\Affinity = *g\Affinity
+      Games()\Services = *g\Services
+      Games()\Preset = *g\Preset
+      Games()\PowerMode = *g\PowerMode
+      Games()\OptimizeBackground = *g\OptimizeBackground
+      Games()\Notes = *g\Notes
+      Games()\Tags = *g\Tags
+      If *g\LaunchCount > Games()\LaunchCount : Games()\LaunchCount = *g\LaunchCount : EndIf
+      If *g\LastPlayed > Games()\LastPlayed : Games()\LastPlayed = *g\LastPlayed : EndIf
+      If *g\LastDurationSec > 0 : Games()\LastDurationSec = *g\LastDurationSec : EndIf
+      ProcedureReturn 2
+    EndIf
+  Next
+
+  AddElement(Games())
+  Games()\Name = *g\Name
+  Games()\ExePath = *g\ExePath
+  Games()\Args = *g\Args
+  Games()\WorkDir = *g\WorkDir
+  Games()\Priority = *g\Priority
+  Games()\Affinity = *g\Affinity
+  Games()\Services = *g\Services
+  Games()\LaunchMode = *g\LaunchMode
+  Games()\SteamAppId = *g\SteamAppId
+  Games()\SteamExe = *g\SteamExe
+  Games()\SteamClientArgs = *g\SteamClientArgs
+  Games()\SteamGameArgs = *g\SteamGameArgs
+  Games()\SteamDetectTimeoutMs = *g\SteamDetectTimeoutMs
+  Games()\GameRoot = *g\GameRoot
+  Games()\Preset = *g\Preset
+  Games()\PowerMode = *g\PowerMode
+  Games()\OptimizeBackground = *g\OptimizeBackground
+  Games()\Notes = *g\Notes
+  Games()\Tags = *g\Tags
+  Games()\LaunchCount = *g\LaunchCount
+  Games()\LastPlayed = *g\LastPlayed
+  Games()\LastDurationSec = *g\LastDurationSec
+  ProcedureReturn 1
+EndProcedure
+
+Procedure ExportGamesProfile()
+  Protected filePath.s, f.i, i.i
+  filePath = SaveFileRequester("Export profile", "MyGameBoosterProfile.ini", "INI files (*.ini)|*.ini|All files (*.*)|*.*", 0)
+  If filePath = "" : ProcedureReturn : EndIf
+
+  f = CreatePreferences(filePath)
+  If f = 0
+    MessageRequester(#APP_NAME, "Could not create export file.")
+    ProcedureReturn
+  EndIf
+
+  PreferenceGroup("meta")
+  WritePreferenceInteger("count", ListSize(Games()))
+  i = 0
+  ForEach Games()
+    PreferenceGroup("game_" + Str(i))
+    WritePreferenceString("name", Games()\Name)
+    WritePreferenceString("exe", Games()\ExePath)
+    WritePreferenceString("args", Games()\Args)
+    WritePreferenceString("workdir", Games()\WorkDir)
+    WritePreferenceInteger("priority", Games()\Priority)
+    WritePreferenceQuad("affinity", Games()\Affinity)
+    WritePreferenceString("services", Games()\Services)
+    WritePreferenceInteger("launchMode", Games()\LaunchMode)
+    WritePreferenceInteger("steamAppId", Games()\SteamAppId)
+    WritePreferenceString("steamExe", Games()\SteamExe)
+    WritePreferenceString("steamClientArgs", Games()\SteamClientArgs)
+    WritePreferenceString("steamGameArgs", Games()\SteamGameArgs)
+    WritePreferenceInteger("steamTimeoutMs", Games()\SteamDetectTimeoutMs)
+    WritePreferenceString("gameRoot", Games()\GameRoot)
+    WritePreferenceInteger("preset", Games()\Preset)
+    WritePreferenceInteger("powerMode", Games()\PowerMode)
+    WritePreferenceInteger("optimizeBackground", Games()\OptimizeBackground)
+    WritePreferenceString("notes", Games()\Notes)
+    WritePreferenceString("tags", Games()\Tags)
+    WritePreferenceInteger("launchCount", Games()\LaunchCount)
+    WritePreferenceQuad("lastPlayed", Games()\LastPlayed)
+    WritePreferenceInteger("lastDurationSec", Games()\LastDurationSec)
+    i + 1
+  Next
+  ClosePreferences()
+  AddHistoryEntry("Exported profiles to " + GetFilePart(filePath))
+  MessageRequester(#APP_NAME, "Exported " + Str(i) + " game profile(s).")
+EndProcedure
+
+Procedure ImportGamesProfile()
+  Protected filePath.s, count.i, i.i
+  Protected g.GameEntry
+  Protected imported.i, merged.i
+
+  filePath = OpenFileRequester("Import profile", "", "INI files (*.ini)|*.ini|All files (*.*)|*.*", 0)
+  If filePath = "" : ProcedureReturn : EndIf
+  If OpenPreferences(filePath) = 0
+    MessageRequester(#APP_NAME, "Could not read import file.")
+    ProcedureReturn
+  EndIf
+
+  PreferenceGroup("meta")
+  count = ReadPreferenceInteger("count", 0)
+  For i = 0 To count - 1
+    PreferenceGroup("game_" + Str(i))
+    g\Name = ReadPreferenceString("name", "")
+    g\ExePath = ReadPreferenceString("exe", "")
+    g\Args = ReadPreferenceString("args", "")
+    g\WorkDir = ReadPreferenceString("workdir", "")
+    g\Priority = ReadPreferenceInteger("priority", #ABOVE_NORMAL_PRIORITY_CLASS)
+    g\Affinity = ReadPreferenceQuad("affinity", 0)
+    g\Services = ReadPreferenceString("services", "")
+    g\LaunchMode = ReadPreferenceInteger("launchMode", 0)
+    g\SteamAppId = ReadPreferenceInteger("steamAppId", 0)
+    g\SteamExe = ReadPreferenceString("steamExe", "")
+    g\SteamClientArgs = ReadPreferenceString("steamClientArgs", "")
+    g\SteamGameArgs = ReadPreferenceString("steamGameArgs", "")
+    g\SteamDetectTimeoutMs = ReadPreferenceInteger("steamTimeoutMs", 60000)
+    g\GameRoot = ReadPreferenceString("gameRoot", "")
+    g\Preset = ReadPreferenceInteger("preset", #PRESET_BALANCED)
+    g\PowerMode = ReadPreferenceInteger("powerMode", #POWERMODE_HIGH)
+    g\OptimizeBackground = ReadPreferenceInteger("optimizeBackground", 1)
+    g\Notes = ReadPreferenceString("notes", "")
+    g\Tags = ReadPreferenceString("tags", "")
+    g\LaunchCount = ReadPreferenceInteger("launchCount", 0)
+    g\LastPlayed = ReadPreferenceQuad("lastPlayed", 0)
+    g\LastDurationSec = ReadPreferenceInteger("lastDurationSec", 0)
+
+    If g\Name <> ""
+      Select MergeOrAddGame(@g)
+        Case 1
+          imported + 1
+        Case 2
+          merged + 1
+      EndSelect
+    EndIf
+  Next
+  ClosePreferences()
+
+  If imported > 0 Or merged > 0
+    SaveGames()
+    RefreshList()
+  EndIf
+  AddHistoryEntry("Imported profiles from " + GetFilePart(filePath) + " | new=" + Str(imported) + " merged=" + Str(merged))
+  MessageRequester(#APP_NAME, "Imported " + Str(imported) + " and merged " + Str(merged) + " game profile(s).")
+EndProcedure
+
+Procedure CreateProfileSnapshot()
+  Protected filePath.s
+  filePath = SaveFileRequester("Create snapshot", "MyGameBoosterSnapshot.ini", "INI files (*.ini)|*.ini|All files (*.*)|*.*", 0)
+  If filePath = "" : ProcedureReturn : EndIf
+  SaveGames()
+  If CopyFile_(GamesIni, filePath, #False)
+    AddHistoryEntry("Created snapshot " + GetFilePart(filePath))
+    MessageRequester(#APP_NAME, "Snapshot created successfully.")
+  Else
+    MessageRequester(#APP_NAME, "Failed to create snapshot.")
+  EndIf
+EndProcedure
+
+Procedure RestoreProfileSnapshot()
+  Protected filePath.s
+  filePath = OpenFileRequester("Restore snapshot", "", "INI files (*.ini)|*.ini|All files (*.*)|*.*", 0)
+  If filePath = "" : ProcedureReturn : EndIf
+  If MessageRequester(#APP_NAME, "Restore this snapshot and replace the current game library?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning) <> #PB_MessageRequester_Yes
+    ProcedureReturn
+  EndIf
+  If CopyFile_(filePath, GamesIni, #False)
+    LoadGames()
+    RefreshList()
+    AddHistoryEntry("Restored snapshot " + GetFilePart(filePath))
+    MessageRequester(#APP_NAME, "Snapshot restored successfully.")
+  Else
+    MessageRequester(#APP_NAME, "Failed to restore snapshot.")
+  EndIf
 EndProcedure
 
 Procedure RemoveGameByIndex(idx.i)
@@ -563,4 +860,30 @@ Procedure RemoveGameByIndex(idx.i)
   Next
   SaveGames()
   RefreshList()
+EndProcedure
+
+Procedure RecordLaunchResult(*g.GameEntry, durationSec.i)
+  Protected dirty.i
+
+  ForEach Games()
+    If Games()\LaunchMode = *g\LaunchMode And Games()\Name = *g\Name
+      If Games()\LaunchMode = 1
+        If Games()\SteamAppId <> *g\SteamAppId
+          Continue
+        EndIf
+      ElseIf LCase(Games()\ExePath) <> LCase(*g\ExePath)
+        Continue
+      EndIf
+      Games()\LaunchCount + 1
+      Games()\LastPlayed = Date()
+      Games()\LastDurationSec = durationSec
+      dirty = 1
+      Break
+    EndIf
+  Next
+
+  If dirty
+    SaveGames()
+    RefreshList()
+  EndIf
 EndProcedure
