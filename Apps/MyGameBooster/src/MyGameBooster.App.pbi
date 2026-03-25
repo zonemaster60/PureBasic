@@ -749,6 +749,7 @@ Procedure ShowDiagnostics()
   Protected info.s
   Protected mem.OC_MEMORYSTATUSEX
   Protected cpu.q
+  Protected lineCount.i, i.i, lines.s
 
   w = OpenWindow(#W_Diag, 0, 0, 560, 360, "Diagnostics", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
   If w = 0
@@ -802,7 +803,12 @@ Procedure ShowDiagnostics()
         Next
       EndIf
     EndIf
-    SetGadgetText(#D_Info, info)
+    lines = ReplaceString(info, #CRLF$, #LF$)
+    ClearGadgetItems(#D_Info)
+    lineCount = CountString(lines, #LF$) + 1
+    For i = 1 To lineCount
+      AddGadgetItem(#D_Info, -1, StringField(lines, i, #LF$))
+    Next
 
     ev = WaitWindowEvent(1000)
     Select ev

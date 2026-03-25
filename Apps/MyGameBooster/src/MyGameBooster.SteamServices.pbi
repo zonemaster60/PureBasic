@@ -1001,7 +1001,7 @@ Procedure.i OpenEditGameDialog(*cur.GameEntry, *autoRun.Integer)
   DisableGadget(#E_Timeout, Bool(*cur\LaunchMode = 0))
 
   TextGadget(#PB_Any, 16, 208, 110, 20, "Priority")
-  ComboBoxGadget(#E_Priority, 140, 204, 180, 24)
+  ComboBoxGadget(#E_Priority, 140, 204, 180, 26)
   AddGadgetItem(#E_Priority, -1, "Don't change")
   AddGadgetItem(#E_Priority, -1, "Normal")
   AddGadgetItem(#E_Priority, -1, "Above normal")
@@ -1009,20 +1009,20 @@ Procedure.i OpenEditGameDialog(*cur.GameEntry, *autoRun.Integer)
   SetGadgetState(#E_Priority, PriorityToChoice(*cur\Priority))
 
   TextGadget(#PB_Any, 336, 176, 110, 20, "Preset")
-  ComboBoxGadget(#E_Preset, 440, 172, 180, 24)
+  ComboBoxGadget(#E_Preset, 440, 172, 180, 26)
   AddGadgetItem(#E_Preset, -1, "Safe")
   AddGadgetItem(#E_Preset, -1, "Balanced")
   AddGadgetItem(#E_Preset, -1, "Aggressive")
   SetGadgetState(#E_Preset, *cur\Preset)
 
   TextGadget(#PB_Any, 336, 208, 110, 20, "Power mode")
-  ComboBoxGadget(#E_PowerMode, 440, 204, 180, 24)
+  ComboBoxGadget(#E_PowerMode, 440, 204, 180, 26)
   AddGadgetItem(#E_PowerMode, -1, "Keep current")
   AddGadgetItem(#E_PowerMode, -1, "High performance")
   AddGadgetItem(#E_PowerMode, -1, "Ultimate Performance")
   SetGadgetState(#E_PowerMode, *cur\PowerMode)
 
-  CheckBoxGadget(#E_Background, 140, 240, 250, 22, "Deprioritize safe background processes")
+  CheckBoxGadget(#E_Background, 140, 240, 340, 24, "Deprioritize safe background processes")
   SetGadgetState(#E_Background, Bool(*cur\OptimizeBackground))
 
   TextGadget(#PB_Any, 16, 274, 110, 20, "Tags")
@@ -1150,3 +1150,10 @@ Procedure.i EditGameByIndex(idx.i, listGadget.i)
   Next
   ProcedureReturn 0
 EndProcedure
+
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 1024
+; FirstLine = 993
+; Folding = -------
+; EnableXP
+; DPIAware

@@ -718,7 +718,7 @@ EndProcedure
 
 Procedure ExportGamesProfile()
   Protected filePath.s, f.i, i.i
-  filePath = SaveFileRequester("Export profile", "MyGameBoosterProfile.ini", "INI files (*.ini)|*.ini|All files (*.*)|*.*", 0)
+  filePath = SaveFileRequester("Export profile", "MyGameBooster_Profile.ini", "INI files (*.ini)|*.ini|All files (*.*)|*.*", 0)
   If filePath = "" : ProcedureReturn : EndIf
 
   f = CreatePreferences(filePath)
@@ -821,7 +821,7 @@ EndProcedure
 
 Procedure CreateProfileSnapshot()
   Protected filePath.s
-  filePath = SaveFileRequester("Create snapshot", "MyGameBoosterSnapshot.ini", "INI files (*.ini)|*.ini|All files (*.*)|*.*", 0)
+  filePath = SaveFileRequester("Create snapshot", "MyGameBooster_Snapshot.ini", "INI files (*.ini)|*.ini|All files (*.*)|*.*", 0)
   If filePath = "" : ProcedureReturn : EndIf
   SaveGames()
   If CopyFile_(GamesIni, filePath, #False)
@@ -887,3 +887,10 @@ Procedure RecordLaunchResult(*g.GameEntry, durationSec.i)
     RefreshList()
   EndIf
 EndProcedure
+
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 823
+; FirstLine = 857
+; Folding = ------
+; EnableXP
+; DPIAware

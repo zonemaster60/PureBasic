@@ -19,7 +19,7 @@ LogPath = DataDir + #APP_NAME + ".log"
 
 Global FontUI.i, FontTitle.i, FontSmall.i
 Global MainStatusBar.i
-Global version.s = "v1.0.0.6"
+Global version.s = "v1.0.0.7"
 Global BrowseExePath.s, BeforeCount.i, LaunchUiPulse.i
 Global LaunchStartedAt.q
 Global FilterQuery.s, SortMode.i, LibraryView.i
@@ -301,8 +301,8 @@ InitFonts()
 RunApplication()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 14
-; FirstLine = 2
+; CursorPosition = 21
+; FirstLine = 6
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -313,12 +313,12 @@ RunApplication()
 ; UseIcon = MyGameBooster.ico
 ; Executable = ..\MyGameBooster.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,6
-; VersionField1 = 1,0,0,6
+; VersionField0 = 1,0,0,7
+; VersionField1 = 1,0,0,7
 ; VersionField2 = ZoneSoft
 ; VersionField3 = MyGameBooster
-; VersionField4 = 1.0.0.6
-; VersionField5 = 1.0.0.6
+; VersionField4 = 1.0.0.7
+; VersionField5 = 1.0.0.7
 ; VersionField6 = A Game Booster for boosting your games
 ; VersionField7 = MyGameBooster
 ; VersionField8 = MyGameBooster.exe
