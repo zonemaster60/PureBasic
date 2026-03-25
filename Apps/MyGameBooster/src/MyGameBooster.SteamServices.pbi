@@ -335,7 +335,6 @@ Procedure ImportSingleSteamGame()
       Games()\LaunchMode = 1
       Games()\SteamAppId = options()\AppId
       Games()\SteamExe = steamExe
-      Games()\SteamClientArgs = ""
       Games()\SteamGameArgs = ""
       Games()\SteamDetectTimeoutMs = ClampSteamDetectTimeout(60000)
       commonRoot = PathJoin(options()\LibraryRoot, "steamapps\\common\\")
@@ -948,7 +947,6 @@ Procedure.i OpenEditGameDialog(*cur.GameEntry, *autoRun.Integer)
     #E_Mode
     #E_Path
     #E_GameArgs
-    #E_SteamArgs
     #E_Timeout
     #E_Priority
     #E_Preset
@@ -993,52 +991,49 @@ Procedure.i OpenEditGameDialog(*cur.GameEntry, *autoRun.Integer)
   Else
     StringGadget(#E_GameArgs, 140, 108, 480, 24, *cur\Args)
   EndIf
-  TextGadget(#PB_Any, 16, 144, 110, 20, "Steam args")
-  StringGadget(#E_SteamArgs, 140, 140, 480, 24, *cur\SteamClientArgs)
-  DisableGadget(#E_SteamArgs, Bool(*cur\LaunchMode = 0))
-  TextGadget(#PB_Any, 16, 176, 110, 20, "Detect timeout")
-  StringGadget(#E_Timeout, 140, 172, 120, 24, Str(*cur\SteamDetectTimeoutMs))
+  TextGadget(#PB_Any, 16, 144, 110, 20, "Detect timeout")
+  StringGadget(#E_Timeout, 140, 140, 120, 24, Str(*cur\SteamDetectTimeoutMs))
   DisableGadget(#E_Timeout, Bool(*cur\LaunchMode = 0))
 
-  TextGadget(#PB_Any, 16, 208, 110, 20, "Priority")
-  ComboBoxGadget(#E_Priority, 140, 204, 180, 26)
+  TextGadget(#PB_Any, 16, 176, 110, 20, "Priority")
+  ComboBoxGadget(#E_Priority, 140, 172, 180, 26)
   AddGadgetItem(#E_Priority, -1, "Don't change")
   AddGadgetItem(#E_Priority, -1, "Normal")
   AddGadgetItem(#E_Priority, -1, "Above normal")
   AddGadgetItem(#E_Priority, -1, "High")
   SetGadgetState(#E_Priority, PriorityToChoice(*cur\Priority))
 
-  TextGadget(#PB_Any, 336, 176, 110, 20, "Preset")
-  ComboBoxGadget(#E_Preset, 440, 172, 180, 26)
+  TextGadget(#PB_Any, 336, 144, 110, 20, "Preset")
+  ComboBoxGadget(#E_Preset, 440, 140, 180, 26)
   AddGadgetItem(#E_Preset, -1, "Safe")
   AddGadgetItem(#E_Preset, -1, "Balanced")
   AddGadgetItem(#E_Preset, -1, "Aggressive")
   SetGadgetState(#E_Preset, *cur\Preset)
 
-  TextGadget(#PB_Any, 336, 208, 110, 20, "Power mode")
-  ComboBoxGadget(#E_PowerMode, 440, 204, 180, 26)
+  TextGadget(#PB_Any, 336, 176, 110, 20, "Power mode")
+  ComboBoxGadget(#E_PowerMode, 440, 172, 180, 26)
   AddGadgetItem(#E_PowerMode, -1, "Keep current")
   AddGadgetItem(#E_PowerMode, -1, "High performance")
   AddGadgetItem(#E_PowerMode, -1, "Ultimate Performance")
   SetGadgetState(#E_PowerMode, *cur\PowerMode)
 
-  CheckBoxGadget(#E_Background, 140, 240, 340, 24, "Deprioritize safe background processes")
+  CheckBoxGadget(#E_Background, 140, 208, 340, 24, "Deprioritize safe background processes")
   SetGadgetState(#E_Background, Bool(*cur\OptimizeBackground))
 
-  TextGadget(#PB_Any, 16, 274, 110, 20, "Tags")
-  StringGadget(#E_Tags, 140, 270, 480, 24, *cur\Tags)
-  TextGadget(#PB_Any, 16, 306, 110, 20, "Notes")
-  EditorGadget(#E_Notes, 140, 302, 480, 84)
+  TextGadget(#PB_Any, 16, 242, 110, 20, "Tags")
+  StringGadget(#E_Tags, 140, 238, 480, 24, *cur\Tags)
+  TextGadget(#PB_Any, 16, 274, 110, 20, "Notes")
+  EditorGadget(#E_Notes, 140, 270, 480, 84)
   SetGadgetText(#E_Notes, *cur\Notes)
 
-  ButtonGadget(#E_Services, 140, 398, 180, 30, "Pick Services...")
-  CheckBoxGadget(#E_AutoRun, 140, 438, 220, 22, "Auto-run game after save")
+  ButtonGadget(#E_Services, 140, 366, 180, 30, "Pick Services...")
+  CheckBoxGadget(#E_AutoRun, 140, 406, 220, 22, "Auto-run game after save")
   If *autoRun
     SetGadgetState(#E_AutoRun, Bool(*autoRun\i))
   EndIf
 
-  ButtonGadget(#E_Save, 430, 472, 90, 32, "Save")
-  ButtonGadget(#E_Cancel, 530, 472, 90, 32, "Cancel")
+  ButtonGadget(#E_Save, 430, 440, 90, 32, "Save")
+  ButtonGadget(#E_Cancel, 530, 440, 90, 32, "Cancel")
 
   If FontUI
     SetWindowTitle(#W_EditGame, "Edit Game")
@@ -1046,7 +1041,6 @@ Procedure.i OpenEditGameDialog(*cur.GameEntry, *autoRun.Integer)
     SetGadgetFont(#E_Mode, FontID(FontUI))
     SetGadgetFont(#E_Path, FontID(FontUI))
     SetGadgetFont(#E_GameArgs, FontID(FontUI))
-    SetGadgetFont(#E_SteamArgs, FontID(FontUI))
     SetGadgetFont(#E_Timeout, FontID(FontUI))
     SetGadgetFont(#E_Priority, FontID(FontUI))
     SetGadgetFont(#E_Preset, FontID(FontUI))
@@ -1083,7 +1077,6 @@ Procedure.i OpenEditGameDialog(*cur.GameEntry, *autoRun.Integer)
             EndIf
             If *cur\LaunchMode = 1
               *cur\SteamGameArgs = GetGadgetText(#E_GameArgs)
-              *cur\SteamClientArgs = GetGadgetText(#E_SteamArgs)
               *cur\SteamDetectTimeoutMs = ClampSteamDetectTimeout(Val(GetGadgetText(#E_Timeout)))
             Else
               *cur\Args = GetGadgetText(#E_GameArgs)

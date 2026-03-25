@@ -364,6 +364,7 @@ Procedure LoadSettings()
     LibraryView = ReadPreferenceInteger("libraryView", #LIBRARY_ALL)
     RememberLastView = ReadPreferenceInteger("rememberLastView", 1)
     HistoryDepth = ReadPreferenceInteger("historyDepth", 10)
+    SteamExeArgs = ReadPreferenceString("steamExeArgs", "")
     ClosePreferences()
   EndIf
   If DefaultPreset < #PRESET_SAFE Or DefaultPreset > #PRESET_AGGRESSIVE : DefaultPreset = #PRESET_BALANCED : EndIf
@@ -386,8 +387,13 @@ Procedure SaveSettings()
     WritePreferenceInteger("libraryView", LibraryView)
     WritePreferenceInteger("rememberLastView", RememberLastView)
     WritePreferenceInteger("historyDepth", HistoryDepth)
+    WritePreferenceString("steamExeArgs", SteamExeArgs)
     ClosePreferences()
   EndIf
+EndProcedure
+
+Procedure EditGlobalSteamArgs()
+  SteamExeArgs = InputRequester(#APP_NAME, "Steam.exe arguments for all Steam games (optional):", SteamExeArgs)
 EndProcedure
 
 Procedure AddHistoryEntry(msg.s)
@@ -402,7 +408,7 @@ EndProcedure
 Procedure.s SerializeGamesState()
   Protected s.s, line.s
   ForEach Games()
-    line = ReplaceString(Games()\Name, "|", "%7C") + "|" + ReplaceString(Games()\ExePath, "|", "%7C") + "|" + ReplaceString(Games()\Args, "|", "%7C") + "|" + ReplaceString(Games()\WorkDir, "|", "%7C") + "|" + Str(Games()\Priority) + "|" + Str(Games()\Affinity) + "|" + ReplaceString(Games()\Services, "|", "%7C") + "|" + Str(Games()\LaunchMode) + "|" + Str(Games()\SteamAppId) + "|" + ReplaceString(Games()\SteamExe, "|", "%7C") + "|" + ReplaceString(Games()\SteamClientArgs, "|", "%7C") + "|" + ReplaceString(Games()\SteamGameArgs, "|", "%7C") + "|" + Str(Games()\SteamDetectTimeoutMs) + "|" + ReplaceString(Games()\GameRoot, "|", "%7C") + "|" + Str(Games()\Preset) + "|" + Str(Games()\PowerMode) + "|" + Str(Games()\OptimizeBackground) + "|" + ReplaceString(ReplaceString(Games()\Notes, "|", "%7C"), #CRLF$, "<br>") + "|" + ReplaceString(Games()\Tags, "|", "%7C") + "|" + Str(Games()\LaunchCount) + "|" + Str(Games()\LastPlayed) + "|" + Str(Games()\LastDurationSec)
+    line = ReplaceString(Games()\Name, "|", "%7C") + "|" + ReplaceString(Games()\ExePath, "|", "%7C") + "|" + ReplaceString(Games()\Args, "|", "%7C") + "|" + ReplaceString(Games()\WorkDir, "|", "%7C") + "|" + Str(Games()\Priority) + "|" + Str(Games()\Affinity) + "|" + ReplaceString(Games()\Services, "|", "%7C") + "|" + Str(Games()\LaunchMode) + "|" + Str(Games()\SteamAppId) + "|" + ReplaceString(Games()\SteamExe, "|", "%7C") + "|" + ReplaceString(Games()\SteamGameArgs, "|", "%7C") + "|" + Str(Games()\SteamDetectTimeoutMs) + "|" + ReplaceString(Games()\GameRoot, "|", "%7C") + "|" + Str(Games()\Preset) + "|" + Str(Games()\PowerMode) + "|" + Str(Games()\OptimizeBackground) + "|" + ReplaceString(ReplaceString(Games()\Notes, "|", "%7C"), #CRLF$, "<br>") + "|" + ReplaceString(Games()\Tags, "|", "%7C") + "|" + Str(Games()\LaunchCount) + "|" + Str(Games()\LastPlayed) + "|" + Str(Games()\LastDurationSec)
     s + line + #LF$
   Next
   ProcedureReturn s
@@ -424,18 +430,17 @@ Procedure RestoreGamesState(serialized.s)
       g\LaunchMode = Val(StringField(line, 8, "|"))
       g\SteamAppId = Val(StringField(line, 9, "|"))
       g\SteamExe = ReplaceString(StringField(line, 10, "|"), "%7C", "|")
-      g\SteamClientArgs = ReplaceString(StringField(line, 11, "|"), "%7C", "|")
-      g\SteamGameArgs = ReplaceString(StringField(line, 12, "|"), "%7C", "|")
-      g\SteamDetectTimeoutMs = Val(StringField(line, 13, "|"))
-      g\GameRoot = ReplaceString(StringField(line, 14, "|"), "%7C", "|")
-      g\Preset = Val(StringField(line, 15, "|"))
-      g\PowerMode = Val(StringField(line, 16, "|"))
-      g\OptimizeBackground = Val(StringField(line, 17, "|"))
-      g\Notes = ReplaceString(ReplaceString(StringField(line, 18, "|"), "%7C", "|"), "<br>", #CRLF$)
-      g\Tags = ReplaceString(StringField(line, 19, "|"), "%7C", "|")
-      g\LaunchCount = Val(StringField(line, 20, "|"))
-      g\LastPlayed = Val(StringField(line, 21, "|"))
-      g\LastDurationSec = Val(StringField(line, 22, "|"))
+      g\SteamGameArgs = ReplaceString(StringField(line, 11, "|"), "%7C", "|")
+      g\SteamDetectTimeoutMs = Val(StringField(line, 12, "|"))
+      g\GameRoot = ReplaceString(StringField(line, 13, "|"), "%7C", "|")
+      g\Preset = Val(StringField(line, 14, "|"))
+      g\PowerMode = Val(StringField(line, 15, "|"))
+      g\OptimizeBackground = Val(StringField(line, 16, "|"))
+      g\Notes = ReplaceString(ReplaceString(StringField(line, 17, "|"), "%7C", "|"), "<br>", #CRLF$)
+      g\Tags = ReplaceString(StringField(line, 18, "|"), "%7C", "|")
+      g\LaunchCount = Val(StringField(line, 19, "|"))
+      g\LastPlayed = Val(StringField(line, 20, "|"))
+      g\LastDurationSec = Val(StringField(line, 21, "|"))
       AddElement(Games())
       Games() = g
     EndIf
@@ -527,11 +532,12 @@ Procedure ShowSettings()
     #S_ThumbSize
     #S_RememberView
     #S_HistoryDepth
+    #S_SteamArgs
     #S_Save
     #S_Cancel
   EndEnumeration
   Protected w.i, ev.i
-  w = OpenWindow(#W_Settings, 0, 0, 380, 240, "Settings", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  w = OpenWindow(#W_Settings, 0, 0, 380, 280, "Settings", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
   If w = 0 : ProcedureReturn : EndIf
   If IsWindow(0) : DisableWindow(0, 1) : EndIf
   TextGadget(#PB_Any, 16, 20, 120, 20, "Default preset")
@@ -546,12 +552,15 @@ Procedure ShowSettings()
   SetGadgetState(#S_RememberView, RememberLastView)
   TextGadget(#PB_Any, 16, 122, 120, 20, "History depth")
   StringGadget(#S_HistoryDepth, 140, 118, 60, 24, Str(HistoryDepth))
-  ButtonGadget(#S_Save, 190, 180, 70, 28, "Save")
-  ButtonGadget(#S_Cancel, 270, 180, 70, 28, "Cancel")
+  ButtonGadget(#S_SteamArgs, 140, 154, 180, 28, "Steam.exe Args...")
+  ButtonGadget(#S_Save, 190, 216, 70, 28, "Save")
+  ButtonGadget(#S_Cancel, 270, 216, 70, 28, "Cancel")
   Repeat
     ev = WaitWindowEvent()
     If ev = #PB_Event_Gadget
       Select EventGadget()
+        Case #S_SteamArgs
+          EditGlobalSteamArgs()
         Case #S_Save
           DefaultPreset = GetGadgetState(#S_DefaultPreset)
           ThumbnailSize = Val(GetGadgetText(#S_ThumbSize))

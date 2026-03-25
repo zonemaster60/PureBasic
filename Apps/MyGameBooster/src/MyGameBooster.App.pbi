@@ -12,7 +12,6 @@ Procedure ResetLaunchState()
   LaunchGame\LaunchMode = 0
   LaunchGame\SteamAppId = 0
   LaunchGame\SteamExe = ""
-  LaunchGame\SteamClientArgs = ""
   LaunchGame\SteamGameArgs = ""
   LaunchGame\SteamDetectTimeoutMs = 0
   LaunchGame\GameRoot = ""
@@ -53,7 +52,6 @@ Procedure CopyLaunchGame(*src.GameEntry)
   LaunchGame\LaunchMode = *src\LaunchMode
   LaunchGame\SteamAppId = *src\SteamAppId
   LaunchGame\SteamExe = *src\SteamExe
-  LaunchGame\SteamClientArgs = *src\SteamClientArgs
   LaunchGame\SteamGameArgs = *src\SteamGameArgs
   LaunchGame\SteamDetectTimeoutMs = *src\SteamDetectTimeoutMs
   LaunchGame\GameRoot = *src\GameRoot
@@ -502,6 +500,7 @@ Procedure BeginExeLaunch(*g.GameEntry)
   LaunchGotAffinity  = GetProcessAffinityMask_(LaunchProcess, @LaunchProcessAffinity, @LaunchSystemAffinity)
   ApplyProcessBoost(LaunchProcess, @LaunchGame)
   TuneBackgroundProcesses(@LaunchGame)
+  RecordLaunchStart(@LaunchGame)
   LogLine("Monitoring EXE process for: " + LaunchGame\Name)
   LaunchState = 2
   LaunchActive = 1
@@ -545,7 +544,7 @@ Procedure BeginSteamLaunch(*g.GameEntry)
 
   workdir = GetPathPart(LaunchGame\SteamExe)
   cmd = QuoteArg(LaunchGame\SteamExe)
-  If Trim(LaunchGame\SteamClientArgs) <> "" : cmd + " " + Trim(LaunchGame\SteamClientArgs) : EndIf
+  If Trim(SteamExeArgs) <> "" : cmd + " " + Trim(SteamExeArgs) : EndIf
   cmd + " -applaunch " + Str(LaunchGame\SteamAppId)
   If Trim(LaunchGame\SteamGameArgs) <> "" : cmd + " " + Trim(LaunchGame\SteamGameArgs) : EndIf
 
@@ -616,6 +615,7 @@ Procedure PollLaunchState()
         LaunchGotAffinity  = GetProcessAffinityMask_(LaunchProcess, @LaunchProcessAffinity, @LaunchSystemAffinity)
         ApplyProcessBoost(LaunchProcess, @LaunchGame)
         TuneBackgroundProcesses(@LaunchGame)
+        RecordLaunchStart(@LaunchGame)
         LogLine("Monitoring detected game process for: " + LaunchGame\Name)
         LaunchState = 2
         LaunchStartedAt = ElapsedMilliseconds()
