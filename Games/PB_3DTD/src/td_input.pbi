@@ -184,10 +184,13 @@ EndProcedure
 
 Procedure ProcessInput()
   Protected Event.i
+  Protected GadgetID.i
   Protected MousePX.i
   Protected MousePY.i
   Protected LeftPressed.i
   Protected RightPressed.i
+  Protected OverlayWasActive.i = StartOverlayActive
+  Protected GadgetHandled.i
 
   Repeat
     Event = WindowEvent()
@@ -197,9 +200,20 @@ Procedure ProcessInput()
         QuitGame()
 
       Case #PB_Event_Gadget
-        HandleGadget(EventGadget())
+        GadgetID = EventGadget()
+        Select GadgetID
+          Case #Gadget_LevelCycle, #Gadget_BuildPulse, #Gadget_BuildCannon, #Gadget_BuildFrost, #Gadget_BuildBeam, #Gadget_BuildMortar, #Gadget_BuildSky, #Gadget_BuildBlock, #Gadget_Upgrade, #Gadget_Sell, #Gadget_Wave, #Gadget_Speed, #Gadget_Pause, #Gadget_TargetMode, #Gadget_MenuStart, #Gadget_MenuContinue, #Gadget_MenuLevel, #Gadget_MenuRunMode, #Gadget_MenuChallenge, #Gadget_MenuQuit, #Gadget_DebugGold, #Gadget_DebugWave, #Gadget_DebugLife, #Gadget_DebugClear
+            GadgetHandled = #True
+            HandleGadget(GadgetID)
+        EndSelect
     EndSelect
   Until Event = 0
+
+  If GadgetHandled And OverlayWasActive <> StartOverlayActive
+    LeftWasDown = Bool(GetAsyncKeyState_(#VK_LBUTTON) & $8000)
+    RightWasDown = Bool(GetAsyncKeyState_(#VK_RBUTTON) & $8000)
+    ProcedureReturn
+  EndIf
 
   ExamineKeyboard()
   ExamineMouse()
@@ -271,9 +285,9 @@ Procedure ProcessInput()
   EndIf
 
   If StartOverlayActive
-    If KeyboardPushed(#PB_Key_Return) Or KeyboardPushed(#PB_Key_Space)
+    If KeyboardPushed(#PB_Key_Return) Or KeyboardPushed(#PB_Key_Space) Or (LeftPressed And LeftWasDown = 0 And MousePX >= 530 And MousePX < 660 And MousePY >= 620 And MousePY < 650)
       If KeyEnterWasDown = 0
-        If GameState = #GameState_Playing And Wave = 0 And EnemyAliveCount = 0 And ListSize(Towers()) = 0
+        If GameState = #GameState_Playing
           StartGame()
         ElseIf GameState = #GameState_Victory
           If CampaignMode And CurrentLevel < #LevelCount
@@ -287,6 +301,9 @@ Procedure ProcessInput()
         EndIf
       EndIf
       KeyEnterWasDown = #True
+      If LeftPressed
+        LeftWasDown = #True
+      EndIf
     ElseIf KeyboardPushed(#PB_Key_Left) Or KeyboardPushed(#PB_Key_Right)
       If KeyEnterWasDown = 0 And GameState = #GameState_Playing And Wave = 0 And EnemyAliveCount = 0 And ListSize(Towers()) = 0
         If KeyboardPushed(#PB_Key_Left)

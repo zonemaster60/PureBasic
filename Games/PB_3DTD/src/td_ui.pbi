@@ -346,7 +346,7 @@ Procedure CreateSidebar()
   TextGadget(#Gadget_Title, #SidebarX, 18, #SidebarWidth - 16, 36, "3D TOWER DEFENSE", #PB_Text_Center)
   TextGadget(#Gadget_Info, SidebarLeft, 64, SidebarInnerWidth, 136, "")
   TextGadget(#Gadget_Forecast, SidebarLeft, 204, SidebarInnerWidth, 34, "")
-  ButtonGadget(#Gadget_LevelCycle, SidebarLeft, 244, SidebarInnerWidth, 20, "")
+  ButtonGadget(#Gadget_LevelCycle, SidebarLeft, 244, SidebarInnerWidth, 20, "Level: " + Str(CurrentLevel) + " - " + LevelName(CurrentLevel))
 
   ButtonGadget(#Gadget_BuildPulse, SidebarLeft, 268, SidebarInnerWidth, 20, "")
   ButtonGadget(#Gadget_BuildCannon, SidebarLeft, 292, SidebarInnerWidth, 20, "")
@@ -368,13 +368,13 @@ Procedure CreateSidebar()
 
   TextGadget(#Gadget_MenuTitle, 190, 138, 560, 110, "3D TOWER DEFENSE" + #LF$ + version, #PB_Text_Center)
   TextGadget(#Gadget_MenuInfo, 230, 260, 480, 156, LevelName(CurrentLevel) + #LF$ + LevelDescription(CurrentLevel) + #LF$ + #LF$ + "Run Mode: " + RunModeName() + #LF$ + "Challenge: " + ChallengeModeName(ChallengeMode) + #LF$ + "Build around the route, reroute with blocks when needed, protect the core, and survive 12 waves." + #LF$ + #LF$ + "Shortcuts: 1-7 choose builds, Space launches a wave, U upgrades, S sells, Esc quits.")
-  ButtonGadget(#Gadget_MenuLevel, 350, 428, 240, 28, "")
-  ButtonGadget(#Gadget_MenuRunMode, 350, 464, 240, 28, "Run Mode: " + RunModeName())
-  ButtonGadget(#Gadget_MenuChallenge, 350, 500, 240, 28, "Challenge: " + ChallengeModeName(ChallengeMode))
+  ButtonGadget(#Gadget_MenuLevel, 110, 630, 130, 30, "Level: " + Str(CurrentLevel) + " - " + LevelName(CurrentLevel))
+  ButtonGadget(#Gadget_MenuRunMode, 250, 630, 130, 30, "Run Mode: " + RunModeName())
+  ButtonGadget(#Gadget_MenuChallenge, 390, 630, 130, 30, "Challenge: " + ChallengeModeName(ChallengeMode))
   TextGadget(#Gadget_MenuProgress, 300, 540, 340, 34, "")
-  ButtonGadget(#Gadget_MenuStart, 350, 635, 240, 28, "Deploy Run")
-  ButtonGadget(#Gadget_MenuContinue, 350, 634, 240, 34, "")
-  ButtonGadget(#Gadget_MenuQuit, 350, 670, 240, 28, "Quit")
+  ButtonGadget(#Gadget_MenuStart, 530, 630, 130, 30, "Deploy Run")
+  ButtonGadget(#Gadget_MenuContinue, 530, 620, 130, 30, "")
+  ButtonGadget(#Gadget_MenuQuit, 670, 630, 130, 30, "Quit")
   HideGadget(#Gadget_MenuContinue, #True)
 
   TextGadget(#Gadget_DebugBack, 8, 8, 332, 84, "")
@@ -657,17 +657,17 @@ EndProcedure
 Procedure HandleGadget(Gadget.i)
   Select Gadget
     Case #Gadget_MenuStart
-      If GameState = #GameState_Victory
+      If GameState = #GameState_Playing
+        If StartOverlayActive
+          StartGame()
+        Else
+          ProcedureReturn
+        EndIf
+      ElseIf GameState = #GameState_Victory
         If CampaignMode And CurrentLevel < #LevelCount
           SetLevel(CurrentLevel + 1)
         EndIf
         RestartGame()
-      ElseIf GameState = #GameState_Playing
-        If StartOverlayActive And Wave = 0 And EnemyAliveCount = 0 And ListSize(Towers()) = 0
-          StartGame()
-        Else
-          RestartGame()
-        EndIf
       Else
         RestartGame()
       EndIf
@@ -823,8 +823,8 @@ Procedure HandleGadget(Gadget.i)
 EndProcedure
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 297
-; FirstLine = 282
+; CursorPosition = 383
+; FirstLine = 363
 ; Folding = ----
 ; EnableXP
 ; DPIAware

@@ -655,6 +655,14 @@ Procedure StartWave(EarlyBonus.i)
     ProcedureReturn
   EndIf
 
+  If StartOverlayActive
+    StartGame()
+  EndIf
+
+  If Paused
+    Paused = #False
+  EndIf
+
   If WaveActive Or Wave >= #MaxWaves
     ProcedureReturn
   EndIf

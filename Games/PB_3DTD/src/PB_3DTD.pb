@@ -200,8 +200,8 @@ Structure Projectile
   special.i
 EndStructure
 
-Global version.s = "v1.0.0.1"
-Global AppPath.s = GetFilePart(ProgramFilename())
+Global version.s = "v1.0.0.2"
+Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
 Global Dim Grid.Cell(#GridWidth - 1, #GridHeight - 1)
@@ -512,7 +512,8 @@ Repeat
 ForEver
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 479
+; CursorPosition = 202
+; FirstLine = 189
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -521,12 +522,12 @@ ForEver
 ; UseIcon = PB_3DTD.ico
 ; Executable = ..\PB_3DTD.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_3DTD
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
 ; VersionField6 = A 3D Tower Defense game with levels
 ; VersionField7 = PB_3DTD
 ; VersionField8 = PB_3DTD.exe
