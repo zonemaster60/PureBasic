@@ -78,7 +78,7 @@ Procedure.s HelpText()
   t + "- Use the library sidebar, filter box, and sort menu on the main window to find games quickly." + #CRLF$
   t + "- Profile imports merge duplicates by Steam AppID or EXE path." + #CRLF$
   t + "- Tools -> Settings lets you choose the default preset and thumbnail size." + #CRLF$
-  t + "- Steam games try to fetch cached artwork thumbnails automatically." + #CRLF$
+  t + "- EXE games use their executable icon; Steam games try the Steam icon first, then fetch cover art in memory." + #CRLF$
   t + "- Tools -> Diagnostics shows CPU usage, memory status, tuned background processes, and the active Windows power plan." + #CRLF$ + #CRLF$
   t + "Troubleshooting" + #CRLF$
   t + "- Admin rights: service control requires an elevated process. " + #APP_NAME + " auto-prompts via UAC." + #CRLF$
@@ -359,7 +359,7 @@ Procedure LoadSettings()
   If OpenPreferences(SettingsIni)
     PreferenceGroup("ui")
     DefaultPreset = ReadPreferenceInteger("defaultPreset", #PRESET_BALANCED)
-    ThumbnailSize = ReadPreferenceInteger("thumbnailSize", 18)
+    ThumbnailSize = ReadPreferenceInteger("thumbnailSize", 48)
     SortMode = ReadPreferenceInteger("sortMode", #SORT_NAME_ASC)
     LibraryView = ReadPreferenceInteger("libraryView", #LIBRARY_ALL)
     RememberLastView = ReadPreferenceInteger("rememberLastView", 1)
@@ -368,8 +368,8 @@ Procedure LoadSettings()
     ClosePreferences()
   EndIf
   If DefaultPreset < #PRESET_SAFE Or DefaultPreset > #PRESET_AGGRESSIVE : DefaultPreset = #PRESET_BALANCED : EndIf
-  If ThumbnailSize < 16 : ThumbnailSize = 16 : EndIf
-  If ThumbnailSize > 32 : ThumbnailSize = 32 : EndIf
+  If ThumbnailSize < 32 : ThumbnailSize = 32 : EndIf
+  If ThumbnailSize > 96 : ThumbnailSize = 96 : EndIf
   If HistoryDepth < 1 : HistoryDepth = 1 : EndIf
   If HistoryDepth > 25 : HistoryDepth = 25 : EndIf
   If RememberLastView = 0
@@ -566,8 +566,8 @@ Procedure ShowSettings()
           ThumbnailSize = Val(GetGadgetText(#S_ThumbSize))
           RememberLastView = GetGadgetState(#S_RememberView)
           HistoryDepth = Val(GetGadgetText(#S_HistoryDepth))
-          If ThumbnailSize < 16 : ThumbnailSize = 16 : EndIf
-          If ThumbnailSize > 32 : ThumbnailSize = 32 : EndIf
+          If ThumbnailSize < 32 : ThumbnailSize = 32 : EndIf
+          If ThumbnailSize > 96 : ThumbnailSize = 96 : EndIf
           If HistoryDepth < 1 : HistoryDepth = 1 : EndIf
           If HistoryDepth > 25 : HistoryDepth = 25 : EndIf
           ClearMap(GameThumbnail())

@@ -19,12 +19,12 @@ LogPath = DataDir + #APP_NAME + ".log"
 
 Global FontUI.i, FontTitle.i, FontSmall.i
 Global MainStatusBar.i
-Global version.s = "v1.0.0.8"
+Global version.s = "v1.0.0.9"
 Global BrowseExePath.s, BeforeCount.i, LaunchUiPulse.i
 Global LaunchStartedAt.q
 Global FilterQuery.s, SortMode.i, LibraryView.i
 Global DefaultPreset.i
-Global ThumbnailSize.i = 18
+Global ThumbnailSize.i = 48
 Global RememberLastView.i = 1
 Global HistoryDepth.i = 10
 Global SteamExeArgs.s
@@ -292,6 +292,10 @@ XIncludeFile "MyGameBooster.SteamServices.pbi"
 XIncludeFile "MyGameBooster.Games.pbi"
 XIncludeFile "MyGameBooster.App.pbi"
 
+UseJPEGImageDecoder()
+UseJPEGImageEncoder()
+UsePNGImageDecoder()
+UsePNGImageEncoder()
 EnsureElevatedOrRelaunch()
 AcquireSingleInstanceMutex()
 RestoreIfDirtySession()
@@ -301,7 +305,7 @@ InitFonts()
 RunApplication()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 21
+; CursorPosition = 20
 ; FirstLine = 6
 ; Folding = -
 ; Optimizer
@@ -313,12 +317,12 @@ RunApplication()
 ; UseIcon = MyGameBooster.ico
 ; Executable = ..\MyGameBooster.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,8
-; VersionField1 = 1,0,0,8
+; VersionField0 = 1,0,0,9
+; VersionField1 = 1,0,0,9
 ; VersionField2 = ZoneSoft
 ; VersionField3 = MyGameBooster
-; VersionField4 = 1.0.0.8
-; VersionField5 = 1.0.0.8
+; VersionField4 = 1.0.0.9
+; VersionField5 = 1.0.0.9
 ; VersionField6 = A Game Booster for boosting your games
 ; VersionField7 = MyGameBooster
 ; VersionField8 = MyGameBooster.exe

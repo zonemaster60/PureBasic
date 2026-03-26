@@ -379,7 +379,7 @@ EndProcedure
 
 Procedure SaveGames()
   If OpenOrCreatePreferences(GamesIni)
-    LogLine("Saving games.ini; count=" + Str(ListSize(Games())))
+    LogLine("Saving MyGameBooster_games.ini; count=" + Str(ListSize(Games())))
     Protected i.i = 0
     PreferenceGroup("meta")
     WritePreferenceInteger("count", ListSize(Games()))
@@ -890,8 +890,8 @@ Procedure RecordLaunchResult(*g.GameEntry, durationSec.i)
 EndProcedure
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 823
-; FirstLine = 857
-; Folding = ------
+; CursorPosition = 381
+; FirstLine = 387
+; Folding = -------
 ; EnableXP
 ; DPIAware

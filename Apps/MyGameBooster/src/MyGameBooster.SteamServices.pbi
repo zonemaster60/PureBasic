@@ -943,6 +943,7 @@ Procedure.i OpenEditGameDialog(*cur.GameEntry, *autoRun.Integer)
     #W_EditGame
   EndEnumeration
   Enumeration _EditGadgets 5100
+    #E_Preview
     #E_Name
     #E_Mode
     #E_Path
@@ -963,8 +964,10 @@ Procedure.i OpenEditGameDialog(*cur.GameEntry, *autoRun.Integer)
   Protected w.i, ev.i
   Protected saved.i
   Protected modeLabel.s
+  Protected previewImg.i
+  Protected previewPanelImg.i
 
-  w = OpenWindow(#W_EditGame, 0, 0, 640, 520, "Edit Game", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  w = OpenWindow(#W_EditGame, 0, 0, 780, 520, "Edit Game", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
   If w = 0
     ProcedureReturn 0
   EndIf
@@ -972,6 +975,18 @@ Procedure.i OpenEditGameDialog(*cur.GameEntry, *autoRun.Integer)
   If IsWindow(0)
     DisableWindow(0, 1)
   EndIf
+
+  previewImg = ThumbnailImageForGameSized(*cur, 96)
+  TextGadget(#PB_Any, 650, 16, 96, 20, "Preview")
+  previewPanelImg = CreateImage(#PB_Any, 112, 112, 32, RGBA(245, 245, 245, 255))
+  If IsImage(previewPanelImg) And StartDrawing(ImageOutput(previewPanelImg))
+    Box(0, 0, 112, 112, RGBA(245, 245, 245, 255))
+    If IsImage(previewImg)
+      DrawAlphaImage(ImageID(previewImg), 8, 8)
+    EndIf
+    StopDrawing()
+  EndIf
+  ImageGadget(#E_Preview, 638, 44, 112, 112, ImageID(previewPanelImg), #PB_Image_Border)
 
   TextGadget(#PB_Any, 16, 16, 110, 20, "Game name")
   StringGadget(#E_Name, 140, 12, 480, 24, *cur\Name)

@@ -201,10 +201,10 @@ Procedure.s BackgroundOptimizationLabel(enabled.i)
   ProcedureReturn "disabled"
 EndProcedure
 
-Procedure.i ThumbnailImageForGame(*g.GameEntry)
-  Protected key.s = GameIdentity(*g) + ":" + Str(*g\Preset) + ":" + Str(ThumbnailSize)
+Procedure.i ThumbnailImageForGameSized(*g.GameEntry, size.i)
+  Protected key.s = GameIdentity(*g) + ":" + Str(*g\Preset) + ":" + Str(size)
   Protected img.i
-  Protected bg.i, fg.i = RGB(255, 255, 255)
+  Protected bg.i, fg.i = RGBA(255, 255, 255, 255)
   Protected label.s
 
   If FindMapElement(GameThumbnail(), key)
@@ -213,7 +213,17 @@ Procedure.i ThumbnailImageForGame(*g.GameEntry)
 
   If *g\LaunchMode = 1
     EnsureSteamArtwork(*g\SteamAppId)
-    img = LoadImage(#PB_Any, SteamArtworkPath(*g\SteamAppId))
+    img = LocalSteamArtworkImage(*g\SteamAppId, size)
+    If img
+      GameThumbnail(key) = img
+      ProcedureReturn img
+    EndIf
+    img = IconThumbnailFromPath(*g\SteamExe, size)
+    If img
+      GameThumbnail(key) = img
+      ProcedureReturn img
+    EndIf
+    img = DownloadSteamArtworkImage(*g\SteamAppId, size)
     If img
       GameThumbnail(key) = img
       ProcedureReturn img
@@ -221,37 +231,37 @@ Procedure.i ThumbnailImageForGame(*g.GameEntry)
   EndIf
 
   If *g\LaunchMode = 0 And *g\ExePath <> ""
-    img = IconThumbnailFromPath(*g\ExePath, ThumbnailSize)
+    img = LocalExeArtworkImage(*g\ExePath, size)
     If img
       GameThumbnail(key) = img
       ProcedureReturn img
     EndIf
   EndIf
 
-  img = CreateImage(#PB_Any, ThumbnailSize, ThumbnailSize, 32, RGB(220, 220, 220))
+  img = CreateImage(#PB_Any, size, size, 32, RGBA(220, 220, 220, 255))
   If img = 0
     ProcedureReturn 0
   EndIf
 
   Select *g\Preset
     Case #PRESET_SAFE
-      bg = RGB(46, 125, 50)
+      bg = RGBA(46, 125, 50, 255)
       label = "S"
     Case #PRESET_AGGRESSIVE
-      bg = RGB(183, 28, 28)
+      bg = RGBA(183, 28, 28, 255)
       label = "A"
     Default
-      bg = RGB(25, 118, 210)
+      bg = RGBA(25, 118, 210, 255)
       label = "B"
   EndSelect
 
   If StartDrawing(ImageOutput(img))
-    Box(0, 0, ThumbnailSize, ThumbnailSize, bg)
+    Box(0, 0, size, size, bg)
     DrawingMode(#PB_2DDrawing_Transparent)
     If FontSmall
       DrawingFont(FontID(FontSmall))
     EndIf
-    DrawText(4, 1, label, fg)
+    DrawText(size / 3, size / 4, label, fg)
     StopDrawing()
   EndIf
 
@@ -259,7 +269,196 @@ Procedure.i ThumbnailImageForGame(*g.GameEntry)
   ProcedureReturn img
 EndProcedure
 
+Procedure.i ThumbnailImageForGame(*g.GameEntry)
+  ProcedureReturn ThumbnailImageForGameSized(*g, ThumbnailSize)
+EndProcedure
+
+Procedure.s PowerShellQuote(s.s)
+  ProcedureReturn "'" + ReplaceString(s, "'", "''") + "'"
+EndProcedure
+
+Procedure.s FindExistingExeArtworkPath(exePath.s)
+  Protected path.s, clean.s, dir.i, fileName.s, lowerName.s
+
+  path = ExeArtworkPath(exePath)
+  If path <> "" And FileSize(path) > 0
+    ProcedureReturn path
+  EndIf
+
+  clean = LCase(GetFilePart(exePath, #PB_FileSystem_NoExtension))
+  If clean = "" Or FileSize(ArtworkDir) <> -2
+    ProcedureReturn ""
+  EndIf
+
+  dir = ExamineDirectory(#PB_Any, ArtworkDir, "*")
+  If dir = 0
+    ProcedureReturn ""
+  EndIf
+
+  While NextDirectoryEntry(dir)
+    If DirectoryEntryType(dir) = #PB_DirectoryEntry_File
+      fileName = DirectoryEntryName(dir)
+      lowerName = LCase(fileName)
+      If Left(lowerName, 4) = "exe_"
+        If FindString(lowerName, "_" + clean + "_", 1) Or Left(lowerName, 4 + Len(clean)) = "exe_" + clean
+          FinishDirectory(dir)
+          ProcedureReturn ArtworkDir + fileName
+        EndIf
+      ElseIf GetFilePart(lowerName, #PB_FileSystem_NoExtension) = clean
+        FinishDirectory(dir)
+        ProcedureReturn ArtworkDir + fileName
+      EndIf
+    EndIf
+  Wend
+
+  FinishDirectory(dir)
+  ProcedureReturn ""
+EndProcedure
+
+Procedure.s ExeArtworkPath(exePath.s)
+  Protected clean.s, i.i, c.s, key.s
+
+  exePath = LCase(CollapseBackslashes(exePath))
+  If exePath = ""
+    ProcedureReturn ""
+  EndIf
+
+  If FileSize(ArtworkDir) <> -2
+    CreateDirectory(ArtworkDir)
+  EndIf
+
+  clean = GetFilePart(exePath, #PB_FileSystem_NoExtension)
+  For i = 1 To Len(exePath)
+    c = Mid(exePath, i, 1)
+    If (c >= "a" And c <= "z") Or (c >= "0" And c <= "9")
+      key + c
+    Else
+      key + "_"
+    EndIf
+  Next
+  While FindString(key, "__", 1)
+    key = ReplaceString(key, "__", "_")
+  Wend
+  If Len(key) > 80
+    key = Left(key, 80)
+  EndIf
+  If clean <> ""
+    ProcedureReturn ArtworkDir + "exe_" + clean + "_" + key + ".jpg"
+  EndIf
+  ProcedureReturn ArtworkDir + "exe_" + key + ".jpg"
+EndProcedure
+
+Procedure.i ExtractExeArtworkWithPowerShell(exePath.s, outPath.s)
+  Protected script.s, args.s, p.i
+
+  If exePath = "" Or outPath = ""
+    ProcedureReturn 0
+  EndIf
+
+  script = "Add-Type -AssemblyName System.Drawing; "
+  script + "$src=" + PowerShellQuote(exePath) + "; "
+  script + "$dst=" + PowerShellQuote(outPath) + "; "
+  script + "$ico=[System.Drawing.Icon]::ExtractAssociatedIcon($src); "
+  script + "if ($ico -ne $null) { "
+  script + "$srcBmp=$ico.ToBitmap(); "
+  script + "$bmp=New-Object System.Drawing.Bitmap 96,96; "
+  script + "$g=[System.Drawing.Graphics]::FromImage($bmp); "
+  script + "$g.Clear([System.Drawing.Color]::FromArgb(245,245,245)); "
+  script + "$g.InterpolationMode=[System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic; "
+  script + "$g.DrawImage($srcBmp,0,0,96,96); "
+  script + "$bmp.Save($dst,[System.Drawing.Imaging.ImageFormat]::Jpeg); "
+  script + "$g.Dispose(); $bmp.Dispose(); $srcBmp.Dispose(); $ico.Dispose(); }"
+  args = "-NoProfile -ExecutionPolicy Bypass -Command " + #DQUOTE$ + script + #DQUOTE$
+
+  DeleteFile(outPath)
+  p = RunProgram("powershell.exe", args, "", #PB_Program_Hide | #PB_Program_Wait)
+  If p
+    CloseProgram(p)
+  EndIf
+  ProcedureReturn Bool(FileSize(outPath) > 0)
+EndProcedure
+
+Procedure EnsureExeArtwork(exePath.s)
+  Protected path.s, img.i, blank.i = 1
+
+  path = ExeArtworkPath(exePath)
+  If path = ""
+    ProcedureReturn
+  EndIf
+
+  If FileSize(path) > 0
+    img = LoadImage(#PB_Any, path)
+    If img And StartDrawing(ImageOutput(img))
+      If Red(Point(48, 48)) < 240 Or Green(Point(48, 48)) < 240 Or Blue(Point(48, 48)) < 240
+        blank = 0
+      EndIf
+      StopDrawing()
+    EndIf
+    If img
+      FreeImage(img)
+    EndIf
+    If blank = 0
+      ProcedureReturn
+    EndIf
+  EndIf
+
+  ExtractExeArtworkWithPowerShell(exePath, path)
+EndProcedure
+
+Procedure.i LocalExeArtworkImage(exePath.s, size.i)
+  Protected path.s, img.i
+
+  path = FindExistingExeArtworkPath(exePath)
+  If path = "" Or FileSize(path) <= 0
+    ProcedureReturn 0
+  EndIf
+
+  img = LoadImage(#PB_Any, path)
+  If img = 0
+    ProcedureReturn 0
+  EndIf
+
+  ResizeImage(img, size, size)
+  ProcedureReturn img
+EndProcedure
+
+Procedure.i IconThumbnailFromPath(exePath.s, size.i)
+  Protected largeIcon.i, smallIcon.i, iconHandle.i, img.i
+
+  If exePath = "" Or FileSize(exePath) <= 0
+    ProcedureReturn 0
+  EndIf
+
+  If ExtractIconEx_(exePath, 0, @largeIcon, @smallIcon, 1) = 0
+    ProcedureReturn 0
+  EndIf
+
+  iconHandle = smallIcon
+  If iconHandle = 0
+    iconHandle = largeIcon
+  EndIf
+  If iconHandle = 0
+    If largeIcon : DestroyIcon_(largeIcon) : EndIf
+    If smallIcon : DestroyIcon_(smallIcon) : EndIf
+    ProcedureReturn 0
+  EndIf
+
+  img = CreateImage(#PB_Any, size, size, 32, RGBA(0, 0, 0, 0))
+  If img And StartDrawing(ImageOutput(img))
+    DrawIconEx_(ImageOutput(img), 0, 0, iconHandle, size, size, 0, 0, 3)
+    StopDrawing()
+  EndIf
+
+  If largeIcon : DestroyIcon_(largeIcon) : EndIf
+  If smallIcon : DestroyIcon_(smallIcon) : EndIf
+
+  ProcedureReturn img
+EndProcedure
+
 Procedure.s SteamArtworkPath(appId.i)
+  If appId <= 0
+    ProcedureReturn ""
+  EndIf
   If FileSize(ArtworkDir) <> -2
     CreateDirectory(ArtworkDir)
   EndIf
@@ -268,19 +467,54 @@ EndProcedure
 
 Procedure EnsureSteamArtwork(appId.i)
   Protected path.s, url.s
-  If appId <= 0
-    ProcedureReturn
-  EndIf
+
   path = SteamArtworkPath(appId)
-  If FileSize(path) > 0
+  If path = "" Or FileSize(path) > 0
     ProcedureReturn
   EndIf
+
   url = "https://cdn.cloudflare.steamstatic.com/steam/apps/" + Str(appId) + "/library_600x900_2x.jpg"
   ReceiveHTTPFile(url, path)
 EndProcedure
 
-Procedure.i IconThumbnailFromPath(exePath.s, size.i)
-  ProcedureReturn 0
+Procedure.i LocalSteamArtworkImage(appId.i, size.i)
+  Protected path.s, img.i
+
+  path = SteamArtworkPath(appId)
+  If path = "" Or FileSize(path) <= 0
+    ProcedureReturn 0
+  EndIf
+
+  img = LoadImage(#PB_Any, path)
+  If img = 0
+    ProcedureReturn 0
+  EndIf
+
+  ResizeImage(img, size, size)
+  ProcedureReturn img
+EndProcedure
+
+Procedure.i DownloadSteamArtworkImage(appId.i, size.i)
+  Protected url.s, *mem, img.i
+
+  If appId <= 0
+    ProcedureReturn 0
+  EndIf
+
+  url = "https://cdn.cloudflare.steamstatic.com/steam/apps/" + Str(appId) + "/library_600x900_2x.jpg"
+  *mem = ReceiveHTTPMemory(url)
+  If *mem = 0
+    ProcedureReturn 0
+  EndIf
+
+  img = CatchImage(#PB_Any, *mem, MemorySize(*mem))
+  FreeMemory(*mem)
+  If img = 0
+    ProcedureReturn 0
+  EndIf
+
+  ResizeImage(img, size, size)
+  ProcedureReturn img
 EndProcedure
 
 Procedure.i GameIndexFromVisibleIndex(visibleIdx.i)
@@ -1008,7 +1242,7 @@ Procedure RunApplication()
     TextGadget(#G_LaunchState, ScaleX(198), ScaleY(122), ScaleX(680), ScaleY(18), "")
     ButtonGadget(#G_CancelWait, ScaleX(900), ScaleY(116), ScaleX(160), ScaleY(30), "Cancel Wait")
 
-    ListIconGadget(#G_List, ScaleX(198), ScaleY(154), ScaleX(862), ScaleY(350), "Game", ScaleX(240), #PB_ListIcon_FullRowSelect | #PB_ListIcon_GridLines)
+    ListIconGadget(#G_List, ScaleX(198), ScaleY(154), ScaleX(862), ScaleY(350), "Game", ScaleX(300), #PB_ListIcon_FullRowSelect | #PB_ListIcon_GridLines)
     AddGadgetColumn(#G_List, 1, "Type", ScaleX(90))
     AddGadgetColumn(#G_List, 2, "Path / AppID / Profile", ScaleX(590))
     AddGadgetColumn(#G_List, 3, "Services", ScaleX(90))

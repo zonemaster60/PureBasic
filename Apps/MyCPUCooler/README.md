@@ -81,4 +81,10 @@ Typical safe starting point
 Files
 
 - Main source: `src/MyCPUCooler.pb`
+- Include layout:
+  - `src/MyCPUCooler.System.pbi` for low-level Windows, telemetry, registry, process, and shared app state helpers
+  - `src/MyCPUCooler.Settings.pbi` for default settings, load/save, normalization, and startup registration
+  - `src/MyCPUCooler.UI.Layout.pbi` for gadget enums, layout helpers, tray helpers, and window construction
+  - `src/MyCPUCooler.UI.Actions.pbi` for UI actions, event handlers, preset application, and automation behavior
+  - `src/MyCPUCooler.Runtime.pbi` for app startup and the main event loop
 - Output executable configured in source IDE options: `MyCPUCooler.exe`
