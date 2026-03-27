@@ -9,6 +9,7 @@ Structure AppStrings
   Reload.s
   Edit.s
   Startup.s
+  Logging.s
   PdhOnly.s
   Exit.s
   Capacity.s
@@ -33,9 +34,10 @@ Procedure LoadLanguage(lang.s = "EN")
       Lng\Help = "Help"
       Lng\Drives = "Drive(s)"
       Lng\Diagnostics = "Diagnostics"
-      Lng\Reload = "Reload settings"
-      Lng\Edit = "Edit settings"
-      Lng\Startup = "Start with Windows"
+      Lng\Reload = "Reload Settings"
+      Lng\Edit = "Edit Settings"
+      Lng\Startup = "Run at Startup"
+      Lng\Logging = "Logging"
       Lng\PdhOnly = "Use PDH only"
       Lng\Exit = "Exit"
       Lng\Capacity = "Capacity"

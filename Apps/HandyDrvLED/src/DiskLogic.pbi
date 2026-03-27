@@ -16,15 +16,15 @@ EndProcedure
 Procedure.s FormatRate(bytesPerSec.d)
   Protected value.d = bytesPerSec
   Protected unit.s = "B/s"
-  If value >= 10240
-    value / 1024.0 : unit = "KB/s"
     If value >= 10240
-      value / 1024.0 : unit = "MB/s"
+      value / 1024.0 : unit = "KB/s"
       If value >= 10240
-        value / 1024.0 : unit = "GB/s"
+        value / 1024.0 : unit = "MB/s"
+        If value >= 10240
+          value / 1024.0 : unit = "GB/s"
+        EndIf
       EndIf
     EndIf
-  EndIf
   If unit = "B/s" : ProcedureReturn StrD(value, 0) + " " + unit : Else : ProcedureReturn StrD(value, 1) + " " + unit : EndIf
 EndProcedure
 
@@ -215,3 +215,9 @@ Procedure MonitorThread(unused.i)
     Delay(UpdateIntervalMs)
   ForEver
 EndProcedure
+
+; IDE Options = PureBasic 6.30 (Windows - x64)
+; CursorPosition = 26
+; Folding = -
+; EnableXP
+; DPIAware

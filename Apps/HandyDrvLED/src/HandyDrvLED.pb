@@ -102,6 +102,7 @@ MenuItem(#MenuItem_Reload, Lng\Reload)
 MenuItem(#MenuItem_Edit, Lng\Edit)
 MenuBar()
 MenuItem(#MenuItem_Startup, Lng\Startup)
+MenuItem(#MenuItem_LogToggle, "")
 MenuItem(#MenuItem_ForcePdh, Lng\PdhOnly)
 MenuBar()
 MenuItem(#MenuItem_Exit, Lng\Exit)
@@ -110,9 +111,10 @@ AddSysTrayIcon(1, WindowID(#Window_Main), CurrentIconID)
 SysTrayIconToolTip(1, Lng\AppName + " " + version)
 
   StartupEnabled = IsInStartup()
-  SetMenuItemState(#Menu_Main, #MenuItem_Startup, StartupEnabled)
+  UpdateStartupMenuLabel()
   ForcePdhOnly = ForcePdhOnlyDefault
   SetMenuItemState(#Menu_Main, #MenuItem_ForcePdh, ForcePdhOnly)
+  UpdateLogMenuLabel()
   
   Repeat
     Event = WaitWindowEvent()
@@ -161,14 +163,32 @@ SysTrayIconToolTip(1, Lng\AppName + " " + version)
                                        "PDH Collect Status: " + FormatPdhError(pdhCollect) + #CRLF$ +
                                        "PDH Read Status: " + FormatPdhError(pdhRead) + #CRLF$ +
                                        "PDH Write Status: " + FormatPdhError(pdhWrite) + #CRLF$ +
-                                       "Log File: " + logFile, #PB_MessageRequester_Info)
+                                       "Logging: " + EnabledStateText(LoggingEnabled) + #CRLF$ +
+                                       "Log File: " + logFile + #CRLF$ +
+                                       "Log Rotation: " + EnabledStateText(LogRotateEnabled) + " keep=" + Str(LogRotateKeep) + " maxKB=" + Str(LogRotateMaxBytes / 1024), #PB_MessageRequester_Info)
+        Case #MenuItem_LogToggle
+          LoggingEnabled ! 1
+          UpdateLogMenuLabel()
+          SaveSettings()
+          If LoggingEnabled
+            LogMessage("Logging ENABLED from menu.")
+          EndIf
         Case #MenuItem_ForcePdh
           LockMutex(Mutex_DiskData)
           ForcePdhOnly ! 1
           currentForce = ForcePdhOnly
           UnlockMutex(Mutex_DiskData)
           SetMenuItemState(#Menu_Main, #MenuItem_ForcePdh, currentForce)
-        Case #MenuItem_Reload : LoadSettings()
+        Case #MenuItem_Reload
+          LoadSettings()
+          StartupEnabled = IsInStartup()
+          UpdateStartupMenuLabel()
+          ForcePdhOnly = ForcePdhOnlyDefault
+          SetMenuItemState(#Menu_Main, #MenuItem_ForcePdh, ForcePdhOnly)
+          UpdateLogMenuLabel()
+          If LoggingEnabled
+            LogMessage("Settings manually reloaded from INI file")
+          EndIf
         Case #MenuItem_Edit : EditSettings()
         Case #MenuItem_Startup
           StartupEnabled ! 1
@@ -178,10 +198,10 @@ SysTrayIconToolTip(1, Lng\AppName + " " + version)
             result = RemoveFromStartup()
           EndIf
           If result
-            SetMenuItemState(#Menu_Main, #MenuItem_Startup, StartupEnabled)
+            UpdateStartupMenuLabel()
           Else
             StartupEnabled = IsInStartup()
-            SetMenuItemState(#Menu_Main, #MenuItem_Startup, StartupEnabled)
+            UpdateStartupMenuLabel()
             MessageRequester("Error", "Unable to change startup setting.", #PB_MessageRequester_Error)
           EndIf
         Case #MenuItem_Exit : If Exit() : QuitThread = #True : Break : EndIf
@@ -199,8 +219,8 @@ Cleanup()
 End
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 6
-; FirstLine = 90
+; CursorPosition = 90
+; FirstLine = 166
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -210,12 +230,12 @@ End
 ; UseIcon = HandyDrvLED.ico
 ; Executable = ..\HandyDrvLED.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,4
-; VersionField1 = 1,0,3,4
+; VersionField0 = 1,0,3,5
+; VersionField1 = 1,0,3,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyDrvLED
-; VersionField4 = 1.0.3.4
-; VersionField5 = 1.0.3.4
+; VersionField4 = 1.0.3.5
+; VersionField5 = 1.0.3.5
 ; VersionField6 = A handy drive monitor - with tons of features
 ; VersionField7 = HandyDrvLED
 ; VersionField8 = HandyDrvLED.exe

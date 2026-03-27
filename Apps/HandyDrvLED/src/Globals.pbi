@@ -1,7 +1,7 @@
 ; HandyDrvLED Globals & Constants
 
 #APP_NAME = "HandyDrvLED"
-Global version.s = "v1.0.3.4"
+Global version.s = "v1.0.3.5"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
 #IOCTL_DISK_PERFORMANCE = $70020
@@ -26,9 +26,7 @@ CompilerIf Not Defined(FILE_SHARE_WRITE, #PB_Constant)
 CompilerEndIf
 
 ; Logging Constants
-#LOG_MAX_BYTES = 524288
-#LOG_MAX_SEGMENTS_PER_DAY = 20
-#LOG_RETENTION_DAYS = 14
+#LOG_FILE = "HandyDrvLED.log"
 #LOG_THROTTLE_MS = 5000
 
 Enumeration Windows
@@ -46,6 +44,7 @@ Enumeration MenuItems
   #MenuItem_Drives
   #MenuItem_Exit = 6
   #MenuItem_Startup
+  #MenuItem_LogToggle
   #MenuItem_Diagnostics
   #MenuItem_ForcePdh
   #MenuItem_Reload
@@ -108,6 +107,10 @@ Global LogDir.s = ""
 Global LogBase.s = ""
 Global LogPath.s = ""
 Global LogCurrentDate.s = ""
+Global LoggingEnabled.i = #True
+Global LogRotateEnabled.i = #True
+Global LogRotateMaxBytes.q = 1024 * 1024
+Global LogRotateKeep.i = 3
 Global NewMap LogLastTime.i()
 
 Global hMutex.i, hdh, IdIcon1, IdIcon2, IdIcon3, IdIcon4
@@ -124,6 +127,7 @@ Global ForcePdhOnlyDefault.i = 0
 
 ; Thread Safety
 Global Mutex_DiskData = CreateMutex()
+Global LogMutex = CreateMutex()
 Global Thread_Monitor.i
 Global QuitThread.i = #False
 
@@ -214,82 +218,157 @@ Procedure.s ResolveWritableLogDir()
   ProcedureReturn dir
 EndProcedure
 
+Procedure EnsureLogTarget()
+  LockMutex(Mutex_DiskData)
+  If LogDir = ""
+    LogDir = ResolveWritableLogDir()
+    LogBase = LogDir + #APP_NAME
+    LogPath = LogDir + #LOG_FILE
+  ElseIf LogPath = ""
+    LogPath = LogDir + #LOG_FILE
+  EndIf
+  UnlockMutex(Mutex_DiskData)
+EndProcedure
+
+Procedure UpdateStartupMenuLabel()
+  If StartupEnabled
+    SetMenuItemText(#Menu_Main, #MenuItem_Startup, "Disable Run at Startup")
+  Else
+    SetMenuItemText(#Menu_Main, #MenuItem_Startup, "Enable Run at Startup")
+  EndIf
+EndProcedure
+
+Procedure UpdateLogMenuLabel()
+  If LoggingEnabled
+    SetMenuItemText(#Menu_Main, #MenuItem_LogToggle, "Disable Logging")
+  Else
+    SetMenuItemText(#Menu_Main, #MenuItem_LogToggle, "Enable Logging")
+  EndIf
+EndProcedure
+
+Procedure.s EnabledStateText(value.i)
+  If value
+    ProcedureReturn "Enabled"
+  EndIf
+
+  ProcedureReturn "Disabled"
+EndProcedure
+
+Procedure LogRotateIfNeeded()
+  If LoggingEnabled = #False Or LogRotateEnabled = #False
+    ProcedureReturn
+  EndIf
+
+  EnsureLogTarget()
+  If LogPath = ""
+    ProcedureReturn
+  EndIf
+
+  If LogRotateKeep < 1 Or LogRotateMaxBytes < 1
+    ProcedureReturn
+  EndIf
+
+  LockMutex(LogMutex)
+
+  Protected size.q = FileSize(LogPath)
+  If size < 0 Or size <= LogRotateMaxBytes
+    UnlockMutex(LogMutex)
+    ProcedureReturn
+  EndIf
+
+  Protected i.i
+  Protected src.s
+  Protected dst.s
+
+  dst = LogPath + "." + Str(LogRotateKeep)
+  If FileSize(dst) >= 0
+    DeleteFile(dst)
+  EndIf
+
+  For i = LogRotateKeep - 1 To 1 Step -1
+    src = LogPath + "." + Str(i)
+    If FileSize(src) >= 0
+      RenameFile(src, LogPath + "." + Str(i + 1))
+    EndIf
+  Next
+
+  RenameFile(LogPath, LogPath + ".1")
+  UnlockMutex(LogMutex)
+EndProcedure
+
+Procedure LogMessage(message.s)
+  If LoggingEnabled = #False
+    ProcedureReturn
+  EndIf
+
+  EnsureLogTarget()
+  If LogPath = ""
+    ProcedureReturn
+  EndIf
+
+  LogRotateIfNeeded()
+
+  LockMutex(LogMutex)
+  Protected fh.i = OpenFile(#PB_Any, LogPath, #PB_File_SharedRead | #PB_File_SharedWrite)
+  If fh = 0
+    fh = CreateFile(#PB_Any, LogPath)
+  EndIf
+
+  If fh
+    FileSeek(fh, Lof(fh))
+    WriteStringN(fh, FormatDate("[%yy-%mm-%dd]-[%hh:%ii:%ss] ", Date()) + message)
+    CloseFile(fh)
+  EndIf
+  UnlockMutex(LogMutex)
+EndProcedure
+
 Procedure LogLine(message.s, key.s = "")
   Protected k.s = key : If k = "" : k = message : EndIf
   Protected now.i = ElapsedMilliseconds()
-  Protected activeLogDir.s
 
   LockMutex(Mutex_DiskData)
   If FindMapElement(LogLastTime(), k) : If now - LogLastTime() < #LOG_THROTTLE_MS : UnlockMutex(Mutex_DiskData) : ProcedureReturn : EndIf : EndIf
   LogLastTime(k) = now
-
-  If LogDir = ""
-    LogDir = ResolveWritableLogDir()
-    LogBase = LogDir + #APP_NAME
-    LogPath = LogBase + "." + FormatDate("%yyyy-%mm-%dd", Date()) + ".log"
-  EndIf
-  activeLogDir = LogDir
   UnlockMutex(Mutex_DiskData)
 
-  Protected today.s = FormatDate("%yyyy-%mm-%dd", Date())
-  Protected stamp.s = FormatDate("[%yy-%mm-%dd]-[%hh:%ii:%ss]", Date())
-  Protected target.s = LogBase + "." + today + ".log"
-  Protected fh.i
-  
-  ; Check retention (once per hour or simple check)
-  Static lastRetentionCheck.i
-  If now - lastRetentionCheck > 3600000 ; 1 hour
-    lastRetentionCheck = now
-    If ExamineDirectory(1, activeLogDir, #APP_NAME + ".*.log")
-      Protected cutoff.i = AddDate(Date(), #PB_Date_Day, -#LOG_RETENTION_DAYS)
-      While NextDirectoryEntry(1)
-        Protected entryName.s = DirectoryEntryName(1)
-        Protected entryDate.s = StringField(entryName, 2, ".") ; Format: HandyDrvLED.yyyy-mm-dd.log
-        If Len(entryDate) = 10
-          Protected fileTime.i = ParseDate("%yyyy-%mm-%dd", entryDate)
-          If fileTime < cutoff
-            DeleteFile(activeLogDir + entryName)
-          EndIf
-        EndIf
-      Wend
-      FinishDirectory(1)
+  LogMessage(message)
+EndProcedure
+
+Procedure.b OpenOrCreateSettingsPreferences(iniFile.s)
+  If FileSize(iniFile) >= 0
+    If OpenPreferences(iniFile)
+      ProcedureReturn #True
     EndIf
   EndIf
 
-  ; Write log with size-based segmenting
-  Protected segment.i = 0
-  Protected actualTarget.s = target
-  While FileSize(actualTarget) >= #LOG_MAX_BYTES
-    segment + 1
-    actualTarget = LogBase + "." + today + "." + Str(segment) + ".log"
-    If segment >= #LOG_MAX_SEGMENTS_PER_DAY : Break : EndIf
-  Wend
-
-  If FileSize(actualTarget) = -1
-    fh = CreateFile(#PB_Any, actualTarget)
-  Else
-    fh = OpenFile(#PB_Any, actualTarget)
-  EndIf
-
-  If fh
-    If Lof(fh) > 0
-      FileSeek(fh, Lof(fh))
-    EndIf
-    WriteStringN(fh, stamp + " | " + message)
-    CloseFile(fh)
-    LockMutex(Mutex_DiskData)
-    LogPath = actualTarget
-    UnlockMutex(Mutex_DiskData)
-  EndIf
+  ProcedureReturn Bool(CreatePreferences(iniFile))
 EndProcedure
 
 Procedure LoadSettings()
+  LoggingEnabled = #True
+  LogRotateEnabled = #True
+  LogRotateMaxBytes = 1024 * 1024
+  LogRotateKeep = 3
+
   If OpenPreferences(IniPath)
     PreferenceGroup("General")
     UpdateIntervalMs = ReadPreferenceInteger("UpdateIntervalMs", UpdateIntervalMs)
     TooltipUpdateIntervalMs = ReadPreferenceInteger("TooltipUpdateIntervalMs", TooltipUpdateIntervalMs)
     StartWithRandomIconSet = ReadPreferenceInteger("StartWithRandomIconSet", StartWithRandomIconSet)
     DefaultIconSet = ReadPreferenceInteger("DefaultIconSet", DefaultIconSet)
+    LoggingEnabled = ReadPreferenceInteger("LoggingEnabled", LoggingEnabled)
+    If LoggingEnabled <> 0 And LoggingEnabled <> 1
+      LoggingEnabled = #True
+    EndIf
+    LogRotateEnabled = ReadPreferenceInteger("LogRotateEnabled", LogRotateEnabled)
+    If LogRotateEnabled <> 0 And LogRotateEnabled <> 1
+      LogRotateEnabled = #True
+    EndIf
+    LogRotateKeep = ReadPreferenceInteger("LogRotateKeep", LogRotateKeep)
+    If LogRotateKeep < 1 : LogRotateKeep = 1 : EndIf
+    Protected maxKb.i = ReadPreferenceInteger("LogRotateMaxKB", LogRotateMaxBytes / 1024)
+    If maxKb < 1 : maxKb = 1 : EndIf
+    LogRotateMaxBytes = maxKb * 1024
     PreferenceGroup("Detection")
     ActivityThresholdBps = ValD(ReadPreferenceString("ActivityThresholdBps", StrD(ActivityThresholdBps, 0)))
     ActivityHoldMs = ReadPreferenceInteger("ActivityHoldMs", ActivityHoldMs)
@@ -297,6 +376,26 @@ Procedure LoadSettings()
     IoctlBackoffCycles = ReadPreferenceInteger("IoctlBackoffCycles", IoctlBackoffCycles)
     ForcePdhOnlyDefault = ReadPreferenceInteger("ForcePdhOnly", ForcePdhOnlyDefault)
     ClosePreferences()
+  Else
+    If CreatePreferences(IniPath)
+      PreferenceComment("HandyDrvLED settings")
+      PreferenceGroup("General")
+      WritePreferenceInteger("UpdateIntervalMs", UpdateIntervalMs)
+      WritePreferenceInteger("TooltipUpdateIntervalMs", TooltipUpdateIntervalMs)
+      WritePreferenceInteger("StartWithRandomIconSet", StartWithRandomIconSet)
+      WritePreferenceInteger("DefaultIconSet", DefaultIconSet)
+      WritePreferenceInteger("LoggingEnabled", LoggingEnabled)
+      WritePreferenceInteger("LogRotateEnabled", LogRotateEnabled)
+      WritePreferenceInteger("LogRotateKeep", LogRotateKeep)
+      WritePreferenceInteger("LogRotateMaxKB", LogRotateMaxBytes / 1024)
+      PreferenceGroup("Detection")
+      WritePreferenceString("ActivityThresholdBps", StrD(ActivityThresholdBps, 0))
+      WritePreferenceInteger("ActivityHoldMs", ActivityHoldMs)
+      WritePreferenceInteger("PdhSampleIntervalMs", PdhSampleIntervalMs)
+      WritePreferenceInteger("IoctlBackoffCycles", IoctlBackoffCycles)
+      WritePreferenceInteger("ForcePdhOnly", ForcePdhOnlyDefault)
+      ClosePreferences()
+    EndIf
   EndIf
   ; Basic sanity clamps
   UpdateIntervalMs = ClampI(UpdateIntervalMs, 10, 2000)
@@ -308,13 +407,17 @@ Procedure LoadSettings()
 EndProcedure
 
 Procedure SaveSettings()
-  If CreatePreferences(IniPath)
+  If OpenOrCreateSettingsPreferences(IniPath)
     PreferenceComment("HandyDrvLED settings")
     PreferenceGroup("General")
     WritePreferenceInteger("UpdateIntervalMs", UpdateIntervalMs)
     WritePreferenceInteger("TooltipUpdateIntervalMs", TooltipUpdateIntervalMs)
     WritePreferenceInteger("StartWithRandomIconSet", StartWithRandomIconSet)
     WritePreferenceInteger("DefaultIconSet", DefaultIconSet)
+    WritePreferenceInteger("LoggingEnabled", LoggingEnabled)
+    WritePreferenceInteger("LogRotateEnabled", LogRotateEnabled)
+    WritePreferenceInteger("LogRotateKeep", LogRotateKeep)
+    WritePreferenceInteger("LogRotateMaxKB", LogRotateMaxBytes / 1024)
     PreferenceGroup("Detection")
     WritePreferenceString("ActivityThresholdBps", StrD(ActivityThresholdBps, 0))
     WritePreferenceInteger("ActivityHoldMs", ActivityHoldMs)
@@ -370,6 +473,7 @@ EndProcedure
 
 Procedure.i Exit()
   If MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info) = #PB_MessageRequester_Yes
+    LogMessage("Program exiting")
     ProcedureReturn #True
   EndIf
   ProcedureReturn #False
@@ -465,12 +569,21 @@ Procedure.i AddToStartup(targetUserSam.s = "")
 EndProcedure
 
 Procedure About(icon1.i)
-  MessageRequester("About", #APP_NAME + " - " + version + #LF$ +
-                            "Thank you for using this free tool!" + #LF$ +
-                            "-----------------------------------" + #LF$ +
-                            "Contact: " + #EMAIL_NAME + #LF$ +
-                            "Website: https://github.com/zonemaster60" + #LF$ +
-                            "Using IconSet: " + Str(icon1), #PB_MessageRequester_Info)
+  Protected logState.s = EnabledStateText(LoggingEnabled)
+  Protected rotateState.s = EnabledStateText(LogRotateEnabled)
+  Protected msg.s
+
+  msg = #APP_NAME + " - " + version + #CRLF$ +
+        "Update interval: " + Str(UpdateIntervalMs) + " ms" + #CRLF$ +
+        "PDH fallback default: " + Str(ForcePdhOnlyDefault) + #CRLF$ +
+        "Logging: " + logState + #CRLF$ +
+        "Log rotation: " + rotateState + " keep=" + Str(LogRotateKeep) + " maxKB=" + Str(LogRotateMaxBytes / 1024) + #CRLF$ +
+        "INI file: " + #APP_NAME + ".ini" + #CRLF$ +
+        "Contact: " + #EMAIL_NAME + #CRLF$ +
+        "Website: https://github.com/zonemaster60" + #CRLF$ +
+        "Using IconSet: " + Str(icon1)
+
+  MessageRequester("About " + #APP_NAME, msg, #PB_MessageRequester_Info)
 EndProcedure
 
 Procedure Help()
@@ -478,16 +591,22 @@ Procedure Help()
 
   helpText = #APP_NAME + " Help" + #LF$ +
              "Tray icon:" + #LF$ +
-             "  - Right-click for options." + #LF$ +
-             "  - Colors: RED=Write, GREEN=Read, BLUE=Both, YELLOW=Idle" + #LF$ + #LF$ +
+               "  - Right-click for options." + #LF$ +
+               "  - Colors: RED=Write, GREEN=Read, BLUE=Both, YELLOW=Idle" + #LF$ + #LF$ +
+              "Logging:" + #LF$ +
+              "  - Logging can be enabled or disabled from the tray menu." + #LF$ +
+              "  - Writes to HandyDrvLED.log in Logs\\ next to the EXE when writable." + #LF$ +
+              "  - Rotates to HandyDrvLED.log.1, .2, .3 based on size." + #LF$ +
+              "  - Settings are stored in HandyDrvLED.ini." + #LF$ + #LF$ +
              "Activity detection:" + #LF$ +
              "  - Uses IOCTL_DISK_PERFORMANCE or PDH fallback." + #LF$ + #LF$ +
              "Tray menu:" + #LF$ +
-             "  - About: Version info." + #LF$ +
-             "  - Drive(s): Open drive browser." + #LF$ +
-             "  - Diagnostics: IOCTL/PDH status." + #LF$ +
-             "  - Reload/Edit settings: Manage config." + #LF$ +
-             "  - Start with Windows: Toggle auto-start." + #LF$ + #LF$ +
+              "  - About: Version info." + #LF$ +
+              "  - Drive(s): Open drive browser." + #LF$ +
+              "  - Diagnostics: IOCTL/PDH status." + #LF$ +
+              "  - Reload Settings/Edit Settings: Manage config." + #LF$ +
+              "  - Run at Startup: Toggle auto-start." + #LF$ +
+              "  - Logging: Enable or disable logging." + #LF$ + #LF$ +
              "Drive(s) window:" + #LF$ +
              "  - View capacity, free space, and filesystem info." + #LF$ +
              "  - Supports Fixed, Removable, Network, CDROM, RAMDisk." + #LF$ + #LF$ +
@@ -497,87 +616,149 @@ Procedure Help()
 EndProcedure
 
 Procedure EditSettings()
+  Protected w = 410
+  Protected h = 540
+  Protected win = OpenWindow(#PB_Any, 0, 0, w, h, "Edit Settings", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  If win = 0 : ProcedureReturn : EndIf
+
+  Protected ly = 15
+  TextGadget(#PB_Any, 15, ly, 365, 20, "Monitoring")
+  ly + 25
+  TextGadget(#PB_Any, 15, ly, 170, 20, "Update Interval (ms):")
+  Protected gadUpdate = StringGadget(#PB_Any, 210, ly, 170, 20, Str(UpdateIntervalMs), #PB_String_Numeric)
+
+  ly + 30
+  TextGadget(#PB_Any, 15, ly, 170, 20, "Tooltip Interval (ms):")
+  Protected gadTooltip = StringGadget(#PB_Any, 210, ly, 170, 20, Str(TooltipUpdateIntervalMs), #PB_String_Numeric)
+
+  ly + 30
+  TextGadget(#PB_Any, 15, ly, 170, 20, "Activity Threshold Bps:")
+  Protected gadThreshold = StringGadget(#PB_Any, 210, ly, 170, 20, StrD(ActivityThresholdBps, 0))
+
+  ly + 30
+  TextGadget(#PB_Any, 15, ly, 170, 20, "Activity Hold (ms):")
+  Protected gadHold = StringGadget(#PB_Any, 210, ly, 170, 20, Str(ActivityHoldMs), #PB_String_Numeric)
+
+  ly + 30
+  TextGadget(#PB_Any, 15, ly, 170, 20, "PDH Sample Interval (ms):")
+  Protected gadPdh = StringGadget(#PB_Any, 210, ly, 170, 20, Str(PdhSampleIntervalMs), #PB_String_Numeric)
+
+  ly + 30
+  TextGadget(#PB_Any, 15, ly, 170, 20, "IOCTL Backoff Cycles:")
+  Protected gadIoctl = StringGadget(#PB_Any, 210, ly, 170, 20, Str(IoctlBackoffCycles), #PB_String_Numeric)
+
+  ly + 40
+  TextGadget(#PB_Any, 15, ly, 365, 20, "Startup and Icons")
+  ly + 25
+  TextGadget(#PB_Any, 15, ly, 170, 20, "Default Icon Set:")
+  Protected gadDefaultIcon = StringGadget(#PB_Any, 210, ly, 170, 20, Str(DefaultIconSet), #PB_String_Numeric)
+
+  ly + 30
+  Protected gadStartRandom = CheckBoxGadget(#PB_Any, 15, ly, 365, 20, "Start with Random Icon Set")
+  SetGadgetState(gadStartRandom, StartWithRandomIconSet)
+
+  ly + 30
+  Protected gadForcePdh = CheckBoxGadget(#PB_Any, 15, ly, 365, 20, "Use PDH Only by Default")
+  SetGadgetState(gadForcePdh, ForcePdhOnlyDefault)
+
+  ly + 40
+  TextGadget(#PB_Any, 15, ly, 365, 20, "Logging")
+  ly + 25
+  Protected gadLogging = CheckBoxGadget(#PB_Any, 15, ly, 365, 20, "Enable Logging")
+  SetGadgetState(gadLogging, LoggingEnabled)
+
+  ly + 30
+  Protected gadRotate = CheckBoxGadget(#PB_Any, 15, ly, 365, 20, "Enable Log Rotation")
+  SetGadgetState(gadRotate, LogRotateEnabled)
+
+  ly + 30
+  TextGadget(#PB_Any, 15, ly, 170, 20, "Rotate Keep Files:")
+  Protected gadRotateKeep = StringGadget(#PB_Any, 210, ly, 170, 20, Str(LogRotateKeep), #PB_String_Numeric)
+
+  ly + 30
+  TextGadget(#PB_Any, 15, ly, 170, 20, "Rotate Max KB:")
+  Protected gadRotateMax = StringGadget(#PB_Any, 210, ly, 170, 20, Str(LogRotateMaxBytes / 1024), #PB_String_Numeric)
+
+  ly + 50
+  Protected gadOk = ButtonGadget(#PB_Any, w - 180, h - 42, 80, 26, "OK")
+  Protected gadCancel = ButtonGadget(#PB_Any, w - 92, h - 42, 80, 26, "Cancel")
+
   Protected changed.i = #False
-  Protected newUpdateInterval.s, newTooltipInterval.s, newThreshold.s, newHoldMs.s
-  Protected newPdhSample.s, newIoctlBackoff.s, newStartRandom.s, newDefaultIconSet.s, newForcePdhOnly.s
+  Protected done.i = #False
+  Repeat
+    Protected ev = WaitWindowEvent()
+    If ev = #PB_Event_CloseWindow
+      done = #True
+    ElseIf ev = #PB_Event_Gadget
+      Protected g = EventGadget()
+      If g = gadOk
+        Protected oldLoggingEnabled.i = LoggingEnabled
 
-  ; UpdateIntervalMs
-  newUpdateInterval = InputRequester("Edit Settings", "UpdateIntervalMs (10..2000) (current: " + Str(UpdateIntervalMs) + "):", Str(UpdateIntervalMs))
-  If newUpdateInterval <> ""
-    Protected vUpdate.i = ClampI(Val(newUpdateInterval), 10, 2000)
-    If vUpdate <> UpdateIntervalMs : UpdateIntervalMs = vUpdate : changed = #True : EndIf
-  EndIf
+        Protected vUpdate.i = ClampI(Val(GetGadgetText(gadUpdate)), 10, 2000)
+        If vUpdate <> UpdateIntervalMs : UpdateIntervalMs = vUpdate : changed = #True : EndIf
 
-  ; TooltipUpdateIntervalMs
-  newTooltipInterval = InputRequester("Edit Settings", "TooltipUpdateIntervalMs (250..30000) (current: " + Str(TooltipUpdateIntervalMs) + "):", Str(TooltipUpdateIntervalMs))
-  If newTooltipInterval <> ""
-    Protected vTip.i = ClampI(Val(newTooltipInterval), 250, 30000)
-    If vTip <> TooltipUpdateIntervalMs : TooltipUpdateIntervalMs = vTip : changed = #True : EndIf
-  EndIf
+        Protected vTip.i = ClampI(Val(GetGadgetText(gadTooltip)), 250, 30000)
+        If vTip <> TooltipUpdateIntervalMs : TooltipUpdateIntervalMs = vTip : changed = #True : EndIf
 
-  ; ActivityThresholdBps
-  newThreshold = InputRequester("Edit Settings", "ActivityThresholdBps (0..1GB/s) (current: " + StrD(ActivityThresholdBps, 0) + "):", StrD(ActivityThresholdBps, 0))
-  If newThreshold <> ""
-    Protected vThresh.d = ClampD(ValD(newThreshold), 0.0, 1024.0 * 1024.0 * 1024.0)
-    If vThresh <> ActivityThresholdBps : ActivityThresholdBps = vThresh : changed = #True : EndIf
-  EndIf
+        Protected vThresh.d = ClampD(ValD(GetGadgetText(gadThreshold)), 0.0, 1024.0 * 1024.0 * 1024.0)
+        If vThresh <> ActivityThresholdBps : ActivityThresholdBps = vThresh : changed = #True : EndIf
 
-  ; ActivityHoldMs
-  newHoldMs = InputRequester("Edit Settings", "ActivityHoldMs (0..5000) (current: " + Str(ActivityHoldMs) + "):", Str(ActivityHoldMs))
-  If newHoldMs <> ""
-    Protected vHold.i = ClampI(Val(newHoldMs), 0, 5000)
-    If vHold <> ActivityHoldMs : ActivityHoldMs = vHold : changed = #True : EndIf
-  EndIf
+        Protected vHold.i = ClampI(Val(GetGadgetText(gadHold)), 0, 5000)
+        If vHold <> ActivityHoldMs : ActivityHoldMs = vHold : changed = #True : EndIf
 
-  ; PdhSampleIntervalMs
-  newPdhSample = InputRequester("Edit Settings", "PdhSampleIntervalMs (50..5000) (current: " + Str(PdhSampleIntervalMs) + "):", Str(PdhSampleIntervalMs))
-  If newPdhSample <> ""
-    Protected vPdh.i = ClampI(Val(newPdhSample), 50, 5000)
-    If vPdh <> PdhSampleIntervalMs : PdhSampleIntervalMs = vPdh : changed = #True : EndIf
-  EndIf
+        Protected vPdh.i = ClampI(Val(GetGadgetText(gadPdh)), 50, 5000)
+        If vPdh <> PdhSampleIntervalMs : PdhSampleIntervalMs = vPdh : changed = #True : EndIf
 
-  ; IoctlBackoffCycles
-  newIoctlBackoff = InputRequester("Edit Settings", "IoctlBackoffCycles (0..1000) (current: " + Str(IoctlBackoffCycles) + "):", Str(IoctlBackoffCycles))
-  If newIoctlBackoff <> ""
-    Protected vIoctl.i = ClampI(Val(newIoctlBackoff), 0, 1000)
-    If vIoctl <> IoctlBackoffCycles : IoctlBackoffCycles = vIoctl : changed = #True : EndIf
-  EndIf
+        Protected vIoctl.i = ClampI(Val(GetGadgetText(gadIoctl)), 0, 1000)
+        If vIoctl <> IoctlBackoffCycles : IoctlBackoffCycles = vIoctl : changed = #True : EndIf
 
-  ; StartWithRandomIconSet
-  newStartRandom = InputRequester("Edit Settings", "StartWithRandomIconSet (0/1) (current: " + Str(StartWithRandomIconSet) + "):", Str(StartWithRandomIconSet))
-  If newStartRandom <> ""
-    Protected vRand.i = Val(newStartRandom)
-    If vRand = 0 Or vRand = 1
-      If vRand <> StartWithRandomIconSet : StartWithRandomIconSet = vRand : changed = #True : EndIf
+        Protected vDef.i = ClampI(Val(GetGadgetText(gadDefaultIcon)), 1, 9999)
+        If vDef <> DefaultIconSet : DefaultIconSet = vDef : changed = #True : EndIf
+
+        Protected vRandom.i = Bool(GetGadgetState(gadStartRandom) <> 0)
+        If vRandom <> StartWithRandomIconSet : StartWithRandomIconSet = vRandom : changed = #True : EndIf
+
+        Protected vForce.i = Bool(GetGadgetState(gadForcePdh) <> 0)
+        If vForce <> ForcePdhOnlyDefault : ForcePdhOnlyDefault = vForce : changed = #True : EndIf
+
+        Protected vLogging.i = Bool(GetGadgetState(gadLogging) <> 0)
+        If vLogging <> LoggingEnabled : LoggingEnabled = vLogging : changed = #True : EndIf
+
+        Protected vRotate.i = Bool(GetGadgetState(gadRotate) <> 0)
+        If vRotate <> LogRotateEnabled : LogRotateEnabled = vRotate : changed = #True : EndIf
+
+        Protected vRotateKeep.i = ClampI(Val(GetGadgetText(gadRotateKeep)), 1, 9999)
+        If vRotateKeep <> LogRotateKeep : LogRotateKeep = vRotateKeep : changed = #True : EndIf
+
+        Protected vRotateMax.i = ClampI(Val(GetGadgetText(gadRotateMax)), 1, 1048576)
+        If (vRotateMax * 1024) <> LogRotateMaxBytes : LogRotateMaxBytes = vRotateMax * 1024 : changed = #True : EndIf
+
+        If changed
+          SaveSettings()
+          ForcePdhOnly = ForcePdhOnlyDefault
+          UpdateLogMenuLabel()
+          SetMenuItemState(#Menu_Main, #MenuItem_ForcePdh, ForcePdhOnly)
+          If LoggingEnabled
+            If oldLoggingEnabled = #False
+              LogMessage("Logging ENABLED via settings dialog")
+            EndIf
+            LogMessage("Settings updated via dialog")
+          EndIf
+          MessageRequester("Settings Saved", "Settings have been saved successfully.", #PB_MessageRequester_Info)
+        EndIf
+        done = #True
+      ElseIf g = gadCancel
+        done = #True
+      EndIf
     EndIf
-  EndIf
+  Until done
 
-  ; DefaultIconSet
-  newDefaultIconSet = InputRequester("Edit Settings", "DefaultIconSet (>=1) (current: " + Str(DefaultIconSet) + "):", Str(DefaultIconSet))
-  If newDefaultIconSet <> "" And Val(newDefaultIconSet) > 0
-    Protected vDef.i = Val(newDefaultIconSet)
-    If vDef < 1 : vDef = 1 : EndIf
-    If vDef <> DefaultIconSet : DefaultIconSet = vDef : changed = #True : EndIf
-  EndIf
-
-  ; ForcePdhOnlyDefault
-  newForcePdhOnly = InputRequester("Edit Settings", "ForcePdhOnly (0/1) (current: " + Str(ForcePdhOnlyDefault) + "):", Str(ForcePdhOnlyDefault))
-  If newForcePdhOnly <> ""
-    Protected vForce.i = Val(newForcePdhOnly)
-    If vForce = 0 Or vForce = 1
-      If vForce <> ForcePdhOnlyDefault : ForcePdhOnlyDefault = vForce : changed = #True : EndIf
-    EndIf
-  EndIf
-
-  If changed
-    SaveSettings()
-    MessageRequester("Settings Saved", "Settings have been saved successfully.", #PB_MessageRequester_Info)
-  EndIf
+  CloseWindow(win)
 EndProcedure
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 3
-; Folding = -----
+; Folding = ------
 ; EnableXP
 ; DPIAware
 ; Executable = ..\HandyDrvLED.exe

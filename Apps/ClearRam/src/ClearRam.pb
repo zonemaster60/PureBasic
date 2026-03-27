@@ -46,7 +46,7 @@ Global gTooltipOverrideText.s = ""
 
 ; Logging toggle
 Global loggingEnabled   = #True
-Global version.s = "v1.0.1.2"
+Global version.s = "v1.0.1.4"
 
 ; Memory threshold (auto-clean when available RAM <= threshold)
 Global gMemThresholdEnabled.i = #False
@@ -1414,8 +1414,8 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 1348
-; FirstLine = 1324
+; CursorPosition = 48
+; FirstLine = 42
 ; Folding = ---------
 ; Optimizer
 ; EnableThread
@@ -1426,12 +1426,12 @@ Until quitProgram = #True
 ; Executable = ..\ClearRam.exe
 ; DisableDebugger
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,2
-; VersionField1 = 1,0,1,2
+; VersionField0 = 1,0,1,4
+; VersionField1 = 1,0,1,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = ClearRam
-; VersionField4 = 1.0.1.2
-; VersionField5 = 1.0.1.2
+; VersionField4 = 1.0.1.4
+; VersionField5 = 1.0.1.4
 ; VersionField6 = Clears RAM using native Windows APIs
 ; VersionField7 = ClearRam
 ; VersionField8 = ClearRam.exe
