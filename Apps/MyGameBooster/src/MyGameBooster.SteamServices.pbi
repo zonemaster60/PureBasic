@@ -63,6 +63,7 @@ Procedure AddUniqueString(List L.s(), s.s)
   L() = s
 EndProcedure
 
+
 Procedure GetSteamLibraries(steamRoot.s, List libs.s())
   ClearList(libs())
   steamRoot = EnsureTrailingSlash(steamRoot)
@@ -111,7 +112,7 @@ EndProcedure
 Procedure.i GamesHasSteamApp(appId.i)
   If appId <= 0 : ProcedureReturn 0 : EndIf
   ForEach Games()
-    If Games()\LaunchMode = 1 And Games()\SteamAppId = appId
+    If Games()\LaunchMode = #LAUNCHMODE_STEAM And Games()\SteamAppId = appId
       ProcedureReturn 1
     EndIf
   Next
@@ -264,6 +265,7 @@ Procedure.i PickSteamGameDialog(List options.SteamImportOption())
   ProcedureReturn selectedAppId
 EndProcedure
 
+
 Procedure ImportSingleSteamGame()
   Protected steamExe.s = FindSteamExe()
   If steamExe = ""
@@ -332,7 +334,7 @@ Procedure ImportSingleSteamGame()
       Games()\Priority = #ABOVE_NORMAL_PRIORITY_CLASS
       Games()\Affinity = 0
       Games()\Services = ""
-      Games()\LaunchMode = 1
+      Games()\LaunchMode = #LAUNCHMODE_STEAM
       Games()\SteamAppId = options()\AppId
       Games()\SteamExe = steamExe
       Games()\SteamGameArgs = ""
@@ -367,6 +369,7 @@ Procedure ImportSingleSteamGame()
   EndIf
   LogLine("Imported Steam game picker count: " + Str(added) + " | Selection=" + Str(selectedAppId))
 EndProcedure
+
 
 Procedure.s RunPowerShellAndCapture(ps.s)
   ProcedureReturn RunProgramAndCapture("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -Command " + #DQUOTE$ + ps + #DQUOTE$)
@@ -964,6 +967,8 @@ Procedure.i OpenEditGameDialog(*cur.GameEntry, *autoRun.Integer)
   Protected w.i, ev.i
   Protected saved.i
   Protected modeLabel.s
+  Protected pathDisplay.s
+  Protected pathTooltip.s
   Protected previewImg.i
   Protected previewPanelImg.i
 
@@ -992,23 +997,47 @@ Procedure.i OpenEditGameDialog(*cur.GameEntry, *autoRun.Integer)
   StringGadget(#E_Name, 140, 12, 480, 24, *cur\Name)
   TextGadget(#PB_Any, 16, 48, 110, 20, "Launch type")
   modeLabel = "EXE"
-  If *cur\LaunchMode = 1 : modeLabel = "Steam" : EndIf
+  If *cur\LaunchMode = #LAUNCHMODE_STEAM
+    modeLabel = "Steam"
+  EndIf
   StringGadget(#E_Mode, 140, 44, 160, 24, modeLabel, #PB_String_ReadOnly)
   TextGadget(#PB_Any, 16, 80, 110, 20, "Path / App")
-  If *cur\LaunchMode = 1
-    StringGadget(#E_Path, 140, 76, 480, 24, "AppID " + Str(*cur\SteamAppId) + " | " + *cur\SteamExe, #PB_String_ReadOnly)
+  If *cur\LaunchMode = #LAUNCHMODE_STEAM
+    pathDisplay = "AppID " + Str(*cur\SteamAppId)
+    If *cur\SteamExe <> ""
+      pathDisplay + " | " + GetFilePart(*cur\SteamExe)
+      pathTooltip = *cur\SteamExe
+    Else
+      pathTooltip = ""
+    EndIf
+    If *cur\GameRoot <> ""
+      If pathTooltip <> "" : pathTooltip + #LF$ + #LF$ : EndIf
+      pathTooltip + "Install folder: " + *cur\GameRoot
+    EndIf
+    StringGadget(#E_Path, 140, 76, 480, 24, pathDisplay, #PB_String_ReadOnly)
   Else
-    StringGadget(#E_Path, 140, 76, 480, 24, *cur\ExePath, #PB_String_ReadOnly)
+    pathDisplay = GetFilePart(*cur\ExePath)
+    pathTooltip = *cur\ExePath
+    StringGadget(#E_Path, 140, 76, 480, 24, pathDisplay, #PB_String_ReadOnly)
+  EndIf
+  If pathTooltip <> ""
+    GadgetToolTip(#E_Path, pathTooltip)
   EndIf
   TextGadget(#PB_Any, 16, 112, 110, 20, "Game args")
-  If *cur\LaunchMode = 1
+  If *cur\LaunchMode = #LAUNCHMODE_STEAM
     StringGadget(#E_GameArgs, 140, 108, 480, 24, *cur\SteamGameArgs)
   Else
     StringGadget(#E_GameArgs, 140, 108, 480, 24, *cur\Args)
   EndIf
-  TextGadget(#PB_Any, 16, 144, 110, 20, "Detect timeout")
-  StringGadget(#E_Timeout, 140, 140, 120, 24, Str(*cur\SteamDetectTimeoutMs))
-  DisableGadget(#E_Timeout, Bool(*cur\LaunchMode = 0))
+  If *cur\LaunchMode = #LAUNCHMODE_STEAM
+    TextGadget(#PB_Any, 16, 144, 110, 20, "Detect timeout")
+    StringGadget(#E_Timeout, 140, 140, 120, 24, Str(*cur\SteamDetectTimeoutMs))
+    DisableGadget(#E_Timeout, 0)
+  Else
+    TextGadget(#PB_Any, 16, 144, 110, 20, "Detect timeout")
+    StringGadget(#E_Timeout, 140, 140, 120, 24, "n/a", #PB_String_ReadOnly)
+    DisableGadget(#E_Timeout, 1)
+  EndIf
 
   TextGadget(#PB_Any, 16, 176, 110, 20, "Priority")
   ComboBoxGadget(#E_Priority, 140, 172, 180, 26)
@@ -1090,7 +1119,7 @@ Procedure.i OpenEditGameDialog(*cur.GameEntry, *autoRun.Integer)
               MessageRequester(#APP_NAME, "Game name is required.")
               Continue
             EndIf
-            If *cur\LaunchMode = 1
+            If *cur\LaunchMode = #LAUNCHMODE_STEAM
               *cur\SteamGameArgs = GetGadgetText(#E_GameArgs)
               *cur\SteamDetectTimeoutMs = ClampSteamDetectTimeout(Val(GetGadgetText(#E_Timeout)))
             Else
@@ -1146,7 +1175,7 @@ Procedure.i EditGameByIndex(idx.i, listGadget.i)
       LogLine("Edited game: " + cur\Name)
       If autoRun
         LogLine("Auto-run after edit: " + cur\Name)
-        If cur\LaunchMode = 1
+        If cur\LaunchMode = #LAUNCHMODE_STEAM
           LaunchSteamBoosted(@cur)
         Else
           LaunchBoosted(@cur)

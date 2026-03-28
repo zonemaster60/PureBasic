@@ -3,7 +3,7 @@
 Procedure.i HasManualExe(exePath.s)
   If exePath = "" : ProcedureReturn 0 : EndIf
   ForEach Games()
-    If Games()\LaunchMode = 0 And Games()\ExePath <> ""
+    If Games()\LaunchMode = #LAUNCHMODE_EXE And Games()\ExePath <> ""
       If LCase(Games()\ExePath) = LCase(exePath)
         ProcedureReturn 1
       EndIf
@@ -29,7 +29,7 @@ Procedure AddExeEntry(exePath.s)
   ge\Priority = #ABOVE_NORMAL_PRIORITY_CLASS
   ge\Affinity = 0
   ge\Services = ""
-  ge\LaunchMode = 0
+  ge\LaunchMode = #LAUNCHMODE_EXE
   ge\SteamAppId = 0
   ge\SteamExe = ""
   ge\SteamGameArgs = ""
@@ -315,6 +315,80 @@ Procedure.i FindNewProcessInFolderOnce(gameRoot.s, Map baseline.i())
   ProcedureReturn 0
 EndProcedure
 
+Procedure.s GuessGameExeFromRoot(gameRoot.s)
+  Protected NewList candidates.s()
+  Protected bestPath.s
+  Protected bestScore.q, score.q
+
+  gameRoot = EnsureTrailingSlash(gameRoot)
+  If gameRoot = "" Or FileSize(gameRoot) <> -2
+    ProcedureReturn ""
+  EndIf
+
+  ScanExeRecursive(gameRoot, #FOLDER_SCAN_DEPTH, candidates(), #DIRID_FOLDER_SCAN_ROOT)
+  ForEach candidates()
+    score = ScoreExeCandidate(gameRoot, candidates())
+    If bestPath = "" Or score > bestScore
+      bestScore = score
+      bestPath = candidates()
+    EndIf
+  Next
+
+  ProcedureReturn bestPath
+EndProcedure
+
+Procedure.i FindSteamGameProcessOnce(preferredExe.s, gameRoot.s, Map baseline.i())
+  Protected NewMap cur.i()
+  Protected key.s, pid.i, exe.s
+  Protected preferredLower.s = LCase(CollapseBackslashes(preferredExe))
+  Protected gameRootLower.s = LCase(EnsureTrailingSlash(CollapseBackslashes(gameRoot)))
+  Protected rootMatchPid.i
+  Protected existingPreferredPid.i
+  Protected existingRootPid.i
+
+  SnapshotPids(cur())
+  ForEach cur()
+    key = MapKey(cur())
+    pid = Val(key)
+    exe = CollapseBackslashes(GetMainModulePath(pid))
+    If exe = ""
+      Continue
+    EndIf
+
+    If preferredLower <> "" And LCase(exe) = preferredLower
+      If FindMapElement(baseline(), key) = 0
+        ProcedureReturn pid
+      EndIf
+      If existingPreferredPid = 0
+        existingPreferredPid = pid
+      EndIf
+    EndIf
+
+    If gameRootLower <> "" And StartsWithNoCase(exe, gameRootLower)
+      If FindMapElement(baseline(), key) = 0
+        rootMatchPid = pid
+        If preferredLower = "" Or FindString(LCase(GetFilePart(exe)), "launcher", 1) = 0
+          ProcedureReturn pid
+        EndIf
+      ElseIf existingRootPid = 0
+        existingRootPid = pid
+      EndIf
+    EndIf
+  Next
+
+  If rootMatchPid
+    ProcedureReturn rootMatchPid
+  EndIf
+  If existingPreferredPid
+    ProcedureReturn existingPreferredPid
+  EndIf
+  If existingRootPid
+    ProcedureReturn existingRootPid
+  EndIf
+
+  ProcedureReturn 0
+EndProcedure
+
 Procedure LoadGames()
   ClearList(Games())
 
@@ -335,8 +409,8 @@ Procedure LoadGames()
       g\LaunchMode = ReadPreferenceInteger("launchMode", 0)
       g\SteamAppId  = ReadPreferenceInteger("steamAppId", 0)
       g\SteamExe    = ReadPreferenceString("steamExe", "")
-       g\SteamGameArgs   = ReadPreferenceString("steamGameArgs", "")
-       g\SteamDetectTimeoutMs = ReadPreferenceInteger("steamTimeoutMs", 60000)
+        g\SteamGameArgs   = ReadPreferenceString("steamGameArgs", "")
+        g\SteamDetectTimeoutMs = ReadPreferenceInteger("steamTimeoutMs", 60000)
        g\GameRoot    = ReadPreferenceString("gameRoot", "")
        g\Preset      = ReadPreferenceInteger("preset", #PRESET_BALANCED)
        g\PowerMode   = ReadPreferenceInteger("powerMode", #POWERMODE_HIGH)
@@ -346,14 +420,19 @@ Procedure LoadGames()
        g\LaunchCount = ReadPreferenceInteger("launchCount", 0)
        g\LastPlayed  = ReadPreferenceQuad("lastPlayed", 0)
        g\LastDurationSec = ReadPreferenceInteger("lastDurationSec", 0)
-        If g\LaunchMode <> 1
-          g\LaunchMode = 0
+        If g\LaunchMode < #LAUNCHMODE_EXE Or g\LaunchMode > #LAUNCHMODE_STEAM
+          g\LaunchMode = #LAUNCHMODE_EXE
+        EndIf
+        If g\LaunchMode = #LAUNCHMODE_EXE
           g\SteamAppId = 0
-         g\SteamExe = ""
+          g\SteamExe = ""
           g\SteamGameArgs = ""
           g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(60000)
           g\GameRoot = ""
-       EndIf
+        ElseIf g\LaunchMode = #LAUNCHMODE_STEAM
+          g\GameRoot = ""
+          g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(g\SteamDetectTimeoutMs)
+        EndIf
        If g\Preset < #PRESET_SAFE Or g\Preset > #PRESET_AGGRESSIVE
          g\Preset = #PRESET_BALANCED
        EndIf
@@ -361,14 +440,10 @@ Procedure LoadGames()
          g\PowerMode = #POWERMODE_HIGH
        EndIf
        g\OptimizeBackground = Bool(g\OptimizeBackground)
-       If g\LaunchMode = 1
-         g\GameRoot = ""
-         g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(g\SteamDetectTimeoutMs)
-      EndIf
       If g\Name <> "" And g\ExePath <> ""
         AddElement(Games())
         Games() = g
-      ElseIf g\Name <> "" And g\LaunchMode = 1 And g\SteamAppId > 0
+      ElseIf g\Name <> "" And g\LaunchMode = #LAUNCHMODE_STEAM And g\SteamAppId > 0
         AddElement(Games())
         Games() = g
       EndIf
@@ -398,7 +473,7 @@ Procedure SaveGames()
       WritePreferenceInteger("steamAppId", Games()\SteamAppId)
       WritePreferenceString("steamExe", CollapseBackslashes(Games()\SteamExe))
        WritePreferenceString("steamGameArgs", Games()\SteamGameArgs)
-       WritePreferenceInteger("steamTimeoutMs", Games()\SteamDetectTimeoutMs)
+        WritePreferenceInteger("steamTimeoutMs", Games()\SteamDetectTimeoutMs)
        WritePreferenceString("gameRoot", CollapseBackslashes(Games()\GameRoot))
        WritePreferenceInteger("preset", Games()\Preset)
        WritePreferenceInteger("powerMode", Games()\PowerMode)
@@ -447,46 +522,10 @@ Procedure.i SelectGameByIndex(idx.i, *out.GameEntry)
 EndProcedure
 
 Procedure.i MoveGameByIndex(idx.i, direction.i)
-  Protected count.i = ListSize(Games())
-  Protected newIndex.i = idx + direction
-  Protected moved.GameEntry
-  Protected cur.GameEntry
-  Protected i.i
-  Protected NewList reordered.GameEntry()
-
-  If idx < 0 Or idx >= count
-    ProcedureReturn 0
-  EndIf
   If direction <> -1 And direction <> 1
     ProcedureReturn 0
   EndIf
-  If newIndex < 0 Or newIndex >= count
-    ProcedureReturn 0
-  EndIf
-  If SelectGameByIndex(idx, @moved) = 0
-    ProcedureReturn 0
-  EndIf
-
-  For i = 0 To count - 1
-    If i = newIndex
-      AddElement(reordered())
-      reordered() = moved
-    EndIf
-    If i <> idx And SelectGameByIndex(i, @cur)
-      AddElement(reordered())
-      reordered() = cur
-    EndIf
-  Next
-
-  ClearList(Games())
-  ForEach reordered()
-    AddElement(Games())
-    Games() = reordered()
-  Next
-
-  SaveGames()
-  RefreshList()
-  ProcedureReturn 1
+  ProcedureReturn MoveGameToIndex(idx, idx + direction)
 EndProcedure
 
 Procedure.i MoveGameToIndex(fromIdx.i, toIdx.i)
@@ -514,14 +553,25 @@ Procedure.i MoveGameToIndex(fromIdx.i, toIdx.i)
   EndIf
 
   For i = 0 To count - 1
-    If i = toIdx
+    If i = fromIdx
+      Continue
+    EndIf
+
+    If fromIdx > toIdx And i = toIdx
       AddElement(reordered())
       reordered() = moved
       inserted = 1
     EndIf
-    If i <> fromIdx And SelectGameByIndex(i, @cur)
+
+    If SelectGameByIndex(i, @cur)
       AddElement(reordered())
       reordered() = cur
+    EndIf
+
+    If fromIdx < toIdx And i = toIdx
+      AddElement(reordered())
+      reordered() = moved
+      inserted = 1
     EndIf
   Next
 
@@ -570,15 +620,15 @@ Procedure AddGameSimple()
   g\Services = InputRequester(#APP_NAME, "Services to stop while boosting (comma-separated, optional):", "")
   g\Priority = #ABOVE_NORMAL_PRIORITY_CLASS
   g\Affinity = 0
-  g\LaunchMode = 0
+  g\LaunchMode = #LAUNCHMODE_EXE
   g\SteamAppId = 0
   g\SteamExe = ""
+  g\Tags = "manual"
   g\SteamGameArgs = ""
   g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(60000)
   g\GameRoot = ""
   ApplyPresetDefaults(@g, DefaultPreset)
   g\Notes = ""
-  g\Tags = "manual"
   g\LaunchCount = 0
   g\LastPlayed = 0
   g\LastDurationSec = 0
@@ -614,7 +664,7 @@ Procedure.i MatchesFilter(*g.GameEntry, query.s)
     ProcedureReturn 1
   EndIf
   haystack = LCase(*g\Name + " " + *g\ExePath + " " + *g\Tags + " " + *g\Notes)
-  If *g\LaunchMode = 1
+  If *g\LaunchMode = #LAUNCHMODE_STEAM
     haystack + " steam appid " + Str(*g\SteamAppId)
   EndIf
   ProcedureReturn Bool(FindString(haystack, query, 1) > 0)
@@ -637,9 +687,9 @@ EndProcedure
 Procedure.i MatchesLibraryView(*g.GameEntry, view.i)
   Select view
     Case #LIBRARY_STEAM
-      ProcedureReturn Bool(*g\LaunchMode = 1)
+      ProcedureReturn Bool(*g\LaunchMode = #LAUNCHMODE_STEAM)
     Case #LIBRARY_EXE
-      ProcedureReturn Bool(*g\LaunchMode = 0)
+      ProcedureReturn Bool(*g\LaunchMode = #LAUNCHMODE_EXE)
     Case #LIBRARY_RECENT
       ProcedureReturn Bool(*g\LastPlayed > 0)
     Case #LIBRARY_MOSTPLAYED
@@ -651,7 +701,7 @@ Procedure.i MatchesLibraryView(*g.GameEntry, view.i)
 EndProcedure
 
 Procedure.s GameIdentity(*g.GameEntry)
-  If *g\LaunchMode = 1
+  If *g\LaunchMode = #LAUNCHMODE_STEAM
     ProcedureReturn "steam:" + Str(*g\SteamAppId)
   EndIf
   ProcedureReturn "exe:" + LCase(CollapseBackslashes(*g\ExePath))
@@ -662,6 +712,9 @@ Procedure.i MergeOrAddGame(*g.GameEntry)
 
   ForEach Games()
     If GameIdentity(@Games()) = identity
+      Games()\LaunchMode = *g\LaunchMode
+      Games()\SteamAppId = *g\SteamAppId
+      If *g\ExePath <> "" : Games()\ExePath = *g\ExePath : EndIf
       If *g\Name <> "" : Games()\Name = *g\Name : EndIf
       If *g\Args <> "" : Games()\Args = *g\Args : EndIf
       If *g\WorkDir <> "" : Games()\WorkDir = *g\WorkDir : EndIf
@@ -856,10 +909,20 @@ Procedure RecordLaunchStart(*g.GameEntry)
   Protected dirty.i
   Protected identity.s = GameIdentity(*g)
 
+  If *g\LaunchMode = #LAUNCHMODE_STEAM And *g\ExePath <> ""
+    If *g\GameRoot <> "" And StartsWithNoCase(*g\ExePath, *g\GameRoot) = 0
+      *g\GameRoot = GetPathPart(*g\ExePath)
+    EndIf
+  EndIf
+
   ForEach Games()
     If GameIdentity(@Games()) = identity
+      If *g\ExePath <> "" : Games()\ExePath = *g\ExePath : EndIf
+      If *g\GameRoot <> "" : Games()\GameRoot = *g\GameRoot : EndIf
       Games()\LaunchCount + 1
       Games()\LastPlayed = Date()
+      *g\LaunchCount = Games()\LaunchCount
+      *g\LastPlayed = Games()\LastPlayed
       dirty = 1
       Break
     EndIf
@@ -878,6 +941,7 @@ Procedure RecordLaunchResult(*g.GameEntry, durationSec.i)
   ForEach Games()
     If GameIdentity(@Games()) = identity
       Games()\LastDurationSec = durationSec
+      *g\LastDurationSec = durationSec
       dirty = 1
       Break
     EndIf

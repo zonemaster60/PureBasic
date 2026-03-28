@@ -9,7 +9,7 @@ Procedure ResetLaunchState()
   LaunchGame\Priority = 0
   LaunchGame\Affinity = 0
   LaunchGame\Services = ""
-  LaunchGame\LaunchMode = 0
+  LaunchGame\LaunchMode = #LAUNCHMODE_EXE
   LaunchGame\SteamAppId = 0
   LaunchGame\SteamExe = ""
   LaunchGame\SteamGameArgs = ""
@@ -33,6 +33,7 @@ Procedure ResetLaunchState()
   LaunchProcessAffinity = 0
   LaunchSystemAffinity = 0
   LaunchGotAffinity = 0
+  LaunchStartRecorded = 0
   LaunchGameRoot = ""
   LaunchState = 0
   LaunchActive = 0
@@ -130,7 +131,7 @@ Procedure TuneBackgroundProcesses(*g.GameEntry)
   EndIf
 
   gameRoot = *g\GameRoot
-  If *g\LaunchMode = 1 And gameRoot = ""
+  If *g\LaunchMode = #LAUNCHMODE_STEAM And gameRoot = ""
     gameRoot = ResolveSteamGameRoot(*g)
   EndIf
 
@@ -211,7 +212,7 @@ Procedure.i ThumbnailImageForGameSized(*g.GameEntry, size.i)
     ProcedureReturn GameThumbnail()
   EndIf
 
-  If *g\LaunchMode = 1
+  If *g\LaunchMode = #LAUNCHMODE_STEAM
     EnsureSteamArtwork(*g\SteamAppId)
     img = LocalSteamArtworkImage(*g\SteamAppId, size)
     If img
@@ -230,7 +231,7 @@ Procedure.i ThumbnailImageForGameSized(*g.GameEntry, size.i)
     EndIf
   EndIf
 
-  If *g\LaunchMode = 0 And *g\ExePath <> ""
+  If *g\LaunchMode = #LAUNCHMODE_EXE And *g\ExePath <> ""
     img = LocalExeArtworkImage(*g\ExePath, size)
     If img
       GameThumbnail(key) = img
@@ -275,6 +276,70 @@ EndProcedure
 
 Procedure.s PowerShellQuote(s.s)
   ProcedureReturn "'" + ReplaceString(s, "'", "''") + "'"
+EndProcedure
+
+
+Procedure.i NeedsUnelevatedLauncher(exePath.s)
+  Protected lowerExe.s = LCase(GetFilePart(exePath))
+  Protected lowerPath.s = LCase(CollapseBackslashes(exePath))
+
+  Select lowerExe
+    Case "battle.net.exe", "battle.net launcher.exe", "battle.net update agent.exe"
+      ProcedureReturn 1
+  EndSelect
+  If FindString(lowerPath, "\\battle.net\\", 1)
+    ProcedureReturn 1
+  EndIf
+
+  ProcedureReturn 0
+EndProcedure
+
+Procedure.i LaunchViaShell(exePath.s, args.s, workdir.s)
+  Protected script.s
+  Protected result.s
+
+  If exePath = ""
+    ProcedureReturn 0
+  EndIf
+  If workdir = ""
+    workdir = GetPathPart(exePath)
+  EndIf
+
+  script = "$ws=New-Object -ComObject WScript.Shell; "
+  script + "$sc=$ws.CreateShortcut([IO.Path]::Combine($env:TEMP,'MyGameBooster-launch.lnk')); "
+  script + "$sc.TargetPath=" + PowerShellQuote(exePath) + "; "
+  If args <> ""
+    script + "$sc.Arguments=" + PowerShellQuote(args) + "; "
+  EndIf
+  If workdir <> ""
+    script + "$sc.WorkingDirectory=" + PowerShellQuote(workdir) + "; "
+  EndIf
+  script + "$sc.Save(); "
+  script + "Start-Process -FilePath explorer.exe -ArgumentList $sc.FullName; "
+  script + "Start-Sleep -Milliseconds 300; "
+  script + "Remove-Item -LiteralPath $sc.FullName -ErrorAction SilentlyContinue; "
+  script + "'OK'"
+
+  result = Trim(RunProgramAndCapture("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -Command " + #DQUOTE$ + script + #DQUOTE$))
+  ProcedureReturn Bool(result = "OK")
+EndProcedure
+
+Procedure.i LaunchViaExplorer(exePath.s, args.s)
+  Protected r.i
+  Protected argPtr.i
+
+  If exePath = "" Or FileSize(exePath) <= 0
+    ProcedureReturn 0
+  EndIf
+
+  exePath = CollapseBackslashes(exePath)
+  If Trim(args) <> ""
+    argPtr = @args
+  Else
+    argPtr = 0
+  EndIf
+  r = ShellExecute_(0, "open", exePath, argPtr, GetPathPart(exePath), #SW_SHOWNORMAL)
+  ProcedureReturn Bool(r > 32)
 EndProcedure
 
 Procedure.s FindExistingExeArtworkPath(exePath.s)
@@ -637,9 +702,14 @@ Procedure CancelPendingLaunch()
     ProcedureReturn
   EndIf
 
-  LogLine("Launch canceled while waiting for Steam game process: " + LaunchGame\Name)
-  waitMessage = "Canceled waiting for the Steam game process." + #LF$ + #LF$ +
-                "If Steam started successfully, you can retry with a longer detect timeout."
+  If LaunchGame\LaunchMode = #LAUNCHMODE_STEAM
+    LogLine("Launch canceled while waiting for Steam game process: " + LaunchGame\Name)
+    waitMessage = "Canceled waiting for the Steam game process." + #LF$ + #LF$ +
+                  "If Steam started successfully, you can retry with a longer detect timeout."
+  Else
+    LogLine("Launch canceled while waiting for launcher process: " + LaunchGame\Name)
+    waitMessage = "Canceled waiting for the launcher process."
+  EndIf
   FinishLaunch(0, waitMessage)
 EndProcedure
 
@@ -699,6 +769,7 @@ Procedure BeginExeLaunch(*g.GameEntry)
   Protected si.STARTUPINFO, pi.PROCESS_INFORMATION
   Protected cmd.s, workdir.s
   Protected *cmdMem
+  Protected launchArgs.s
 
   If IsLaunchActive()
     ProcedureReturn
@@ -707,11 +778,27 @@ Procedure BeginExeLaunch(*g.GameEntry)
   CopyLaunchGame(*g)
   workdir = LaunchGame\WorkDir
   If workdir = "" : workdir = GetPathPart(LaunchGame\ExePath) : EndIf
+  launchArgs = LaunchGame\Args
   cmd = QuoteArg(LaunchGame\ExePath)
-  If LaunchGame\Args <> "" : cmd + " " + LaunchGame\Args : EndIf
+  If launchArgs <> "" : cmd + " " + launchArgs : EndIf
 
   LogLine("Launch EXE: " + LaunchGame\Name + " | " + CollapseBackslashes(LaunchGame\ExePath))
   PrepareBoostSession(@LaunchGame, @LaunchCtx)
+
+  If NeedsUnelevatedLauncher(LaunchGame\ExePath)
+    If LaunchViaShell(LaunchGame\ExePath, launchArgs, workdir)
+      RecordLaunchStart(@LaunchGame)
+      LaunchState = 1
+      LaunchActive = 1
+      LaunchDetectDeadline = ElapsedMilliseconds() + 30000
+      SetLaunchUiState(1, "Starting launcher: " + LaunchGame\Name)
+      LogLine("Launched via shell shortcut for compatibility: " + GetFilePart(LaunchGame\ExePath))
+    Else
+      CleanupBoostSession(@LaunchCtx)
+      FinishLaunch(0, "Failed to start launcher:" + #LF$ + GetFilePart(LaunchGame\ExePath))
+    EndIf
+    ProcedureReturn
+  EndIf
 
   *cmdMem = AllocateMemory((Len(cmd) + 2) * SizeOf(Character))
   If *cmdMem = 0
@@ -723,7 +810,7 @@ Procedure BeginExeLaunch(*g.GameEntry)
   si\cb = SizeOf(STARTUPINFO)
   If CreateProcess_(0, *cmdMem, 0, 0, #False, 0, 0, workdir, @si, @pi) = 0
     FreeMemory(*cmdMem)
-    FinishLaunch(0, "Failed to launch:" + #LF$ + LaunchGame\ExePath)
+    FinishLaunch(0, "Failed to launch:" + #LF$ + GetFilePart(LaunchGame\ExePath))
     ProcedureReturn
   EndIf
   FreeMemory(*cmdMem)
@@ -746,6 +833,7 @@ Procedure BeginSteamLaunch(*g.GameEntry)
   Protected si.STARTUPINFO, pi.PROCESS_INFORMATION
   Protected cmd.s, workdir.s
   Protected *cmdMem
+  Protected guessedExe.s
 
   If IsLaunchActive()
     ProcedureReturn
@@ -770,10 +858,19 @@ Procedure BeginSteamLaunch(*g.GameEntry)
                               "Try: import the Steam game again so appmanifest_*.acf is available and make sure the game is installed.")
     ProcedureReturn
   EndIf
+  If LaunchGame\ExePath = "" Or FileSize(LaunchGame\ExePath) <= 0
+    guessedExe = GuessGameExeFromRoot(LaunchGameRoot)
+    If guessedExe <> ""
+      LaunchGame\ExePath = guessedExe
+      LogLine("Steam launch guessed game EXE: " + CollapseBackslashes(guessedExe))
+    EndIf
+  EndIf
 
   LogLine("Launch Steam: " + LaunchGame\Name + " | AppID=" + Str(LaunchGame\SteamAppId))
   PrepareBoostSession(@LaunchGame, @LaunchCtx)
   SnapshotPids(LaunchBaseline())
+  RecordLaunchStart(@LaunchGame)
+  LaunchStartRecorded = 1
   LogLine("Waiting for Steam game process in: " + CollapseBackslashes(LaunchGameRoot))
 
   workdir = GetPathPart(LaunchGame\SteamExe)
@@ -832,9 +929,13 @@ Procedure PollLaunchState()
 
   Select LaunchState
     Case 1
-      pidGame = FindNewProcessInFolderOnce(LaunchGameRoot, LaunchBaseline())
+      If LaunchGame\LaunchMode = #LAUNCHMODE_STEAM
+        pidGame = FindSteamGameProcessOnce(LaunchGame\ExePath, LaunchGameRoot, LaunchBaseline())
+      Else
+        pidGame = FindSteamGameProcessOnce(LaunchGame\ExePath, GetPathPart(LaunchGame\ExePath), LaunchBaseline())
+      EndIf
       If pidGame
-        LogLine("Detected game PID=" + Str(pidGame))
+        LogLine("Detected game PID=" + Str(pidGame) + " | path=" + CollapseBackslashes(GetMainModulePath(pidGame)))
         hGame = OpenProcess_(#PROCESS_QUERY_INFORMATION | #PROCESS_SET_INFORMATION | #SYNCHRONIZE, #False, pidGame)
         If hGame = 0
           hGame = OpenProcess_(#PROCESS_QUERY_LIMITED_INFORMATION | #PROCESS_SET_INFORMATION | #SYNCHRONIZE, #False, pidGame)
@@ -849,14 +950,25 @@ Procedure PollLaunchState()
         LaunchGotAffinity  = GetProcessAffinityMask_(LaunchProcess, @LaunchProcessAffinity, @LaunchSystemAffinity)
         ApplyProcessBoost(LaunchProcess, @LaunchGame)
         TuneBackgroundProcesses(@LaunchGame)
-        RecordLaunchStart(@LaunchGame)
         LogLine("Monitoring detected game process for: " + LaunchGame\Name)
         LaunchState = 2
         LaunchStartedAt = ElapsedMilliseconds()
         SetLaunchUiState(1, "Running: " + LaunchGame\Name)
+        ProcedureReturn
       ElseIf ElapsedMilliseconds() >= LaunchDetectDeadline
-        FinishLaunch(0, "Could not detect game process (timeout)." + #LF$ + #LF$ +
-                        "Try: re-import Steam metadata for the game and increase the detect timeout.")
+        If LaunchGame\LaunchMode = #LAUNCHMODE_STEAM
+          LogLine("Steam detect timeout reached for: " + LaunchGame\Name)
+          SetLaunchUiState(0, "Steam handoff finished: " + LaunchGame\Name)
+        Else
+          LogLine("Launcher detect timeout reached for: " + LaunchGame\Name)
+          SetLaunchUiState(0, "Launcher handoff finished: " + LaunchGame\Name)
+        EndIf
+        CleanupBoostSession(@LaunchCtx)
+        If LaunchStartRecorded
+          LogLine("Launch handoff completed without a trackable process handle")
+        EndIf
+        ResetLaunchState()
+        UpdateSelectionUI()
       EndIf
 
     Case 2
@@ -955,7 +1067,7 @@ Procedure OpenSelectedGameFolder(idxSel.i)
   Protected folder.s
   If idxSel < 0 : ProcedureReturn : EndIf
   If SelectGameByIndex(idxSel, @gg) = 0 : ProcedureReturn : EndIf
-  If gg\LaunchMode = 1
+  If gg\LaunchMode = #LAUNCHMODE_STEAM
     folder = ResolveSteamGameRoot(@gg)
   Else
     folder = gg\WorkDir
@@ -964,7 +1076,7 @@ Procedure OpenSelectedGameFolder(idxSel.i)
   folder = EnsureTrailingSlash(folder)
   If folder <> "" And FileSize(folder) = -2
     RunProgram("explorer.exe", #DQUOTE$ + folder + #DQUOTE$, "", #PB_Program_Open)
-  ElseIf gg\LaunchMode = 1
+  ElseIf gg\LaunchMode = #LAUNCHMODE_STEAM
     MessageRequester(#APP_NAME, "Could not resolve the Steam install folder for this game.")
   EndIf
 EndProcedure
@@ -981,6 +1093,7 @@ Procedure ShowDiagnostics()
 
   Protected w.i, ev.i
   Protected info.s
+  Protected diagnosticTooltip.s
   Protected mem.OC_MEMORYSTATUSEX
   Protected cpu.q
   Protected lineCount.i, i.i, lines.s
@@ -1026,6 +1139,23 @@ Procedure ShowDiagnostics()
     If IsLaunchActive()
       info + #CRLF$ + "Current session" + #CRLF$
       info + "Game: " + LaunchGame\Name + #CRLF$
+  If LaunchGame\LaunchMode = #LAUNCHMODE_STEAM
+    If LaunchGame\ExePath <> ""
+      info + "Game executable: " + GetFilePart(LaunchGame\ExePath) + #CRLF$
+      diagnosticTooltip + "Game executable: " + LaunchGame\ExePath + #LF$
+    EndIf
+    If LaunchGame\SteamExe <> ""
+      info + "Steam executable: " + GetFilePart(LaunchGame\SteamExe) + #CRLF$
+      diagnosticTooltip + "Steam executable: " + LaunchGame\SteamExe + #LF$
+    EndIf
+    If LaunchGameRoot <> ""
+      info + "Install folder: " + GetFilePart(Left(LaunchGameRoot, Len(LaunchGameRoot) - 1)) + #CRLF$
+      diagnosticTooltip + "Install folder: " + LaunchGameRoot + #LF$
+    EndIf
+  ElseIf LaunchGame\ExePath <> ""
+    info + "Executable: " + GetFilePart(LaunchGame\ExePath) + #CRLF$
+    diagnosticTooltip + "Executable: " + LaunchGame\ExePath + #LF$
+  EndIf
       info + "Preset: " + FormatPresetLabel(LaunchGame\Preset) + #CRLF$
       info + "Power mode: " + FormatPowerModeLabel(LaunchGame\PowerMode) + #CRLF$
       info + "Background optimization: " + BackgroundOptimizationLabel(LaunchGame\OptimizeBackground) + #CRLF$
@@ -1043,6 +1173,12 @@ Procedure ShowDiagnostics()
     For i = 1 To lineCount
       AddGadgetItem(#D_Info, -1, StringField(lines, i, #LF$))
     Next
+    diagnosticTooltip = Trim(diagnosticTooltip)
+    If diagnosticTooltip <> ""
+      GadgetToolTip(#D_Info, diagnosticTooltip)
+    Else
+      GadgetToolTip(#D_Info, "")
+    EndIf
 
     ev = WaitWindowEvent(1000)
     Select ev
@@ -1102,10 +1238,10 @@ Procedure RefreshList()
       row\Name = gg\Name
       row\LaunchCount = gg\LaunchCount
       row\LastPlayed = gg\LastPlayed
-      If gg\LaunchMode = 1
+      If gg\LaunchMode = #LAUNCHMODE_STEAM
         row\ItemText = gg\Name + tagsText + Chr(10) + "Steam" + Chr(10) + "AppID " + Str(gg\SteamAppId) + " | " + meta + Chr(10) + ServicesSummary(gg\Services)
       Else
-        row\ItemText = gg\Name + tagsText + Chr(10) + "EXE" + Chr(10) + gg\ExePath + " | " + meta + Chr(10) + ServicesSummary(gg\Services)
+        row\ItemText = gg\Name + tagsText + Chr(10) + "EXE" + Chr(10) + GetFilePart(gg\ExePath) + " | " + meta + Chr(10) + ServicesSummary(gg\Services)
       EndIf
       If notesText <> ""
         row\ItemText = row\ItemText + " | Note"
@@ -1123,13 +1259,6 @@ Procedure RefreshList()
             EndIf
           Case #SORT_RUNS_DESC
             If row\LaunchCount > rows()\LaunchCount Or (row\LaunchCount = rows()\LaunchCount And LCase(row\Name) < LCase(rows()\Name))
-              InsertElement(rows())
-              rows() = row
-              inserted = 1
-              Break
-            EndIf
-          Default
-            If LCase(row\Name) < LCase(rows()\Name)
               InsertElement(rows())
               rows() = row
               inserted = 1
@@ -1220,10 +1349,10 @@ Procedure RunApplication()
     TextGadget(#G_Title, ScaleX(18), ScaleY(14), ScaleX(1040), ScaleY(30), #APP_NAME)
     TextGadget(#G_Subtitle, ScaleX(18), ScaleY(44), ScaleX(1040), ScaleY(20), "Safer game launching with Steam support, per-game power profiles, launch history, and service control")
 
-    ButtonGadget(#G_Tool_Add, ScaleX(18), ScaleY(78), ScaleX(120), ScaleY(32), "Add Game")
-    ButtonGadget(#G_Tool_BrowseExe, ScaleX(146), ScaleY(78), ScaleX(120), ScaleY(32), "Browse EXE")
-    ButtonGadget(#G_Tool_AddFolder, ScaleX(274), ScaleY(78), ScaleX(120), ScaleY(32), "Add Folder")
-    ButtonGadget(#G_Tool_ImportSteamGame, ScaleX(402), ScaleY(78), ScaleX(178), ScaleY(32), "Import Steam Game")
+    ButtonGadget(#G_Tool_Add, ScaleX(18), ScaleY(78), ScaleX(112), ScaleY(32), "Add Game")
+    ButtonGadget(#G_Tool_BrowseExe, ScaleX(138), ScaleY(78), ScaleX(112), ScaleY(32), "Browse EXE")
+    ButtonGadget(#G_Tool_AddFolder, ScaleX(258), ScaleY(78), ScaleX(112), ScaleY(32), "Add Folder")
+    ButtonGadget(#G_Tool_ImportSteamGame, ScaleX(378), ScaleY(78), ScaleX(172), ScaleY(32), "Import Steam Game")
     ListViewGadget(#G_Library, ScaleX(18), ScaleY(118), ScaleX(170), ScaleY(438))
     AddGadgetItem(#G_Library, -1, "All Games")
     AddGadgetItem(#G_Library, -1, "Steam")
@@ -1232,8 +1361,8 @@ Procedure RunApplication()
     AddGadgetItem(#G_Library, -1, "Most Played")
     AddGadgetItem(#G_Library, -1, "Tagged")
     SetGadgetState(#G_Library, LibraryView)
-    StringGadget(#G_Filter, ScaleX(598), ScaleY(82), ScaleX(220), ScaleY(24), "")
-    ComboBoxGadget(#G_Sort, ScaleX(828), ScaleY(82), ScaleX(232), ScaleY(24))
+    StringGadget(#G_Filter, ScaleX(774), ScaleY(82), ScaleX(136), ScaleY(24), "")
+    ComboBoxGadget(#G_Sort, ScaleX(918), ScaleY(82), ScaleX(142), ScaleY(24))
     AddGadgetItem(#G_Sort, -1, "Sort: Name")
     AddGadgetItem(#G_Sort, -1, "Sort: Last Played")
     AddGadgetItem(#G_Sort, -1, "Sort: Run Count")
@@ -1244,7 +1373,7 @@ Procedure RunApplication()
 
     ListIconGadget(#G_List, ScaleX(198), ScaleY(154), ScaleX(862), ScaleY(350), "Game", ScaleX(300), #PB_ListIcon_FullRowSelect | #PB_ListIcon_GridLines)
     AddGadgetColumn(#G_List, 1, "Type", ScaleX(90))
-    AddGadgetColumn(#G_List, 2, "Path / AppID / Profile", ScaleX(590))
+    AddGadgetColumn(#G_List, 2, "File / AppID / Profile", ScaleX(590))
     AddGadgetColumn(#G_List, 3, "Services", ScaleX(90))
 
     If FontTitle : SetGadgetFont(#G_Title, FontID(FontTitle)) : EndIf
@@ -1353,18 +1482,26 @@ Procedure RunApplication()
               launchIdx = GameIndexFromVisibleIndex(GetGadgetState(#G_List))
               CaptureUndoState("Move Game Up")
               If launchIdx >= 0 And MoveGameByIndex(launchIdx, -1)
-                SetGadgetState(#G_List, newIndex)
-                SetGadgetItemState(#G_List, newIndex, #PB_ListIcon_Selected)
-                SetActiveGadget(#G_List)
+                newIndex = VisibleIndexFromGameIndex(launchIdx - 1)
+                If newIndex >= 0
+                  SetGadgetState(#G_List, newIndex)
+                  SetGadgetItemState(#G_List, newIndex, #PB_ListIcon_Selected)
+                  SetActiveGadget(#G_List)
+                  UpdateSelectionUI()
+                EndIf
               EndIf
             Case #G_MoveDown
               newIndex = GetGadgetState(#G_List) + 1
               launchIdx = GameIndexFromVisibleIndex(GetGadgetState(#G_List))
               CaptureUndoState("Move Game Down")
               If launchIdx >= 0 And MoveGameByIndex(launchIdx, 1)
-                SetGadgetState(#G_List, newIndex)
-                SetGadgetItemState(#G_List, newIndex, #PB_ListIcon_Selected)
-                SetActiveGadget(#G_List)
+                newIndex = VisibleIndexFromGameIndex(launchIdx + 1)
+                If newIndex >= 0
+                  SetGadgetState(#G_List, newIndex)
+                  SetGadgetItemState(#G_List, newIndex, #PB_ListIcon_Selected)
+                  SetActiveGadget(#G_List)
+                  UpdateSelectionUI()
+                EndIf
               EndIf
             Case #G_Remove
               launchIdx = GameIndexFromVisibleIndex(GetGadgetState(#G_List))
@@ -1386,7 +1523,7 @@ Procedure RunApplication()
               launchIdx = GameIndexFromVisibleIndex(GetGadgetState(#G_List))
               If launchIdx >= 0 And IsLaunchActive() = 0
                 If SelectGameByIndex(launchIdx, @selectedLaunchGame)
-                  If selectedLaunchGame\LaunchMode = 1
+                  If selectedLaunchGame\LaunchMode = #LAUNCHMODE_STEAM
                     LaunchSteamBoosted(@selectedLaunchGame)
                   Else
                     LaunchBoosted(@selectedLaunchGame)
