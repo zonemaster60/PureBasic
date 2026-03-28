@@ -77,12 +77,12 @@ Exit()
 ; UseIcon = PB_RegistryManager.ico
 ; Executable = ..\PB_RegistryManager.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,4
-; VersionField1 = 1,0,1,4
+; VersionField0 = 1,0,1,5
+; VersionField1 = 1,0,1,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_RegistryManager
-; VersionField4 = 1.0.1.4
-; VersionField5 = 1.0.1.4
+; VersionField4 = 1.0.1.5
+; VersionField5 = 1.0.1.5
 ; VersionField6 = A full featured Registry Manager built with PureBasic
 ; VersionField7 = PB_RegistryManager
 ; VersionField8 = PB_RegistryManager.exe

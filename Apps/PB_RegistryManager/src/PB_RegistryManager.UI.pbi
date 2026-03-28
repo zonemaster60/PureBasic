@@ -7,7 +7,7 @@ Procedure CreateGUI()
   
   LogInfo("CreateGUI", "Creating main window and GUI")
   
-  window = OpenWindow(#WINDOW_MAIN, 0, 0, 1024, 768, "PB_Registry Manager " + AppVersion + " - Editor | Cleaner | Backup | Restore | Compactor | Hex Editor", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_MaximizeGadget | #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered)
+  window = OpenWindow(#WINDOW_MAIN, 0, 0, 1024, 768, "PB_Registry Manager " + AppVersion + " - Editor | Cleaner | Backup | Restore | Hex Editor", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_MaximizeGadget | #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered)
   
   If window
     ; Create Address Bar (at the top)
@@ -35,7 +35,6 @@ Procedure CreateGUI()
       MenuItem(#MENU_TOOLS_CLEANER, "Registry Cleaner...")
       MenuItem(#MENU_TOOLS_BACKUP, "Backup Registry...")
       MenuItem(#MENU_TOOLS_RESTORE, "Restore Registry...")
-      MenuItem(#MENU_TOOLS_COMPACT, "Compact Registry...")
       MenuBar()
       MenuItem(#MENU_TOOLS_MONITOR, "Registry Monitor...")
       MenuItem(#MENU_TOOLS_SNAPSHOT, "Snapshot Manager...")
@@ -628,7 +627,7 @@ Procedure HandleToolsMenu(menuID.i)
     Case #MENU_TOOLS_BACKUP
       Define backupMode.i = MessageRequester("Backup Mode", "Choose backup mode:" + #CRLF$ + #CRLF$ + "Yes = Full registry backup (separate per-hive files)" + #CRLF$ + "No = Current selected key only" + #CRLF$ + #CRLF$ + "Cancel = Abort", #PB_MessageRequester_YesNoCancel | #PB_MessageRequester_Info)
       If backupMode = #PB_MessageRequester_Yes
-        fileName = SaveFileRequester("Backup Full Registry", "registry_backup_" + FormatDate("%yyyy%mm%dd", Date()) + ".reg", "Registry Files (*.reg)|*.reg", 0)
+        fileName = SaveFileRequester("Backup Full Registry (choose base name)", "registry_backup_" + FormatDate("%yyyy%mm%dd", Date()), "All Files (*.*)|*.*", 0)
         If fileName <> ""
           BackupRegistry(fileName)
         Else
@@ -654,9 +653,6 @@ Procedure HandleToolsMenu(menuID.i)
       Else
         LogInfo("Main", "User cancelled restore")
       EndIf
-
-    Case #MENU_TOOLS_COMPACT
-      CompactRegistry()
 
     Case #MENU_TOOLS_MONITOR
       LogInfo("Main", "Opening registry monitor")
@@ -741,7 +737,7 @@ Procedure HandleHelpMenu(menuID.i)
 
     Case #MENU_HELP_ABOUT
       LogInfo("Main", "Displaying About dialog")
-      MessageRequester("About PB_RegistryManager", "PB_Registry Manager " + AppVersion + #CRLF$ + #CRLF$ + "All-in-One Registry Tool with Auto-Backup" + #CRLF$ + #CRLF$ + "Features:" + #CRLF$ + "Registry Editor" + #CRLF$ + "Registry Cleaner" + #CRLF$ + "Backup & Restore" + #CRLF$ + "Registry Compactor" + #CRLF$ + "Automatic Safety Backups" + #CRLF$ + "Real-Time Registry Monitor" + #CRLF$ + "Snapshot Manager & Comparison" + #CRLF$ + #CRLF$ + "Built with PureBasic 6.30+" + #CRLF$ + #CRLF$ + "Log file: " + ErrorLogPath + #CRLF$ + "Backup directory: " + GetBackupDirectory() + #CRLF$ + "Snapshot directory: " + GetSnapshotDirectory() + #CRLF$ + "Last backup: " + AutoBackupPath + #CRLF$ + "Monitor events: " + Str(MonitorEventCount) + #CRLF$ + "Snapshots: " + Str(ListSize(Snapshots())), #PB_MessageRequester_Info)
+      MessageRequester("About PB_RegistryManager", "PB_Registry Manager " + AppVersion + #CRLF$ + #CRLF$ + "All-in-One Registry Tool with Auto-Backup" + #CRLF$ + #CRLF$ + "Features:" + #CRLF$ + "Registry Editor" + #CRLF$ + "Registry Cleaner" + #CRLF$ + "Backup & Restore" + #CRLF$ + "Automatic Safety Backups" + #CRLF$ + "Real-Time Registry Monitor" + #CRLF$ + "Snapshot Manager & Comparison" + #CRLF$ + #CRLF$ + "Built with PureBasic 6.30+" + #CRLF$ + #CRLF$ + "Log file: " + ErrorLogPath + #CRLF$ + "Backup directory: " + GetBackupDirectory() + #CRLF$ + "Snapshot directory: " + GetSnapshotDirectory() + #CRLF$ + "Last backup: " + AutoBackupPath + #CRLF$ + "Monitor events: " + Str(MonitorEventCount) + #CRLF$ + "Snapshots: " + Str(ListSize(Snapshots())), #PB_MessageRequester_Info)
 
   EndSelect
 EndProcedure
@@ -782,7 +778,7 @@ Procedure HandleMenuEvent(menuID.i)
     Case #MENU_EDIT_NEW_KEY, #MENU_EDIT_NEW_VALUE, #MENU_EDIT_DELETE, #MENU_EDIT_COPY_PATH, #MENU_EDIT_PERMISSIONS, #MENU_EDIT_RENAME
       HandleEditMenu(menuID)
 
-    Case #MENU_TOOLS_CLEANER, #MENU_TOOLS_BACKUP, #MENU_TOOLS_RESTORE, #MENU_TOOLS_COMPACT, #MENU_TOOLS_MONITOR, #MENU_TOOLS_SNAPSHOT, #MENU_TOOLS_HEX_EXTERNAL
+    Case #MENU_TOOLS_CLEANER, #MENU_TOOLS_BACKUP, #MENU_TOOLS_RESTORE, #MENU_TOOLS_MONITOR, #MENU_TOOLS_SNAPSHOT, #MENU_TOOLS_HEX_EXTERNAL
       HandleToolsMenu(menuID)
 
     Case #MENU_VIEW_64BIT, #MENU_VIEW_REFRESH

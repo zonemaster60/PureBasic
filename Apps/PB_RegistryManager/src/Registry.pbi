@@ -114,8 +114,6 @@ DeclareModule Registry
 
   Declare.i KeyExists(topKey, KeyName.s, WOW64 = #False)
 
-  Declare.i CompactHive(topKey, hivePath.s, WOW64 = #False)
-
 EndDeclareModule
 
 
@@ -740,38 +738,6 @@ Module Registry
     If error = 0
       RegCloseKey_(hKey)
       ProcedureReturn #True
-    EndIf
-    
-    ProcedureReturn #False
-  EndProcedure
-
-  Procedure.i CompactHive(topKey, hivePath.s, WOW64 = #False)
-    Protected hKey.i, error.l, samDesired.l = #KEY_READ
-    
-    ; Open the source key (usually topKey is HKEY_CURRENT_USER)
-    If WOW64
-      samDesired | #KEY_WOW64_32KEY
-    Else
-      samDesired | #KEY_WOW64_64KEY
-    EndIf
-    
-    error = RegOpenKeyEx_(topKey, "", 0, samDesired, @hKey)
-    If error = 0
-      ; Delete target file if it exists (RegSaveKey fails if file exists)
-      If FileSize(hivePath) >= 0
-        DeleteFile(hivePath)
-      EndIf
-      
-      ; RegSaveKey creates a new hive file that is linear and compacted
-      error = RegSaveKey_(hKey, hivePath, 0)
-      RegCloseKey_(hKey)
-      
-      If error = 0
-        ProcedureReturn #True
-      Else
-        Debug "RegSaveKey Error: " + Str(error)
-        ProcedureReturn #False
-      EndIf
     EndIf
     
     ProcedureReturn #False

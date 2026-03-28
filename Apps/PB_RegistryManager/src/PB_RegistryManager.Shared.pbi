@@ -21,6 +21,7 @@ EndImport
 ;- Core Types
 
 #APP_NAME = "PB_RegistryManager"
+Global AppVersion.s = "v1.0.1.5"
 
 Structure RegKeyInfo
   Name.s
@@ -152,7 +153,6 @@ EndStructure
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
-Global AppVersion.s = "v1.0.1.4"
 Global MonitorActive.i = #False
 Global MonitorEventCount.i = 0
 Global MonitorMutex.i = 0
@@ -168,6 +168,7 @@ Global CurrentRootKey.i = 0
 Global CurrentKeyPath.s = ""
 Global SnapshotWindow.i = 0
 Global SnapshotCreationActive.i = #False
+Global SnapshotThreadID.i = 0
 Global SnapshotDirectory.s = ""
 Global BackupProgram.i = 0
 Global BackupScriptFile.s = ""
@@ -287,8 +288,7 @@ Global LoadValuesMutex.i = 0
 #MENU_TOOLS_CLEANER = 20
 #MENU_TOOLS_BACKUP = 21
 #MENU_TOOLS_RESTORE = 22
-#MENU_TOOLS_COMPACT = 23
-#MENU_TOOLS_MONITOR = 24
+  #MENU_TOOLS_MONITOR = 24
 #MENU_TOOLS_SNAPSHOT = 25
 #MENU_TOOLS_HEX_EXTERNAL = 26
 #MENU_HELP_ONLINE = 30
@@ -448,14 +448,22 @@ Procedure SnapshotThread(param.i)
   *res\Description = *p\Description
   snapshotFile = GetSnapshotDirectory() + *p\Name + ".reg"
 
+  If FileSize(snapshotFile) >= 0
+    DeleteFile(snapshotFile)
+  EndIf
+
   LogInfo("SnapshotThread", "Creating snapshot: " + snapshotFile)
   If ExportRegistryHives(snapshotFile)
     *res\Success = #True
   Else
     *res\Success = #False
-    *res\ErrorText = "Failed to create registry snapshot file."
+    If FileSize(snapshotFile) = 0
+      DeleteFile(snapshotFile)
+    EndIf
+    *res\ErrorText = "Failed to create registry snapshot file: " + snapshotFile
   EndIf
 
+  SnapshotThreadID = 0
   FreeStructure(*p)
   PostEvent(#EVENT_SNAPSHOT_CREATED, #WINDOW_MAIN, 0, 0, *res)
 EndProcedure
@@ -723,15 +731,142 @@ Procedure.i StartBackupProcess(fileName.s, reason.s, isAuto.i, mode.s = "full", 
   ProcedureReturn #True
 EndProcedure
 
+Procedure.s GetActiveBackupResultPath()
+  If BackupCurrentMode = "full" And BackupOutputFolder <> ""
+    ProcedureReturn BackupOutputFolder
+  EndIf
+
+  ProcedureReturn BackupOutputFile
+EndProcedure
+
+Procedure UpdateBackupProgress()
+  If BackupStatusFile <> "" And FileSize(BackupStatusFile) > 0
+    Protected statusReader.i = ReadFile(#PB_Any, BackupStatusFile)
+    If statusReader
+      Protected latestStatus.s = ""
+      While Not Eof(statusReader)
+        latestStatus = ReadString(statusReader)
+      Wend
+      CloseFile(statusReader)
+
+      If latestStatus <> "" And latestStatus <> BackupCurrentStage
+        BackupCurrentStage = latestStatus
+        UpdateStatusBar(latestStatus)
+      EndIf
+    EndIf
+  EndIf
+EndProcedure
+
+Procedure.i FinalizeBackupProcess(showMessages.i = #True)
+  Protected backupExitCode.i, backupPath.s, backupSucceeded.i = #False
+
+  If BackupProgram = 0 Or ProgramRunning(BackupProgram)
+    ProcedureReturn #False
+  EndIf
+
+  backupPath = GetActiveBackupResultPath()
+  backupExitCode = ProgramExitCode(BackupProgram)
+  CloseProgram(BackupProgram)
+  BackupProgram = 0
+  RemoveWindowTimer(#WINDOW_MAIN, #TIMER_BACKUP_REFRESH)
+
+  If BackupScriptFile <> "" And FileSize(BackupScriptFile) >= 0
+    DeleteFile(BackupScriptFile)
+  EndIf
+  If BackupStatusFile <> "" And FileSize(BackupStatusFile) >= 0
+    DeleteFile(BackupStatusFile)
+  EndIf
+
+  If backupExitCode = 0
+    If BackupCurrentMode = "full"
+      If backupPath <> "" And FileSize(backupPath) = -2
+        backupSucceeded = #True
+      EndIf
+    ElseIf FileSize(BackupOutputFile) > 0
+      backupSucceeded = #True
+    EndIf
+  EndIf
+
+  If backupSucceeded
+    If BackupIsAuto
+      AutoBackupPath = backupPath
+      LastBackupTime = ElapsedMilliseconds()
+    EndIf
+
+    If BackupCurrentMode = "full"
+      LogInfo("FinalizeBackupProcess", "Backup completed successfully: " + backupPath)
+      UpdateStatusBar("Full backup completed: " + GetFilePart(Left(backupPath, Len(backupPath) - 1)))
+      If showMessages And Not BackupIsAuto
+        MessageRequester("Backup Complete", "Full registry backup completed." + #CRLF$ + #CRLF$ + "Files were written to folder:" + #CRLF$ + backupPath, #PB_MessageRequester_Info)
+      EndIf
+    Else
+      LogInfo("FinalizeBackupProcess", "Key backup completed successfully: " + BackupOutputFile)
+      UpdateStatusBar("Backup completed: " + GetFilePart(BackupOutputFile))
+      If showMessages And Not BackupIsAuto
+        MessageRequester("Backup Complete", "Registry key backup completed:" + #CRLF$ + BackupOutputFile, #PB_MessageRequester_Info)
+      EndIf
+    EndIf
+  Else
+    If BackupCurrentMode = "full" And BackupOutputFolder <> "" And FileSize(BackupOutputFolder) = -2
+      DeleteDirectory(BackupOutputFolder, "*", #PB_FileSystem_Recursive | #PB_FileSystem_Force)
+    ElseIf BackupOutputFile <> "" And FileSize(BackupOutputFile) = 0
+      DeleteFile(BackupOutputFile)
+    EndIf
+
+    LogError("FinalizeBackupProcess", "Backup process failed for: " + backupPath + " (exit code " + Str(backupExitCode) + ")")
+    UpdateStatusBar("Error: Backup failed!")
+    If showMessages And Not BackupIsAuto
+      MessageRequester("Backup Failed", "Failed to create registry backup." + #CRLF$ + "Check the log for details.", #PB_MessageRequester_Error)
+    EndIf
+  EndIf
+
+  BackupScriptFile = ""
+  BackupStatusFile = ""
+  BackupOutputFile = ""
+  BackupOutputFolder = ""
+  BackupReason = ""
+  BackupIsAuto = #False
+  BackupCurrentMode = ""
+  BackupCurrentStage = ""
+
+  ProcedureReturn backupSucceeded
+EndProcedure
+
+Procedure.i WaitForActiveBackupCompletion()
+  If BackupProgram = 0
+    ProcedureReturn #False
+  EndIf
+
+  RemoveWindowTimer(#WINDOW_MAIN, #TIMER_BACKUP_REFRESH)
+  UpdateStatusBar("Creating safety backup...")
+
+  While BackupProgram And ProgramRunning(BackupProgram)
+    UpdateBackupProgress()
+    While WindowEvent()
+    Wend
+    Delay(50)
+  Wend
+
+  UpdateBackupProgress()
+  ProcedureReturn FinalizeBackupProcess(#False)
+EndProcedure
+
 Procedure.i ExportRegistryHives(fileName.s)
-  Protected tempFile.s, scriptFile.s, scriptHandle.i, i.i, exitCode.i, program.i, mergeProgram.i
+  Protected tempFile.s, scriptFile.s, statusFile.s, scriptHandle.i, i.i, exitCode.i, program.i
   Protected Dim hiveNames.s(4)
-  Protected Dim hiveShortNames.s(4)
   Protected Dim tempFiles.s(4)
-  Protected script.s
+  Protected script.s, outputDir.s, latestStatus.s, lastStatus.s, statusReader.i
 
   If fileName = ""
     ProcedureReturn #False
+  EndIf
+
+  outputDir = GetPathPart(fileName)
+  If outputDir <> "" And FileSize(outputDir) <> -2
+    If Not CreateDirectory(outputDir)
+      LogError("ExportRegistryHives", "Failed to create output directory: " + outputDir)
+      ProcedureReturn #False
+    EndIf
   EndIf
 
   hiveNames(0) = "HKEY_CLASSES_ROOT"
@@ -739,41 +874,22 @@ Procedure.i ExportRegistryHives(fileName.s)
   hiveNames(2) = "HKEY_LOCAL_MACHINE"
   hiveNames(3) = "HKEY_USERS"
   hiveNames(4) = "HKEY_CURRENT_CONFIG"
-  hiveShortNames(0) = "HKCR"
-  hiveShortNames(1) = "HKCU"
-  hiveShortNames(2) = "HKLM"
-  hiveShortNames(3) = "HKU"
-  hiveShortNames(4) = "HKCC"
 
   For i = 0 To ArraySize(hiveNames())
-    tempFile = GetTemporaryDirectory() + "PB_RegistryManager_" + hiveShortNames(i) + "_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + "_" + Str(i) + ".reg"
+    tempFile = GetTemporaryDirectory() + "PB_RegistryManager_Snapshot_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + "_" + Str(i) + ".reg"
     tempFiles(i) = tempFile
     If FileSize(tempFile) >= 0
       DeleteFile(tempFile)
     EndIf
-
-    LogInfo("ExportRegistryHives", "Exporting hive: " + hiveNames(i))
-    program = RunProgram("reg", "export " + hiveNames(i) + " " + Chr(34) + tempFile + Chr(34) + " /y", "", #PB_Program_Wait | #PB_Program_Hide)
-    If program
-      exitCode = ProgramExitCode(program)
-      CloseProgram(program)
-      If exitCode <> 0 Or FileSize(tempFile) <= 0
-        If FileSize(fileName) >= 0 : DeleteFile(fileName) : EndIf
-        If FileSize(tempFile) >= 0 : DeleteFile(tempFile) : EndIf
-        LogError("ExportRegistryHives", "Failed exporting hive " + hiveNames(i) + " (exit code " + Str(exitCode) + ")")
-        ProcedureReturn #False
-      EndIf
-    Else
-      If FileSize(fileName) >= 0 : DeleteFile(fileName) : EndIf
-      LogError("ExportRegistryHives", "Failed to execute reg.exe for hive " + hiveNames(i))
-      ProcedureReturn #False
-    EndIf
   Next
 
   scriptFile = GetTemporaryDirectory() + "PB_RegistryManager_Merge_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + ".ps1"
-  script = "$files = @(" + #CRLF$
+  statusFile = GetTemporaryDirectory() + "PB_RegistryManager_SnapshotStatus_" + FormatDate("%yyyy%mm%dd_%hh%ii%ss", Date()) + ".txt"
+  script = "$ErrorActionPreference = 'Stop'" + #CRLF$
+  script + "$status = '" + EscapePowerShellLiteral(statusFile) + "'" + #CRLF$
+  script + "$files = @(" + #CRLF$
   For i = 0 To ArraySize(tempFiles())
-    script + "  '" + EscapePowerShellLiteral(tempFiles(i)) + "'"
+    script + "  @{ Hive = '" + EscapePowerShellLiteral(hiveNames(i)) + "'; File = '" + EscapePowerShellLiteral(tempFiles(i)) + "' }"
     If i < ArraySize(tempFiles())
       script + ","
     EndIf
@@ -782,15 +898,42 @@ Procedure.i ExportRegistryHives(fileName.s)
   script + ")" + #CRLF$
   script + "$out = '" + EscapePowerShellLiteral(fileName) + "'" + #CRLF$
   script + "$enc = New-Object System.Text.UnicodeEncoding($false, $true)" + #CRLF$
-  script + "$writer = New-Object System.IO.StreamWriter($out, $false, $enc)" + #CRLF$
-  script + "$writer.NewLine = '`r`n'" + #CRLF$
-  script + "$writer.WriteLine('Windows Registry Editor Version 5.00')" + #CRLF$
-  script + "$writer.WriteLine()" + #CRLF$
-  script + "foreach ($file in $files) {" + #CRLF$
-  script + "  Get-Content -LiteralPath $file | Select-Object -Skip 2 | ForEach-Object { $writer.WriteLine($_) }" + #CRLF$
+  script + "$writer = $null" + #CRLF$
+  script + "function Set-Stage([string]$text) { Set-Content -LiteralPath $status -Value $text -Encoding UTF8 }" + #CRLF$
+  script + "try {" + #CRLF$
+  script + "  $index = 0" + #CRLF$
+  script + "  foreach ($entry in $files) {" + #CRLF$
+  script + "    $index++" + #CRLF$
+  script + "    Set-Stage ('Exporting hive ' + $index + '/' + $files.Count + ': ' + $entry.Hive)" + #CRLF$
+    script + "    & reg.exe export $entry.Hive $entry.File /y | Out-Null" + #CRLF$
+    script + "    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $entry.File) -or ((Get-Item -LiteralPath $entry.File).Length -le 0)) {" + #CRLF$
+    script + "      throw ('Failed exporting ' + $entry.Hive)" + #CRLF$
+    script + "    }" + #CRLF$
+  script + "  }" + #CRLF$
+  script + "  Set-Stage 'Merging hive exports...'" + #CRLF$
+  script + "  $writer = New-Object System.IO.StreamWriter($out, $false, $enc)" + #CRLF$
+  script + "  $writer.NewLine = '`r`n'" + #CRLF$
+  script + "  $writer.WriteLine('Windows Registry Editor Version 5.00')" + #CRLF$
   script + "  $writer.WriteLine()" + #CRLF$
+  script + "  foreach ($entry in $files) {" + #CRLF$
+  script + "    Get-Content -LiteralPath $entry.File | Select-Object -Skip 2 | ForEach-Object { $writer.WriteLine($_) }" + #CRLF$
+  script + "    $writer.WriteLine()" + #CRLF$
+  script + "  }" + #CRLF$
+  script + "  $writer.Close()" + #CRLF$
+  script + "  Set-Stage 'Snapshot export complete'" + #CRLF$
+  script + "  exit 0" + #CRLF$
   script + "}" + #CRLF$
-  script + "$writer.Close()" + #CRLF$
+  script + "catch {" + #CRLF$
+  script + "  Set-Stage ('Failed: ' + $_.Exception.Message)" + #CRLF$
+  script + "  if (Test-Path -LiteralPath $out) { Remove-Item -LiteralPath $out -Force -ErrorAction SilentlyContinue }" + #CRLF$
+  script + "  exit 1" + #CRLF$
+  script + "}" + #CRLF$
+  script + "finally {" + #CRLF$
+  script + "  if ($writer) { $writer.Dispose() }" + #CRLF$
+  script + "  foreach ($entry in $files) {" + #CRLF$
+    script + "    if (Test-Path -LiteralPath $entry.File) { Remove-Item -LiteralPath $entry.File -Force -ErrorAction SilentlyContinue }" + #CRLF$
+  script + "  }" + #CRLF$
+  script + "}" + #CRLF$
 
   scriptHandle = CreateFile(#PB_Any, scriptFile)
   If Not scriptHandle
@@ -803,23 +946,66 @@ Procedure.i ExportRegistryHives(fileName.s)
   WriteString(scriptHandle, script, #PB_UTF8)
   CloseFile(scriptHandle)
 
-  LogInfo("ExportRegistryHives", "Merging exported hives into: " + fileName)
-  mergeProgram = RunProgram("powershell", "-NoProfile -ExecutionPolicy Bypass -File " + Chr(34) + scriptFile + Chr(34), "", #PB_Program_Wait | #PB_Program_Hide)
-  If mergeProgram
-    exitCode = ProgramExitCode(mergeProgram)
-    CloseProgram(mergeProgram)
-  Else
-    exitCode = -1
+  LogInfo("ExportRegistryHives", "Exporting and merging hives into: " + fileName)
+  program = RunProgram("powershell", "-NoProfile -ExecutionPolicy Bypass -File " + Chr(34) + scriptFile + Chr(34), "", #PB_Program_Open | #PB_Program_Hide)
+  If Not program
+    DeleteFile(scriptFile)
+    If FileSize(statusFile) >= 0 : DeleteFile(statusFile) : EndIf
+    LogError("ExportRegistryHives", "Failed to start PowerShell export process")
+    ProcedureReturn #False
   EndIf
 
+  While ProgramRunning(program)
+    If FileSize(statusFile) > 0
+      statusReader = ReadFile(#PB_Any, statusFile)
+      If statusReader
+        latestStatus = ""
+        While Not Eof(statusReader)
+          latestStatus = ReadString(statusReader)
+        Wend
+        CloseFile(statusReader)
+        If latestStatus <> "" And latestStatus <> lastStatus
+          lastStatus = latestStatus
+          LogInfo("ExportRegistryHives", latestStatus)
+          PostAsyncStatus(latestStatus)
+        EndIf
+      EndIf
+    EndIf
+    Delay(100)
+  Wend
+
+  If FileSize(statusFile) > 0
+    statusReader = ReadFile(#PB_Any, statusFile)
+    If statusReader
+      latestStatus = ""
+      While Not Eof(statusReader)
+        latestStatus = ReadString(statusReader)
+      Wend
+      CloseFile(statusReader)
+      If latestStatus <> "" And latestStatus <> lastStatus
+        lastStatus = latestStatus
+        LogInfo("ExportRegistryHives", latestStatus)
+        PostAsyncStatus(latestStatus)
+      EndIf
+    EndIf
+  EndIf
+
+  exitCode = ProgramExitCode(program)
+  CloseProgram(program)
+
   DeleteFile(scriptFile)
+  If FileSize(statusFile) >= 0 : DeleteFile(statusFile) : EndIf
   For i = 0 To ArraySize(tempFiles())
     If FileSize(tempFiles(i)) >= 0 : DeleteFile(tempFiles(i)) : EndIf
   Next
 
   If exitCode <> 0 Or FileSize(fileName) <= 0
     If FileSize(fileName) >= 0 : DeleteFile(fileName) : EndIf
-    LogError("ExportRegistryHives", "Failed merging exported hives (exit code " + Str(exitCode) + ")")
+    If lastStatus <> ""
+      LogError("ExportRegistryHives", "Failed exporting registry snapshot (exit code " + Str(exitCode) + ") - " + lastStatus)
+    Else
+      LogError("ExportRegistryHives", "Failed exporting registry snapshot (exit code " + Str(exitCode) + ")")
+    EndIf
     ProcedureReturn #False
   EndIf
 
@@ -850,7 +1036,7 @@ Procedure.i CreateAutoBackup(reason.s = "Auto-backup before changes")
   backupFile = backupDir + "AutoBackup_" + timestamp + ".reg"
 
   LogInfo("CreateAutoBackup", "Queuing automatic backup: " + reason)
-  UpdateStatusBar("Background backup started... You can continue working.")
+  UpdateStatusBar("Safety backup started...")
 
   ProcedureReturn StartBackupProcess(backupFile, reason, #True, "full")
 EndProcedure
@@ -909,6 +1095,15 @@ Procedure.i EnsureBackupBeforeChange(operation.s)
           LogInfo("EnsureBackupBeforeChange", "User cancelled operation due to backup failure")
           ProcedureReturn #False
         EndIf
+      ElseIf Not WaitForActiveBackupCompletion()
+        result = MessageRequester("Backup Failed", "Safety backup did not complete successfully!" + #CRLF$ + #CRLF$ + "Do you want to continue WITHOUT backup?" + #CRLF$ + "(NOT RECOMMENDED)", #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning)
+        If result = #PB_MessageRequester_Yes
+          LogWarning("EnsureBackupBeforeChange", "User proceeded after incomplete backup for: " + operation)
+          ProcedureReturn #True
+        Else
+          LogInfo("EnsureBackupBeforeChange", "User cancelled operation because backup did not complete")
+          ProcedureReturn #False
+        EndIf
       Else
         LogInfo("EnsureBackupBeforeChange", "Backup successful, proceeding with: " + operation)
         ProcedureReturn #True
@@ -925,24 +1120,34 @@ Procedure.i EnsureBackupBeforeChange(operation.s)
 EndProcedure
 
 Procedure CleanupOldBackups(daysToKeep.i = 7)
-  Protected backupDir.s, dir.i, fileName.s, filePath.s, fileDate.i, currentTime.i
+  Protected backupDir.s, dir.i, fileName.s, filePath.s, fileDate.i, currentTime.i, entryType.i
   Protected deletedCount.i, keptCount.i
   backupDir = GetBackupDirectory()
   currentTime = Date()
   LogInfo("CleanupOldBackups", "Cleaning backups older than " + Str(daysToKeep) + " days from: " + backupDir)
 
-  dir = ExamineDirectory(#PB_Any, backupDir, "AutoBackup_*.reg")
+  dir = ExamineDirectory(#PB_Any, backupDir, "AutoBackup_*")
   If dir
     While NextDirectoryEntry(dir)
       fileName = DirectoryEntryName(dir)
       If fileName <> "." And fileName <> ".."
         filePath = backupDir + fileName
+        entryType = DirectoryEntryType(dir)
         fileDate = GetFileDate(filePath, #PB_Date_Modified)
         If (currentTime - fileDate) > (daysToKeep * 86400)
-          If DeleteFile(filePath)
+          If entryType = #PB_DirectoryEntry_Directory
+            If DeleteDirectory(filePath, "*", #PB_FileSystem_Recursive | #PB_FileSystem_Force)
+              deletedCount + 1
+              LogInfo("CleanupOldBackups", "Deleted old backup folder: " + fileName)
+            Else
+              keptCount + 1
+              LogWarning("CleanupOldBackups", "Failed to delete old backup folder: " + fileName)
+            EndIf
+          ElseIf DeleteFile(filePath)
             deletedCount + 1
             LogInfo("CleanupOldBackups", "Deleted old backup: " + fileName)
           Else
+            keptCount + 1
             LogWarning("CleanupOldBackups", "Failed to delete old backup: " + fileName)
           EndIf
         Else
@@ -1062,6 +1267,10 @@ Procedure HandleCloseWindowEvent()
 
     Case #WINDOW_SNAPSHOT
       LogInfo("Main", "User closed snapshot window")
+      If SnapshotCreationActive
+        MessageRequester("Snapshot In Progress", "Snapshot creation is still running. Please wait for it to finish before closing this window.", #PB_MessageRequester_Info)
+        ProcedureReturn
+      EndIf
       CloseWindow(#WINDOW_SNAPSHOT)
       SnapshotWindow = 0
 
@@ -1104,76 +1313,13 @@ Procedure HandleTimerEvent()
     EndIf
   ElseIf EventWindow() = #WINDOW_MAIN And EventTimer() = #TIMER_BACKUP_REFRESH
     If BackupProgram
-      If BackupStatusFile <> "" And FileSize(BackupStatusFile) > 0
-        Protected statusReader.i = ReadFile(#PB_Any, BackupStatusFile)
-        If statusReader
-          Protected latestStatus.s = ""
-          While Not Eof(statusReader)
-            latestStatus = ReadString(statusReader)
-          Wend
-          CloseFile(statusReader)
-          If latestStatus <> "" And latestStatus <> BackupCurrentStage
-            BackupCurrentStage = latestStatus
-            UpdateStatusBar(latestStatus)
-          EndIf
-        EndIf
-      EndIf
+      UpdateBackupProgress()
 
       If ProgramRunning(BackupProgram)
         ProcedureReturn
       EndIf
 
-      Define backupExitCode.i = ProgramExitCode(BackupProgram)
-      CloseProgram(BackupProgram)
-      BackupProgram = 0
-      RemoveWindowTimer(#WINDOW_MAIN, #TIMER_BACKUP_REFRESH)
-      If BackupScriptFile <> "" And FileSize(BackupScriptFile) >= 0
-        DeleteFile(BackupScriptFile)
-      EndIf
-      If BackupStatusFile <> "" And FileSize(BackupStatusFile) >= 0
-        DeleteFile(BackupStatusFile)
-      EndIf
-
-      If backupExitCode = 0
-        If BackupIsAuto
-          AutoBackupPath = BackupOutputFile
-          LastBackupTime = ElapsedMilliseconds()
-        EndIf
-        If BackupCurrentMode = "full"
-          LogInfo("HandleTimerEvent", "Backup completed successfully: " + BackupOutputFile)
-          UpdateStatusBar("Full backup completed in separate hive files")
-          If Not BackupIsAuto
-            MessageRequester("Backup Complete", "Full registry backup completed." + #CRLF$ + #CRLF$ + "Files were written to folder:" + #CRLF$ + BackupOutputFolder, #PB_MessageRequester_Info)
-          EndIf
-        ElseIf FileSize(BackupOutputFile) > 0
-          LogInfo("HandleTimerEvent", "Key backup completed successfully: " + BackupOutputFile)
-          UpdateStatusBar("Backup completed: " + GetFilePart(BackupOutputFile))
-          If Not BackupIsAuto
-            MessageRequester("Backup Complete", "Registry key backup completed:" + #CRLF$ + BackupOutputFile, #PB_MessageRequester_Info)
-          EndIf
-        Else
-          LogError("HandleTimerEvent", "Key backup finished but output file is missing: " + BackupOutputFile)
-          UpdateStatusBar("Error: Backup failed!")
-        EndIf
-      Else
-        If FileSize(BackupOutputFile) = 0
-          DeleteFile(BackupOutputFile)
-        EndIf
-        LogError("HandleTimerEvent", "Backup process failed for: " + BackupOutputFile + " (exit code " + Str(backupExitCode) + ")")
-        UpdateStatusBar("Error: Backup failed!")
-        If Not BackupIsAuto
-          MessageRequester("Backup Failed", "Failed to create registry backup file." + #CRLF$ + "Check the log for details.", #PB_MessageRequester_Error)
-        EndIf
-      EndIf
-
-      BackupScriptFile = ""
-      BackupStatusFile = ""
-      BackupOutputFile = ""
-      BackupOutputFolder = ""
-      BackupReason = ""
-      BackupIsAuto = #False
-      BackupCurrentMode = ""
-      BackupCurrentStage = ""
+      FinalizeBackupProcess(#True)
     EndIf
   EndIf
 EndProcedure
@@ -1306,8 +1452,8 @@ Procedure HandleCustomEvent(eventID.i)
 EndProcedure
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 899
-; FirstLine = 1274
-; Folding = -----
+; CursorPosition = 23
+; FirstLine = 9
+; Folding = ------
 ; EnableXP
 ; DPIAware

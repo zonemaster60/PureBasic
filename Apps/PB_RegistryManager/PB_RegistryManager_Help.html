@@ -287,7 +287,7 @@
                     <li><a href="#snapshots">Snapshot Manager</a></li>
                     <li><a href="#cleaner">Registry Cleaner</a></li>
                     <li><a href="#backup-restore">Backup & Restore</a></li>
-                    <li><a href="#compactor">Registry Compactor</a></li>
+                    
                     <li><a href="#troubleshooting">Troubleshooting</a></li>
                     <li><a href="#faq">FAQ</a></li>
                     <li><a href="#keyboard">Keyboard Shortcuts</a></li>
@@ -412,7 +412,7 @@
                     <h3>2. Auto-Backup Protection</h3>
                     <div class="feature-box">
                         <ul>
-                            <li>Mandatory full HKLM backup before ANY modification</li>
+                            <li>Mandatory full registry backup before ANY modification</li>
                             <li>Timestamped backup files</li>
                             <li>1-hour backup interval (prevents excessive backups)</li>
                             <li>User confirmation dialogs</li>
@@ -451,7 +451,6 @@
                         <ul>
                             <li>Registry Cleaner (remove invalid entries)</li>
                             <li>Manual Backup & Restore</li>
-                            <li>Registry Compactor (schedule compression)</li>
                             <li>Comprehensive error logging</li>
                             <li>Built-in help system (this page!)</li>
                         </ul>
@@ -602,7 +601,7 @@
                     
                     <div class="info-box">
                         <h4>💡 How It Works</h4>
-                        <p>Every time you attempt to modify the registry (delete key, import file, clean registry, etc.), Registry Manager automatically creates a complete backup of your HKLM registry hive. This backup can be used to restore your system if anything goes wrong.</p>
+                        <p>Every time you attempt to modify the registry (delete key, import file, clean registry, etc.), Registry Manager automatically creates a complete backup of the registry as separate per-hive <code>.reg</code> files. This backup can be used to restore your system if anything goes wrong.</p>
                     </div>
                     
                     <h3>Backup Features</h3>
@@ -618,16 +617,18 @@
                     <code>%USERPROFILE%\RegistryManager_Backups\</code>
                     <p>Example: <code>C:\Users\YourName\RegistryManager_Backups\</code></p>
                     
-                    <h3>Backup Filename Format</h3>
-                    <code>AutoBackup_YYYYMMDD_HHMMSS.reg</code>
-                    <p>Example: <code>AutoBackup_20260101_143022.reg</code></p>
+                    <h3>Backup Folder Format</h3>
+                    <code>AutoBackup_YYYYMMDD_HHMMSS\</code>
+                    <p>Example: <code>AutoBackup_20260101_143022\</code></p>
+                    <p>Each folder contains one exported <code>.reg</code> file per hive, such as <code>AutoBackup_20260101_143022_HKCU.reg</code> and <code>AutoBackup_20260101_143022_HKLM.reg</code>.</p>
                     
                     <h3>Restoring from Auto-Backup</h3>
                     <div class="step">
                         <ol>
                             <li>Click <strong>Tools → Restore Registry...</strong></li>
                             <li>Navigate to <code>%USERPROFILE%\RegistryManager_Backups\</code></li>
-                            <li>Select the appropriate AutoBackup_*.reg file</li>
+                            <li>Open the appropriate <code>AutoBackup_*</code> backup folder</li>
+                            <li>Select the specific hive <code>.reg</code> file you want to restore</li>
                             <li>Confirm restore (NOTE: A NEW backup is created before restore!)</li>
                             <li>Wait for completion</li>
                             <li>Restart computer if prompted</li>
@@ -636,7 +637,7 @@
                     
                     <div class="warning-box">
                         <h4>⚠️ Manual Deletion Only</h4>
-                        <p>Auto-backups are only deleted by the automatic 7-day cleanup or manual deletion. Manual backups you create via the Backup menu are NEVER auto-deleted.</p>
+                        <p>Auto-backup folders are only deleted by the automatic 7-day cleanup or manual deletion. Manual backups you create via the Backup menu are NEVER auto-deleted.</p>
                     </div>
                 </section>
                 
@@ -727,7 +728,7 @@
                             <li>Click <span class="button-demo">Create Snapshot</span></li>
                             <li>Enter a descriptive name (e.g., "BeforeUpdate")</li>
                             <li>Enter optional description</li>
-                            <li>Wait 30-60 seconds for snapshot creation</li>
+                            <li>Wait for the export to finish; progress appears in the status bar and log</li>
                             <li>Snapshot appears in the list</li>
                         </ol>
                     </div>
@@ -873,7 +874,7 @@
                     <p>No! The monitor uses <1% CPU when idle and has minimal memory footprint (~50 MB). Event capture latency is less than 1 millisecond.</p>
                     
                     <h3>How do I restore from a backup?</h3>
-                    <p>Click <strong>Tools → Restore Registry</strong>, navigate to the backup directory, select the AutoBackup_*.reg file, and confirm. A NEW backup is created before restore for extra safety!</p>
+                    <p>Click <strong>Tools → Restore Registry</strong>, navigate to the backup directory, open the relevant <code>AutoBackup_*</code> folder, select the hive <code>.reg</code> file you want to restore, and confirm. A NEW backup is created before restore for extra safety!</p>
                     
                     <h3>Can I schedule automatic snapshots?</h3>
                     <p>Not currently, but this is a planned feature for future versions. For now, create snapshots manually before important operations.</p>
@@ -907,7 +908,7 @@
                         </tr>
                         <tr>
                             <td>Naming</td>
-                            <td>AutoBackup_timestamp.reg</td>
+                            <td>AutoBackup_timestamp\ plus per-hive .reg files</td>
                             <td>User-defined.reg</td>
                         </tr>
                     </table>
