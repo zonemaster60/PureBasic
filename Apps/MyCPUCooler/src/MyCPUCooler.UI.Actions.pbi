@@ -619,6 +619,9 @@ Procedure HandleMenuEvent(eventMenu.i, *applyDiag.ApplyDiagnostics)
       RestoreBalanced()
       SetStatus("Status: Windows Balanced restored", "The default Windows Balanced scheme is active.")
 
+    Case #MenuTrayShowLogPath
+      MessageRequester("Log Path", "Log file (Logs folder):" + #CRLF$ + gLogPath, #PB_MessageRequester_Info)
+
     Case #MenuTrayExit
       CloseHandle_(hMutex)
       End

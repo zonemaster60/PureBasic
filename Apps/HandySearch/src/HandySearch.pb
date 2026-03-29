@@ -4,7 +4,7 @@ EnableExplicit
 
 #APP_NAME   = "HandySearch"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-Global version.s = "v1.0.1.4"
+Global version.s = "v1.0.1.5"
 
 ; Crash logging (best-effort)
 Declare InitCrashLogging()
@@ -715,36 +715,62 @@ Procedure.i OpenCrashLogFile(filePath.s)
   ProcedureReturn f
 EndProcedure
 
+Procedure.s EnsureCrashLogFolder(baseFolder.s)
+  Protected folder.s = baseFolder
+
+  If folder = ""
+    ProcedureReturn ""
+  EndIf
+
+  If Right(folder, 1) <> "\"
+    folder + "\"
+  EndIf
+
+  folder + "Logs\"
+
+  If FileSize(folder) <> -2
+    CreateDirectory(folder)
+  EndIf
+
+  If FileSize(folder) = -2
+    ProcedureReturn folder
+  EndIf
+
+  ProcedureReturn ""
+EndProcedure
+
 Procedure.s ChooseCrashLogPath()
   Protected candidate.s
   Protected appData.s
   Protected folder.s
   Protected f.i
 
-  ; Prefer EXE folder if writable.
-  candidate = AppPath + #APP_NAME + "_crash.log"
-  f = OpenCrashLogFile(candidate)
-  If f
-    CloseFile(f)
-    ProcedureReturn candidate
+  ; Prefer a Logs folder next to the EXE if writable.
+  folder = EnsureCrashLogFolder(AppPath)
+  If folder <> ""
+    candidate = folder + #APP_NAME + ".log"
+    f = OpenCrashLogFile(candidate)
+    If f
+      CloseFile(f)
+      ProcedureReturn candidate
+    EndIf
   EndIf
 
-  ; Fall back to %APPDATA%\HandySearch\...
+  ; Fall back to %APPDATA%\HandySearch\Logs\...
   appData = GetEnvironmentVariable("APPDATA")
   If appData <> "" And Right(appData, 1) <> "\"
     appData + "\"
   EndIf
 
-  folder = appData + #APP_NAME + "\"
-  If folder <> "" And FileSize(folder) <> -2
-    CreateDirectory(folder)
-  EndIf
+  folder = EnsureCrashLogFolder(appData + #APP_NAME)
 
-  candidate = folder + #APP_NAME + "_crash.log"
-  f = OpenCrashLogFile(candidate)
-  If f
-    CloseFile(f)
-    ProcedureReturn candidate
+  If folder <> ""
+    candidate = folder + #APP_NAME + ".log"
+    f = OpenCrashLogFile(candidate)
+    If f
+      CloseFile(f)
+      ProcedureReturn candidate
+    EndIf
   EndIf
 
   ProcedureReturn ""
@@ -784,7 +810,7 @@ Procedure CrashErrorHandler()
   LogLine("DB path: " + ResolveDbPath(IndexDbPath))
 
   MessageRequester(#APP_NAME, "The application encountered an unexpected error and must close." + #CRLF$ +
-                            "Crash log: " + CrashLogPath, #PB_MessageRequester_Error)
+                            "Crash log (Logs folder): " + CrashLogPath, #PB_MessageRequester_Error)
   End
 EndProcedure
 
@@ -1486,7 +1512,7 @@ Procedure InitGUI()
   MenuItem(#Menu_Tray_ShowIndexedCount, "Show indexed count")
   MenuItem(#Menu_Tray_ShowDbPath, "Show DB path")
   MenuItem(#Menu_Tray_Diagnostics, "Diagnostics")
-  MenuItem(#Menu_Tray_OpenCrashLog, "Open crash log")
+  MenuItem(#Menu_Tray_OpenCrashLog, "Open crash log (Logs folder)")
   MenuItem(#Menu_Tray_PauseResume, "Pause")
   MenuBar()
   MenuItem(#Menu_Tray_RunAtStartup, "Run at startup")
@@ -2041,7 +2067,7 @@ Procedure OpenCrashLog(showError.i)
 
   If CrashLogPath = ""
     If showError
-      MessageRequester(#APP_NAME, "Crash log path is not available.", #PB_MessageRequester_Error)
+      MessageRequester(#APP_NAME, "Crash log path is not available in the Logs folder.", #PB_MessageRequester_Error)
     EndIf
     ProcedureReturn
   EndIf
@@ -2394,6 +2420,7 @@ Procedure ShowDiagnostics()
   Protected msg.s
   Protected dbPath.s
   Protected iniPath.s
+  Protected crashLogPath.s
   Protected qc.i
   Protected ac.i
   Protected wc.i
@@ -2405,6 +2432,10 @@ Procedure ShowDiagnostics()
   dbPath = ResolveDbPath(IndexDbPath)
   LogLine("RebuildIndexDatabase dbPath=" + dbPath)
   iniPath = AppPath + #INI_FILE
+  crashLogPath = CrashLogPath
+  If crashLogPath = ""
+    crashLogPath = ChooseCrashLogPath()
+  EndIf
  
   exDirCount = MapSize(ExcludeDirNames())
   exFileCount = MapSize(ExcludeFileNames())
@@ -2420,6 +2451,7 @@ Procedure ShowDiagnostics()
   paused = IndexingPaused
  
   msg = "INI path: " + iniPath + #CRLF$ +
+        "Crash log path: " + crashLogPath + #CRLF$ +
         "ExcludeDirs: " + Str(exDirCount) + " (has 'windows': " + Str(hasWindows) + ")" + #CRLF$ +
         "ExcludeFiles: " + Str(exFileCount) + #CRLF$ +
         "ExcludePaths: " + Str(MapSize(ExcludePathPrefixes())) + #CRLF$ +
@@ -3343,12 +3375,12 @@ If hMutex : CloseHandle_(hMutex) : EndIf
 ; UseIcon = HandySearch.ico
 ; Executable = ..\HandySearch.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,4
-; VersionField1 = 1,0,1,4
+; VersionField0 = 1,0,1,5
+; VersionField1 = 1,0,1,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandySearch
-; VersionField4 = 1.0.1.4
-; VersionField5 = 1.0.1.4
+; VersionField4 = 1.0.1.5
+; VersionField5 = 1.0.1.5
 ; VersionField6 = Everything-like search tool for desktop and web
 ; VersionField7 = HandySearch
 ; VersionField8 = HandySearch.exe

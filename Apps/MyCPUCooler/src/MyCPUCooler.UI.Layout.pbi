@@ -103,6 +103,7 @@ Enumeration 100
   #MenuTrayBalanced
   #MenuTrayPerformance
   #MenuTrayRestoreBalanced
+  #MenuTrayShowLogPath
   #MenuTrayExit
 EndEnumeration
 
@@ -724,6 +725,7 @@ Procedure CreateTrayPopupMenu()
     MenuItem(#MenuTrayPerformance, "Performance Preset")
     MenuBar()
     MenuItem(#MenuTrayRestoreBalanced, "Restore Windows Balanced")
+    MenuItem(#MenuTrayShowLogPath, "Show Log Path")
     MenuBar()
     MenuItem(#MenuTrayExit, "Exit")
   EndIf
@@ -896,7 +898,7 @@ Procedure CreateApplicationWindows(scheme$, useBoost.i, useCooling.i, useASPM.i,
   TextGadget(#TxtStatusSummary, 15, 770, 870, 18, "Status: Ready")
   EditorGadget(#EditStatusDetails, 15, 790, 870, 18)
   DisableGadget(#EditStatusDetails, #True)
-  SetStatus("Status: Ready", "Waiting for changes.")
+  SetStatus("Status: Ready", "Waiting for changes. Log file: " + gLogPath)
   ButtonGadget(#BtnRestoreBalanced, 15, 810, 870, 18, "Restore Windows Balanced plan (activate default)")
 
   If gSettings\AutoApply

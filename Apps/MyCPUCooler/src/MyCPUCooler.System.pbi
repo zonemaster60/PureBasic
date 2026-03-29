@@ -34,7 +34,7 @@ EndEnumeration
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.0.6"
+Global version.s = "v1.0.0.7"
 
 ; Registry base key (HKCU)
 #APP_NAME = "MyCPUCooler"
@@ -307,12 +307,41 @@ Procedure LogRotateIfNeeded()
   RenameFile(gLogPath, gLogPath + ".1")
 EndProcedure
 
+Procedure.s EnsureLogFolder(baseFolder$)
+  Protected folder$ = baseFolder$
+
+  If folder$ = ""
+    ProcedureReturn ""
+  EndIf
+
+  If Right(folder$, 1) <> "\"
+    folder$ + "\"
+  EndIf
+
+  folder$ + "Logs\"
+
+  If FileSize(folder$) <> -2
+    CreateDirectory(folder$)
+  EndIf
+
+  If FileSize(folder$) = -2
+    ProcedureReturn folder$
+  EndIf
+
+  ProcedureReturn ""
+EndProcedure
+
 Procedure LogInit()
-  ; Default log location: next to the exe (MyCPUCooler.log)
+  ; Default log location: in Logs next to the exe (Logs\MyCPUCooler.log)
   ; Can be overridden with: --logfile <path>  (or --logfile=<path>)
   gLogPath = GetArgValue("--logfile")
   If gLogPath = ""
-    gLogPath = GetPathPart(ProgramFilename()) + #APP_NAME + ".log"
+    Protected logFolder$ = EnsureLogFolder(GetPathPart(ProgramFilename()))
+    If logFolder$ <> ""
+      gLogPath = logFolder$ + #APP_NAME + ".log"
+    Else
+      gLogPath = GetPathPart(ProgramFilename()) + #APP_NAME + ".log"
+    EndIf
   EndIf
 
   If HasArg("--nolog")
@@ -1444,7 +1473,7 @@ EndProcedure
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 36
-; FirstLine = 21
+; FirstLine = 15
 ; Folding = ---------
 ; EnableXP
 ; DPIAware
