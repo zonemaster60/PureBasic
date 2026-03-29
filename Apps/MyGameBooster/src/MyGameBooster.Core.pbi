@@ -42,7 +42,7 @@ Procedure.s HelpText()
   t + "- Can keep the current power plan or switch to High performance / Ultimate Performance per game, then restore your previous plan." + #CRLF$
   t + "- Optionally stops selected services during gameplay, then starts them again when you exit." + #CRLF$
   t + "- Can temporarily lower safe background process priority while a boosted game runs." + #CRLF$
-  t + "- Logs actions to " + #APP_NAME + ".log and can restore after a crash." + #CRLF$ + #CRLF$
+  t + "- Logs actions to Logs\\" + #APP_NAME + ".log and can restore after a crash." + #CRLF$ + #CRLF$
   t + "What it does NOT do" + #CRLF$
   t + "- It does not permanently change Windows settings." + #CRLF$
   t + "- It does not 'disable' services (startup type). It only stops/starts them temporarily." + #CRLF$ + #CRLF$
@@ -73,8 +73,9 @@ Procedure.s HelpText()
   t + "  - the effective list of stopped services" + #CRLF$
   t + "- Next time " + #APP_NAME + " starts, it detects a dirty session and restores power plan/services." + #CRLF$ + #CRLF$
   t + "Where files are" + #CRLF$
-  t + "- games.ini, session.ini, " + #APP_NAME + ".log are stored next to the EXE." + #CRLF$
-  t + "- Use the Open Log button to open " + #APP_NAME + ".log." + #CRLF$ + #CRLF$
+  t + "- games.ini and session.ini are stored next to the EXE." + #CRLF$
+  t + "- The log file is stored in Logs\\" + #APP_NAME + ".log next to the EXE." + #CRLF$
+  t + "- Use the Open Log button to open Logs\\" + #APP_NAME + ".log." + #CRLF$ + #CRLF$
   t + "- Use the library sidebar, filter box, and sort menu on the main window to find games quickly." + #CRLF$
   t + "- Profile imports merge duplicates by Steam AppID or EXE path." + #CRLF$
   t + "- Tools -> Settings lets you choose the default preset and thumbnail size." + #CRLF$
@@ -83,7 +84,7 @@ Procedure.s HelpText()
   t + "Troubleshooting" + #CRLF$
   t + "- Admin rights: service control requires an elevated process. " + #APP_NAME + " auto-prompts via UAC." + #CRLF$
   t + "- Steam games: " + #APP_NAME + " waits for a new process whose EXE path starts with the game's install folder." + #CRLF$
-  t + "- If Run 'does nothing', make sure a game is selected, then check " + #APP_NAME + ".log." + #CRLF$
+  t + "- If Run 'does nothing', make sure a game is selected, then check Logs\\" + #APP_NAME + ".log." + #CRLF$
   t + "- Ultimate Performance is used only if Windows exposes it; otherwise the app falls back to High performance." + #CRLF$
   ProcedureReturn t
 EndProcedure
@@ -99,7 +100,7 @@ Procedure ShowHelp()
     SetGadgetText(gText, HelpText())
     SetGadgetAttribute(gText, #PB_Editor_ReadOnly, 1)
 
-    gOpenLog = ButtonGadget(#PB_Any, 10, 580, 120, 30, "Open Log")
+    gOpenLog = ButtonGadget(#PB_Any, 10, 580, 160, 30, "Open Log (Logs folder)")
     gClose   = ButtonGadget(#PB_Any, 690, 580, 120, 30, "Close")
 
     If FontUI

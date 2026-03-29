@@ -21,7 +21,7 @@ EndImport
 ;- Core Types
 
 #APP_NAME = "PB_RegistryManager"
-Global AppVersion.s = "v1.0.1.5"
+Global AppVersion.s = "v1.0.1.6"
 
 Structure RegKeyInfo
   Name.s
@@ -152,6 +152,30 @@ EndStructure
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
+
+Procedure.s EnsureLogFolder(baseFolder.s)
+  Protected folder.s = baseFolder
+
+  If folder = ""
+    ProcedureReturn ""
+  EndIf
+
+  If Right(folder, 1) <> "\"
+    folder + "\"
+  EndIf
+
+  folder + "Logs\"
+
+  If FileSize(folder) <> -2
+    CreateDirectory(folder)
+  EndIf
+
+  If FileSize(folder) = -2
+    ProcedureReturn folder
+  EndIf
+
+  ProcedureReturn ""
+EndProcedure
 
 Global MonitorActive.i = #False
 Global MonitorEventCount.i = 0
@@ -375,7 +399,10 @@ Declare.i StartBackupProcess(fileName.s, reason.s, isAuto.i, mode.s = "full", ro
 ;- Logging, App Lifecycle, and Shared Helpers
 
 Procedure.i InitErrorLog()
-  ErrorLogPath = AppPath + "PB_RegistryManager.log"
+  ErrorLogPath = EnsureLogFolder(AppPath) + "PB_RegistryManager.log"
+  If ErrorLogPath = "PB_RegistryManager.log"
+    ErrorLogPath = AppPath + "PB_RegistryManager.log"
+  EndIf
   If Not LogMutex
     LogMutex = CreateMutex()
   EndIf

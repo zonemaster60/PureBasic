@@ -1121,6 +1121,7 @@ Procedure ShowDiagnostics()
   Repeat
     mem\dwLength = SizeOf(OC_MEMORYSTATUSEX)
     info = #APP_NAME + " Diagnostics" + #CRLF$ + #CRLF$
+    info + "Log path: " + LogPath + #CRLF$
     info + "Active power plan: " + CurrentPowerPlanName() + #CRLF$
     info + "Power plan GUID: " + GetActivePowerGuid() + #CRLF$
     cpu = CpuUsagePercent()
@@ -1336,7 +1337,7 @@ Procedure RunApplication()
       MenuItem(#MI_Game_OpenFolder, "Open Install Folder")
 
       MenuTitle("Tools")
-      MenuItem(#MI_Tools_ViewLog, "View Log")
+      MenuItem(#MI_Tools_ViewLog, "View Log (Logs folder)")
       MenuItem(#MI_Tools_Diagnostics, "Diagnostics")
       MenuItem(#MI_Tools_History, "History")
       MenuItem(#MI_Tools_Settings, "Settings")
@@ -1584,6 +1585,7 @@ Procedure RunApplication()
               MessageRequester("About", #APP_NAME + " - " + version + #CRLF$ +
                                         "A Safe Game Booster for all your games" + #CRLF$ +
                                         "--------------------------------------" + #CRLF$ +
+                                        "Log file: " + LogPath + #CRLF$ +
                                         "Contact: zonemaster60@gmail.com" + #CRLF$ +
                                         "Website: https://github.com/zonemaster60", #PB_MessageRequester_Info)
           EndSelect

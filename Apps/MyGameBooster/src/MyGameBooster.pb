@@ -8,6 +8,30 @@ EnableExplicit
 #APP_NAME = "MyGameBooster"
 #APP_MUTEX_NAME = #APP_NAME + "_mutex"
 
+Procedure.s EnsureLogFolder(baseFolder.s)
+  Protected folder.s = baseFolder
+
+  If folder = ""
+    ProcedureReturn ""
+  EndIf
+
+  If Right(folder, 1) <> "\\"
+    folder + "\\"
+  EndIf
+
+  folder + "Logs\\"
+
+  If FileSize(folder) <> -2
+    CreateDirectory(folder)
+  EndIf
+
+  If FileSize(folder) = -2
+    ProcedureReturn folder
+  EndIf
+
+  ProcedureReturn ""
+EndProcedure
+
 Global DataDir.s, GamesIni.s, SessionIni.s, SettingsIni.s, ArtworkDir.s
 DataDir = GetPathPart(ProgramFilename())
 GamesIni = DataDir + #APP_NAME + "_games.ini"
@@ -15,11 +39,14 @@ SessionIni = DataDir + #APP_NAME + "_session.ini"
 SettingsIni = DataDir + #APP_NAME + "_settings.ini"
 ArtworkDir = DataDir + "artwork\\"
 Global LogPath.s
-LogPath = DataDir + #APP_NAME + ".log"
+LogPath = EnsureLogFolder(DataDir) + #APP_NAME + ".log"
+If LogPath = #APP_NAME + ".log"
+  LogPath = DataDir + #APP_NAME + ".log"
+EndIf
 
 Global FontUI.i, FontTitle.i, FontSmall.i
 Global MainStatusBar.i
-Global version.s = "v1.0.1.0"
+Global version.s = "v1.0.1.1"
 Global BrowseExePath.s, BeforeCount.i, LaunchUiPulse.i
 Global LaunchStartedAt.q
 Global FilterQuery.s, SortMode.i, LibraryView.i
@@ -309,8 +336,8 @@ InitFonts()
 RunApplication()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 21
-; FirstLine = 6
+; CursorPosition = 48
+; FirstLine = 21
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -321,12 +348,12 @@ RunApplication()
 ; UseIcon = MyGameBooster.ico
 ; Executable = ..\MyGameBooster.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,0
-; VersionField1 = 1,0,1,0
+; VersionField0 = 1,0,1,1
+; VersionField1 = 1,0,1,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = MyGameBooster
-; VersionField4 = 1.0.1.0
-; VersionField5 = 1.0.1.0
+; VersionField4 = 1.0.1.1
+; VersionField5 = 1.0.1.1
 ; VersionField6 = A Game Booster for boosting your games
 ; VersionField7 = MyGameBooster
 ; VersionField8 = MyGameBooster.exe
