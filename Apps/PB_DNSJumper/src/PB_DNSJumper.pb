@@ -17,11 +17,123 @@ EnableExplicit
 #EMAIL_NAME      = "zonemaster60@gmail.com"
 #AUTO_START_BENCHMARK_DELAY_MS = 120000
 #WORKER_EXIT_WAIT_MS           = 10000
-Global version.s = "v1.0.0.3"
+Global version.s = "v1.0.0.4"
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 If AppPath = "" : AppPath = GetCurrentDirectory() : EndIf
 SetCurrentDirectory(AppPath)
+
+Global LogPath.s
+Global LogMutex.i
+
+Procedure.s EnsureLogFolder(baseFolder.s)
+  Protected folder.s = baseFolder
+
+  If folder = ""
+    ProcedureReturn ""
+  EndIf
+
+  If Right(folder, 1) <> "\"
+    folder + "\"
+  EndIf
+
+  folder + "Logs\"
+
+  If FileSize(folder) <> -2
+    CreateDirectory(folder)
+  EndIf
+
+  If FileSize(folder) = -2
+    ProcedureReturn folder
+  EndIf
+
+  ProcedureReturn ""
+EndProcedure
+
+Procedure.s ResolveLogPath()
+  Protected logFolder.s = EnsureLogFolder(AppPath)
+
+  If logFolder <> ""
+    ProcedureReturn logFolder + #APP_NAME + ".log"
+  EndIf
+
+  ProcedureReturn AppPath + #APP_NAME + ".log"
+EndProcedure
+
+Procedure LogLine(msg.s)
+  Protected f.i
+  Protected line.s
+
+  If LogPath = ""
+    LogPath = ResolveLogPath()
+  EndIf
+
+  If LogPath = ""
+    ProcedureReturn
+  EndIf
+
+  If LogMutex = 0
+    LogMutex = CreateMutex()
+  EndIf
+
+  line = FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date()) + " | " + msg
+
+  LockMutex(LogMutex)
+  If FileSize(LogPath) >= 0
+    f = OpenFile(#PB_Any, LogPath)
+    If f
+      FileSeek(f, Lof(f))
+    EndIf
+  Else
+    f = CreateFile(#PB_Any, LogPath)
+  EndIf
+
+  If f
+    WriteStringN(f, line, #PB_UTF8)
+    CloseFile(f)
+  EndIf
+  UnlockMutex(LogMutex)
+EndProcedure
+
+Procedure InitLogging()
+  LogPath = ResolveLogPath()
+  If LogMutex = 0
+    LogMutex = CreateMutex()
+  EndIf
+  LogLine("=== START " + #APP_NAME + " " + version + " ===")
+  LogLine("Exe: " + ProgramFilename())
+  LogLine("Cwd: " + GetCurrentDirectory())
+  LogLine("Log: " + LogPath)
+EndProcedure
+
+Procedure CloseLogging()
+  If LogPath <> ""
+    LogLine("=== EXIT " + #APP_NAME + " ===")
+  EndIf
+EndProcedure
+
+Procedure OpenLog(showError.i = #True)
+  If LogPath = ""
+    LogPath = ResolveLogPath()
+  EndIf
+
+  If LogPath = ""
+    If showError
+      MessageRequester("Log", "Log path is not available.", #PB_MessageRequester_Error)
+    EndIf
+    ProcedureReturn
+  EndIf
+
+  If FileSize(LogPath) < 0
+    LogLine("Log created")
+  EndIf
+
+  If RunProgram(LogPath, "", "", #PB_Program_Open) = 0 And showError
+    MessageRequester("Log", "Could not open log file:" + #CRLF$ + LogPath, #PB_MessageRequester_Error)
+  EndIf
+EndProcedure
+
+InitLogging()
 
 Enumeration SysTray
   #SysTray
@@ -29,6 +141,7 @@ EndEnumeration
 
 Enumeration MenuItems
   #Tray_Show
+  #Tray_OpenLog
   #Tray_StartTest
   #Tray_ApplyBest
   #Tray_RunAtStartup
@@ -59,7 +172,9 @@ Global hMutex.i
   If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
     ; If already running, just exit silently instead of showing a message box
     ; This is better for startup/background apps
+    LogLine("Another instance is already running; exiting")
     CloseHandle_(hMutex)
+    CloseLogging()
     End
   EndIf
 
@@ -137,16 +252,24 @@ EndProcedure
 
 Procedure.i RunAndCapture(exe.s, args.s)
   Protected program.i, exitCode.i = -1
+  LogLine("Run: " + exe + " " + args)
   program = RunProgram(exe, args, "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Hide)
-  If program = 0 : ProcedureReturn -1 : EndIf
+  If program = 0
+    LogLine("Failed to start: " + exe)
+    ProcedureReturn -1
+  EndIf
   While ProgramRunning(program)
     While AvailableProgramOutput(program) : ReadProgramString(program) : Wend
     Delay(5)
   Wend
   exitCode = ProgramExitCode(program)
   CloseProgram(program)
+  LogLine("Exit code: " + Str(exitCode) + " | " + exe)
   ProcedureReturn exitCode
 EndProcedure
+
+Declare.s LastPowerShellMessage()
+Declare.s FmtMS(x.d)
 
 Procedure.i IsInStartup()
   Protected args.s = "/Query /TN " + #DQUOTE$ + #APP_NAME + #DQUOTE$
@@ -160,6 +283,7 @@ Procedure.i SetRunAtStartup(state.b)
   Protected userSam.s = CurrentUserSam()
   
   If state
+    LogLine("Enabling run at startup")
     ; Register-ScheduledTask via PowerShell for maximum reliability (bypass registry hurdles)
     Protected psCmd.s = "Register-ScheduledTask -TaskName '" + ReplaceString(taskName, "'", "''") + "' " +
                         "-Action (New-ScheduledTaskAction -Execute '" + ReplaceString(exePath, "'", "''") + "' -WorkingDirectory '" + ReplaceString(workDir, "'", "''") + "' -Argument '/TRAY') " +
@@ -170,6 +294,7 @@ Procedure.i SetRunAtStartup(state.b)
     Protected args.s = "-NoProfile -ExecutionPolicy Bypass -Command " + #DQUOTE$ + psCmd + #DQUOTE$
     ProcedureReturn Bool(RunAndCapture("powershell.exe", args) = 0)
   Else
+    LogLine("Disabling run at startup")
     Protected delArgs.s = "/Delete /F /TN " + #DQUOTE$ + taskName + #DQUOTE$
     ProcedureReturn Bool(RunAndCapture("schtasks.exe", delArgs) = 0)
   EndIf
@@ -250,6 +375,12 @@ Procedure.i ExecPowerShell(cmd.s)
                                                 "-NoLogo -NoProfile -ExecutionPolicy Bypass -Command " + #DQUOTE$ + psCmd + #DQUOTE$,
                                                 @exitCode)
   gLastPowerShellExitCode = exitCode\i
+
+  If exitCode\i = 0
+    LogLine("PowerShell succeeded")
+  Else
+    LogLine("PowerShell failed: " + LastPowerShellMessage())
+  EndIf
 
   ProcedureReturn Bool(exitCode\i = 0)
 EndProcedure
@@ -548,7 +679,10 @@ Procedure.i LoadProvidersFromJsonFile(filePath.s)
   Protected count.i = 0
   Protected json = LoadJSON(#PB_Any, filePath)
 
-  If json = 0 : ProcedureReturn 0 : EndIf
+  If json = 0
+    LogLine("Failed to load providers JSON: " + filePath)
+    ProcedureReturn 0
+  EndIf
 
   Protected root = JSONValue(json)
   Protected arr
@@ -584,6 +718,7 @@ Procedure.i LoadProvidersFromJsonFile(filePath.s)
   EndIf
   
   FreeJSON(json)
+  LogLine("Loaded providers from file: " + filePath + " | count=" + Str(count))
   ProcedureReturn count
 
 EndProcedure
@@ -616,6 +751,7 @@ Procedure BenchProvider(providerName.s, ip1.s, ip2.s, tries.l, timeoutMs.l, doma
   Protected si.l = 0
 
   Protected pass, i, d.s, rtt.d
+  LogLine("Benchmarking provider: " + providerName + " | " + ip1 + " / " + ip2)
   For pass = 1 To tries
     For i = 1 To domainCount
       If WorkerStopRequested()
@@ -677,6 +813,7 @@ Procedure BenchProvider(providerName.s, ip1.s, ip2.s, tries.l, timeoutMs.l, doma
   gQueue()\best = best
   gQueue()\score = score
   UnlockMutex(gMutex)
+  LogLine("Benchmark result: " + providerName + " | ok=" + Str(ok) + "/" + Str(total) + " | median=" + FmtMS(med) + " ms | best=" + FmtMS(best) + " ms")
 EndProcedure
 
 Procedure WorkerThread(*dummy)
@@ -684,7 +821,9 @@ Procedure WorkerThread(*dummy)
   Protected timeoutMs.l
   Protected domains.s
   Protected wsa.DNSJ_WSAData
+  LogLine("Worker thread started")
   If WSAStartup($0202, @wsa) <> 0
+    LogLine("WSAStartup failed")
     LockMutex(gMutex)
     gWorkerDone = 1
     gWorkerRunning = 0
@@ -722,6 +861,7 @@ Procedure WorkerThread(*dummy)
   gWorkerRunning = 0
   gCurrentTest = ""
   UnlockMutex(gMutex)
+  LogLine("Worker thread finished")
 
 EndProcedure
 
@@ -798,11 +938,19 @@ Procedure.b ApplyDnsServers(adapter.s, dns1.s, dns2.s)
   If adapter = "" Or dns1 = "" Or dns2 = ""
     gLastPowerShellOutput = "DNS server pair is incomplete."
     gLastPowerShellExitCode = -1
+    LogLine("Apply DNS skipped due to incomplete server pair")
     ProcedureReturn #False
   EndIf
 
+  LogLine("Applying DNS servers to adapter '" + adapter + "': " + dns1 + ", " + dns2)
   Protected psCmd.s = "Set-DnsClientServerAddress -InterfaceAlias " + QuotePS(adapter) + " -ServerAddresses @(" + QuotePS(dns1) + "," + QuotePS(dns2) + ") -ErrorAction Stop; Register-DnsClient -ErrorAction Stop"
-  ProcedureReturn ExecPowerShell(psCmd)
+  If ExecPowerShell(psCmd)
+    LogLine("DNS apply succeeded for adapter '" + adapter + "'")
+    ProcedureReturn #True
+  EndIf
+
+  LogLine("DNS apply failed for adapter '" + adapter + "': " + LastPowerShellMessage())
+  ProcedureReturn #False
 EndProcedure
 
 Procedure.b ApplyProviderByName(name.s, adapter.s)
@@ -810,9 +958,11 @@ Procedure.b ApplyProviderByName(name.s, adapter.s)
   If pair = ""
     gLastPowerShellOutput = "DNS provider not found: " + name
     gLastPowerShellExitCode = -1
+    LogLine("DNS provider not found: " + name)
     ProcedureReturn #False
   EndIf
 
+  LogLine("Applying provider by name: " + name)
   ProcedureReturn ApplyDnsServers(adapter, StringField(pair, 1, "|"), StringField(pair, 2, "|"))
 EndProcedure
 
@@ -823,6 +973,7 @@ EndProcedure
 Procedure UpdateTrayMenu()
   If CreatePopupMenu(0)
     MenuItem(#Tray_Show, "Show / Hide GUI")
+    MenuItem(#Tray_OpenLog, "Open Log (Logs folder)")
     MenuBar()
     
     MenuItem(#Tray_RunAtStartup, "Run at Startup")
@@ -957,6 +1108,7 @@ EndIf
 
 gProvidersFromFile = Bool(gLoadedProviders > 0)
 If gLoadedProviders = 0
+  LogLine("Using built-in default DNS providers")
   AddProvider("Cloudflare",    "1.1.1.1",         "1.0.0.1")
   AddProvider("Google",        "8.8.8.8",         "8.8.4.4")
   AddProvider("Quad9",         "9.9.9.9",         "149.112.112.112")
@@ -966,6 +1118,9 @@ If gLoadedProviders = 0
   AddProvider("Neustar",       "64.6.64.6",       "64.6.65.6")
   AddProvider("Level3",        "4.2.2.1",         "4.2.2.2")
 EndIf
+
+LogLine("Provider source: " + gProvidersFile)
+LogLine("Provider count: " + Str(ListSize(Providers())))
 
   If OpenWindow(#WinMain, 0, 0, 920, 560, #APP_NAME + version + " - Windows 11", #PB_Window_SystemMenu | #PB_Window_ScreenCentered |
                                                                                          #PB_Window_MinimizeGadget | #PB_Window_Invisible)
@@ -998,15 +1153,18 @@ EndIf
   AddGadgetColumn(#G_List, 5, "P90 (ms)", 90)
   AddGadgetColumn(#G_List, 6, "Best (ms)", 90)
 
-  TextGadget(#G_Status, 14, 510, 891, 20, "Ready.")
+  TextGadget(#G_Status, 14, 510, 891, 20, "Ready. Log: " + LogPath)
 
   LoadAdapters(#G_AdapterCombo)
+  LogLine("Adapters loaded: " + Str(CountGadgetItems(#G_AdapterCombo)))
 
   If gProvidersFromFile
     SetGadgetText(#G_Status, "Loaded " + Str(gLoadedProviders) + " DNS providers from: " + gProvidersFile)
   Else
     SetGadgetText(#G_Status, "Loaded " + Str(gLoadedProviders) + " DNS providers (defaults); expected file: " + gProvidersFile)
   EndIf
+
+  GadgetToolTip(#G_Status, LogPath)
 
   ; SysTray
   Define hIcon = ExtractIcon_(GetModuleHandle_(0), ProgramFilename(), 0)
@@ -1052,6 +1210,7 @@ EndIf
         If GetGadgetText(#G_AdapterCombo) <> ""
           ; Mark as done immediately so we don't re-trigger
           gAutoStartDone = #True
+          LogLine("Automatic benchmark triggered")
           PostEvent(#PB_Event_Gadget, #WinMain, #G_Start)
           SetGadgetText(#G_Status, "Automatic benchmark triggered (2m timer)...")
         EndIf
@@ -1086,12 +1245,16 @@ EndIf
           
         Case #Tray_StartTest
           PostEvent(#PB_Event_Gadget, #WinMain, #G_Start)
+
+        Case #Tray_OpenLog
+          OpenLog()
           
         Case #Tray_ApplyBest
           PostEvent(#PB_Event_Gadget, #WinMain, #G_Apply)
           
         Case #Tray_RunAtStartup
           SetRunAtStartup(Bool(Not IsRunAtStartup()))
+          LogLine("Run at startup state changed to: " + Str(IsRunAtStartup()))
           UpdateTrayMenu() ; Refresh menu state immediately
 
         Case #Tray_StopTest
@@ -1114,6 +1277,7 @@ EndIf
                 SetGadgetText(#G_Status, "Applying " + pName + " from tray...")
                 If ApplyProviderByName(pName, adapter)
                   SetGadgetText(#G_Status, pName + " applied.")
+                  LogLine("Provider applied from tray: " + pName)
                 Else
                   SetGadgetText(#G_Status, "Failed to apply " + pName + ".")
                   MessageRequester("Apply DNS", "Failed to apply " + pName + "." + #CRLF$ + #CRLF$ + LastPowerShellMessage())
@@ -1138,14 +1302,17 @@ EndIf
       Select EventGadget()
         Case #G_Exit
           If MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info) = #PB_MessageRequester_Yes
+            LogLine("Exit requested from button")
             quitApp = #True
           EndIf
 
         Case #G_ReloadAdapters
           LoadAdapters(#G_AdapterCombo)
+          LogLine("Adapters reloaded; count=" + Str(CountGadgetItems(#G_AdapterCombo)))
           SetGadgetText(#G_Status, "Adapters reloaded.")
 
         Case #G_Start
+          LogLine("Benchmark started")
           ClearList(Results())
           ClearGadgetItems(#G_List)
           SetGadgetText(#G_BestLabel, "Best: (running...)")
@@ -1178,12 +1345,16 @@ EndIf
           SetGadgetState(#G_Progress, 0)
 
           gWorkerThread = CreateThread(@WorkerThread(), 0)
+          If gWorkerThread = 0
+            LogLine("Failed to create worker thread")
+          EndIf
 
         Case #G_Stop
           LockMutex(gMutex)
           gWorkerCancelled = 1
           UnlockMutex(gMutex)
           RequestWorkerStop()
+          LogLine("Benchmark stop requested")
           SetGadgetText(#G_Status, "Stopping...")
           ; Note: Re-enabling happens in the timer event when gWorkerRunning becomes 0
 
@@ -1205,6 +1376,7 @@ EndIf
               SetGadgetText(#G_Status, "Applying best: " + bestName + " (requires Administrator)...")
               If ApplyBest(adapter)
                 SetGadgetText(#G_Status, "Best DNS (" + bestName + ") applied.")
+                LogLine("Best provider applied: " + bestName)
               Else
                 SetGadgetText(#G_Status, "Failed to apply best DNS (" + bestName + ").")
                 MessageRequester("Apply Best", "Failed to apply best DNS (" + bestName + ")." + #CRLF$ + #CRLF$ + LastPowerShellMessage())
@@ -1255,8 +1427,10 @@ EndIf
         DisableGadget(#G_Exit, #False)
         If wasCancelled
           SetGadgetText(#G_Status, "Stopped.")
+          LogLine("Benchmark stopped")
         Else
           SetGadgetText(#G_Status, "Done. (Apply requires Administrator)")
+          LogLine("Benchmark completed")
         EndIf
         
         ; Show notification when benchmark finishes
@@ -1280,8 +1454,10 @@ EndIf
             If ApplyBest(adapter)
               SetGadgetText(#G_Status, "Auto-Apply complete.")
               SysTrayIconToolTip(#SysTray, #APP_NAME + " - Auto-Apply Complete")
+              LogLine("Auto-apply completed")
             Else
               SetGadgetText(#G_Status, "Auto-Apply failed.")
+              LogLine("Auto-apply failed: " + LastPowerShellMessage())
               MessageRequester("Auto-Apply", "Failed to apply the best DNS automatically." + #CRLF$ + #CRLF$ + LastPowerShellMessage())
             EndIf
           EndIf
@@ -1293,12 +1469,13 @@ EndIf
     RequestWorkerStop()
     WaitForWorkerStop(#WORKER_EXIT_WAIT_MS)
     CloseHandle_(hMutex)
+    CloseLogging()
     End
 EndIf
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 19
 ; FirstLine = 5
-; Folding = -------
+; Folding = --------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1307,12 +1484,12 @@ EndIf
 ; UseIcon = PB_DNSJumper.ico
 ; Executable = ..\PB_DNSJumper.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_DNSJumper
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = An automatic DNS changer similar to DNSJumper
 ; VersionField7 = PB_DNSJumper
 ; VersionField8 = PB_DNSJumper.exe
