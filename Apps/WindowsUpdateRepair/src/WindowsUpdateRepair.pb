@@ -3,7 +3,7 @@
 ; Features:
 ; - Selectable steps + Recommended preset
 ; - UAC elevation
-; - Logs to UI + file next to EXE
+; - Logs to UI + file in Logs folder next to EXE
 ; - Read-only WSUS/GPO + reboot-pending detection
 ; - Diagnostics bundle export to ZIP (event logs, WU logs, registry exports, summary)
 ; - CLI mode (/recommended, /run, /exportdiag, /quiet)
@@ -14,6 +14,10 @@ UseZipPacker()
 Declare.i GetServiceStateByName(name.s)
 Declare.s ServiceStateLabel(st.i)
 Declare.l RegOpenReadKey(hive.l, subkey.s, *hKey.Integer)
+Declare LogLine(line.s)
+Declare.s OsLabel()
+Declare.i Is64BitOS()
+Declare.i IsAdmin()
 
 ; ----------------------------
 ; WinAPI imports / constants
@@ -57,7 +61,7 @@ Declare.l RegOpenReadKey(hive.l, subkey.s, *hKey.Integer)
 #APP_NAME = "WindowsUpdateRepair"
 
 SetCurrentDirectory(GetPathPart(ProgramFilename()))
-Global version.s = "v1.0.0.2"
+Global version.s = "v1.0.0.3"
 
 ; Prevent multiple instances (don't rely on window title text)
 Global hMutex.i
@@ -74,27 +78,33 @@ EndProcedure
 
 Procedure.i AcquireInstanceMutex()
   If hMutex
+    LogLine("Instance mutex already held by current process.")
     ProcedureReturn #True
   EndIf
 
+  LogLine("Acquiring instance mutex.")
   hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
   If hMutex = 0
+    LogLine("ERROR: failed to create application mutex.")
     ShowInfo("Error", "Failed to create application mutex.")
     ProcedureReturn #False
   EndIf
 
   If GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
+    LogLine("Another instance is already running.")
     ShowInfo("Info", #APP_NAME + " is already running.")
     CloseHandle_(hMutex)
     hMutex = 0
     ProcedureReturn #False
   EndIf
 
+  LogLine("Instance mutex acquired.")
   ProcedureReturn #True
 EndProcedure
 
 Procedure ReleaseInstanceMutex()
   If hMutex
+    LogLine("Releasing instance mutex.")
     CloseHandle_(hMutex)
     hMutex = 0
   EndIf
@@ -189,6 +199,7 @@ EndImport
 ; ----------------------------
 
 Global gLogFile.s
+Global gLogDir.s
 Global gMutex.i
 Global NewList gPendingLog.s()
 Global gLastRunSucceeded.i
@@ -213,6 +224,17 @@ EndProcedure
 
 Procedure.s ExeDir()
   ProcedureReturn GetPathPart(ProgramFilename())
+EndProcedure
+
+Procedure.s LogsDir()
+  ProcedureReturn ExeDir() + "Logs\\"
+EndProcedure
+
+Procedure.s BoolLabel(value.i)
+  If value
+    ProcedureReturn "true"
+  EndIf
+  ProcedureReturn "false"
 EndProcedure
 
 Procedure.s Quote(s.s)
@@ -251,6 +273,46 @@ Procedure LogLine(line.s)
   AddElement(gPendingLog())
   gPendingLog() = line
   UnlockMutex(gMutex)
+EndProcedure
+
+Procedure LogSection(title.s)
+  LogLine("=== " + title + " ===")
+EndProcedure
+
+Procedure.i EnsureLogStorage()
+  gLogDir = LogsDir()
+  If FileSize(gLogDir) = -2
+    ProcedureReturn #True
+  EndIf
+  ProcedureReturn CreateDirectory(gLogDir)
+EndProcedure
+
+Procedure InitLogging()
+  If EnsureLogStorage()
+    gLogFile = gLogDir + #APP_NAME + "-" + NowStamp() + ".log"
+  Else
+    gLogDir = ExeDir()
+    gLogFile = gLogDir + #APP_NAME + "-" + NowStamp() + ".log"
+  EndIf
+EndProcedure
+
+Procedure LogStartupContext(mode.s)
+  LogSection("Session Start")
+  LogLine("Mode: " + mode)
+  LogLine("Version: " + version)
+  LogLine("Executable: " + ProgramFilename())
+  LogLine("ExecutableDir: " + ExeDir())
+  LogLine("CurrentDirectory: " + GetCurrentDirectory())
+  LogLine("LogDirectory: " + gLogDir)
+  LogLine("LogFile: " + gLogFile)
+  LogLine("OS: " + OsLabel())
+  LogLine("ProcessBits: " + Str(SizeOf(Integer) * 8) + " | OS64=" + BoolLabel(Is64BitOS()))
+  LogLine("Admin: " + BoolLabel(IsAdmin()) + " | QuietMode=" + BoolLabel(gQuietMode) + " | DryRun=" + BoolLabel(gDryRun))
+  If CountProgramParameters() > 0
+    LogLine("Parameters: " + JoinParams())
+  Else
+    LogLine("Parameters: <none>")
+  EndIf
 EndProcedure
 
 ; ----------------------------
@@ -292,16 +354,20 @@ Procedure.i RelaunchElevatedIfNeeded()
   Protected rc.i
 
   If IsAdmin()
+    LogLine("Elevation check: already running as administrator.")
     ProcedureReturn #True
   EndIf
 
   ; Pass only args, not full command line.
+  LogLine("Elevation check: requesting administrator privileges.")
   rc = ShellExecuteW_(0, "runas", ProgramFilename(), JoinParams(), ExeDir(), 1)
   If rc <= 32
+    LogLine("ERROR: elevation request failed or was cancelled. ShellExecute rc=" + Str(rc))
     ShowInfo("Elevation Required", "Administrator privileges are required. The UAC prompt was cancelled or elevation failed.")
     ProcedureReturn #False
   EndIf
 
+  LogLine("Elevation request accepted. Current instance will exit.")
   ReleaseInstanceMutex()
   ProcedureReturn #False
 EndProcedure
@@ -351,6 +417,9 @@ EndProcedure
 Procedure.i RunAndLog(exePath.s, args.s, workDir.s="")
   Protected p.i, line.s, exitCode.i
   LogLine("RUN: " + Quote(exePath) + " " + args)
+  If workDir <> ""
+    LogLine("WORKDIR: " + workDir)
+  EndIf
 
   If gDryRun
     LogLine("DRYRUN: command not executed.")
@@ -964,6 +1033,7 @@ Procedure.i ExportDiagnosticsZip()
   EndIf
 
   LogLine("Diagnostics: collecting into: " + diagDir)
+  LogLine("Diagnostics: active session log: " + gLogFile)
 
   ; Diagnostics are allowed in dry-run mode (collection-only / read-only).
 
@@ -1039,6 +1109,7 @@ Procedure ExportThread(*dummy)
   gIsExporting = #True
   gLastExportSucceeded = #False
   LogLine("=== Start Diagnostics Export ===")
+  LogLine("Diagnostics export thread started.")
   gLastExportSucceeded = ExportDiagnosticsZip()
   If gLastExportSucceeded
     LogLine("Diagnostics export completed successfully.")
@@ -1067,9 +1138,22 @@ EndEnumeration
 
 Global Dim gSelectedStep.i(#Step_LogPolicyAndHealth)
 
+Procedure LogSelectedStepsSummary(prefix.s)
+  LogLine(prefix + " policy=" + BoolLabel(gSelectedStep(#Step_LogPolicyAndHealth)) +
+          ", stop=" + BoolLabel(gSelectedStep(#Step_StopServices)) +
+          ", caches=" + BoolLabel(gSelectedStep(#Step_ResetCaches)) +
+          ", start=" + BoolLabel(gSelectedStep(#Step_StartServices)) +
+          ", dism=" + BoolLabel(gSelectedStep(#Step_RunDISM)) +
+          ", sfc=" + BoolLabel(gSelectedStep(#Step_RunSFC)) +
+          ", winhttp=" + BoolLabel(gSelectedStep(#Step_ResetWinHTTP)) +
+          ", winsock=" + BoolLabel(gSelectedStep(#Step_ResetWinsock)) +
+          ", dns=" + BoolLabel(gSelectedStep(#Step_FlushDNS)))
+EndProcedure
+
 Procedure.i StopUpdateServices()
   Protected success.i = #True
 
+  LogLine("Stop services step started.")
   RememberDefaultServices()
   LogLine("Service snapshot captured. Will restore prior running state when done.")
 
@@ -1090,6 +1174,7 @@ EndProcedure
 Procedure.i StartUpdateServices()
   Protected success.i = #True
 
+  LogLine("Start services step started.")
   If ListSize(gSvc()) = 0
     LogLine("WARN: no captured service state; not restoring services. Run Stop step first.")
     ProcedureReturn #False
@@ -1131,7 +1216,9 @@ Procedure Worker(*dummy)
   gIsRunning = #True
   gLastRunSucceeded = #False
   LogLine("=== Start Repair ===")
+  LogLine("Repair worker thread started.")
   NormalizeSelectedSteps()
+  LogSelectedStepsSummary("Normalized steps:")
 
   If gSelectedStep(#Step_LogPolicyAndHealth)
     LogPolicyAndHealth()
@@ -1224,6 +1311,7 @@ Procedure Worker(*dummy)
   EndIf
 
   gIsRunning = #False
+  LogLine("Repair worker thread finished.")
 EndProcedure
 
 ; ----------------------------
@@ -1274,6 +1362,8 @@ Procedure.i ParseCliAndMaybeRun()
 
   If count = 0 : ProcedureReturn #False : EndIf
 
+  LogStartupContext("CLI")
+
   ; defaults
   For i = 0 To ArraySize(gSelectedStep())
     gSelectedStep(i) = #False
@@ -1290,16 +1380,20 @@ Procedure.i ParseCliAndMaybeRun()
     Select cmd
       Case "quiet"
         gQuietMode = #True
+        LogLine("CLI option enabled: quiet")
 
       Case "dryrun"
         gDryRun = #True
+        LogLine("CLI option enabled: dryrun")
 
       Case "reboot"
         gRebootAfter = #True
+        LogLine("CLI option enabled: reboot")
 
       Case "recommended"
         ApplyRecommendedPresetToArray()
         doRun = #True
+        LogLine("CLI option enabled: recommended")
 
       Case "run"
         If i+1 < count
@@ -1315,6 +1409,9 @@ Procedure.i ParseCliAndMaybeRun()
             stepId = StepIdFromToken(tok)
             If stepId >= 0
               gSelectedStep(stepId) = #True
+              LogLine("CLI step enabled: " + Lower(Trim(tok)))
+            Else
+              LogLine("WARN: unknown CLI step ignored: " + tok)
             EndIf
             steps = RemoveString(steps, tok, #PB_String_CaseSensitive, 1, 1)
             steps = Trim(RemoveString(steps, ",", #PB_String_CaseSensitive, 1, 1))
@@ -1324,11 +1421,16 @@ Procedure.i ParseCliAndMaybeRun()
 
       Case "exportdiag"
         doDiag = #True
+        LogLine("CLI option enabled: exportdiag")
+
+      Default
+        LogLine("WARN: unknown CLI argument ignored: " + p)
     EndSelect
   Next
 
   If doRun
     NormalizeSelectedSteps()
+    LogSelectedStepsSummary("CLI run steps:")
     If RelaunchElevatedIfNeeded() = 0
       ProcedureReturn #True
     EndIf
@@ -1451,7 +1553,7 @@ EndProcedure
 ; ----------------------------
 
 gMutex = CreateMutex()
-gLogFile = ExeDir() + #APP_NAME + "-" + NowStamp() + ".log"
+InitLogging()
 
 ; CLI early-exit if requested
 If ParseCliAndMaybeRun()
@@ -1468,10 +1570,12 @@ If AcquireInstanceMutex() = 0
   End
 EndIf
 
+LogStartupContext("GUI")
+
 OpenWindow(#Win, 0, 0, 900, 660, #APP_NAME + " - " + version, #PB_Window_MinimizeGadget | #PB_Window_SystemMenu |
                                                                  #PB_Window_ScreenCentered)
 
-TextGadget(#PB_Any, 16, 14, 700, 20, "Selectable repair steps + diagnostics export. Log is saved next to the EXE.")
+TextGadget(#PB_Any, 16, 14, 700, 20, "Selectable repair steps + diagnostics export. Log is saved in the Logs folder next to the EXE.")
 
 CheckBoxGadget(#ChkDryRun,  500, 44, 240, 22, "Simulation (no changes)")
 CheckBoxGadget(#ChkReboot,  500, 234, 240, 22, "Reboot after repair (10s)")
@@ -1531,23 +1635,17 @@ Repeat
 
         Case #BtnRecommended
           ApplyRecommendedPresetUI()
+          LogLine("Recommended repair preset applied in UI.")
 
         Case #BtnClear
+          LogLine("UI log view cleared.")
           SetGadgetText(#EdLog, "Log file: " + gLogFile + #CRLF$ + "OS: " + OsLabel() + #CRLF$)
 
         Case #BtnRun
           If gIsRunning = 0 And gIsExporting = 0
             SyncSelectedStepsFromUI()
             NormalizeSelectedSteps()
-            LogLine("Selected steps: policy=" + Str(gSelectedStep(#Step_LogPolicyAndHealth)) +
-                    ", stop=" + Str(gSelectedStep(#Step_StopServices)) +
-                    ", caches=" + Str(gSelectedStep(#Step_ResetCaches)) +
-                    ", start=" + Str(gSelectedStep(#Step_StartServices)) +
-                    ", dism=" + Str(gSelectedStep(#Step_RunDISM)) +
-                    ", sfc=" + Str(gSelectedStep(#Step_RunSFC)) +
-                    ", winhttp=" + Str(gSelectedStep(#Step_ResetWinHTTP)) +
-                    ", winsock=" + Str(gSelectedStep(#Step_ResetWinsock)) +
-                    ", dns=" + Str(gSelectedStep(#Step_FlushDNS)))
+            LogSelectedStepsSummary("Selected steps:")
             gIsRunning = #True
             If CreateThread(@Worker(), 0) = 0
               gIsRunning = #False
@@ -1557,6 +1655,7 @@ Repeat
 
         Case #BtnExport
           If gIsRunning = 0 And gIsExporting = 0
+            LogLine("Diagnostics export requested from UI.")
             gIsExporting = #True
             If CreateThread(@ExportThread(), 0) = 0
               gIsExporting = #False
@@ -1575,7 +1674,7 @@ ReleaseInstanceMutex()
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 59
 ; FirstLine = 36
-; Folding = ----------
+; Folding = ------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1584,12 +1683,12 @@ ReleaseInstanceMutex()
 ; UseIcon = WindowsUpdateRepair.ico
 ; Executable = ..\WindowsUpdateRepair.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = WindowsUpdateRepair
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = A Windows Update Repair Tool
 ; VersionField7 = WindowsUpdateRepair
 ; VersionField8 = WindowsUpdateRepair.exe
