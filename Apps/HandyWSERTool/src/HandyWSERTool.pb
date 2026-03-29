@@ -3,7 +3,7 @@ EnableExplicit
 #APP_NAME   = "HandyWSERTool"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
-Global version.s = "v1.0.0.7"
+Global version.s = "v1.0.0.8"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -890,7 +890,44 @@ Procedure CollectReferencedFromVars(List vars.EnvSys::VarEntry(), Map referenced
   Next
 EndProcedure
 
+Global LogDir.s
+Global LogFilePath.s
+
 Declare AppendLog(msg.s)
+
+Procedure.s LogTimestamp()
+  ProcedureReturn FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date())
+EndProcedure
+
+Procedure.i AppendLogToFile(msg.s)
+  Protected file.i = 99
+
+  If LogFilePath = ""
+    ProcedureReturn #False
+  EndIf
+
+  If OpenFile(file, LogFilePath) = 0
+    If CreateFile(file, LogFilePath) = 0
+      ProcedureReturn #False
+    EndIf
+  Else
+    FileSeek(file, Lof(file))
+  EndIf
+
+  WriteStringN(file, "[" + LogTimestamp() + "] " + msg)
+  CloseFile(file)
+  ProcedureReturn #True
+EndProcedure
+
+Procedure InitializeLogging()
+  LogDir = AppPath + "Logs\\"
+  If FileSize(LogDir) <> -2
+    CreateDirectory(LogDir)
+  EndIf
+
+  LogFilePath = LogDir + #APP_NAME + "_" + FormatDate("%yyyy-%mm-%dd_%hh-%ii-%ss", Date()) + ".log"
+  AppendLogToFile(#APP_NAME + " started (version " + version + ")")
+EndProcedure
 
 Procedure BroadcastEnvironmentChange()
   ; Notify other apps that environment changed
@@ -941,10 +978,15 @@ ButtonGadget(#BtnAbout, 530, 480, 120, 40, "About")
 ButtonGadget(#BtnFixRefs, 660, 480, 120, 40, "Fix %Vars%")
 ButtonGadget(#BtnExit, 660, 525, 120, 20, "Exit")
 
+InitializeLogging()
+
 Procedure AppendLog(msg.s)
+  AppendLogToFile(msg)
   AddGadgetItem(#Log, -1, msg)
   SendMessage_(GadgetID(#Log), #EM_LINESCROLL, 0, 65535)
 EndProcedure
+
+AppendLog("Log file: " + LogFilePath)
 
 ; ============================================================
 ;  SCAN
@@ -1551,7 +1593,7 @@ ForEver
 ; DPIAware
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 5
-; Folding = ---------
+; Folding = ----------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1560,12 +1602,12 @@ ForEver
 ; UseIcon = HandyWSERTool.ico
 ; Executable = ..\HandyWSERTool.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,7
-; VersionField1 = 1,0,0,7
+; VersionField0 = 1,0,0,8
+; VersionField1 = 1,0,0,8
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyWSERTool
-; VersionField4 = 1.0.0.7
-; VersionField5 = 1.0.0.7
+; VersionField4 = 1.0.0.8
+; VersionField5 = 1.0.0.8
 ; VersionField6 = Windows System Environment Repair Tool
 ; VersionField7 = HandyWSERTool
 ; VersionField8 = HandyWSERTool.exe
