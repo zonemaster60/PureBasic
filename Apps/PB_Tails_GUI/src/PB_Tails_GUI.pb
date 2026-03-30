@@ -4,7 +4,7 @@ EnableExplicit
 #CHUNK_SIZE    = 8192
 #APP_NAME = "PB_Tails_GUI"
 
-Global version.s ="v1.0.0.2"
+Global version.s ="v1.0.0.3"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -246,6 +246,60 @@ Procedure OpenHelpFile()
   ShellExecute_(0, "open", helpPath, 0, 0, #SW_SHOWNORMAL)
 EndProcedure
 
+Procedure.s GetLogsDirectory()
+  ProcedureReturn AppPath + "Logs\"
+EndProcedure
+
+Procedure EnsureLogsDirectory()
+  CreateDirectory(GetLogsDirectory())
+EndProcedure
+
+Procedure.s GetLogTimestamp()
+  ProcedureReturn FormatDate("%yyyy-%mm-%dd_%hh-%ii-%ss", Date())
+EndProcedure
+
+Procedure.s GetDefaultDebugLogPath()
+  ProcedureReturn GetLogsDirectory() + "pb_tails_gui.debug." + GetLogTimestamp() + ".log"
+EndProcedure
+
+Procedure.s GetDefaultCapturePath()
+  ProcedureReturn GetLogsDirectory() + "pb_tails_gui.capture." + GetLogTimestamp() + ".txt"
+EndProcedure
+
+Procedure.i IsManagedLogPath(path.s, prefix.s, extension.s)
+  Protected dirPath.s = LCase(NormalizePath(GetPathPart(path)))
+  Protected logsDir.s = LCase(NormalizePath(GetLogsDirectory()))
+  Protected fileName.s = LCase(GetFilePart(path))
+  Protected namePrefix.s = LCase(prefix)
+  Protected nameExtension.s = LCase(extension)
+
+  If dirPath <> logsDir
+    ProcedureReturn #False
+  EndIf
+  If Left(fileName, Len(namePrefix)) <> namePrefix
+    ProcedureReturn #False
+  EndIf
+  If Right(fileName, Len(nameExtension)) <> nameExtension
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure RefreshManagedOutputPaths()
+  Protected path.s
+
+  path = Trim(GetGadgetText(#gDebugLogPath))
+  If path = "" Or IsManagedLogPath(path, "pb_tails_gui.debug.", ".log")
+    SetGadgetText(#gDebugLogPath, GetDefaultDebugLogPath())
+  EndIf
+
+  path = Trim(GetGadgetText(#gCapturePath))
+  If path = "" Or IsManagedLogPath(path, "pb_tails_gui.capture.", ".txt")
+    SetGadgetText(#gCapturePath, GetDefaultCapturePath())
+  EndIf
+EndProcedure
+
 Procedure LogClose()
   If gLogFile
     CloseFile(gLogFile)
@@ -263,9 +317,10 @@ Procedure LogOpenIfNeeded()
   EndIf
 
   If gLogPath = ""
-    gLogPath = GetTemporaryDirectory() + "pb_tails_gui.debug.log"
+    gLogPath = GetDefaultDebugLogPath()
   EndIf
 
+  EnsureLogsDirectory()
   gLogFile = OpenFile(#PB_Any, gLogPath, #PB_File_Append)
 EndProcedure
 
@@ -304,9 +359,10 @@ Procedure CapOpenIfNeeded()
   EndIf
 
   If gCapPath = ""
-    gCapPath = GetTemporaryDirectory() + "pb_tails_gui.capture.txt"
+    gCapPath = GetDefaultCapturePath()
   EndIf
 
+  EnsureLogsDirectory()
   gCapFile = OpenFile(#PB_Any, gCapPath, #PB_File_Append)
 EndProcedure
 
@@ -671,6 +727,8 @@ Procedure RunTail()
   ClearOutput()
   SetStatus("")
 
+  RefreshManagedOutputPaths()
+
   gLogEnabled = Bool(GetGadgetState(#gDebugLog))
   gLogPath = Trim(GetGadgetText(#gDebugLogPath))
   gCapEnabled = Bool(GetGadgetState(#gCaptureText))
@@ -966,13 +1024,13 @@ Procedure UpdateSourceUI()
 EndProcedure
 
 Procedure BrowseDebugLogPath()
-  Protected p.s = SaveFileRequester("Save debug log", gLogPath, "Log (*.log)|*.log|Text (*.txt)|*.txt|All files|*.*", 0)
+  Protected p.s = SaveFileRequester("Save debug log", GetGadgetText(#gDebugLogPath), "Log (*.log)|*.log|Text (*.txt)|*.txt|All files|*.*", 0)
   If p = "" : ProcedureReturn : EndIf
   SetGadgetText(#gDebugLogPath, p)
 EndProcedure
 
 Procedure BrowseCapturePath()
-  Protected p.s = SaveFileRequester("Save captured output", gCapPath, "Text (*.txt)|*.txt|Log (*.log)|*.log|All files|*.*", 0)
+  Protected p.s = SaveFileRequester("Save captured output", GetGadgetText(#gCapturePath), "Text (*.txt)|*.txt|Log (*.log)|*.log|All files|*.*", 0)
   If p = "" : ProcedureReturn : EndIf
   SetGadgetText(#gCapturePath, p)
 EndProcedure
@@ -1029,11 +1087,11 @@ If OpenWindow(0, 0, 0, 1020, 695, #APP_NAME + " " + version, #PB_Window_SystemMe
   StringGadget(#gSleep, 804, 246, 120, 22, "0.2")
 
   CheckBoxGadget(#gDebugLog, 672, 270, 120, 20, "Debug log")
-  StringGadget(#gDebugLogPath, 804, 268, 160, 22, "")
+  StringGadget(#gDebugLogPath, 804, 268, 160, 22, GetDefaultDebugLogPath())
   ButtonGadget(#gDebugLogBrowse, 968, 268, 28, 22, "...")
 
   CheckBoxGadget(#gCaptureText, 672, 292, 120, 20, "Capture")
-  StringGadget(#gCapturePath, 804, 290, 160, 22, "")
+  StringGadget(#gCapturePath, 804, 290, 160, 22, GetDefaultCapturePath())
   ButtonGadget(#gCaptureBrowse, 968, 290, 28, 22, "...")
 
   ButtonGadget(#gRun, 672, 316, 120, 28, "Run")
@@ -1173,9 +1231,8 @@ EndIf
 End
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 238
-; FirstLine = 210
-; Folding = ------
+; CursorPosition = 6
+; Folding = -------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1184,12 +1241,12 @@ End
 ; UseIcon = PB_Tails_GUI.ico
 ; Executable = ..\PB_Tails_GUI.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_Tails_GUI
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = An app to view the last few lines of a log file
 ; VersionField7 = PB_Tails_GUI
 ; VersionField8 = PB_Tails_GUI.exe
