@@ -869,7 +869,7 @@ Procedure CreateProfileSnapshot()
   SaveGames()
   If CopyFile_(GamesIni, filePath, #False)
     AddHistoryEntry("Created snapshot " + GetFilePart(filePath))
-    MessageRequester(#APP_NAME, "Snapshot created successfully.")
+    MessageRequester(#APP_NAME, "Snapshot created successfully from:" + #LF$ + GamesIni)
   Else
     MessageRequester(#APP_NAME, "Failed to create snapshot.")
   EndIf
@@ -879,14 +879,14 @@ Procedure RestoreProfileSnapshot()
   Protected filePath.s
   filePath = OpenFileRequester("Restore snapshot", "", "INI files (*.ini)|*.ini|All files (*.*)|*.*", 0)
   If filePath = "" : ProcedureReturn : EndIf
-  If MessageRequester(#APP_NAME, "Restore this snapshot and replace the current game library?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning) <> #PB_MessageRequester_Yes
+  If MessageRequester(#APP_NAME, "Restore this snapshot and replace the current game library at:" + #LF$ + GamesIni, #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning) <> #PB_MessageRequester_Yes
     ProcedureReturn
   EndIf
   If CopyFile_(filePath, GamesIni, #False)
     LoadGames()
     RefreshList()
     AddHistoryEntry("Restored snapshot " + GetFilePart(filePath))
-    MessageRequester(#APP_NAME, "Snapshot restored successfully.")
+    MessageRequester(#APP_NAME, "Snapshot restored successfully to:" + #LF$ + GamesIni)
   Else
     MessageRequester(#APP_NAME, "Failed to restore snapshot.")
   EndIf

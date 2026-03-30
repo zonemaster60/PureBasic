@@ -667,6 +667,67 @@ Procedure SetLaunchUiState(active.i, statusText.s = "")
   EndIf
 EndProcedure
 
+Procedure HideToTrayForLaunch()
+  Protected iconPath.s
+
+  If LaunchTrayHidden Or IsWindow(0) = 0
+    ProcedureReturn
+  EndIf
+
+  If TrayIconImage = 0
+    iconPath = DataDir + #APP_NAME + ".ico"
+    If FileSize(iconPath) > 0
+      TrayIconImage = LoadImage(#PB_Any, iconPath)
+    EndIf
+    If TrayIconImage = 0
+      TrayIconImage = CreateImage(#PB_Any, 16, 16, 32, RGBA(32, 32, 32, 255))
+      If TrayIconImage And StartDrawing(ImageOutput(TrayIconImage))
+        Box(0, 0, 16, 16, RGBA(32, 32, 32, 255))
+        DrawingMode(#PB_2DDrawing_Transparent)
+        DrawText(3, 1, "M", RGBA(255, 255, 255, 255), RGBA(32, 32, 32, 0))
+        StopDrawing()
+      EndIf
+    EndIf
+  EndIf
+
+  If TrayIconImage = 0
+    LogLine("Tray hide skipped: failed to prepare tray icon")
+    ProcedureReturn
+  EndIf
+
+  If TrayIconVisible = 0
+    If AddSysTrayIcon(#TRAYICON_MAIN, WindowID(0), ImageID(TrayIconImage)) = 0
+      LogLine("Tray hide skipped: failed to create tray icon")
+      ProcedureReturn
+    EndIf
+    TrayIconVisible = 1
+  Else
+    ChangeSysTrayIcon(#TRAYICON_MAIN, ImageID(TrayIconImage))
+  EndIf
+
+  SysTrayIconToolTip(#TRAYICON_MAIN, #APP_NAME + " - " + LaunchGame\Name)
+  HideWindow(0, 1)
+  LaunchTrayHidden = 1
+  LogLine("Main window hidden to system tray for: " + LaunchGame\Name)
+EndProcedure
+
+Procedure RemoveLaunchTrayIcon()
+  If TrayIconVisible
+    RemoveSysTrayIcon(#TRAYICON_MAIN)
+    TrayIconVisible = 0
+  EndIf
+  LaunchTrayHidden = 0
+EndProcedure
+
+Procedure RestoreFromTrayAfterLaunch()
+  If IsWindow(0)
+    HideWindow(0, 0)
+    SetActiveWindow(0)
+    SetForegroundWindow_(WindowID(0))
+  EndIf
+  RemoveLaunchTrayIcon()
+EndProcedure
+
 Procedure UpdateListHint()
   If IsGadget(#G_Subtitle) = 0
     ProcedureReturn
@@ -744,6 +805,11 @@ Procedure FinishLaunch(success.i, message.s = "")
 
   RestoreBackgroundProcesses()
   CleanupBoostSession(@LaunchCtx)
+  If AppQuitting
+    RemoveLaunchTrayIcon()
+  ElseIf LaunchTrayHidden
+    RestoreFromTrayAfterLaunch()
+  EndIf
   If message <> ""
     LogLine(finalStatus)
   ElseIf success
@@ -792,6 +858,7 @@ Procedure BeginExeLaunch(*g.GameEntry)
       LaunchActive = 1
       LaunchDetectDeadline = ElapsedMilliseconds() + 30000
       SetLaunchUiState(1, "Starting launcher: " + LaunchGame\Name)
+      HideToTrayForLaunch()
       LogLine("Launched via shell shortcut for compatibility: " + GetFilePart(LaunchGame\ExePath))
     Else
       CleanupBoostSession(@LaunchCtx)
@@ -827,6 +894,7 @@ Procedure BeginExeLaunch(*g.GameEntry)
   LaunchActive = 1
   LaunchStartedAt = ElapsedMilliseconds()
   SetLaunchUiState(1, "Running: " + LaunchGame\Name)
+  HideToTrayForLaunch()
 EndProcedure
 
 Procedure BeginSteamLaunch(*g.GameEntry)
@@ -901,6 +969,7 @@ Procedure BeginSteamLaunch(*g.GameEntry)
   LaunchState = 1
   LaunchActive = 1
   SetLaunchUiState(1, "Waiting for game process: " + LaunchGame\Name)
+  HideToTrayForLaunch()
 EndProcedure
 
 Procedure.i LaunchBoosted(*g.GameEntry)
@@ -963,13 +1032,18 @@ Procedure PollLaunchState()
           LogLine("Launcher detect timeout reached for: " + LaunchGame\Name)
           SetLaunchUiState(0, "Launcher handoff finished: " + LaunchGame\Name)
         EndIf
-        CleanupBoostSession(@LaunchCtx)
-        If LaunchStartRecorded
-          LogLine("Launch handoff completed without a trackable process handle")
+          CleanupBoostSession(@LaunchCtx)
+          If LaunchStartRecorded
+            LogLine("Launch handoff completed without a trackable process handle")
+          EndIf
+          If AppQuitting
+            RemoveLaunchTrayIcon()
+          ElseIf LaunchTrayHidden
+            RestoreFromTrayAfterLaunch()
+          EndIf
+          ResetLaunchState()
+          UpdateSelectionUI()
         EndIf
-        ResetLaunchState()
-        UpdateSelectionUI()
-      EndIf
 
     Case 2
       If LaunchProcess = 0
@@ -1118,12 +1192,17 @@ Procedure ShowDiagnostics()
     SetGadgetFont(#D_Close, FontID(FontUI))
   EndIf
 
-  Repeat
-    mem\dwLength = SizeOf(OC_MEMORYSTATUSEX)
-    info = #APP_NAME + " Diagnostics" + #CRLF$ + #CRLF$
-    info + "Log path: " + LogPath + #CRLF$
-    info + "Active power plan: " + CurrentPowerPlanName() + #CRLF$
-    info + "Power plan GUID: " + GetActivePowerGuid() + #CRLF$
+    Repeat
+      mem\dwLength = SizeOf(OC_MEMORYSTATUSEX)
+      info = #APP_NAME + " Diagnostics" + #CRLF$ + #CRLF$
+      info + "Data folder: " + DataDir + #CRLF$
+      info + "Games INI: " + GamesIni + #CRLF$
+      info + "Session INI: " + SessionIni + #CRLF$
+      info + "Settings INI: " + SettingsIni + #CRLF$
+      info + "Artwork folder: " + ArtworkDir + #CRLF$
+      info + "Log path: " + LogPath + #CRLF$
+      info + "Active power plan: " + CurrentPowerPlanName() + #CRLF$
+      info + "Power plan GUID: " + GetActivePowerGuid() + #CRLF$
     cpu = CpuUsagePercent()
     If cpu >= 0
       info + "CPU usage: " + Str(cpu) + "%" + #CRLF$
@@ -1585,6 +1664,10 @@ Procedure RunApplication()
               MessageRequester("About", #APP_NAME + " - " + version + #CRLF$ +
                                         "A Safe Game Booster for all your games" + #CRLF$ +
                                         "--------------------------------------" + #CRLF$ +
+                                        "Data folder: " + DataDir + #CRLF$ +
+                                        "Games file: " + GamesIni + #CRLF$ +
+                                        "Session file: " + SessionIni + #CRLF$ +
+                                        "Settings file: " + SettingsIni + #CRLF$ +
                                         "Log file: " + LogPath + #CRLF$ +
                                         "Contact: zonemaster60@gmail.com" + #CRLF$ +
                                         "Website: https://github.com/zonemaster60", #PB_MessageRequester_Info)
@@ -1592,6 +1675,11 @@ Procedure RunApplication()
 
         Case #PB_Event_CloseWindow
           Exit()
+
+        Case #PB_Event_SysTray
+          If EventGadget() = #TRAYICON_MAIN And EventType() = #PB_EventType_LeftClick
+            RestoreFromTrayAfterLaunch()
+          EndIf
 
         Case #PB_Event_GadgetDrop
           If EventGadget() = #G_List And EventDropType() = #PB_Drop_Private And IsLaunchActive() = 0 And DragGameIndex >= 0 And FilterQuery = "" And SortMode = #SORT_NAME_ASC And LibraryView = #LIBRARY_ALL

@@ -32,8 +32,33 @@ Procedure.s EnsureLogFolder(baseFolder.s)
   ProcedureReturn ""
 EndProcedure
 
+Procedure.s EnsureDataFolder(baseFolder.s)
+  Protected folder.s = baseFolder
+
+  If folder = ""
+    ProcedureReturn ""
+  EndIf
+
+  If Right(folder, 1) <> "\\"
+    folder + "\\"
+  EndIf
+
+  If FileSize(folder) <> -2
+    CreateDirectory(folder)
+  EndIf
+
+  If FileSize(folder) = -2
+    ProcedureReturn folder
+  EndIf
+
+  ProcedureReturn ""
+EndProcedure
+
 Global DataDir.s, GamesIni.s, SessionIni.s, SettingsIni.s, ArtworkDir.s
-DataDir = GetPathPart(ProgramFilename())
+DataDir = EnsureDataFolder(GetPathPart(ProgramFilename()) + "files\\")
+If DataDir = ""
+  DataDir = GetPathPart(ProgramFilename())
+EndIf
 GamesIni = DataDir + #APP_NAME + "_games.ini"
 SessionIni = DataDir + #APP_NAME + "_session.ini"
 SettingsIni = DataDir + #APP_NAME + "_settings.ini"
@@ -46,7 +71,7 @@ EndIf
 
 Global FontUI.i, FontTitle.i, FontSmall.i
 Global MainStatusBar.i
-Global version.s = "v1.0.1.1"
+Global version.s = "v1.0.1.2"
 Global BrowseExePath.s, BeforeCount.i, LaunchUiPulse.i
 Global LaunchStartedAt.q
 Global FilterQuery.s, SortMode.i, LibraryView.i
@@ -138,6 +163,7 @@ DefaultPreset = #PRESET_BALANCED
 #LVM_HITTEST = #LVM_FIRST + 18
 
 #PRIVATE_DROP_GAME = 1001
+#TRAYICON_MAIN    = 1
 
 Structure GameEntry
   Name.s
@@ -253,6 +279,7 @@ Global LaunchOrigPriority.l
 Global LaunchProcessAffinity.q, LaunchSystemAffinity.q
 Global LaunchGotAffinity.i
 Global LaunchStartRecorded.i
+Global TrayIconImage.i, TrayIconVisible.i, LaunchTrayHidden.i
 Global DragGameIndex.i = -1
 Global LaunchGameRoot.s
 Global NewMap LaunchBaseline.i()
@@ -336,8 +363,8 @@ InitFonts()
 RunApplication()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 48
-; FirstLine = 21
+; CursorPosition = 73
+; FirstLine = 42
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -348,12 +375,12 @@ RunApplication()
 ; UseIcon = MyGameBooster.ico
 ; Executable = ..\MyGameBooster.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,1
-; VersionField1 = 1,0,1,1
+; VersionField0 = 1,0,1,2
+; VersionField1 = 1,0,1,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = MyGameBooster
-; VersionField4 = 1.0.1.1
-; VersionField5 = 1.0.1.1
+; VersionField4 = 1.0.1.2
+; VersionField5 = 1.0.1.2
 ; VersionField6 = A Game Booster for boosting your games
 ; VersionField7 = MyGameBooster
 ; VersionField8 = MyGameBooster.exe
