@@ -17,7 +17,7 @@ EnableExplicit
 #EMAIL_NAME      = "zonemaster60@gmail.com"
 #AUTO_START_BENCHMARK_DELAY_MS = 120000
 #WORKER_EXIT_WAIT_MS           = 10000
-Global version.s = "v1.0.0.4"
+Global version.s = "v1.0.0.5"
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 If AppPath = "" : AppPath = GetCurrentDirectory() : EndIf
@@ -1029,12 +1029,27 @@ Procedure DrainQueueAndUpdateUI(listGadget.i, bestLabelGadget.i)
   EndIf
 EndProcedure
 
+Procedure.s GetAdapterListPowerShell(requireUp.i)
+  Protected filterNetAdapter.s
+  Protected filterLegacy.s
+
+  If requireUp
+    filterNetAdapter = "$_.HardwareInterface -eq $true -and $_.Status -eq 'Up'"
+    filterLegacy = "$_.PhysicalAdapter -eq $true -and $_.NetConnectionID -and $_.NetConnectionStatus -eq 2"
+  Else
+    filterNetAdapter = "$_.HardwareInterface -eq $true"
+    filterLegacy = "$_.PhysicalAdapter -eq $true -and $_.NetConnectionID"
+  EndIf
+
+  ProcedureReturn "try { Get-NetAdapter | Where-Object { " + filterNetAdapter + " } | Select-Object -ExpandProperty Name | Sort-Object -Unique } catch { try { Get-CimInstance Win32_NetworkAdapter -ErrorAction Stop | Where-Object { " + filterLegacy + " } | Select-Object -ExpandProperty NetConnectionID | Sort-Object -Unique } catch { Get-WmiObject Win32_NetworkAdapter -ErrorAction Stop | Where-Object { " + filterLegacy + " } | Select-Object -ExpandProperty NetConnectionID | Sort-Object -Unique } }"
+EndProcedure
+
 Procedure LoadAdapters(combo.i)
   ClearGadgetItems(combo)
   ; Prefer physical hardware interfaces (Wi-Fi/Ethernet) and only those that are currently Up.
   ; We still return the interface Alias (Name) since Apply uses -InterfaceAlias.
   Protected out.s = ""
-  If ExecPowerShell("Get-NetAdapter | Where-Object { $_.HardwareInterface -eq $true -and $_.Status -eq 'Up' } | Select-Object -ExpandProperty Name | Sort-Object -Unique")
+  If ExecPowerShell(GetAdapterListPowerShell(#True))
     out = gLastPowerShellOutput
   EndIf
   Protected i, line.s, n = CountString(out, #CRLF$) + 1
@@ -1047,7 +1062,7 @@ Procedure LoadAdapters(combo.i)
   ; Fallback: if nothing is Up (e.g., disconnected Ethernet), show physical adapters regardless of status.
   If CountGadgetItems(combo) = 0
     out = ""
-    If ExecPowerShell("Get-NetAdapter | Where-Object { $_.HardwareInterface -eq $true } | Select-Object -ExpandProperty Name | Sort-Object -Unique")
+    If ExecPowerShell(GetAdapterListPowerShell(#False))
       out = gLastPowerShellOutput
       n = CountString(out, #CRLF$) + 1
       For i = 1 To n
@@ -1474,7 +1489,7 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
 EndIf
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 19
-; FirstLine = 5
+; FirstLine = 437
 ; Folding = --------
 ; Optimizer
 ; EnableThread
@@ -1484,12 +1499,12 @@ EndIf
 ; UseIcon = PB_DNSJumper.ico
 ; Executable = ..\PB_DNSJumper.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,4
-; VersionField1 = 1,0,0,4
+; VersionField0 = 1,0,0,5
+; VersionField1 = 1,0,0,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_DNSJumper
-; VersionField4 = 1.0.0.4
-; VersionField5 = 1.0.0.4
+; VersionField4 = 1.0.0.5
+; VersionField5 = 1.0.0.5
 ; VersionField6 = An automatic DNS changer similar to DNSJumper
 ; VersionField7 = PB_DNSJumper
 ; VersionField8 = PB_DNSJumper.exe
