@@ -695,9 +695,53 @@ Procedure HideToTrayForLaunch()
     ProcedureReturn
   EndIf
 
+  EnsureTrayIcon()
+  If TrayIconVisible = 0
+    ProcedureReturn
+  EndIf
+
+  UpdateTrayMenu()
+  If TrayIconVisible = 0
+    ProcedureReturn
+  EndIf
+
+  SysTrayIconToolTip(#TRAYICON_MAIN, #APP_NAME + " - " + LaunchGame\Name)
+  HideWindow(0, 1)
+  LaunchTrayHidden = 1
+  LogLine("Main window hidden to system tray for: " + LaunchGame\Name)
+EndProcedure
+
+Procedure EnsureTrayIcon()
+  Protected iconPath.s
+
+  If IsWindow(0) = 0
+    ProcedureReturn
+  EndIf
+
+  If TrayIconImage = 0
+    iconPath = DataDir + #APP_NAME + ".ico"
+    If FileSize(iconPath) > 0
+      TrayIconImage = LoadImage(#PB_Any, iconPath)
+    EndIf
+    If TrayIconImage = 0
+      TrayIconImage = CreateImage(#PB_Any, 16, 16, 32, RGBA(32, 32, 32, 255))
+      If TrayIconImage And StartDrawing(ImageOutput(TrayIconImage))
+        Box(0, 0, 16, 16, RGBA(32, 32, 32, 255))
+        DrawingMode(#PB_2DDrawing_Transparent)
+        DrawText(3, 1, "M", RGBA(255, 255, 255, 255), RGBA(32, 32, 32, 0))
+        StopDrawing()
+      EndIf
+    EndIf
+  EndIf
+
+  If TrayIconImage = 0
+    LogLine("Tray icon unavailable: failed to prepare tray icon")
+    ProcedureReturn
+  EndIf
+
   If TrayIconVisible = 0
     If AddSysTrayIcon(#TRAYICON_MAIN, WindowID(0), ImageID(TrayIconImage)) = 0
-      LogLine("Tray hide skipped: failed to create tray icon")
+      LogLine("Tray icon unavailable: failed to create tray icon")
       ProcedureReturn
     EndIf
     TrayIconVisible = 1
@@ -705,10 +749,86 @@ Procedure HideToTrayForLaunch()
     ChangeSysTrayIcon(#TRAYICON_MAIN, ImageID(TrayIconImage))
   EndIf
 
-  SysTrayIconToolTip(#TRAYICON_MAIN, #APP_NAME + " - " + LaunchGame\Name)
-  HideWindow(0, 1)
-  LaunchTrayHidden = 1
-  LogLine("Main window hidden to system tray for: " + LaunchGame\Name)
+  SysTrayIconToolTip(#TRAYICON_MAIN, #APP_NAME)
+EndProcedure
+
+Procedure UpdateTrayMenu()
+  Protected hasRecent.i
+  Protected showHideLabel.s
+
+  If IsMenu(#Menu_Tray) = 0
+    If CreatePopupMenu(#Menu_Tray) = 0
+      ProcedureReturn
+    EndIf
+    MenuItem(#MI_Tray_ShowHide, "Show/Hide UI")
+    MenuItem(#MI_Tray_RunRecent, "Run Recent Game")
+    MenuBar()
+    MenuItem(#MI_Tray_Exit, "Exit")
+  EndIf
+
+  If IsWindow(0) And IsWindowVisible_(WindowID(0))
+    showHideLabel = "Hide UI"
+  Else
+    showHideLabel = "Show UI"
+  EndIf
+  SetMenuItemText(#Menu_Tray, #MI_Tray_ShowHide, showHideLabel)
+
+  hasRecent = LaunchMostRecentGame()
+  DisableMenuItem(#Menu_Tray, #MI_Tray_RunRecent, Bool(hasRecent = 0 Or IsLaunchActive()))
+EndProcedure
+
+Procedure ToggleMainWindowVisibility()
+  If IsWindow(0) = 0
+    ProcedureReturn
+  EndIf
+
+  If IsWindowVisible_(WindowID(0))
+    HideWindow(0, 1)
+    LaunchTrayHidden = Bool(IsLaunchActive())
+  Else
+    HideWindow(0, 0)
+    SetActiveWindow(0)
+    SetForegroundWindow_(WindowID(0))
+    LaunchTrayHidden = 0
+  EndIf
+
+  UpdateTrayMenu()
+EndProcedure
+
+Procedure.i LaunchMostRecentGame(runGame.i = 0)
+  Protected best.GameEntry
+  Protected current.GameEntry
+  Protected found.i
+
+  ForEach Games()
+    current = Games()
+    If current\LastPlayed > 0
+      If found = 0 Or CompareGames(@current, @best, #SORT_LAST_PLAYED) < 0
+        best = current
+        found = 1
+      EndIf
+    EndIf
+  Next
+
+  If found = 0
+    ProcedureReturn 0
+  EndIf
+
+  If runGame = 0
+    ProcedureReturn 1
+  EndIf
+
+  If IsLaunchActive()
+    ProcedureReturn 0
+  EndIf
+
+  If best\LaunchMode = #LAUNCHMODE_STEAM
+    LaunchSteamBoosted(@best)
+  Else
+    LaunchBoosted(@best)
+  EndIf
+
+  ProcedureReturn Bool(IsLaunchActive())
 EndProcedure
 
 Procedure RemoveLaunchTrayIcon()
@@ -725,7 +845,9 @@ Procedure RestoreFromTrayAfterLaunch()
     SetActiveWindow(0)
     SetForegroundWindow_(WindowID(0))
   EndIf
-  RemoveLaunchTrayIcon()
+  LaunchTrayHidden = 0
+  EnsureTrayIcon()
+  UpdateTrayMenu()
 EndProcedure
 
 Procedure UpdateListHint()
@@ -842,6 +964,7 @@ Procedure BeginExeLaunch(*g.GameEntry)
   EndIf
 
   CopyLaunchGame(*g)
+  SnapshotPids(LaunchBaseline())
   workdir = LaunchGame\WorkDir
   If workdir = "" : workdir = GetPathPart(LaunchGame\ExePath) : EndIf
   launchArgs = LaunchGame\Args
@@ -854,6 +977,7 @@ Procedure BeginExeLaunch(*g.GameEntry)
   If NeedsUnelevatedLauncher(LaunchGame\ExePath)
     If LaunchViaShell(LaunchGame\ExePath, launchArgs, workdir)
       RecordLaunchStart(@LaunchGame)
+      LaunchStartRecorded = 1
       LaunchState = 1
       LaunchActive = 1
       LaunchDetectDeadline = ElapsedMilliseconds() + 30000
@@ -889,6 +1013,7 @@ Procedure BeginExeLaunch(*g.GameEntry)
   ApplyProcessBoost(LaunchProcess, @LaunchGame)
   TuneBackgroundProcesses(@LaunchGame)
   RecordLaunchStart(@LaunchGame)
+  LaunchStartRecorded = 1
   LogLine("Monitoring EXE process for: " + LaunchGame\Name)
   LaunchState = 2
   LaunchActive = 1
@@ -1053,6 +1178,39 @@ Procedure PollLaunchState()
 
       waitResult = WaitForSingleObject_(LaunchProcess, 0)
       If waitResult = #WAIT_OBJECT_0
+        If LaunchGame\LaunchMode = #LAUNCHMODE_EXE
+          pidGame = FindSteamGameProcessOnce(LaunchGame\ExePath, GetPathPart(LaunchGame\ExePath), LaunchBaseline())
+          If pidGame
+            LogLine("Detected launcher handoff PID=" + Str(pidGame) + " | path=" + CollapseBackslashes(GetMainModulePath(pidGame)))
+            hGame = OpenProcess_(#PROCESS_QUERY_INFORMATION | #PROCESS_SET_INFORMATION | #SYNCHRONIZE, #False, pidGame)
+            If hGame = 0
+              hGame = OpenProcess_(#PROCESS_QUERY_LIMITED_INFORMATION | #PROCESS_SET_INFORMATION | #SYNCHRONIZE, #False, pidGame)
+            EndIf
+            If hGame
+              CloseHandle_(LaunchProcess)
+              LaunchProcess = hGame
+              LaunchOrigPriority = GetPriorityClass_(LaunchProcess)
+              LaunchGotAffinity  = GetProcessAffinityMask_(LaunchProcess, @LaunchProcessAffinity, @LaunchSystemAffinity)
+              ApplyProcessBoost(LaunchProcess, @LaunchGame)
+              TuneBackgroundProcesses(@LaunchGame)
+              SetLaunchUiState(1, "Running: " + LaunchGame\Name)
+              ProcedureReturn
+            EndIf
+          EndIf
+
+          CloseHandle_(LaunchProcess)
+          LaunchProcess = 0
+          LaunchOrigPriority = 0
+          LaunchProcessAffinity = 0
+          LaunchSystemAffinity = 0
+          LaunchGotAffinity = 0
+          LaunchState = 1
+          LaunchDetectDeadline = ElapsedMilliseconds() + 30000
+          LogLine("Launcher process exited; waiting for game handoff: " + LaunchGame\Name)
+          SetLaunchUiState(1, "Waiting for game process: " + LaunchGame\Name)
+          ProcedureReturn
+        EndIf
+
         RestoreProcessBoost(LaunchProcess, LaunchGotAffinity, LaunchOrigPriority, LaunchProcessAffinity)
         FinishLaunch(1)
       EndIf
@@ -1426,6 +1584,9 @@ Procedure RunApplication()
       MenuItem(#MI_Help_About, "About")
     EndIf
 
+    EnsureTrayIcon()
+    UpdateTrayMenu()
+
     TextGadget(#G_Title, ScaleX(18), ScaleY(14), ScaleX(1040), ScaleY(30), #APP_NAME)
     TextGadget(#G_Subtitle, ScaleX(18), ScaleY(44), ScaleX(1040), ScaleY(20), "Safer game launching with Steam support, per-game power profiles, launch history, and service control")
 
@@ -1638,6 +1799,13 @@ Procedure RunApplication()
               RedoLastLibraryChange()
             Case #MI_File_Exit
               Exit()
+            Case #MI_Tray_ShowHide
+              ToggleMainWindowVisibility()
+            Case #MI_Tray_RunRecent
+              LaunchMostRecentGame(1)
+              UpdateTrayMenu()
+            Case #MI_Tray_Exit
+              Exit()
             Case #MI_Game_Run
               PostEvent(#PB_Event_Gadget, 0, #G_Launch)
             Case #MI_Game_Edit
@@ -1676,9 +1844,23 @@ Procedure RunApplication()
         Case #PB_Event_CloseWindow
           Exit()
 
+        Case #PB_Event_MinimizeWindow
+          If EventWindow() = 0
+            EnsureTrayIcon()
+            UpdateTrayMenu()
+            HideWindow(0, 1)
+            LaunchTrayHidden = Bool(IsLaunchActive())
+          EndIf
+
         Case #PB_Event_SysTray
-          If EventGadget() = #TRAYICON_MAIN And EventType() = #PB_EventType_LeftClick
-            RestoreFromTrayAfterLaunch()
+          If EventGadget() = #TRAYICON_MAIN
+            Select EventType()
+              Case #PB_EventType_LeftClick
+                ToggleMainWindowVisibility()
+              Case #PB_EventType_RightClick
+                UpdateTrayMenu()
+                DisplayPopupMenu(#Menu_Tray, WindowID(0))
+            EndSelect
           EndIf
 
         Case #PB_Event_GadgetDrop
