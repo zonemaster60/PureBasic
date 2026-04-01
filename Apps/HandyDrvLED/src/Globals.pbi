@@ -1,7 +1,7 @@
 ; HandyDrvLED Globals & Constants
 
 #APP_NAME = "HandyDrvLED"
-Global version.s = "v1.0.3.5"
+Global version.s = "v1.0.3.6"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
 #IOCTL_DISK_PERFORMANCE = $70020
@@ -101,7 +101,7 @@ EndStructure
 
 ; Global Variables
 Global AppPath.s = GetPathPart(ProgramFilename())
-Global IniPath.s = AppPath + #APP_NAME + ".ini"
+Global IniPath.s = AppPath + "files\" + #APP_NAME + ".ini"
 Global IconLibDir.s = AppPath + "IconLibs\"
 Global LogDir.s = ""
 Global LogBase.s = ""
@@ -578,7 +578,7 @@ Procedure About(icon1.i)
         "PDH fallback default: " + Str(ForcePdhOnlyDefault) + #CRLF$ +
         "Logging: " + logState + #CRLF$ +
         "Log rotation: " + rotateState + " keep=" + Str(LogRotateKeep) + " maxKB=" + Str(LogRotateMaxBytes / 1024) + #CRLF$ +
-        "INI file: " + #APP_NAME + ".ini" + #CRLF$ +
+        "INI file: " + "files\" +#APP_NAME + ".ini" + #CRLF$ +
         "Contact: " + #EMAIL_NAME + #CRLF$ +
         "Website: https://github.com/zonemaster60" + #CRLF$ +
         "Using IconSet: " + Str(icon1)
@@ -610,7 +610,7 @@ Procedure Help()
              "Drive(s) window:" + #LF$ +
              "  - View capacity, free space, and filesystem info." + #LF$ +
              "  - Supports Fixed, Removable, Network, CDROM, RAMDisk." + #LF$ + #LF$ +
-             "Config: HandyDrvLED.ini"
+             "Config: files\HandyDrvLED.ini"
 
   MessageRequester("Help", helpText, #PB_MessageRequester_Info)
 EndProcedure
@@ -757,7 +757,8 @@ Procedure EditSettings()
 EndProcedure
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 3
+; CursorPosition = 612
+; FirstLine = 724
 ; Folding = ------
 ; EnableXP
 ; DPIAware

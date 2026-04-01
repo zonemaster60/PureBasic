@@ -12,6 +12,9 @@ IncludeFile "UI_Drives.pbi"
 
 Global HelperMode.i
 
+#TrayIcon_Main = 1
+#Timer_TryTrayIcon = 1001
+
 Procedure.i IsHelperMode()
   If CountProgramParameters() = 0 : ProcedureReturn #False : EndIf
   Select LCase(ProgramParameter(0))
@@ -83,6 +86,23 @@ Procedure InitializeApp()
   Thread_Monitor = CreateThread(@MonitorThread(), 0)
 EndProcedure
 
+Procedure.i EnsureTrayIcon()
+  Protected iconId.i
+  Protected tooltip.s
+
+  LockMutex(Mutex_DiskData)
+  iconId = CurrentIconID
+  tooltip = CurrentTooltip
+  UnlockMutex(Mutex_DiskData)
+
+  If AddSysTrayIcon(#TrayIcon_Main, WindowID(#Window_Main), iconId)
+    SysTrayIconToolTip(#TrayIcon_Main, Lng\AppName + " " + version + #CRLF$ + tooltip)
+    ProcedureReturn #True
+  EndIf
+
+  ProcedureReturn #False
+EndProcedure
+
 ; --- Main Loop ---
 InitializeApp()
 
@@ -90,6 +110,7 @@ Define Event.i, EventMenu.i, EventWindow.i, EventType.i
 Define ioErr.l, useP.i, qry.i, forceP.i, currentForce.i, result.i, logFile.s
 Define pdhInit.l, pdhCollect.l, pdhRead.l, pdhWrite.l, rawDisabled.i
 Define pdhStage.s, pdhSource.s
+Define TrayIconReady.i, TrayRetryActive.i
 
 OpenWindow(#Window_Main, 0, 0, 0, 0, Lng\AppName, #PB_Window_Invisible)
 CreatePopupMenu(#Menu_Main)
@@ -107,8 +128,12 @@ MenuItem(#MenuItem_ForcePdh, Lng\PdhOnly)
 MenuBar()
 MenuItem(#MenuItem_Exit, Lng\Exit)
 
-AddSysTrayIcon(1, WindowID(#Window_Main), CurrentIconID)
-SysTrayIconToolTip(1, Lng\AppName + " " + version)
+TrayIconReady = EnsureTrayIcon()
+If Not TrayIconReady
+  AddWindowTimer(#Window_Main, #Timer_TryTrayIcon, 1000)
+  TrayRetryActive = #True
+  LogLine("Tray icon registration deferred until shell is ready")
+EndIf
 
   StartupEnabled = IsInStartup()
   UpdateStartupMenuLabel()
@@ -122,11 +147,32 @@ SysTrayIconToolTip(1, Lng\AppName + " " + version)
   
   Select Event
     Case #Event_UpdateTrayIcon
-      LockMutex(Mutex_DiskData)
-      ChangeSysTrayIcon(1, CurrentIconID)
-      SysTrayIconToolTip(1, Lng\AppName + " " + version + #CRLF$ + CurrentTooltip)
-      UnlockMutex(Mutex_DiskData)
-      
+      If Not TrayIconReady
+        TrayIconReady = EnsureTrayIcon()
+        If TrayIconReady And TrayRetryActive
+          RemoveWindowTimer(#Window_Main, #Timer_TryTrayIcon)
+          TrayRetryActive = #False
+          LogLine("Tray icon registered after deferred retry")
+        EndIf
+      EndIf
+
+      If TrayIconReady
+        LockMutex(Mutex_DiskData)
+        ChangeSysTrayIcon(#TrayIcon_Main, CurrentIconID)
+        SysTrayIconToolTip(#TrayIcon_Main, Lng\AppName + " " + version + #CRLF$ + CurrentTooltip)
+        UnlockMutex(Mutex_DiskData)
+      EndIf
+
+    Case #PB_Event_Timer
+      If EventTimer() = #Timer_TryTrayIcon And Not TrayIconReady
+        TrayIconReady = EnsureTrayIcon()
+        If TrayIconReady
+          RemoveWindowTimer(#Window_Main, #Timer_TryTrayIcon)
+          TrayRetryActive = #False
+          LogLine("Tray icon registered after shell startup delay")
+        EndIf
+      EndIf
+
     Case #PB_Event_SysTray
       If EventType() = #PB_EventType_RightClick
         DisplayPopupMenu(#Menu_Main, WindowID(#Window_Main))
@@ -219,8 +265,7 @@ Cleanup()
 End
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 90
-; FirstLine = 166
+; CursorPosition = 166
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -230,12 +275,12 @@ End
 ; UseIcon = HandyDrvLED.ico
 ; Executable = ..\HandyDrvLED.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,5
-; VersionField1 = 1,0,3,5
+; VersionField0 = 1,0,3,6
+; VersionField1 = 1,0,3,6
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyDrvLED
-; VersionField4 = 1.0.3.5
-; VersionField5 = 1.0.3.5
+; VersionField4 = 1.0.3.6
+; VersionField5 = 1.0.3.6
 ; VersionField6 = A handy drive monitor - with tons of features
 ; VersionField7 = HandyDrvLED
 ; VersionField8 = HandyDrvLED.exe

@@ -46,7 +46,7 @@ Global gTooltipOverrideText.s = ""
 
 ; Logging toggle
 Global loggingEnabled   = #True
-Global version.s = "v1.0.1.4"
+Global version.s = "v1.0.1.5"
 
 ; Memory threshold (auto-clean when available RAM <= threshold)
 Global gMemThresholdEnabled.i = #False
@@ -87,6 +87,7 @@ Declare.i LoadTrayIconHandle(iconLibraryPath.s, iconIndex.i)
 Declare.b LoadTrayIconsFromLibrary(iconLibraryPath.s)
 Declare DestroyTrayIcons()
 Declare.i GetTrayIconHandle(iconNumber.i)
+Declare.b EnsureTrayIconReady()
 
 Procedure.b HasArg(arg$)
   Protected i
@@ -182,7 +183,7 @@ EndProcedure
 ; ---------------------------------------------------------
 
 Procedure LoadSettings()
-  Protected iniFile.s = AppPath + #INI_FILE
+  Protected iniFile.s = AppPath + "files\" + #INI_FILE
 
   ; Defaults
   IntervalMinutes = 5
@@ -272,7 +273,7 @@ Procedure LoadSettings()
 
   IntervalMS = IntervalMinutes * 60000
 
-  gLogPath = AppPath + #LOG_FILE
+  gLogPath = AppPath + "Logs\" + #LOG_FILE
   LogRotateIfNeeded()
 
    LogMessage("Loaded settings: Interval=" + Str(IntervalMinutes) + " minutes, Logging=" + Str(loggingEnabled) +
@@ -293,7 +294,7 @@ Procedure.b OpenOrCreateSettingsPreferences(iniFile.s)
 EndProcedure
 
 Procedure SaveSettings()
-  Protected iniFile.s = AppPath + #INI_FILE
+  Protected iniFile.s = AppPath + "files\" + #INI_FILE
 
   If OpenOrCreateSettingsPreferences(iniFile)
     WritePreferenceInteger("IntervalMinutes", IntervalMinutes)
@@ -733,11 +734,15 @@ EndProcedure
 Procedure SetTooltipOverride(text$, holdMs.q)
   gTooltipOverrideText = text$
   gTooltipOverrideUntil = ElapsedMilliseconds() + holdMs
-  SysTrayIconToolTip(#TRAY_ICON, gTooltipOverrideText)
+  If gTrayIconReady
+    SysTrayIconToolTip(#TRAY_ICON, gTooltipOverrideText)
+  EndIf
 EndProcedure
 
 Procedure UpdateTrayTooltip(status.s)
-  SysTrayIconToolTip(#TRAY_ICON, #APP_NAME + " - " + status)
+  If gTrayIconReady
+    SysTrayIconToolTip(#TRAY_ICON, #APP_NAME + " - " + status)
+  EndIf
 EndProcedure
 
 Procedure UpdateStartupMenuLabel()
@@ -811,6 +816,20 @@ EndProcedure
 Procedure SetTrayBusyState(isBusy.i)
   gTrayBusy = Bool(isBusy <> 0)
   UpdateTrayIconVisual(GetUsedMemPercent(), #True)
+EndProcedure
+
+Procedure.b EnsureTrayIconReady()
+  If gTrayIconReady
+    ProcedureReturn #True
+  EndIf
+
+  If AddSysTrayIcon(#TRAY_ICON, WindowID(0), GetTrayIconHandle(GetCurrentTrayImageNumber()))
+    gTrayIconReady = #True
+    UpdateTrayTooltip("Idle")
+    LogMessage("Tray icon registered")
+  EndIf
+
+  ProcedureReturn gTrayIconReady
 EndProcedure
 
 ; ---------------------------------------------------------
@@ -1220,7 +1239,7 @@ Procedure ShowAbout()
         "Interval: " + Str(IntervalMinutes) + " minutes" + #CRLF$ +
         "Memory threshold: " + Str(gMemThresholdEnabled) + " @ " + Str(gMemThresholdAvailMB) + "MB available" + #CRLF$ +
         "Logging: " + logState + #CRLF$ +
-        "INI file: " + #INI_FILE + #CRLF$ +
+        "INI file: " + "files\" + #INI_FILE + #CRLF$ +
         "Contact: " + #EMAIL_NAME + #CRLF$ +
         "Website: https://github.com/zonemaster60"
 
@@ -1281,9 +1300,7 @@ OpenWindow(0, 0, 0, 10, 10, #APP_NAME, #PB_Window_Invisible)
 AddWindowTimer(0, 2, 1000)
 
 ; Tray icon
-AddSysTrayIcon(#TRAY_ICON, WindowID(0), GetTrayIconHandle(GetCurrentTrayImageNumber()))
-gTrayIconReady = #True
-UpdateTrayTooltip("Idle")
+EnsureTrayIconReady()
 
 ; Tray menu
 CreatePopupMenu(#TRAY_MENU)
@@ -1332,6 +1349,7 @@ Repeat
 
     Case #PB_Event_Timer
       If EventTimer() = 2
+        EnsureTrayIconReady()
         Define usedPct.i = GetUsedMemPercent()
         UpdateTrayIconVisual(usedPct, #False)
 
@@ -1414,24 +1432,24 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 48
-; FirstLine = 42
+; CursorPosition = 76
+; FirstLine = 73
 ; Folding = ---------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = ..\files\ClearRam.ico
+; UseIcon = ClearRam.ico
 ; Executable = ..\ClearRam.exe
 ; DisableDebugger
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,4
-; VersionField1 = 1,0,1,4
+; VersionField0 = 1,0,1,5
+; VersionField1 = 1,0,1,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = ClearRam
-; VersionField4 = 1.0.1.4
-; VersionField5 = 1.0.1.4
+; VersionField4 = 1.0.1.5
+; VersionField5 = 1.0.1.5
 ; VersionField6 = Clears RAM using native Windows APIs
 ; VersionField7 = ClearRam
 ; VersionField8 = ClearRam.exe
