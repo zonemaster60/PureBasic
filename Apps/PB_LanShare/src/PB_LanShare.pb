@@ -16,7 +16,7 @@ EnableExplicit
 #RememberedPeerMaxAge = 1209600
 #SkipDownloadCancelTag = "<skip-cancel>"
 
-Global version.s = "v1.0.0.6"
+Global version.s = "v1.0.0.7"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -361,7 +361,7 @@ EndProcedure
 Procedure.s TrimTrailingSlash(Path$)
   Protected Result$ = Path$
 
-  While Len(Result$) > 1 And (Right(Result$, 1) = "\\" Or Right(Result$, 1) = "/")
+  While Len(Result$) > 1 And (Right(Result$, 1) = "\" Or Right(Result$, 1) = "/")
     If Len(Result$) = 3 And Mid(Result$, 2, 1) = ":"
       Break
     EndIf
@@ -404,11 +404,11 @@ EndProcedure
 Procedure.i IsAbsolutePath(Path$)
   Protected Text$ = Trim(Path$)
 
-  If Len(Text$) >= 3 And Mid(Text$, 2, 1) = ":" And (Mid(Text$, 3, 1) = "\\" Or Mid(Text$, 3, 1) = "/")
+  If Len(Text$) >= 3 And Mid(Text$, 2, 1) = ":" And (Mid(Text$, 3, 1) = "\" Or Mid(Text$, 3, 1) = "/")
     ProcedureReturn #True
   EndIf
 
-  If Left(Text$, 2) = "\\\\" Or Left(Text$, 2) = "//"
+  If Left(Text$, 2) = "\\" Or Left(Text$, 2) = "//"
     ProcedureReturn #True
   EndIf
 
@@ -430,7 +430,7 @@ Procedure.i IsUsableTransferDirectory(DirPath$)
 EndProcedure
 
 Procedure.s NormalizeRelativePath(RelativePath$)
-  Protected Working$ = ReplaceString(Trim(RelativePath$), "\\", "/")
+  Protected Working$ = ReplaceString(Trim(RelativePath$), "\", "/")
   Protected Count.i
   Protected Depth.i
   Protected Part$
@@ -538,7 +538,7 @@ Procedure.s ResolveSharePath(RelativePath$)
     ProcedureReturn Base$
   EndIf
 
-  ProcedureReturn Base$ + "\\" + ReplaceString(Normalized$, "/", "\\")
+  ProcedureReturn Base$ + "\" + ReplaceString(Normalized$, "/", "\")
 EndProcedure
 
 Procedure.s ResolveDownloadPath(RelativePath$)
@@ -549,7 +549,7 @@ Procedure.s ResolveDownloadPath(RelativePath$)
     ProcedureReturn ""
   EndIf
 
-  ProcedureReturn Base$ + "\\" + ReplaceString(Normalized$, "/", "\\")
+  ProcedureReturn Base$ + "\" + ReplaceString(Normalized$, "/", "\")
 EndProcedure
 
 Procedure.s MakeUniqueFilePath(TargetPath$)
@@ -1075,12 +1075,12 @@ EndIf
 ; UseIcon = PB_LanShare.ico
 ; Executable = ..\PB_LanShare.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,6
-; VersionField1 = 1,0,0,6
+; VersionField0 = 1,0,0,7
+; VersionField1 = 1,0,0,7
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_LanShare
-; VersionField4 = 1.0.0.6
-; VersionField5 = 1.0.0.6
+; VersionField4 = 1.0.0.7
+; VersionField5 = 1.0.0.7
 ; VersionField6 = A LAN file sharing / file transfer app.
 ; VersionField7 = PB_LanShare
 ; VersionField8 = PB_LanShare.exe

@@ -163,7 +163,7 @@ Procedure.s RelativePathFromBase(BasePath$, FullPath$)
   EndIf
 
   Full$ = Mid(Full$, Len(Base$) + 2)
-  ProcedureReturn NormalizeRelativePath(ReplaceString(Full$, "\\", "/"))
+  ProcedureReturn NormalizeRelativePath(ReplaceString(Full$, "\", "/"))
 EndProcedure
 
 Procedure QueueUploadPathRecursive(LocalPath$, RemoteBase$)
@@ -181,7 +181,7 @@ Procedure QueueUploadPathRecursive(LocalPath$, RemoteBase$)
         While NextDirectoryEntry(Directory)
           EntryName$ = DirectoryEntryName(Directory)
           If EntryName$ <> "." And EntryName$ <> ".."
-            LocalChild$ = TrimTrailingSlash(LocalPath$) + "\\" + EntryName$
+            LocalChild$ = TrimTrailingSlash(LocalPath$) + "\" + EntryName$
             QueueUploadPathRecursive(LocalChild$, RemotePath$)
           EndIf
         Wend
@@ -238,7 +238,7 @@ Procedure SendTreeRecursive(Connection.i, RelativePath$)
       EntryName$ = DirectoryEntryName(Directory)
       If EntryName$ <> "." And EntryName$ <> ".."
         ChildRelative$ = JoinRelativePath(RelativePath$, EntryName$)
-        ChildPath$ = LocalPath$ + "\\" + EntryName$
+        ChildPath$ = LocalPath$ + "\" + EntryName$
         EntryType = DirectoryEntryType(Directory)
         If EntryType = #PB_DirectoryEntry_Directory
           Payload$ = "1" + Chr(31) + ChildRelative$ + Chr(31) + "0" + Chr(31) + Str(GetFileDate(ChildPath$, #PB_Date_Modified))
@@ -493,7 +493,7 @@ Procedure HandleListSend(Connection.i, RelativePath$)
       If EntryName$ <> "." And EntryName$ <> ".."
         EntryType = DirectoryEntryType(Directory)
         EntryRelative$ = JoinRelativePath(RelativePath$, EntryName$)
-        EntryPath$ = LocalPath$ + "\\" + EntryName$
+        EntryPath$ = LocalPath$ + "\" + EntryName$
         If EntryType = #PB_DirectoryEntry_File
           Size = FileSize(EntryPath$)
         Else
@@ -600,7 +600,7 @@ Procedure StartReceivingUpload(*Peer.PeerState, TargetDir$, FileName$, Size.q, M
 
   *Peer\ReceiveFile = FileHandle
   *Peer\ReceiveMode = #TransferUpload
-  *Peer\ReceiveRelativePath = NormalizeRelativePath(ReplaceString(Mid(LocalPath$, Len(TrimTrailingSlash(SharePath$)) + 2), "\\", "/"))
+  *Peer\ReceiveRelativePath = NormalizeRelativePath(ReplaceString(Mid(LocalPath$, Len(TrimTrailingSlash(SharePath$)) + 2), "\", "/"))
   *Peer\ReceiveFinalPath = LocalPath$
   *Peer\ReceiveTotal = Size
   *Peer\ReceiveModified = Modified

@@ -303,11 +303,11 @@ Procedure InitDefaults()
     HostName$ = "My_LAN_PC"
   EndIf
 
-  DownloadPath$ = TrimTrailingSlash(GetHomeDirectory() + "Downloads\\LANShareDownloads")
+  DownloadPath$ = TrimTrailingSlash(GetHomeDirectory() + "Downloads\LANShareDownloads")
   SharePath$ = DownloadPath$
   LoadSettings()
   If IsUsableTransferDirectory(DownloadPath$) = 0
-    DownloadPath$ = TrimTrailingSlash(GetHomeDirectory() + "Downloads\\LANShareDownloads")
+    DownloadPath$ = TrimTrailingSlash(GetHomeDirectory() + "Downloads\LANShareDownloads")
   EndIf
   SharePath$ = DownloadPath$
   If IsUsableTransferDirectory(DownloadPath$) = 0

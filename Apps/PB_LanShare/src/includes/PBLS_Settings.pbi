@@ -10,11 +10,11 @@ Procedure AddHistory(Status$, Direction$, Item$, Details$)
 EndProcedure
 
 Procedure.s LegacySettingsPath()
-  ProcedureReturn AppPath + "files\\" + #SettingsFile
+  ProcedureReturn AppPath + "files\" + #SettingsFile
 EndProcedure
 
 Procedure.s SettingsPath()
-  ProcedureReturn TrimTrailingSlash(GetHomeDirectory() + "AppData\\Local\\PB_LanShare") + "\\" + #SettingsFile
+  ProcedureReturn TrimTrailingSlash(GetHomeDirectory() + "AppData\Local\PB_LanShare") + "\" + #SettingsFile
 EndProcedure
 
 Procedure LoadSettings()
