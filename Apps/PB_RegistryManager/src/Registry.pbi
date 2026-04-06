@@ -537,12 +537,13 @@ Module Registry
         result = Str(PeekL(*lpData))
 
        Case #REG_EXPAND_SZ
-         ; Bound the input to avoid reading past the buffer.
+         ; ExpandEnvironmentStringsW returns a character count, not a byte count.
+         ; Allocate a full Unicode buffer to avoid overrunning memory on x64.
          Protected rawEx.s
          rawEx = PeekS(*lpData, lpcbData / SizeOf(Character))
          ExSZlength = ExpandEnvironmentStrings(@rawEx, 0, 0)
          If ExSZlength > 0
-           *ExSZMem = AllocateMemory(ExSZlength)
+           *ExSZMem = AllocateMemory(ExSZlength * SizeOf(Character))
            If *ExSZMem
              If ExpandEnvironmentStrings(@rawEx, *ExSZMem, ExSZlength)
                result = PeekS(*ExSZMem)

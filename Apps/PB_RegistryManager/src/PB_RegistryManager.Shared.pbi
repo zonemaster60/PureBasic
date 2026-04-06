@@ -21,7 +21,7 @@ EndImport
 ;- Core Types
 
 #APP_NAME = "PB_RegistryManager"
-Global AppVersion.s = "v1.0.1.6"
+Global AppVersion.s = "v1.0.1.7"
 
 Structure RegKeyInfo
   Name.s
@@ -85,8 +85,6 @@ Structure CleanerParams
   Wow64.i
   WindowID.i
   EditorID.i
-  BtnScan.i
-  BtnClean.i
   BtnClose.i
 EndStructure
 
@@ -220,7 +218,6 @@ Global SearchResultsMutex.i = 0
 Global NewList SearchResults.SearchResult()
 Global SearchThreadID.i = 0
 Global SearchStopRequested.i = #False
-Global CleanerThreadID.i = 0
 Global CleanerStopRequested.i = #False
 Global MonitorStatusTextGadget.i = 0
 Global CompareThreadID.i = 0
@@ -295,8 +292,6 @@ Global LoadValuesMutex.i = 0
 #EVENT_EXPORT_COMPLETE = #PB_Event_FirstCustomValue + 3
 #EVENT_COMPARE_COMPLETE = #PB_Event_FirstCustomValue + 4
 #EVENT_SNAPSHOT_CREATED = #PB_Event_FirstCustomValue + 5
-#EVENT_CLEANER_MSG = #PB_Event_FirstCustomValue + 6
-#EVENT_CLEANER_DONE = #PB_Event_FirstCustomValue + 7
 #EVENT_ASYNC_STATUS = #PB_Event_FirstCustomValue + 8
 #EVENT_ASYNC_MESSAGE = #PB_Event_FirstCustomValue + 9
 

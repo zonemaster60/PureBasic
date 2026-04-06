@@ -69,6 +69,7 @@ Exit()
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 10
+; FirstLine = 4
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -77,12 +78,12 @@ Exit()
 ; UseIcon = PB_RegistryManager.ico
 ; Executable = ..\PB_RegistryManager.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,6
-; VersionField1 = 1,0,1,6
+; VersionField0 = 1,0,1,7
+; VersionField1 = 1,0,1,7
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_RegistryManager
-; VersionField4 = 1.0.1.6
-; VersionField5 = 1.0.1.6
+; VersionField4 = 1.0.1.7
+; VersionField5 = 1.0.1.7
 ; VersionField6 = A full featured Registry Manager built with PureBasic
 ; VersionField7 = PB_RegistryManager
 ; VersionField8 = PB_RegistryManager.exe

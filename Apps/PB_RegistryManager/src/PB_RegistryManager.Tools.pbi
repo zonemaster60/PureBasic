@@ -3,26 +3,128 @@
 ;- Registry Cleaner
 
 Procedure SendCleanerMsg(msg.s, windowID.i, editorID.i)
-  PostEvent(#EVENT_CLEANER_MSG, windowID, 0, 0, UTF8(msg))
+  If editorID And IsGadget(editorID)
+    AddGadgetItem(editorID, -1, msg)
+    SetGadgetState(editorID, CountGadgetItems(editorID) - 1)
+    UpdateWindow_(GadgetID(editorID))
+  EndIf
+  LogInfo("RegistryCleaner", msg)
 EndProcedure
 
-Procedure CleanerThread(param.i)
-  Protected *p.CleanerParams = param
+Procedure.i ProcessCleanerUi(windowID.i, editorID.i, btnCancel.i)
+  Protected ev.i
+
+  While WindowEvent()
+    ev = Event()
+
+    Select EventWindow()
+      Case #WINDOW_CLEANER
+        Select ev
+          Case #PB_Event_CloseWindow
+            CleanerStopRequested = #True
+
+          Case #PB_Event_Gadget
+            If EventGadget() = btnCancel And Not CleanerStopRequested
+              CleanerStopRequested = #True
+              DisableGadget(btnCancel, #True)
+              UpdateStatusBar("Stopping registry scan...")
+              If editorID And IsGadget(editorID)
+                AddGadgetItem(editorID, -1, "Stop requested. Waiting for current section to finish...")
+                SetGadgetState(editorID, CountGadgetItems(editorID) - 1)
+                UpdateWindow_(GadgetID(editorID))
+              EndIf
+            EndIf
+        EndSelect
+
+      Case #WINDOW_MAIN
+        If ev = #PB_Event_CloseWindow
+          MessageRequester("Exit", "The Registry Cleaner is active. Close the cleaner first.", #PB_MessageRequester_Info)
+        EndIf
+    EndSelect
+  Wend
+
+  ProcedureReturn CleanerStopRequested
+EndProcedure
+
+Procedure.s ReadUninstallLocation(topKey.i, keyPath.s, wow64.i)
+  Protected samDesired.i = #KEY_READ
+  Protected hKey.i = 0
+  Protected valueType.l = 0
+  Protected dataSize.l = 0
+  Protected *buffer = 0
+  Protected result.s = ""
+
+  If wow64
+    samDesired | #KEY_WOW64_32KEY
+  Else
+    samDesired | #KEY_WOW64_64KEY
+  EndIf
+
+  If RegOpenKeyEx_(topKey, keyPath, 0, samDesired, @hKey) <> 0 Or hKey = 0
+    ProcedureReturn ""
+  EndIf
+
+  If RegQueryValueEx_(hKey, "InstallLocation", 0, @valueType, 0, @dataSize) = 0
+    If (valueType = #REG_SZ Or valueType = #REG_EXPAND_SZ) And dataSize >= 0
+      *buffer = AllocateMemory(dataSize + SizeOf(Character))
+      If *buffer
+        FillMemory(*buffer, dataSize + SizeOf(Character), 0)
+        If RegQueryValueEx_(hKey, "InstallLocation", 0, @valueType, *buffer, @dataSize) = 0
+          If valueType = #REG_EXPAND_SZ
+            Protected expandedChars.l = ExpandEnvironmentStrings_(*buffer, 0, 0)
+            If expandedChars > 0
+              Protected *expanded = AllocateMemory(expandedChars * SizeOf(Character))
+              If *expanded
+                If ExpandEnvironmentStrings_(*buffer, *expanded, expandedChars)
+                  result = PeekS(*expanded)
+                EndIf
+                FreeMemory(*expanded)
+              EndIf
+            EndIf
+          Else
+            result = PeekS(*buffer)
+          EndIf
+        EndIf
+        FreeMemory(*buffer)
+      EndIf
+    EndIf
+  EndIf
+
+  RegCloseKey_(hKey)
+  ProcedureReturn result
+EndProcedure
+
+Procedure RunCleanerScan(*p.CleanerParams)
   If *p = 0 : ProcedureReturn : EndIf
   
+  Protected windowID.i = *p\WindowID
+  Protected editorID.i = *p\EditorID
+  Protected btnCancel.i = *p\BtnClose
+  Protected muiCache.i = *p\MuiCache
+  Protected installerRefs.i = *p\InstallerRefs
+  Protected fileAssoc.i = *p\FileAssoc
+  Protected obsoleteSw.i = *p\ObsoleteSw
+  Protected shortcuts.i = *p\Shortcuts
+  Protected emptyKeys.i = *p\EmptyKeys
   Protected wow64.i = *p\Wow64
   Protected isCleaning.i = *p\IsCleaning
   Protected ret.Registry::RegValue
   Protected i.i, count.i, valName.s, subKeyName.s, cleanedCount.i = 0
+
+  If Not IsWindow(windowID)
+    ProcedureReturn
+  EndIf
   
-  SendCleanerMsg("--- Starting Registry Scan ---", *p\WindowID, *p\EditorID)
+  SendCleanerMsg("--- Starting Registry Scan ---", windowID, editorID)
+  ProcessCleanerUi(windowID, editorID, btnCancel)
   
-  ; MUI Cache Logic
-  If *p\MuiCache
+  If Not CleanerStopRequested And muiCache
+    SendCleanerMsg("Scanning MUI Cache...", windowID, editorID)
+    ProcessCleanerUi(windowID, editorID, btnCancel)
     Protected muiPath.s = "Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
     count = Registry::CountSubValues(#HKEY_CURRENT_USER, muiPath, wow64, @ret)
     For i = count - 1 To 0 Step -1
-      If CleanerStopRequested : Break : EndIf
+      If ProcessCleanerUi(windowID, editorID, btnCancel) : Break : EndIf
       valName = Registry::ListSubValue(#HKEY_CURRENT_USER, muiPath, i, wow64, @ret)
 
       If valName <> "" And FindString(valName, ":\", 1)
@@ -31,10 +133,10 @@ Procedure CleanerThread(param.i)
         If FindString(filePath, ",", 1) : filePath = StringField(filePath, 1, ",") : EndIf
         If FileSize(filePath) = -1
           If isCleaning
-            SendCleanerMsg("[MUI] Deleting: " + valName, *p\WindowID, *p\EditorID)
+            SendCleanerMsg("[MUI] Deleting: " + valName, windowID, editorID)
             If Registry::DeleteValue(#HKEY_CURRENT_USER, muiPath, valName, wow64, @ret) : cleanedCount + 1 : EndIf
           Else
-            SendCleanerMsg("[MUI] Broken Link: " + valName, *p\WindowID, *p\EditorID)
+            SendCleanerMsg("[MUI] Broken Link: " + valName, windowID, editorID)
             cleanedCount + 1
           EndIf
         EndIf
@@ -42,32 +144,33 @@ Procedure CleanerThread(param.i)
     Next
   EndIf
 
-  ; Installer Refs
-  If *p\InstallerRefs
+  If Not CleanerStopRequested And installerRefs
+    SendCleanerMsg("Scanning installer references...", windowID, editorID)
+    ProcessCleanerUi(windowID, editorID, btnCancel)
     Protected installPath.s = "Software\Microsoft\Windows\CurrentVersion\Installer\Folders"
     count = Registry::CountSubValues(#HKEY_CURRENT_USER, installPath, wow64, @ret)
     For i = count - 1 To 0 Step -1
-      If CleanerStopRequested : Break : EndIf
+      If ProcessCleanerUi(windowID, editorID, btnCancel) : Break : EndIf
       valName = Registry::ListSubValue(#HKEY_CURRENT_USER, installPath, i, wow64, @ret)
       If valName <> "" And FileSize(valName) = -1
         If isCleaning
-          SendCleanerMsg("[Installer] Deleting: " + valName, *p\WindowID, *p\EditorID)
+          SendCleanerMsg("[Installer] Deleting: " + valName, windowID, editorID)
           If Registry::DeleteValue(#HKEY_CURRENT_USER, installPath, valName, wow64, @ret) : cleanedCount + 1 : EndIf
         Else
-          SendCleanerMsg("[Installer] Missing Dir: " + valName, *p\WindowID, *p\EditorID)
+          SendCleanerMsg("[Installer] Missing Dir: " + valName, windowID, editorID)
           cleanedCount + 1
         EndIf
       EndIf
     Next
   EndIf
 
-  
-  ; File Associations
-  If *p\FileAssoc
+  If Not CleanerStopRequested And fileAssoc
+    SendCleanerMsg("Scanning file associations...", windowID, editorID)
+    ProcessCleanerUi(windowID, editorID, btnCancel)
     Protected classesPath.s = "Software\Classes"
     Protected assocCount.i = Registry::CountSubKeys(#HKEY_CURRENT_USER, classesPath, wow64, @ret)
     For i = assocCount - 1 To 0 Step -1
-      If CleanerStopRequested : Break : EndIf
+      If ProcessCleanerUi(windowID, editorID, btnCancel) : Break : EndIf
       subKeyName = Registry::ListSubKey(#HKEY_CURRENT_USER, classesPath, i, wow64, @ret)
       If Left(subKeyName, 1) = "."
         Protected progID.s = Registry::ReadValue(#HKEY_CURRENT_USER, classesPath + "\" + subKeyName, "", wow64, @ret)
@@ -77,10 +180,10 @@ Procedure CleanerThread(param.i)
              Registry::KeyExists(#HKEY_CLASSES_ROOT, progID, wow64) = #False
             
             If isCleaning
-              SendCleanerMsg("[Assoc] Deleting .ext: " + subKeyName, *p\WindowID, *p\EditorID)
+              SendCleanerMsg("[Assoc] Deleting .ext: " + subKeyName, windowID, editorID)
               If Registry::DeleteKey(#HKEY_CURRENT_USER, classesPath + "\" + subKeyName, wow64, @ret) : cleanedCount + 1 : EndIf
             Else
-              SendCleanerMsg("[Assoc] Broken .ext (" + subKeyName + ") -> " + progID, *p\WindowID, *p\EditorID)
+              SendCleanerMsg("[Assoc] Broken .ext (" + subKeyName + ") -> " + progID, windowID, editorID)
               cleanedCount + 1
             EndIf
           EndIf
@@ -89,44 +192,45 @@ Procedure CleanerThread(param.i)
     Next
   EndIf
   
-  ; Obsolete Software
-  If *p\ObsoleteSw
+  If Not CleanerStopRequested And obsoleteSw
+    SendCleanerMsg("Scanning uninstall entries...", windowID, editorID)
+    ProcessCleanerUi(windowID, editorID, btnCancel)
     Protected uninstallPath.s = "Software\Microsoft\Windows\CurrentVersion\Uninstall"
     Protected uCount.i
     
     ; Scan HKLM (64-bit/Standard)
     uCount = Registry::CountSubKeys(#HKEY_LOCAL_MACHINE, uninstallPath, wow64, @ret)
     For i = uCount - 1 To 0 Step -1
-      If CleanerStopRequested : Break : EndIf
+      If ProcessCleanerUi(windowID, editorID, btnCancel) : Break : EndIf
       subKeyName = Registry::ListSubKey(#HKEY_LOCAL_MACHINE, uninstallPath, i, wow64, @ret)
       Protected fullUPath.s = uninstallPath + "\" + subKeyName
-      Protected installLoc.s = Registry::ReadValue(#HKEY_LOCAL_MACHINE, fullUPath, "InstallLocation", wow64, @ret)
+      Protected installLoc.s = ReadUninstallLocation(#HKEY_LOCAL_MACHINE, fullUPath, wow64)
       If installLoc <> "" And FileSize(installLoc) = -1
         If isCleaning
-          SendCleanerMsg("[Software] Deleting: " + subKeyName, *p\WindowID, *p\EditorID)
+          SendCleanerMsg("[Software] Deleting: " + subKeyName, windowID, editorID)
           If Registry::DeleteKey(#HKEY_LOCAL_MACHINE, fullUPath, wow64, @ret) : cleanedCount + 1 : EndIf
         Else
-          SendCleanerMsg("[Software] Obsolete: " + subKeyName, *p\WindowID, *p\EditorID)
+          SendCleanerMsg("[Software] Obsolete: " + subKeyName, windowID, editorID)
           cleanedCount + 1
         EndIf
       EndIf
     Next
 
     ; Scan HKLM (WOW6432Node if on 64-bit)
-    If wow64
+    If Not CleanerStopRequested And wow64
       Protected wowPath.s = "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
       uCount = Registry::CountSubKeys(#HKEY_LOCAL_MACHINE, wowPath, wow64, @ret)
       For i = uCount - 1 To 0 Step -1
-        If CleanerStopRequested : Break : EndIf
+        If ProcessCleanerUi(windowID, editorID, btnCancel) : Break : EndIf
         subKeyName = Registry::ListSubKey(#HKEY_LOCAL_MACHINE, wowPath, i, wow64, @ret)
         Protected fullWPath.s = wowPath + "\" + subKeyName
-        Protected wowInstallLoc.s = Registry::ReadValue(#HKEY_LOCAL_MACHINE, fullWPath, "InstallLocation", wow64, @ret)
+        Protected wowInstallLoc.s = ReadUninstallLocation(#HKEY_LOCAL_MACHINE, fullWPath, wow64)
         If wowInstallLoc <> "" And FileSize(wowInstallLoc) = -1
           If isCleaning
-            SendCleanerMsg("[Software32] Deleting: " + subKeyName, *p\WindowID, *p\EditorID)
+            SendCleanerMsg("[Software32] Deleting: " + subKeyName, windowID, editorID)
             If Registry::DeleteKey(#HKEY_LOCAL_MACHINE, fullWPath, wow64, @ret) : cleanedCount + 1 : EndIf
           Else
-            SendCleanerMsg("[Software32] Obsolete: " + subKeyName, *p\WindowID, *p\EditorID)
+            SendCleanerMsg("[Software32] Obsolete: " + subKeyName, windowID, editorID)
             cleanedCount + 1
           EndIf
         EndIf
@@ -134,32 +238,34 @@ Procedure CleanerThread(param.i)
     EndIf
     
     ; Scan HKCU
-    uCount = Registry::CountSubKeys(#HKEY_CURRENT_USER, uninstallPath, wow64, @ret)
-    For i = uCount - 1 To 0 Step -1
-      If CleanerStopRequested : Break : EndIf
-      subKeyName = Registry::ListSubKey(#HKEY_CURRENT_USER, uninstallPath, i, wow64, @ret)
-      Protected fullCUPath.s = uninstallPath + "\" + subKeyName
-      Protected cuInstallLoc.s = Registry::ReadValue(#HKEY_CURRENT_USER, fullCUPath, "InstallLocation", wow64, @ret)
-      If cuInstallLoc <> "" And FileSize(cuInstallLoc) = -1
-        If isCleaning
-          SendCleanerMsg("[User Software] Deleting: " + subKeyName, *p\WindowID, *p\EditorID)
-          If Registry::DeleteKey(#HKEY_CURRENT_USER, fullCUPath, wow64, @ret) : cleanedCount + 1 : EndIf
-        Else
-          SendCleanerMsg("[User Software] Obsolete: " + subKeyName, *p\WindowID, *p\EditorID)
-          cleanedCount + 1
+    If Not CleanerStopRequested
+      uCount = Registry::CountSubKeys(#HKEY_CURRENT_USER, uninstallPath, wow64, @ret)
+      For i = uCount - 1 To 0 Step -1
+        If ProcessCleanerUi(windowID, editorID, btnCancel) : Break : EndIf
+        subKeyName = Registry::ListSubKey(#HKEY_CURRENT_USER, uninstallPath, i, wow64, @ret)
+        Protected fullCUPath.s = uninstallPath + "\" + subKeyName
+        Protected cuInstallLoc.s = ReadUninstallLocation(#HKEY_CURRENT_USER, fullCUPath, wow64)
+        If cuInstallLoc <> "" And FileSize(cuInstallLoc) = -1
+          If isCleaning
+            SendCleanerMsg("[User Software] Deleting: " + subKeyName, windowID, editorID)
+            If Registry::DeleteKey(#HKEY_CURRENT_USER, fullCUPath, wow64, @ret) : cleanedCount + 1 : EndIf
+          Else
+            SendCleanerMsg("[User Software] Obsolete: " + subKeyName, windowID, editorID)
+            cleanedCount + 1
+          EndIf
         EndIf
-      EndIf
-    Next
+      Next
+    EndIf
   EndIf
 
-  ; Broken Shortcuts / Recent Documents
-
-  If *p\Shortcuts
+  If Not CleanerStopRequested And shortcuts
+    SendCleanerMsg("Scanning recent documents...", windowID, editorID)
+    ProcessCleanerUi(windowID, editorID, btnCancel)
     Protected recentPath.s = GetHomeDirectory() + "AppData\Roaming\Microsoft\Windows\Recent"
     Protected dir.i = ExamineDirectory(#PB_Any, recentPath, "*.lnk")
     If dir
       While NextDirectoryEntry(dir)
-        If CleanerStopRequested : Break : EndIf
+        If ProcessCleanerUi(windowID, editorID, btnCancel) : Break : EndIf
         If DirectoryEntryType(dir) = #PB_DirectoryEntry_File
           Protected lnkFile.s = recentPath + "\" + DirectoryEntryName(dir)
           ; For simplicity in this tool, we check if the shortcut file itself is valid 
@@ -174,11 +280,11 @@ Procedure CleanerThread(param.i)
     Protected recentDocsReg.s = "Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs"
     count = Registry::CountSubValues(#HKEY_CURRENT_USER, recentDocsReg, wow64, @ret)
     For i = count - 1 To 0 Step -1
-      If CleanerStopRequested : Break : EndIf
+      If ProcessCleanerUi(windowID, editorID, btnCancel) : Break : EndIf
       valName = Registry::ListSubValue(#HKEY_CURRENT_USER, recentDocsReg, i, wow64, @ret)
       ; RecentDocs contains MRUList and numbered values. Numbered values are hex.
       If valName <> "MRUList" And valName <> ""
-        SendCleanerMsg("[Recent] Cleaning entry: " + valName, *p\WindowID, *p\EditorID)
+        SendCleanerMsg("[Recent] Cleaning entry: " + valName, windowID, editorID)
         If isCleaning
           If Registry::DeleteValue(#HKEY_CURRENT_USER, recentDocsReg, valName, wow64, @ret) : cleanedCount + 1 : EndIf
         Else
@@ -188,17 +294,18 @@ Procedure CleanerThread(param.i)
     Next
   EndIf
 
-  ; Empty Registry Keys Logic
-  If *p\EmptyKeys
+  If Not CleanerStopRequested And emptyKeys
+    SendCleanerMsg("Scanning empty keys...", windowID, editorID)
+    ProcessCleanerUi(windowID, editorID, btnCancel)
     Protected scanPath.s = "Software"
     Protected sKeyCount.i = Registry::CountSubKeys(#HKEY_CURRENT_USER, scanPath, wow64, @ret)
     For i = sKeyCount - 1 To 0 Step -1
-      If CleanerStopRequested : Break : EndIf
+      If ProcessCleanerUi(windowID, editorID, btnCancel) : Break : EndIf
       subKeyName = Registry::ListSubKey(#HKEY_CURRENT_USER, scanPath, i, wow64, @ret)
       Protected fullScanPath.s = scanPath + "\" + subKeyName
       If Registry::CountSubKeys(#HKEY_CURRENT_USER, fullScanPath, wow64, @ret) = 0 And 
          Registry::CountSubValues(#HKEY_CURRENT_USER, fullScanPath, wow64, @ret) = 0
-        SendCleanerMsg("[Empty] Orphan Key: HKCU\" + fullScanPath, *p\WindowID, *p\EditorID)
+        SendCleanerMsg("[Empty] Orphan Key: HKCU\" + fullScanPath, windowID, editorID)
         If isCleaning
           If Registry::DeleteKey(#HKEY_CURRENT_USER, fullScanPath, wow64, @ret) : cleanedCount + 1 : EndIf
         Else
@@ -208,20 +315,15 @@ Procedure CleanerThread(param.i)
     Next
   EndIf
 
-  If isCleaning
-    SendCleanerMsg("--- Cleanup Finished ---", *p\WindowID, *p\EditorID)
-    SendCleanerMsg("Successfully removed " + Str(cleanedCount) + " items.", *p\WindowID, *p\EditorID)
+  If CleanerStopRequested
+    SendCleanerMsg("--- Scan Stopped ---", windowID, editorID)
+  ElseIf isCleaning
+    SendCleanerMsg("--- Cleanup Finished ---", windowID, editorID)
+    SendCleanerMsg("Successfully removed " + Str(cleanedCount) + " items.", windowID, editorID)
   Else
-    SendCleanerMsg("--- Scan Finished ---", *p\WindowID, *p\EditorID)
-    SendCleanerMsg("Found " + Str(cleanedCount) + " items that can be safely removed.", *p\WindowID, *p\EditorID)
+    SendCleanerMsg("--- Scan Finished ---", windowID, editorID)
+    SendCleanerMsg("Found " + Str(cleanedCount) + " items that can be safely removed.", windowID, editorID)
   EndIf
-
-  
-  PostEvent(#EVENT_CLEANER_DONE, *p\WindowID, 0, 0, isCleaning)
-  
-  ; Ensure thread variable is cleared BEFORE the event might be processed
-  CleanerThreadID = 0
-  FreeStructure(*p)
 EndProcedure
 
 
@@ -229,11 +331,6 @@ Procedure CleanRegistry()
   Protected window.i, result.i, ev.i, quitCleaner.i = #False
   
   LogInfo("CleanRegistry", "Opening registry cleaner dialog")
-  
-  ; MANDATORY backup before cleaning
-  If Not EnsureBackupBeforeChange("Clean registry (remove invalid entries)")
-    ProcedureReturn
-  EndIf
   
   window = OpenWindow(#WINDOW_CLEANER, 0, 0, 500, 450, "Registry Cleaner", #PB_Window_SystemMenu | #PB_Window_WindowCentered, WindowID(#WINDOW_MAIN))
   If window
@@ -249,8 +346,10 @@ Procedure CleanRegistry()
     CheckBoxGadget(107, 20, 165, 400, 20, "Empty Registry Keys (Safe scan)") : SetGadgetState(107, #True)
     
     EditorGadget(105, 10, 200, 480, 150, #PB_Editor_ReadOnly)
-    AddGadgetItem(105, -1, "BACKUP CREATED: " + AutoBackupPath)
-    AddGadgetItem(105, -1, "Ready to scan.")
+    If AutoBackupPath <> ""
+      AddGadgetItem(105, -1, "Last backup: " + AutoBackupPath)
+    EndIf
+    AddGadgetItem(105, -1, "Ready to scan. A safety backup will be created before cleaning.")
     
     Define btnScanOnly = ButtonGadget(#PB_Any, 50, 370, 100, 30, "Scan Only")
     Define btnStartClean = ButtonGadget(#PB_Any, 160, 370, 100, 30, "Clean Now")
@@ -260,31 +359,6 @@ Procedure CleanRegistry()
     
     Repeat
       ev = WaitWindowEvent()
-      
-      If ev = #EVENT_CLEANER_MSG
-        Protected *msg = EventData()
-        If *msg
-          AddGadgetItem(105, -1, PeekS(*msg, -1, #PB_UTF8))
-          FreeMemory(*msg)
-        EndIf
-      ElseIf ev = #EVENT_CLEANER_DONE
-        UpdateStatusBar("Registry scan complete.")
-        ; Re-enable the Scan and Close buttons
-        DisableGadget(btnScanOnly, #False)
-        DisableGadget(btnCancelClean, #False)
-        
-        ; IMPORTANT: Enable the Clean Now button if we just finished a scan (EventData() = #False)
-        ; Check BOTH the parameter passed via PostEvent AND the thread variable
-        If EventData() = #False 
-          DisableGadget(btnStartClean, #False)
-          ; Force a gadget refresh for Windows
-          UpdateWindow_(GadgetID(btnStartClean))
-        Else
-          ; If we just finished a CLEAN operation, disable it again.
-          DisableGadget(btnStartClean, #True)
-          UpdateWindow_(GadgetID(btnStartClean))
-        EndIf
-      EndIf
       
       ; Router: Identify which window the event belongs to
       Select EventWindow()
@@ -300,38 +374,50 @@ Procedure CleanRegistry()
                   If EventGadget() = btnStartClean : isCleaning = #True : EndIf
                   
                   If isCleaning
-                     If MessageRequester("Final Confirmation", "Delete all flagged items?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning) <> #PB_MessageRequester_Yes
-                       isCleaning = #False
-                       Continue
-                     EndIf
+                      If MessageRequester("Final Confirmation", "Delete all flagged items?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning) <> #PB_MessageRequester_Yes
+                        isCleaning = #False
+                        Continue
+                      EndIf
+
+                      If Not EnsureBackupBeforeChange("Clean registry (remove invalid entries)")
+                        Continue
+                      EndIf
                   EndIf
                   
                   ClearGadgetItems(105)
                   DisableGadget(btnScanOnly, #True)
                   DisableGadget(btnStartClean, #True)
-                  DisableGadget(btnCancelClean, #True)
-                  
+                  DisableGadget(btnCancelClean, #False)
+                  SetGadgetText(btnCancelClean, "Stop")
+
                   CleanerStopRequested = #False
                   UpdateStatusBar("Scanning registry...")
+                  AddGadgetItem(105, -1, "Starting scan...")
                   
-                  Protected *p.CleanerParams = AllocateStructure(CleanerParams)
-                  If *p
-                    *p\MuiCache = GetGadgetState(101)
-                    *p\FileAssoc = GetGadgetState(102)
-                    *p\ObsoleteSw = GetGadgetState(103)
-                    *p\Shortcuts = GetGadgetState(104)
-                    *p\InstallerRefs = GetGadgetState(106)
-                    *p\EmptyKeys = GetGadgetState(107)
-                    *p\IsCleaning = isCleaning
-                    *p\Wow64 = GetRegistryWow64Flag()
-                    *p\WindowID = window
-                    *p\EditorID = 105
-                    *p\BtnScan = btnScanOnly
-                    *p\BtnClean = btnStartClean
-                    *p\BtnClose = btnCancelClean
-                    
-                    CleanerThreadID = CreateThread(@CleanerThread(), *p)
+                  Protected scanParams.CleanerParams
+                  scanParams\MuiCache = GetGadgetState(101)
+                  scanParams\FileAssoc = GetGadgetState(102)
+                  scanParams\ObsoleteSw = GetGadgetState(103)
+                  scanParams\Shortcuts = GetGadgetState(104)
+                  scanParams\InstallerRefs = GetGadgetState(106)
+                  scanParams\EmptyKeys = GetGadgetState(107)
+                  scanParams\IsCleaning = isCleaning
+                  scanParams\Wow64 = GetRegistryWow64Flag()
+                  scanParams\WindowID = #WINDOW_CLEANER
+                  scanParams\EditorID = 105
+                  scanParams\BtnClose = btnCancelClean
+
+                  RunCleanerScan(@scanParams)
+
+                  DisableGadget(btnScanOnly, #False)
+                  DisableGadget(btnCancelClean, #False)
+                  SetGadgetText(btnCancelClean, "Close")
+                  If CleanerStopRequested Or isCleaning
+                    DisableGadget(btnStartClean, #True)
+                  Else
+                    DisableGadget(btnStartClean, #False)
                   EndIf
+                  UpdateStatusBar("Registry scan complete.")
                   
                 Case btnCancelClean
                   quitCleaner = #True
@@ -351,12 +437,6 @@ Procedure CleanRegistry()
       EndSelect
       
     Until quitCleaner = #True
-    
-    ; Cleanup: Ensure thread is signaled to stop if it was running
-    If CleanerThreadID And IsThread(CleanerThreadID)
-      CleanerStopRequested = #True
-      WaitThread(CleanerThreadID, 500) ; Give it a brief moment
-    EndIf
     
     CloseWindow(#WINDOW_CLEANER)
   EndIf
