@@ -1137,7 +1137,7 @@ EndIf
 LogLine("Provider source: " + gProvidersFile)
 LogLine("Provider count: " + Str(ListSize(Providers())))
 
-  If OpenWindow(#WinMain, 0, 0, 920, 560, #APP_NAME + version + " - Windows 11", #PB_Window_SystemMenu | #PB_Window_ScreenCentered |
+  If OpenWindow(#WinMain, 0, 0, 920, 560, #APP_NAME + " - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered |
                                                                                          #PB_Window_MinimizeGadget | #PB_Window_Invisible)
 
   TextGadget(#PB_Any, 14, 14, 70, 20, "Adapter:")
@@ -1487,9 +1487,9 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
     CloseLogging()
     End
 EndIf
-; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 19
-; FirstLine = 437
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 1470
+; FirstLine = 1431
 ; Folding = --------
 ; Optimizer
 ; EnableThread
