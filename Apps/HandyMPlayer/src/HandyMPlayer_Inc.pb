@@ -90,6 +90,9 @@ Enumeration
   #Command_SizeDefault
   #Command_SizeX1
   #Command_SizeX2
+  #Command_ShowPlaylist
+  #Command_ShowLyrics
+  #Command_ShowArtwork
   #Command_About
 EndEnumeration
 

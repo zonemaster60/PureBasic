@@ -119,16 +119,23 @@ Procedure.s GetHelpText()
   helpText + "- Queue Clear empties the queue." + #CRLF$ + #CRLF$
   helpText + "Artwork" + #CRLF$
   helpText + "- Audio tracks can show embedded artwork or artwork found in the same folder." + #CRLF$
+  helpText + "- Saved artwork in the downloads\\album-art folder is loaded automatically for matching tracks." + #CRLF$
   helpText + "- Common folder artwork names include cover, folder, front, album, artwork, or the same basename as the track." + #CRLF$
   helpText + "- Supported folder artwork formats include JPG, JPEG, PNG, GIF, and BMP." + #CRLF$
   helpText + "- Click the artwork image to open a larger preview." + #CRLF$ + #CRLF$
+  helpText + "Lyrics" + #CRLF$
+  helpText + "- Lyrics embedded in supported audio files are loaded automatically when a track is opened." + #CRLF$
+  helpText + "- Saved lyrics in the downloads\\lyrics folder are loaded automatically for matching tracks." + #CRLF$
+  helpText + "- You can attach a .txt or .lrc file by dropping it onto the main window while an audio track is loaded." + #CRLF$
+  helpText + "- Downloaded or attached lyrics can be reopened from View > Lyrics." + #CRLF$ + #CRLF$
   helpText + "Tips" + #CRLF$
   helpText + "- If the music tree looks out of date, reload the folder." + #CRLF$
   helpText + "- For best metadata display, keep filenames in Artist - Title format when tags are missing." + #CRLF$
   helpText + "- The current library root, current playlist, sidebar width, and queue are remembered between runs." + #CRLF$ + #CRLF$
   helpText + "Troubleshooting" + #CRLF$
   helpText + "- If a selected file does not play, try double-clicking it in the tree or adding it to the playlist first." + #CRLF$
-  helpText + "- If artwork does not appear, check for embedded art or an image file in the same folder as the track." + #CRLF$
+  helpText + "- If artwork does not appear, check for saved artwork, embedded art, or an image file in the same folder as the track." + #CRLF$
+  helpText + "- If lyrics do not appear, check for saved lyrics, embedded lyrics, or attach/download lyrics for the track." + #CRLF$
   helpText + "- Video resizing commands affect video files only." + #CRLF$
 
   ProcedureReturn helpText
@@ -187,8 +194,7 @@ EndProcedure
 
 Procedure ShowPlaylistWindow()
   If IsWindow(#Window_Playlist) = 0
-    If OpenWindow(#Window_Playlist, #PB_Ignore, #PB_Ignore, #PlaylistWindowWidth, #PlaylistWindowHeight, #APP_NAME + " Playlist", #PB_Window_SystemMenu | #PB_Window_SizeGadget |
-                                                                                                                                  #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered, WindowID(#Window_Main))
+    If OpenWindow(#Window_Playlist, #PB_Ignore, #PB_Ignore, #PlaylistWindowWidth, #PlaylistWindowHeight, "Playlist", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered, WindowID(#Window_Main))
       TextGadget(#Gadget_PlaylistTitle, 10, 10, 200, 18, "Playlist")
       TrackBarGadget(#Gadget_PlaylistProgress, 10, 32, 390, #ProgressBarHeight + 6, 0, #ProgressScaleMax)
       TextGadget(#Gadget_PlaylistNowPlaying, 10, 56, 390, 18, "Now Playing: nothing loaded")
@@ -228,3 +234,11 @@ Procedure ShowPlaylistWindow()
     SetActiveWindow(#Window_Playlist)
   EndIf
 EndProcedure
+
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 189
+; FirstLine = 159
+; Folding = --
+; EnableXP
+; DPIAware
+; Executable = ..\HandyMPlayer.exe

@@ -126,6 +126,10 @@ Procedure Main()
         MenuItem(#Command_BalanceLeft, "Left (L)")
         MenuItem(#Command_BalanceRight, "Right (R)")
       CloseSubMenu()
+      MenuTitle("View")
+      MenuItem(#Command_ShowPlaylist, "Playlist")
+      MenuItem(#Command_ShowLyrics, "Lyrics")
+      MenuItem(#Command_ShowArtwork, "Artwork")
       MenuTitle("Help")
       MenuItem(#Command_Help, "Help")
       MenuItem(#Command_About, "About")
@@ -334,7 +338,16 @@ Procedure Main()
             
             Case #Command_Help ; Help
                ShowHelpWindow()
-            
+
+            Case #Command_ShowPlaylist
+               ShowPlaylistWindow()
+
+            Case #Command_ShowLyrics
+               ShowLyricsWindow()
+
+            Case #Command_ShowArtwork
+               ShowArtworkPreview()
+             
           ; ------------------ Size ---------------------
  
            Case #Command_SizeDefault ; Default (50%)
@@ -596,6 +609,7 @@ End
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 72
+; FirstLine = 23
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -606,12 +620,12 @@ End
 ; Executable = ..\HandyMPlayer.exe
 ; Debugger = IDE
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,2
-; VersionField1 = 1,0,3,2
+; VersionField0 = 1,0,3,4
+; VersionField1 = 1,0,3,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyMPlayer
-; VersionField4 = 1.0.3.2
-; VersionField5 = 1.0.3.2
+; VersionField4 = 1.0.3.4
+; VersionField5 = 1.0.3.4
 ; VersionField6 = A Handy Compact Media Player
 ; VersionField7 = HandyMPlayer
 ; VersionField8 = HandyMPlayer.exe

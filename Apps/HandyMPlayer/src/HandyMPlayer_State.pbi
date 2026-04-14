@@ -1,7 +1,7 @@
 Global isUserSeeking.i = 0
 
 ; Global variables moved to State structure or handled by Include
-Global version.s = "v1.0.3.2"
+Global version.s = "v1.0.3.4"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -93,7 +93,9 @@ Declare.i FillTrackMetadataFromPath(path.s, *metadata.TrackMetadata)
 Declare.s GetSelectedLibraryFile()
 Declare.i LoadArtworkImage(filePath.s)
 Declare.i DownloadAlbumArtToFile(*metadata.TrackMetadata, *targetFile.String)
+Declare.s FindArtworkFileForTrack(*metadata.TrackMetadata)
 Declare.i DownloadLyricsText(*metadata.TrackMetadata, *lyrics.String)
+Declare.s FindLyricsFileForTrack(*metadata.TrackMetadata)
 Declare ShowLyricsWindow()
 Declare UpdateLyricsWindow()
 Declare ClearArtworkImage()

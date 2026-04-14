@@ -702,6 +702,35 @@ Procedure.i DownloadAlbumArtToFile(*metadata.TrackMetadata, *targetFile.String)
   ProcedureReturn #True
 EndProcedure
 
+Procedure.s FindArtworkFileForTrack(*metadata.TrackMetadata)
+  Protected artworkFolder.s
+  Protected candidate.s
+  Protected baseName.s
+
+  If *metadata = 0
+    ProcedureReturn ""
+  EndIf
+
+  artworkFolder = AppPath + #AlbumArtFolder
+
+  If *metadata\safeBaseName <> ""
+    baseName = *metadata\safeBaseName
+
+    candidate = artworkFolder + baseName + ".png"
+    If FileSize(candidate) >= 0 : ProcedureReturn candidate : EndIf
+    candidate = artworkFolder + baseName + ".jpg"
+    If FileSize(candidate) >= 0 : ProcedureReturn candidate : EndIf
+    candidate = artworkFolder + baseName + ".jpeg"
+    If FileSize(candidate) >= 0 : ProcedureReturn candidate : EndIf
+    candidate = artworkFolder + baseName + ".gif"
+    If FileSize(candidate) >= 0 : ProcedureReturn candidate : EndIf
+    candidate = artworkFolder + baseName + ".bmp"
+    If FileSize(candidate) >= 0 : ProcedureReturn candidate : EndIf
+  EndIf
+
+  ProcedureReturn ""
+EndProcedure
+
 Procedure.i DownloadLyricsText(*metadata.TrackMetadata, *lyrics.String)
   Protected lookup.TrackLookup
   Protected response.s
@@ -751,6 +780,37 @@ Procedure.i DownloadLyricsText(*metadata.TrackMetadata, *lyrics.String)
 
   *lyrics\s = response
   ProcedureReturn #True
+EndProcedure
+
+Procedure.s FindLyricsFileForTrack(*metadata.TrackMetadata)
+  Protected lyricsFolder.s
+  Protected candidate.s
+  Protected baseName.s
+
+  If *metadata = 0
+    ProcedureReturn ""
+  EndIf
+
+  lyricsFolder = AppPath + #LyricsFolder
+
+  If *metadata\safeBaseName <> ""
+    baseName = *metadata\safeBaseName
+
+    candidate = lyricsFolder + baseName + ".txt"
+    If FileSize(candidate) >= 0 : ProcedureReturn candidate : EndIf
+    candidate = lyricsFolder + baseName + ".lrc"
+    If FileSize(candidate) >= 0 : ProcedureReturn candidate : EndIf
+    candidate = lyricsFolder + baseName + "-attached.txt"
+    If FileSize(candidate) >= 0 : ProcedureReturn candidate : EndIf
+    candidate = lyricsFolder + baseName + "-attached.lrc"
+    If FileSize(candidate) >= 0 : ProcedureReturn candidate : EndIf
+    candidate = lyricsFolder + baseName + "-embedded.txt"
+    If FileSize(candidate) >= 0 : ProcedureReturn candidate : EndIf
+    candidate = lyricsFolder + baseName + "-embedded.lrc"
+    If FileSize(candidate) >= 0 : ProcedureReturn candidate : EndIf
+  EndIf
+
+  ProcedureReturn ""
 EndProcedure
 
 Procedure.i ExtractMetadataFromFilename(fileName.s, *metadata.TrackMetadata)

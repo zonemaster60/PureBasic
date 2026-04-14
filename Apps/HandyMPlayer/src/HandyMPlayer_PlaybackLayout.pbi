@@ -638,7 +638,10 @@ EndProcedure
 
 Procedure LoadFile(path.s)
   Protected embedded.EmbeddedMediaInfo
+  Protected metadata.TrackMetadata
+  Protected existingArtworkFile.s
   Protected folderArtwork.s
+  Protected existingLyricsFile.s
 
   If path = "" : ProcedureReturn : EndIf
 
@@ -683,6 +686,25 @@ Procedure LoadFile(path.s)
     State\audioTotalMS = 0
     State\audioTotalFrames = 0
     If State\movieHasVideo = 0
+      FillTrackMetadataFromPath(path, @metadata)
+      existingArtworkFile = FindArtworkFileForTrack(@metadata)
+      existingLyricsFile = FindLyricsFileForTrack(@metadata)
+
+      If existingArtworkFile <> "" And LoadArtworkImage(existingArtworkFile)
+        State\artworkSource = "downloaded"
+      EndIf
+
+      If existingLyricsFile <> ""
+        State\lyricsFile = existingLyricsFile
+        If Right(LCase(GetFilePart(existingLyricsFile)), 12) = "-attached.txt" Or Right(LCase(GetFilePart(existingLyricsFile)), 12) = "-attached.lrc"
+          State\lyricsSource = "attached"
+        ElseIf Right(LCase(GetFilePart(existingLyricsFile)), 12) = "-embedded.txt" Or Right(LCase(GetFilePart(existingLyricsFile)), 12) = "-embedded.lrc"
+          State\lyricsSource = "embedded"
+        Else
+          State\lyricsSource = "downloaded"
+        EndIf
+      EndIf
+
       ExtractEmbeddedMediaInfo(path, @embedded)
       If embedded\artist <> "" : State\artist = embedded\artist : EndIf
       If embedded\title <> "" : State\title = embedded\title : EndIf
@@ -691,7 +713,7 @@ Procedure LoadFile(path.s)
       ElseIf State\fileName <> ""
         State\metadataSource = "filename"
       EndIf
-      If embedded\lyrics <> ""
+      If State\lyricsFile = "" And embedded\lyrics <> ""
         If EnsureDirectoryPath(AppPath + #LyricsFolder)
           State\lyricsFile = AppPath + #LyricsFolder + SanitizeFileComponent(GetTrackDisplayName()) + "-embedded.txt"
           If CreateFile(0, State\lyricsFile)
@@ -705,7 +727,9 @@ Procedure LoadFile(path.s)
       EndIf
       folderArtwork = FindFolderArtwork(path)
 
-      If embedded\artworkFile <> "" And LoadArtworkImage(embedded\artworkFile)
+      If State\artworkFile <> ""
+        ResizeMainForAudio(#True)
+      ElseIf embedded\artworkFile <> "" And LoadArtworkImage(embedded\artworkFile)
         State\artworkSource = "embedded"
         ResizeMainForAudio(#True)
       ElseIf folderArtwork <> "" And LoadArtworkImage(folderArtwork)
