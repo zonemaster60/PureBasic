@@ -12,6 +12,7 @@
 #Window_Lyrics = 2
 #Window_ArtworkPreview = 3
 #Window_Help = 4
+#Window_Playlist = 5
 
 #Gadget_Progress = 0
 #Gadget_Artwork = 1
@@ -44,6 +45,12 @@
 #Gadget_QueueDown = 28
 #Gadget_QueueRemove = 29
 #Gadget_HelpEditor = 30
+#Gadget_PlaylistPlay = 31
+#Gadget_PlaylistPause = 32
+#Gadget_PlaylistStop = 33
+#Gadget_PlaylistShuffle = 34
+#Gadget_PlaylistProgress = 35
+#Gadget_PlaylistNowPlaying = 36
 
 Enumeration
   #MovieState_Ready
@@ -66,6 +73,9 @@ Enumeration
   #Command_ContextReveal
   #Command_PlayPrevious
   #Command_PlayNext
+  #Command_PlaybackContinuous
+  #Command_PlaybackShuffle
+  #Command_PlaybackRepeat
   #Command_PlaylistRemove
   #Command_PlaylistClear
   #Command_PlaylistMoveUp
@@ -103,6 +113,8 @@ EndEnumeration
 #ArtworkPreviewWindowHeight = 700
 #HelpWindowWidth = 860
 #HelpWindowHeight = 700
+#PlaylistWindowWidth = 420
+#PlaylistWindowHeight = 520
 
 #DownloadFolder = "downloads\"
 #AlbumArtFolder = #DownloadFolder + "album-art\"
