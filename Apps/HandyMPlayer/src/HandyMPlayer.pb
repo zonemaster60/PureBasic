@@ -130,6 +130,8 @@ Procedure Main()
       MenuItem(#Command_ShowPlaylist, "Playlist")
       MenuItem(#Command_ShowLyrics, "Lyrics")
       MenuItem(#Command_ShowArtwork, "Artwork")
+      MenuItem(#Command_ShowVideo, "Video")
+      MenuItem(#Command_ShowVisualization, "Visualization")
       MenuTitle("Help")
       MenuItem(#Command_Help, "Help")
       MenuItem(#Command_About, "About")
@@ -340,14 +342,20 @@ Procedure Main()
                ShowHelpWindow()
 
             Case #Command_ShowPlaylist
-               ShowPlaylistWindow()
+               TogglePlaylistWindow()
 
             Case #Command_ShowLyrics
-               ShowLyricsWindow()
+               ToggleLyricsWindow()
 
             Case #Command_ShowArtwork
-               ShowArtworkPreview()
-             
+               ToggleArtworkPreviewWindow()
+
+            Case #Command_ShowVideo
+               ToggleVideoWindow()
+
+            Case #Command_ShowVisualization
+               ToggleVisualizationWindow()
+              
           ; ------------------ Size ---------------------
  
            Case #Command_SizeDefault ; Default (50%)
@@ -408,6 +416,10 @@ Procedure Main()
           HideWindow(#Window_Help, 1)
         ElseIf EventWindow() = #Window_Playlist
           HideWindow(#Window_Playlist, 1)
+        ElseIf EventWindow() = #Window_Video
+          HideWindow(#Window_Video, 1)
+        ElseIf EventWindow() = #Window_Visualization
+          HideWindow(#Window_Visualization, 1)
         EndIf
         
       Case #PB_Event_SizeWindow
@@ -419,6 +431,11 @@ Procedure Main()
         ElseIf EventWindow() = #Window_ArtworkPreview And IsGadget(#Gadget_ArtworkScroll)
           ResizeGadget(#Gadget_ArtworkScroll, 0, 0, WindowWidth(#Window_ArtworkPreview, #PB_Window_InnerCoordinate), WindowHeight(#Window_ArtworkPreview, #PB_Window_InnerCoordinate))
           UpdateArtworkPreview()
+        ElseIf EventWindow() = #Window_Video And State\movieHasVideo And IsMovie(0)
+          ResizeMovie(0, 0, 0, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate))
+        ElseIf EventWindow() = #Window_Visualization And IsGadget(#Gadget_VisualizationCanvas)
+          ResizeGadget(#Gadget_VisualizationCanvas, 0, 0, WindowWidth(#Window_Visualization, #PB_Window_InnerCoordinate), WindowHeight(#Window_Visualization, #PB_Window_InnerCoordinate))
+          UpdateVisualizationWindow()
         ElseIf EventWindow() = #Window_Help And IsGadget(#Gadget_HelpEditor)
           ResizeGadget(#Gadget_HelpEditor, 0, 0, WindowWidth(#Window_Help, #PB_Window_InnerCoordinate), WindowHeight(#Window_Help, #PB_Window_InnerCoordinate))
         ElseIf EventWindow() = #Window_Playlist
@@ -506,9 +523,13 @@ Procedure Main()
               If State\sidebarWidth > #SidebarMaxWidth : State\sidebarWidth = #SidebarMaxWidth : EndIf
               UpdateLayout()
             EndIf
-          EndIf
+            EndIf
 
           If State\movieLoaded
+            If IsWindow(#Window_Visualization)
+              UpdateVisualizationWindow()
+            EndIf
+
             now = ElapsedMilliseconds()
             st = MovieStatus(0) ; -1 paused, 0 stopped, >0 current frame
 
@@ -608,8 +629,7 @@ Main()
 End
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 72
-; FirstLine = 23
+; CursorPosition = 51
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -620,12 +640,12 @@ End
 ; Executable = ..\HandyMPlayer.exe
 ; Debugger = IDE
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,4
-; VersionField1 = 1,0,3,4
+; VersionField0 = 1,0,3,5
+; VersionField1 = 1,0,3,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyMPlayer
-; VersionField4 = 1.0.3.4
-; VersionField5 = 1.0.3.4
+; VersionField4 = 1.0.3.5
+; VersionField5 = 1.0.3.5
 ; VersionField6 = A Handy Compact Media Player
 ; VersionField7 = HandyMPlayer
 ; VersionField8 = HandyMPlayer.exe

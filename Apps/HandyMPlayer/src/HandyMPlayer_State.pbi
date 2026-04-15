@@ -1,7 +1,7 @@
 Global isUserSeeking.i = 0
 
 ; Global variables moved to State structure or handled by Include
-Global version.s = "v1.0.3.4"
+Global version.s = "v1.0.3.5"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -118,7 +118,16 @@ Declare.i GetSelectedPlaylistIndex()
 Declare.s GetPlaylistPathAtIndex(index.i)
 Declare PlaySelectedPlaylistItem()
 Declare ShowArtworkPreview()
+Declare ShowVideoWindow()
 Declare UpdateArtworkPreview()
+Declare ShowVisualizationWindow()
+Declare UpdateVisualizationWindow()
+Declare ToggleArtworkPreviewWindow()
+Declare ToggleLyricsWindow()
+Declare ToggleHelpWindow()
+Declare TogglePlaylistWindow()
+Declare ToggleVideoWindow()
+Declare ToggleVisualizationWindow()
 Declare.s QuoteArg(value.s)
 Declare.i IsMediaFile(path.s)
 Declare BuildLibraryTree(rootPath.s)

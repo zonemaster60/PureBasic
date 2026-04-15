@@ -43,8 +43,11 @@ Procedure StartLoadedPlayback()
   EndIf
 
   If State\movieHasVideo
-    EnsureVideoHostWindow()
+    ShowVideoWindow()
     PlayMovie(0, WindowID(#Window_Video))
+    If IsWindow(#Window_Video)
+      ResizeMovie(0, 0, 0, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate))
+    EndIf
   Else
     PlayMovie(0, WindowID(#Window_Main))
     State\audioStartMS = ElapsedMilliseconds()
@@ -127,7 +130,6 @@ Procedure ResetPlaybackState(clearMediaInfo.i = #True)
 
   If IsWindow(#Window_Video)
     HideWindow(#Window_Video, 1)
-    ResizeWindow(#Window_Video, 0, 0, 0, 0)
   EndIf
 EndProcedure
 
@@ -309,24 +311,25 @@ Procedure.q MovieLengthMS(movie.i)
 EndProcedure
 
 Procedure ResizeMainForVideo(videoW.i, videoH.i)
-  Protected toolH.i = ToolBarHeight(0)
-  Protected statusH.i = StatusBarHeight(0)
-  Protected sidebarMinW.i = DesktopScaledX(State\sidebarWidth + #SidebarSplitterWidth + (#LayoutPadding * 3) + videoW)
-  Protected sidebarMinH.i = DesktopScaledY(#SidebarMinHeight)
-  Protected pbH.i = DesktopScaledY(#ProgressBarHeight + 6)
-  Protected metaH.i = DesktopScaledY(#MetadataPanelHeight)
   Protected innerW.i = DesktopScaledX(videoW)
-  Protected innerH.i = toolH + DesktopScaledY(#LayoutPadding) + pbH + DesktopScaledY(#LayoutPadding) + metaH + DesktopScaledY(#LayoutPadding) + videoH + statusH
+  Protected innerH.i = DesktopScaledY(videoH)
+  Protected frameDeltaW.i
+  Protected frameDeltaH.i
 
-  If innerW < DesktopScaledX(#WindowWidth) : innerW = DesktopScaledX(#WindowWidth) : EndIf
-  If innerW < sidebarMinW : innerW = sidebarMinW : EndIf
-  If innerH < DesktopScaledY(#WindowHeight + 25) : innerH = DesktopScaledY(#WindowHeight + 25) : EndIf
-  If innerH < sidebarMinH : innerH = sidebarMinH : EndIf
+  If innerW < DesktopScaledX(320) : innerW = DesktopScaledX(320) : EndIf
+  If innerH < DesktopScaledY(240) : innerH = DesktopScaledY(240) : EndIf
 
-  Protected frameDeltaW.i = WindowWidth(#Window_Main, #PB_Window_FrameCoordinate) - WindowWidth(#Window_Main, #PB_Window_InnerCoordinate)
-  Protected frameDeltaH.i = WindowHeight(#Window_Main, #PB_Window_FrameCoordinate) - WindowHeight(#Window_Main, #PB_Window_InnerCoordinate)
-
-  ResizeWindow(#Window_Main, #PB_Ignore, #PB_Ignore, innerW + frameDeltaW, innerH + frameDeltaH)
+  EnsureVideoHostWindow()
+  If IsWindow(#Window_Video)
+    frameDeltaW = WindowWidth(#Window_Video, #PB_Window_FrameCoordinate) - WindowWidth(#Window_Video, #PB_Window_InnerCoordinate)
+    frameDeltaH = WindowHeight(#Window_Video, #PB_Window_FrameCoordinate) - WindowHeight(#Window_Video, #PB_Window_InnerCoordinate)
+    ResizeWindow(#Window_Video, #PB_Ignore, #PB_Ignore, innerW + frameDeltaW, innerH + frameDeltaH)
+    SetWindowTitle(#Window_Video, "Video - " + State\fileName)
+    HideWindow(#Window_Video, 0)
+    If State\movieLoaded And IsMovie(0)
+      ResizeMovie(0, 0, 0, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate))
+    EndIf
+  EndIf
 EndProcedure
 
 Procedure ResizeMainForAudio(hasArtwork.i)
@@ -355,6 +358,10 @@ Procedure ResizeMainForAudio(hasArtwork.i)
   frameDeltaW = WindowWidth(#Window_Main, #PB_Window_FrameCoordinate) - WindowWidth(#Window_Main, #PB_Window_InnerCoordinate)
   frameDeltaH = WindowHeight(#Window_Main, #PB_Window_FrameCoordinate) - WindowHeight(#Window_Main, #PB_Window_InnerCoordinate)
   ResizeWindow(#Window_Main, #PB_Ignore, #PB_Ignore, innerW + frameDeltaW, innerH + frameDeltaH)
+
+  If IsWindow(#Window_Video)
+    HideWindow(#Window_Video, 1)
+  EndIf
 EndProcedure
 
 Procedure EnsureVideoHostWindow()
@@ -362,19 +369,38 @@ Procedure EnsureVideoHostWindow()
     ProcedureReturn
   EndIf
 
-  Protected flags.i = #PB_Window_Invisible | #PB_Window_BorderLess
+  Protected initialW.i = DesktopScaledX(State\targetW)
+  Protected initialH.i = DesktopScaledY(State\targetH)
 
-  If OpenWindow(#Window_Video, 0, 0, 10, 10, "", flags, WindowID(#Window_Main))
-    Protected hVideo.i = WindowID(#Window_Video)
-    Protected hMain.i = WindowID(#Window_Main)
+  If initialW < DesktopScaledX(320) : initialW = DesktopScaledX(320) : EndIf
+  If initialH < DesktopScaledY(240) : initialH = DesktopScaledY(240) : EndIf
 
-    SetParent_(hVideo, hMain)
+  If OpenWindow(#Window_Video, #PB_Ignore, #PB_Ignore, initialW, initialH, "Video", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered, WindowID(#Window_Main))
+    HideWindow(#Window_Video, 1)
+  EndIf
+EndProcedure
 
-    Protected style.i = GetWindowLongPtr_(hVideo, #GWL_STYLE)
-    style = style | #WS_CHILD | #WS_CLIPCHILDREN | #WS_CLIPSIBLINGS
-    SetWindowLongPtr_(hVideo, #GWL_STYLE, style)
+Procedure ShowVideoWindow()
+  If State\movieLoaded = 0 Or State\movieHasVideo = 0
+    ProcedureReturn
+  EndIf
 
-    SetWindowPos_(hVideo, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
+  EnsureVideoHostWindow()
+  If IsWindow(#Window_Video)
+    SetWindowTitle(#Window_Video, "Video - " + State\fileName)
+    HideWindow(#Window_Video, 0)
+    SetActiveWindow(#Window_Video)
+    If IsMovie(0)
+      ResizeMovie(0, 0, 0, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate))
+    EndIf
+  EndIf
+EndProcedure
+
+Procedure ToggleVideoWindow()
+  If IsWindow(#Window_Video) And IsWindowVisible_(WindowID(#Window_Video))
+    HideWindow(#Window_Video, 1)
+  Else
+    ShowVideoWindow()
   EndIf
 EndProcedure
 
@@ -530,12 +556,6 @@ Procedure KeepStatusBarOnTop()
 EndProcedure
 
 Procedure KeepVideoBehindUI()
-  If IsWindow(#Window_Video)
-    Protected hVideo.i = WindowID(#Window_Video)
-    If hVideo
-      SetWindowPos_(hVideo, #HWND_BOTTOM, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOACTIVATE)
-    EndIf
-  EndIf
 EndProcedure
 
 Procedure UpdateLayout()
@@ -591,8 +611,6 @@ Procedure UpdateLayout()
   EndIf
 
   Protected videoTop.i = metaY + DesktopScaledY(#MetadataPanelHeight) + DesktopScaledY(#LayoutPadding)
-  Protected videoH.i = winH - videoTop - statusH
-  If videoH < 0 : videoH = 0 : EndIf
 
   If IsGadget(#Gadget_Artwork)
     If State\movieHasVideo = 0 And State\artworkImage And IsImage(State\artworkImage)
@@ -609,31 +627,7 @@ Procedure UpdateLayout()
     EndIf
   EndIf
 
-  videoH = winH - videoTop - statusH
-  If videoH < 0 : videoH = 0 : EndIf
-
-  EnsureVideoHostWindow()
-  If IsWindow(#Window_Video)
-    If State\movieHasVideo
-      HideWindow(#Window_Video, 0)
-      ResizeWindow(#Window_Video, contentX, videoTop, contentW, videoH)
-      SetWindowPos_(WindowID(#Window_Video), 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
-    Else
-      HideWindow(#Window_Video, 1)
-      ResizeWindow(#Window_Video, contentX, videoTop, contentW, 0)
-    EndIf
-  EndIf
-
-  KeepVideoBehindUI()
   KeepStatusBarOnTop()
-
-  If IsWindow(#Window_Video)
-    SetParent_(WindowID(#Window_Video), WindowID(#Window_Main))
-  EndIf
-
-  If State\movieHasVideo And IsMovie(0) And IsWindow(#Window_Video)
-    ResizeMovie(0, 0, 0, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate))
-  EndIf
 EndProcedure
 
 Procedure LoadFile(path.s)
@@ -764,3 +758,10 @@ Procedure LoadFile(path.s)
     UpdatePlaybackStatus("Can't load the file '" + GetFilePart(path) + "'")
   EndIf
 EndProcedure
+
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 389
+; FirstLine = 447
+; Folding = ------
+; EnableXP
+; DPIAware
