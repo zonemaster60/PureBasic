@@ -1,10 +1,29 @@
 Procedure UpdateMetadataPanel()
   Protected primary.s
   Protected secondary.s
+  Protected details.s
+  Protected cleanedTitle.s
+  Protected separatorPos.i
+  Protected sidebarInfo.s
 
-  primary = GetTrackDisplayName()
+  primary = ""
   If State\movieLoaded = 0
     primary = "No media loaded"
+  ElseIf State\artist <> "" And State\title <> ""
+    primary = State\artist + " - " + State\title
+  ElseIf State\title <> ""
+    primary = State\title
+  ElseIf State\artist <> ""
+    primary = State\artist
+  ElseIf State\fileName <> ""
+    cleanedTitle = StripAudioExtension(State\fileName)
+    separatorPos = FindString(cleanedTitle, ". ")
+    If separatorPos > 1 And Val(Left(cleanedTitle, separatorPos - 1)) > 0
+      cleanedTitle = Trim(Mid(cleanedTitle, separatorPos + 2))
+    EndIf
+    primary = cleanedTitle
+  Else
+    primary = GetTrackDisplayName()
   EndIf
 
   secondary = "Metadata: "
@@ -28,12 +47,64 @@ Procedure UpdateMetadataPanel()
     secondary + "none"
   EndIf
 
+  details = ""
+  sidebarInfo = ""
+  If State\artist <> "" And State\title = ""
+    sidebarInfo + "Artist: " + State\artist
+  ElseIf State\artist <> "" And State\title <> ""
+    sidebarInfo + "Artist: " + State\artist + #CRLF$
+    sidebarInfo + "Title: " + State\title
+  ElseIf State\fileName <> "" And State\fileName <> primary
+    sidebarInfo + "File: " + State\fileName
+  EndIf
+  If State\album <> ""
+    If sidebarInfo <> "" : sidebarInfo + #CRLF$ : EndIf
+    sidebarInfo + "Album: " + State\album
+  EndIf
+  If State\year <> ""
+    If sidebarInfo <> "" : sidebarInfo + #CRLF$ : EndIf
+    sidebarInfo + "Year: " + State\year
+  EndIf
+  If State\genre <> ""
+    If sidebarInfo <> "" : sidebarInfo + #CRLF$ : EndIf
+    sidebarInfo + "Genre: " + State\genre
+  EndIf
+
+  If State\fileName <> "" And (sidebarInfo = "" Or FindString(sidebarInfo, "File: ") = 0)
+    If sidebarInfo <> "" : sidebarInfo + #CRLF$ : EndIf
+    sidebarInfo + "File: " + State\fileName
+  EndIf
+
+  If State\movieLoaded = 0 And sidebarInfo = ""
+    sidebarInfo = "No media loaded"
+  EndIf
+
+  details = ""
+  If State\album <> ""
+    details + "Album: " + State\album
+  EndIf
+  If State\year <> ""
+    If details <> "" : details + "   " : EndIf
+    details + "Year: " + State\year
+  EndIf
+  If State\genre <> ""
+    If details <> "" : details + "   " : EndIf
+    details + "Genre: " + State\genre
+  EndIf
+  If details <> ""
+    secondary + "   " + details
+  EndIf
+
   If IsGadget(#Gadget_MetadataPrimary)
     SetGadgetText(#Gadget_MetadataPrimary, primary)
   EndIf
 
   If IsGadget(#Gadget_MetadataSecondary)
     SetGadgetText(#Gadget_MetadataSecondary, secondary)
+  EndIf
+
+  If IsGadget(#Gadget_LibraryInfo)
+    SetGadgetText(#Gadget_LibraryInfo, sidebarInfo)
   EndIf
 EndProcedure
 
@@ -111,6 +182,9 @@ Procedure ResetPlaybackState(clearMediaInfo.i = #True)
   State\currentBalance = -999
   State\artist = ""
   State\title = ""
+  State\album = ""
+  State\year = ""
+  State\genre = ""
   State\metadataSource = ""
     State\lyricsSource = ""
     State\artworkSource = ""
@@ -617,11 +691,14 @@ Procedure UpdateLayout()
   If IsGadget(#Gadget_LibraryTree)
     ResizeGadget(#Gadget_LibraryTree, DesktopScaledX(#LayoutPadding), sidebarTop + DesktopScaledY(48), sidebarW - DesktopScaledX(#LayoutPadding * 2), DesktopScaledY(122))
   EndIf
+  If IsGadget(#Gadget_LibraryInfo)
+    ResizeGadget(#Gadget_LibraryInfo, DesktopScaledX(#LayoutPadding), sidebarTop + DesktopScaledY(176), sidebarW - DesktopScaledX(#LayoutPadding * 2), DesktopScaledY(116))
+  EndIf
   If IsGadget(#Gadget_LibraryPlay)
-    ResizeGadget(#Gadget_LibraryPlay, DesktopScaledX(#LayoutPadding), sidebarTop + DesktopScaledY(176), (sidebarW - DesktopScaledX(#LayoutPadding * 3)) / 2, DesktopScaledY(#SidebarButtonHeight))
+    ResizeGadget(#Gadget_LibraryPlay, DesktopScaledX(#LayoutPadding), sidebarTop + DesktopScaledY(298), (sidebarW - DesktopScaledX(#LayoutPadding * 3)) / 2, DesktopScaledY(#SidebarButtonHeight))
   EndIf
   If IsGadget(#Gadget_LibraryAdd)
-    ResizeGadget(#Gadget_LibraryAdd, DesktopScaledX(#LayoutPadding) + ((sidebarW - DesktopScaledX(#LayoutPadding * 3)) / 2) + DesktopScaledX(#LayoutPadding), sidebarTop + DesktopScaledY(176), (sidebarW - DesktopScaledX(#LayoutPadding * 3)) / 2, DesktopScaledY(#SidebarButtonHeight))
+    ResizeGadget(#Gadget_LibraryAdd, DesktopScaledX(#LayoutPadding) + ((sidebarW - DesktopScaledX(#LayoutPadding * 3)) / 2) + DesktopScaledX(#LayoutPadding), sidebarTop + DesktopScaledY(298), (sidebarW - DesktopScaledX(#LayoutPadding * 3)) / 2, DesktopScaledY(#SidebarButtonHeight))
   EndIf
   If IsGadget(#Gadget_Progress)
     If GadgetWidth(#Gadget_Progress) <> pbW Or GadgetHeight(#Gadget_Progress) <> pbH
@@ -688,6 +765,9 @@ Procedure LoadFile(path.s)
     State\fileName = GetFilePart(path)
     State\artist = ""
     State\title = ""
+    State\album = ""
+    State\year = ""
+    State\genre = ""
     State\metadataSource = ""
     State\lyricsSource = ""
     State\artworkSource = ""
@@ -729,7 +809,10 @@ Procedure LoadFile(path.s)
       ExtractEmbeddedMediaInfo(path, @embedded)
       If embedded\artist <> "" : State\artist = embedded\artist : EndIf
       If embedded\title <> "" : State\title = embedded\title : EndIf
-      If State\artist <> "" Or State\title <> ""
+      If embedded\album <> "" : State\album = embedded\album : EndIf
+      If embedded\year <> "" : State\year = embedded\year : EndIf
+      If embedded\genre <> "" : State\genre = embedded\genre : EndIf
+      If State\artist <> "" Or State\title <> "" Or State\album <> "" Or State\year <> "" Or State\genre <> ""
         State\metadataSource = "embedded"
       ElseIf State\fileName <> ""
         State\metadataSource = "filename"

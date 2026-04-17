@@ -289,6 +289,12 @@ Procedure.i ParseFLACMediaInfo(path.s, *info.EmbeddedMediaInfo)
                   If *info\artist = "" : *info\artist = value : EndIf
                 Case "TITLE"
                   If *info\title = "" : *info\title = value : EndIf
+                Case "ALBUM"
+                  If *info\album = "" : *info\album = value : EndIf
+                Case "DATE", "YEAR"
+                  If *info\year = "" : *info\year = value : EndIf
+                Case "GENRE"
+                  If *info\genre = "" : *info\genre = value : EndIf
                 Case "LYRICS", "UNSYNCEDLYRICS"
                   If *info\lyrics = "" : *info\lyrics = NormalizeLineBreaks(value) : EndIf
               EndSelect
@@ -334,7 +340,7 @@ Procedure.i ParseFLACMediaInfo(path.s, *info.EmbeddedMediaInfo)
   Until lastBlock
 
   FreeMemory(*buffer)
-  ProcedureReturn Bool(*info\artist <> "" Or *info\title <> "" Or *info\lyrics <> "" Or *info\artworkFile <> "")
+  ProcedureReturn Bool(*info\artist <> "" Or *info\title <> "" Or *info\album <> "" Or *info\year <> "" Or *info\genre <> "" Or *info\lyrics <> "" Or *info\artworkFile <> "")
 EndProcedure
 
 Procedure.i ExtractEmbeddedMediaInfo(path.s, *info.EmbeddedMediaInfo)
@@ -448,6 +454,9 @@ Procedure.i ParseEmbeddedMediaInfo(path.s, *info.EmbeddedMediaInfo)
 
   *info\artist = ""
   *info\title = ""
+  *info\album = ""
+  *info\year = ""
+  *info\genre = ""
   *info\lyrics = ""
   *info\artworkFile = ""
 
@@ -520,6 +529,15 @@ Procedure.i ParseEmbeddedMediaInfo(path.s, *info.EmbeddedMediaInfo)
           tempTitle = ReadID3TextFrame(*buffer + frameDataOffset, frameSize)
           If tempTitle <> "" : *info\title = tempTitle : EndIf
 
+        Case "TALB"
+          If *info\album = "" : *info\album = ReadID3TextFrame(*buffer + frameDataOffset, frameSize) : EndIf
+
+        Case "TDRC", "TYER"
+          If *info\year = "" : *info\year = ReadID3TextFrame(*buffer + frameDataOffset, frameSize) : EndIf
+
+        Case "TCON"
+          If *info\genre = "" : *info\genre = ReadID3TextFrame(*buffer + frameDataOffset, frameSize) : EndIf
+
         Case "USLT"
           If frameSize > 4
             frameEncoding = PeekA(*buffer + frameDataOffset) & $FF
@@ -583,7 +601,7 @@ Procedure.i ParseEmbeddedMediaInfo(path.s, *info.EmbeddedMediaInfo)
   EndIf
 
   FreeMemory(*buffer)
-  ProcedureReturn Bool(*info\artist <> "" Or *info\title <> "" Or *info\lyrics <> "" Or *info\artworkFile <> "")
+  ProcedureReturn Bool(*info\artist <> "" Or *info\title <> "" Or *info\album <> "" Or *info\year <> "" Or *info\genre <> "" Or *info\lyrics <> "" Or *info\artworkFile <> "")
 EndProcedure
 
 Procedure.i FillTrackMetadataFromCurrentMedia(*metadata.TrackMetadata)
@@ -595,6 +613,9 @@ Procedure.i FillTrackMetadataFromCurrentMedia(*metadata.TrackMetadata)
 
   *metadata\artist = Trim(State\artist)
   *metadata\title = Trim(State\title)
+  *metadata\album = Trim(State\album)
+  *metadata\year = Trim(State\year)
+  *metadata\genre = Trim(State\genre)
   *metadata\query = ""
   *metadata\safeBaseName = SanitizeFileComponent(StripAudioExtension(State\fileName))
 
@@ -602,6 +623,9 @@ Procedure.i FillTrackMetadataFromCurrentMedia(*metadata.TrackMetadata)
     ExtractEmbeddedMediaInfo(State\moviePath, @embedded)
     If embedded\artist <> "" : *metadata\artist = embedded\artist : EndIf
     If embedded\title <> "" : *metadata\title = embedded\title : EndIf
+    If embedded\album <> "" : *metadata\album = embedded\album : EndIf
+    If embedded\year <> "" : *metadata\year = embedded\year : EndIf
+    If embedded\genre <> "" : *metadata\genre = embedded\genre : EndIf
   EndIf
 
   If *metadata\artist = "" And *metadata\title = ""
@@ -647,12 +671,18 @@ Procedure.i FillTrackMetadataFromPath(path.s, *metadata.TrackMetadata)
   fileName = GetFilePart(path)
   *metadata\artist = ""
   *metadata\title = ""
+  *metadata\album = ""
+  *metadata\year = ""
+  *metadata\genre = ""
   *metadata\query = ""
   *metadata\safeBaseName = SanitizeFileComponent(StripAudioExtension(fileName))
 
   ExtractEmbeddedMediaInfo(path, @embedded)
   If embedded\artist <> "" : *metadata\artist = embedded\artist : EndIf
   If embedded\title <> "" : *metadata\title = embedded\title : EndIf
+  If embedded\album <> "" : *metadata\album = embedded\album : EndIf
+  If embedded\year <> "" : *metadata\year = embedded\year : EndIf
+  If embedded\genre <> "" : *metadata\genre = embedded\genre : EndIf
 
   If *metadata\artist = "" And *metadata\title = ""
     ExtractMetadataFromFilename(fileName, *metadata)

@@ -558,6 +558,7 @@ Procedure AddToPlaylist(path.s)
   Playlist() = path
   RefreshPlaylistGadget()
   SaveCurrentPlaylistStore()
+  ShowPlaylistWindow()
 EndProcedure
 
 Procedure.i FindPlaylistIndex(path.s)
@@ -807,6 +808,7 @@ Procedure PlaySelectedLibraryItem()
     State\playlistIndex = ListSize(Playlist()) - 1
   EndIf
   RefreshPlaylistGadget()
+  ShowPlaylistWindow()
   LoadFile(path)
   If State\movieLoaded And State\movieState <> #MovieState_Playing
     TogglePlayback()
@@ -840,6 +842,9 @@ Procedure LoadPlaylistFiles(List files.s())
 
   State\playlistIndex = -1
   RefreshPlaylistGadget()
+  If ListSize(Playlist()) > 0
+    ShowPlaylistWindow()
+  EndIf
   If ListSize(Playlist()) > 0
     PlayPlaylistIndex(0)
   EndIf

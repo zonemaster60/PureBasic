@@ -13,7 +13,6 @@
 #Window_ArtworkPreview = 3
 #Window_Help = 4
 #Window_Playlist = 5
-#Window_Visualization = 6
 
 #Gadget_Progress = 0
 #Gadget_Artwork = 1
@@ -52,7 +51,7 @@
 #Gadget_PlaylistShuffle = 34
 #Gadget_PlaylistProgress = 35
 #Gadget_PlaylistNowPlaying = 36
-#Gadget_VisualizationCanvas = 37
+#Gadget_LibraryInfo = 37
 
 Enumeration
   #MovieState_Ready
@@ -109,7 +108,6 @@ Enumeration
   #Command_ShowLyrics
   #Command_ShowArtwork
   #Command_ShowVideo
-  #Command_ShowVisualization
   #Command_About
 EndEnumeration
 
@@ -135,8 +133,6 @@ EndEnumeration
 #HelpWindowHeight = 700
 #PlaylistWindowWidth = 420
 #PlaylistWindowHeight = 520
-#VisualizationWindowWidth = 520
-#VisualizationWindowHeight = 260
 
 #DownloadFolder = "downloads\"
 #AlbumArtFolder = #DownloadFolder + "album-art\"
@@ -149,6 +145,9 @@ EndEnumeration
 Structure TrackMetadata
   artist.s
   title.s
+  album.s
+  year.s
+  genre.s
   query.s
   safeBaseName.s
 EndStructure
@@ -162,6 +161,9 @@ EndStructure
 Structure EmbeddedMediaInfo
   artist.s
   title.s
+  album.s
+  year.s
+  genre.s
   lyrics.s
   artworkFile.s
 EndStructure

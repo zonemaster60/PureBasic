@@ -31,6 +31,9 @@ Structure PlayerState
   fileName.s
   artist.s
   title.s
+  album.s
+  year.s
+  genre.s
   metadataSource.s
   lyricsSource.s
   artworkSource.s
@@ -120,14 +123,11 @@ Declare PlaySelectedPlaylistItem()
 Declare ShowArtworkPreview()
 Declare ShowVideoWindow()
 Declare UpdateArtworkPreview()
-Declare ShowVisualizationWindow()
-Declare UpdateVisualizationWindow()
 Declare ToggleArtworkPreviewWindow()
 Declare ToggleLyricsWindow()
 Declare ToggleHelpWindow()
 Declare TogglePlaylistWindow()
 Declare ToggleVideoWindow()
-Declare ToggleVisualizationWindow()
 Declare.s QuoteArg(value.s)
 Declare.i IsMediaFile(path.s)
 Declare BuildLibraryTree(rootPath.s)

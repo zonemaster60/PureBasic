@@ -3,7 +3,7 @@
 ;
 
 IncludeFile "HandyMPlayer_Inc.pb"
-Global version.s = "v1.0.3.7"
+Global version.s = "v1.0.3.8"
 
 EnableExplicit
 
@@ -147,7 +147,6 @@ Procedure Main()
       MenuItem(#Command_ShowLyrics, "Lyrics")
       MenuItem(#Command_ShowArtwork, "Artwork")
       MenuItem(#Command_ShowVideo, "Video")
-      MenuItem(#Command_ShowVisualization, "Visualization")
       MenuTitle("Help")
       MenuItem(#Command_Help, "Help")
       MenuItem(#Command_About, "About")
@@ -176,8 +175,10 @@ Procedure Main()
   TextGadget(#Gadget_LibraryTitle, 10, 30, 200, 18, "Library")
   StringGadget(#Gadget_LibrarySearch, 10, 50, 200, 24, "")
   TreeGadget(#Gadget_LibraryTree, 10, 78, 200, 122)
-  ButtonGadget(#Gadget_LibraryPlay, 10, 206, 95, #SidebarButtonHeight, "Play")
-  ButtonGadget(#Gadget_LibraryAdd, 115, 206, 95, #SidebarButtonHeight, "Add")
+  EditorGadget(#Gadget_LibraryInfo, 10, 206, 200, 116, #PB_Editor_ReadOnly | #PB_Editor_WordWrap)
+  SetGadgetText(#Gadget_LibraryInfo, "No media loaded")
+  ButtonGadget(#Gadget_LibraryPlay, 10, 328, 95, #SidebarButtonHeight, "Play")
+  ButtonGadget(#Gadget_LibraryAdd, 115, 328, 95, #SidebarButtonHeight, "Add")
   CanvasGadget(#Gadget_SidebarSplitter, 300, 24, #SidebarSplitterWidth, 300)
   TrackBarGadget(#Gadget_Progress, 10, 30, 395, #ProgressBarHeight + 6, 0, #ProgressScaleMax)
   TextGadget(#Gadget_MetadataPrimary, 10, 52, 395, 18, "No media loaded")
@@ -397,9 +398,6 @@ Procedure Main()
 
             Case #Command_ShowVideo
                ToggleVideoWindow()
-
-            Case #Command_ShowVisualization
-               ToggleVisualizationWindow()
               
           ; ------------------ Size ---------------------
  
@@ -499,8 +497,6 @@ Procedure Main()
           HideWindow(#Window_Playlist, 1)
         ElseIf EventWindow() = #Window_Video
           HideWindow(#Window_Video, 1)
-        ElseIf EventWindow() = #Window_Visualization
-          HideWindow(#Window_Visualization, 1)
         EndIf
         
       Case #PB_Event_SizeWindow
@@ -514,9 +510,6 @@ Procedure Main()
           UpdateArtworkPreview()
         ElseIf EventWindow() = #Window_Video And State\movieHasVideo And IsMovie(0)
           ResizeMovie(0, 0, 0, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate))
-        ElseIf EventWindow() = #Window_Visualization And IsGadget(#Gadget_VisualizationCanvas)
-          ResizeGadget(#Gadget_VisualizationCanvas, 0, 0, WindowWidth(#Window_Visualization, #PB_Window_InnerCoordinate), WindowHeight(#Window_Visualization, #PB_Window_InnerCoordinate))
-          UpdateVisualizationWindow()
         ElseIf EventWindow() = #Window_Help And IsGadget(#Gadget_HelpEditor)
           ResizeGadget(#Gadget_HelpEditor, 0, 0, WindowWidth(#Window_Help, #PB_Window_InnerCoordinate), WindowHeight(#Window_Help, #PB_Window_InnerCoordinate))
         ElseIf EventWindow() = #Window_Playlist
@@ -607,10 +600,6 @@ Procedure Main()
             EndIf
 
           If State\movieLoaded
-            If IsWindow(#Window_Visualization)
-              UpdateVisualizationWindow()
-            EndIf
-
             now = ElapsedMilliseconds()
             st = MovieStatus(0) ; -1 paused, 0 stopped, >0 current frame
 
@@ -722,13 +711,13 @@ End
 ; Executable = ..\HandyMPlayer.exe
 ; Debugger = IDE
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,7
-; VersionField1 = 1,0,3,7
+; VersionField0 = 1,0,3,8
+; VersionField1 = 1,0,3,8
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyMPlayer
-; VersionField4 = 1.0.3.7
-; VersionField5 = 1.0.3.7
-; VersionField6 = A Handy Compact Media Player
+; VersionField4 = 1.0.3.8
+; VersionField5 = 1.0.3.8
+; VersionField6 = A Handy Compact Audio/Video Player
 ; VersionField7 = HandyMPlayer
 ; VersionField8 = HandyMPlayer.exe
 ; VersionField9 = David Scouten
