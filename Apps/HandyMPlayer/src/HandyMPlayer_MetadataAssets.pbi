@@ -784,14 +784,71 @@ EndProcedure
 
 Procedure.s FindLyricsFileForTrack(*metadata.TrackMetadata)
   Protected lyricsFolder.s
+  Protected trackFolder.s
   Protected candidate.s
   Protected baseName.s
+  Protected trackBaseName.s
+  Protected strippedBaseName.s
+  Protected normalizedBaseName.s
+  Protected separatorPos.i
+  Protected dir.i
+  Protected entry.s
+  Protected entryBaseName.s
+  Protected normalizedEntryBaseName.s
 
   If *metadata = 0
     ProcedureReturn ""
   EndIf
 
   lyricsFolder = AppPath + #LyricsFolder
+  trackFolder = GetPathPart(State\moviePath)
+  trackBaseName = StripAudioExtension(GetFilePart(State\moviePath))
+  strippedBaseName = Trim(trackBaseName)
+  separatorPos = FindString(strippedBaseName, ". ")
+  If separatorPos > 1 And Val(Left(strippedBaseName, separatorPos - 1)) > 0
+    strippedBaseName = Trim(Mid(strippedBaseName, separatorPos + 2))
+  EndIf
+  normalizedBaseName = ReplaceString(strippedBaseName, ".", " ")
+  normalizedBaseName = ReplaceString(normalizedBaseName, "_", " ")
+  normalizedBaseName = Trim(normalizedBaseName)
+
+  If trackFolder <> ""
+    dir = ExamineDirectory(#PB_Any, trackFolder, "*.txt")
+    If dir
+      While NextDirectoryEntry(dir)
+        entry = DirectoryEntryName(dir)
+        entryBaseName = StripAudioExtension(entry)
+        normalizedEntryBaseName = ReplaceString(entryBaseName, ".", " ")
+        normalizedEntryBaseName = ReplaceString(normalizedEntryBaseName, "_", " ")
+        normalizedEntryBaseName = Trim(normalizedEntryBaseName)
+
+        If LCase(entryBaseName) = LCase(trackBaseName) Or LCase(entryBaseName) = LCase(strippedBaseName) Or LCase(entryBaseName) = LCase(normalizedBaseName) Or LCase(entryBaseName) = LCase(*metadata\safeBaseName) Or LCase(normalizedEntryBaseName) = LCase(trackBaseName) Or LCase(normalizedEntryBaseName) = LCase(strippedBaseName) Or LCase(normalizedEntryBaseName) = LCase(normalizedBaseName) Or LCase(normalizedEntryBaseName) = LCase(*metadata\safeBaseName)
+          candidate = trackFolder + entry
+          FinishDirectory(dir)
+          ProcedureReturn candidate
+        EndIf
+      Wend
+      FinishDirectory(dir)
+    EndIf
+
+    dir = ExamineDirectory(#PB_Any, trackFolder, "*.lrc")
+    If dir
+      While NextDirectoryEntry(dir)
+        entry = DirectoryEntryName(dir)
+        entryBaseName = StripAudioExtension(entry)
+        normalizedEntryBaseName = ReplaceString(entryBaseName, ".", " ")
+        normalizedEntryBaseName = ReplaceString(normalizedEntryBaseName, "_", " ")
+        normalizedEntryBaseName = Trim(normalizedEntryBaseName)
+
+        If LCase(entryBaseName) = LCase(trackBaseName) Or LCase(entryBaseName) = LCase(strippedBaseName) Or LCase(entryBaseName) = LCase(normalizedBaseName) Or LCase(entryBaseName) = LCase(*metadata\safeBaseName) Or LCase(normalizedEntryBaseName) = LCase(trackBaseName) Or LCase(normalizedEntryBaseName) = LCase(strippedBaseName) Or LCase(normalizedEntryBaseName) = LCase(normalizedBaseName) Or LCase(normalizedEntryBaseName) = LCase(*metadata\safeBaseName)
+          candidate = trackFolder + entry
+          FinishDirectory(dir)
+          ProcedureReturn candidate
+        EndIf
+      Wend
+      FinishDirectory(dir)
+    EndIf
+  EndIf
 
   If *metadata\safeBaseName <> ""
     baseName = *metadata\safeBaseName

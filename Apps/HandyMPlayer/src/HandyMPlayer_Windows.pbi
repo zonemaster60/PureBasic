@@ -112,12 +112,16 @@ Procedure.s GetHelpText()
   helpText + "1. Use File > Load Folder to scan a music library folder recursively." + #CRLF$
   helpText + "2. Select a file in the Library tree and click Play to load and start playback." + #CRLF$
   helpText + "3. Use File > Load to open one or more media files directly into the current playlist." + #CRLF$
-  helpText + "4. Use File > Load Playlist / Save Playlist to work with M3U playlists." + #CRLF$ + #CRLF$
+  helpText + "4. Use File > Load Playlist / Save Playlist to work with M3U playlists." + #CRLF$
+  helpText + "5. Use File > Close Media to unload the current media and clear the playlist." + #CRLF$ + #CRLF$
   helpText + "Playback" + #CRLF$
   helpText + "- Toolbar Play/Pause starts or toggles playback for the currently loaded media." + #CRLF$
   helpText + "- Stop stops the current file." + #CRLF$
   helpText + "- The progress bar can be clicked or dragged to seek." + #CRLF$
   helpText + "- Left / Right arrow keys move to previous / next queued-or-playlist track." + #CRLF$ + #CRLF$
+  helpText + "View Windows" + #CRLF$
+  helpText + "- Use the View menu to toggle Playlist, Lyrics, Artwork, Video, and Visualization windows." + #CRLF$
+  helpText + "- Video opens in its own separate window when a video file is played." + #CRLF$ + #CRLF$
   helpText + "Library Tree" + #CRLF$
   helpText + "- The Library tree shows folders and supported media files from the loaded root folder." + #CRLF$
   helpText + "- The search box filters the visible library entries." + #CRLF$
@@ -142,12 +146,16 @@ Procedure.s GetHelpText()
   helpText + "- Saved artwork in the downloads\\album-art folder is loaded automatically for matching tracks." + #CRLF$
   helpText + "- Common folder artwork names include cover, folder, front, album, artwork, or the same basename as the track." + #CRLF$
   helpText + "- Supported folder artwork formats include JPG, JPEG, PNG, GIF, and BMP." + #CRLF$
-  helpText + "- Click the artwork image to open a larger preview." + #CRLF$ + #CRLF$
+  helpText + "- Click the artwork image to open a larger preview." + #CRLF$
+  helpText + "- The artwork preview window can be shown or hidden from the View menu." + #CRLF$ + #CRLF$
   helpText + "Lyrics" + #CRLF$
   helpText + "- Lyrics embedded in supported audio files are loaded automatically when a track is opened." + #CRLF$
   helpText + "- Saved lyrics in the downloads\\lyrics folder are loaded automatically for matching tracks." + #CRLF$
   helpText + "- You can attach a .txt or .lrc file by dropping it onto the main window while an audio track is loaded." + #CRLF$
   helpText + "- Downloaded or attached lyrics can be reopened from View > Lyrics." + #CRLF$ + #CRLF$
+  helpText + "Visualization" + #CRLF$
+  helpText + "- View > Visualization opens a retro digital VU-style display window for audio playback." + #CRLF$
+  helpText + "- The visualization is decorative and tempo-styled, not true audio beat detection." + #CRLF$ + #CRLF$
   helpText + "Tips" + #CRLF$
   helpText + "- If the music tree looks out of date, reload the folder." + #CRLF$
   helpText + "- For best metadata display, keep filenames in Artist - Title format when tags are missing." + #CRLF$
@@ -157,6 +165,7 @@ Procedure.s GetHelpText()
   helpText + "- If artwork does not appear, check for saved artwork, embedded art, or an image file in the same folder as the track." + #CRLF$
   helpText + "- If lyrics do not appear, check for saved lyrics, embedded lyrics, or attach/download lyrics for the track." + #CRLF$
   helpText + "- Video resizing commands affect video files only." + #CRLF$
+  helpText + "- Close Media clears the current playlist as well as unloading the current track." + #CRLF$
 
   ProcedureReturn helpText
 EndProcedure

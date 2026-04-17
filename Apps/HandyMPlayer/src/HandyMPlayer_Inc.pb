@@ -64,6 +64,7 @@ EndEnumeration
 Enumeration
   #Command_Load
   #Command_LoadFolder
+  #Command_CloseMedia
   #Command_Exit
   #Command_PlayPause
   #Command_Stop
@@ -83,15 +84,27 @@ Enumeration
   #Command_PlaylistMoveUp
   #Command_PlaylistMoveDown
   #Command_VolumeFull
+  #Command_Volume75
   #Command_VolumeHalf
+  #Command_Volume25
   #Command_VolumeMute
+  #Command_VolumeUp
+  #Command_VolumeDown
   #Command_BalanceCenter
+  #Command_BalanceSlightLeft
   #Command_BalanceLeft
+  #Command_BalanceSlightRight
   #Command_BalanceRight
   #Command_Help
+  #Command_SizeHalf
   #Command_SizeDefault
+  #Command_SizeFit
   #Command_SizeX1
+  #Command_SizeX15
   #Command_SizeX2
+  #Command_SizeX3
+  #Command_SizeStepDown
+  #Command_SizeStepUp
   #Command_ShowPlaylist
   #Command_ShowLyrics
   #Command_ShowArtwork

@@ -133,6 +133,33 @@ Procedure ResetPlaybackState(clearMediaInfo.i = #True)
   EndIf
 EndProcedure
 
+Procedure CloseCurrentMedia()
+  If IsMovie(0)
+    StopMovie(0)
+    FreeMovie(0)
+  EndIf
+
+  ResetPlaybackState(#True)
+  State\playlistIndex = -1
+
+  If IsGadget(#Gadget_LibraryTree)
+    SetGadgetState(#Gadget_LibraryTree, -1)
+  EndIf
+
+  HighlightNowPlaying()
+  UpdateNowPlayingLabel()
+  ResizeMainForAudio(#False)
+  UpdateLayout()
+
+  If IsStatusBar(0)
+    StatusBarText(0, 0, "No media loaded", #PB_StatusBar_Center)
+  EndIf
+
+  If IsGadget(#Gadget_Progress)
+    GadgetToolTip(#Gadget_Progress, "No media loaded")
+  EndIf
+EndProcedure
+
 Procedure UpdatePlaybackStatus(prefix.s)
   Protected message.s = prefix
 

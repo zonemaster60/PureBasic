@@ -3,6 +3,7 @@
 ;
 
 IncludeFile "HandyMPlayer_Inc.pb"
+Global version.s = "v1.0.3.7"
 
 EnableExplicit
 
@@ -97,6 +98,7 @@ Procedure Main()
       MenuItem(#Command_LoadFolder, "Load Folder")
       MenuItem(#Command_LoadPlaylist, "Load Playlist")
       MenuItem(#Command_SavePlaylist, "Save Playlist")
+      MenuItem(#Command_CloseMedia, "Close Media")
       MenuBar()
       MenuItem(#Command_Exit, "Exit")
       MenuTitle("Play")
@@ -112,18 +114,32 @@ Procedure Main()
       MenuItem(#Command_Stop, "Stop")
       MenuBar()
       OpenSubMenu("Video")
+        MenuItem(#Command_SizeHalf, "Size x0.5")
         MenuItem(#Command_SizeDefault, "Default")
+        MenuItem(#Command_SizeFit, "Fit Window")
         MenuItem(#Command_SizeX1, "Size x1")
+        MenuItem(#Command_SizeX15, "Size x1.5")
         MenuItem(#Command_SizeX2, "Size x2")
+        MenuItem(#Command_SizeX3, "Size x3")
+        MenuBar()
+        MenuItem(#Command_SizeStepDown, "Smaller")
+        MenuItem(#Command_SizeStepUp, "Larger")
       CloseSubMenu()
       OpenSubMenu("Volume")
         MenuItem(#Command_VolumeFull, "Full (100%)")
+        MenuItem(#Command_Volume75, "High (75%)")
         MenuItem(#Command_VolumeHalf, "Half (50%)")
+        MenuItem(#Command_Volume25, "Low (25%)")
         MenuItem(#Command_VolumeMute, "Mute (0%)")
+        MenuBar()
+        MenuItem(#Command_VolumeUp, "Volume Up")
+        MenuItem(#Command_VolumeDown, "Volume Down")
       CloseSubMenu()
       OpenSubMenu("Balance")
         MenuItem(#Command_BalanceCenter, "Both (L+R)")
+        MenuItem(#Command_BalanceSlightLeft, "Slight Left")
         MenuItem(#Command_BalanceLeft, "Left (L)")
+        MenuItem(#Command_BalanceSlightRight, "Slight Right")
         MenuItem(#Command_BalanceRight, "Right (R)")
       CloseSubMenu()
       MenuTitle("View")
@@ -225,14 +241,17 @@ Procedure Main()
                 BuildLibraryTree(folderPath)
               EndIf
 
-           Case #Command_LoadPlaylist
-             LoadPlaylistFromM3U()
+            Case #Command_LoadPlaylist
+              LoadPlaylistFromM3U()
 
-           Case #Command_SavePlaylist
-             SavePlaylistToFile()
-        
-          Case #Command_Exit ; Exit
-            ExitApplication()
+            Case #Command_SavePlaylist
+              SavePlaylistToFile()
+
+            Case #Command_CloseMedia
+              ClearPlaylistItems()
+         
+           Case #Command_Exit ; Exit
+             ExitApplication()
 
           ; ---------------- Movie controls -------------------
             
@@ -304,36 +323,62 @@ Procedure Main()
             
           ; ---------------- Volume -------------------
             
-           Case #Command_VolumeFull ; Full 100%
-              State\volume = 100
-              ApplyAudioSettings()
+            Case #Command_VolumeFull ; Full 100%
+               State\volume = 100
+               ApplyAudioSettings()
 
-           Case #Command_VolumeHalf ; Half 50%
-              State\volume = 50
-              ApplyAudioSettings()
+            Case #Command_Volume75
+               State\volume = 75
+               ApplyAudioSettings()
 
-            Case #Command_VolumeMute ; Mute 0%
-              If State\volume > 0
-                State\volume = 0
-              Else
-                State\volume = 100
-              EndIf
-              ApplyAudioSettings()
+            Case #Command_VolumeHalf ; Half 50%
+               State\volume = 50
+               ApplyAudioSettings()
+
+            Case #Command_Volume25
+               State\volume = 25
+               ApplyAudioSettings()
+
+             Case #Command_VolumeMute ; Mute 0%
+               If State\volume > 0
+                 State\volume = 0
+               Else
+                 State\volume = 100
+               EndIf
+               ApplyAudioSettings()
+
+            Case #Command_VolumeUp
+               State\volume + 10
+               If State\volume > 100 : State\volume = 100 : EndIf
+               ApplyAudioSettings()
+
+            Case #Command_VolumeDown
+               State\volume - 10
+               If State\volume < 0 : State\volume = 0 : EndIf
+               ApplyAudioSettings()
 
             
            ; ---------------- Balance -------------------
 
-           Case #Command_BalanceCenter ; Both (L+R)
-              State\balance = 0
-              ApplyAudioSettings()
+            Case #Command_BalanceCenter ; Both (L+R)
+               State\balance = 0
+               ApplyAudioSettings()
 
-           Case #Command_BalanceLeft ; Left (L)
-              State\balance = -100
-              ApplyAudioSettings()
+            Case #Command_BalanceSlightLeft
+               State\balance = -50
+               ApplyAudioSettings()
 
-           Case #Command_BalanceRight ; Right (R)
-              State\balance = 100
-              ApplyAudioSettings()
+            Case #Command_BalanceLeft ; Left (L)
+               State\balance = -100
+               ApplyAudioSettings()
+
+            Case #Command_BalanceSlightRight
+               State\balance = 50
+               ApplyAudioSettings()
+
+            Case #Command_BalanceRight ; Right (R)
+               State\balance = 100
+               ApplyAudioSettings()
 
 
            ; ---------------------------------------------
@@ -358,23 +403,59 @@ Procedure Main()
               
           ; ------------------ Size ---------------------
  
-           Case #Command_SizeDefault ; Default (50%)
-             If State\movieLoaded And State\movieHasVideo
-                ResizeMainForVideo(State\targetW, State\targetH)
-                UpdateLayout()
-             EndIf
+            Case #Command_SizeHalf
+              If State\movieLoaded And State\movieHasVideo
+                 ResizeMainForVideo(MovieWidth(0) / 2, MovieHeight(0) / 2)
+                 UpdateLayout()
+              EndIf
 
-           Case #Command_SizeX1 ; Size x1 (100%)
-             If State\movieLoaded And State\movieHasVideo
-                ResizeMainForVideo(MovieWidth(0), MovieHeight(0))
-                UpdateLayout()
-             EndIf
+            Case #Command_SizeDefault ; Default (50%)
+              If State\movieLoaded And State\movieHasVideo
+                 ResizeMainForVideo(State\targetW, State\targetH)
+                 UpdateLayout()
+              EndIf
 
-           Case #Command_SizeX2 ; Size x2 (200%)
-             If State\movieLoaded And State\movieHasVideo
-                ResizeMainForVideo(MovieWidth(0) * 2, MovieHeight(0) * 2)
-                UpdateLayout()
-             EndIf
+            Case #Command_SizeFit
+              If State\movieLoaded And State\movieHasVideo And IsWindow(#Window_Video)
+                 ResizeMainForVideo(WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate))
+                 UpdateLayout()
+              EndIf
+
+            Case #Command_SizeX1 ; Size x1 (100%)
+              If State\movieLoaded And State\movieHasVideo
+                 ResizeMainForVideo(MovieWidth(0), MovieHeight(0))
+                 UpdateLayout()
+              EndIf
+
+            Case #Command_SizeX15
+              If State\movieLoaded And State\movieHasVideo
+                 ResizeMainForVideo(MovieWidth(0) * 3 / 2, MovieHeight(0) * 3 / 2)
+                 UpdateLayout()
+              EndIf
+
+            Case #Command_SizeX2 ; Size x2 (200%)
+              If State\movieLoaded And State\movieHasVideo
+                 ResizeMainForVideo(MovieWidth(0) * 2, MovieHeight(0) * 2)
+                 UpdateLayout()
+              EndIf
+
+            Case #Command_SizeX3
+              If State\movieLoaded And State\movieHasVideo
+                 ResizeMainForVideo(MovieWidth(0) * 3, MovieHeight(0) * 3)
+                 UpdateLayout()
+              EndIf
+
+            Case #Command_SizeStepDown
+              If State\movieLoaded And State\movieHasVideo And IsWindow(#Window_Video)
+                 ResizeMainForVideo(WindowWidth(#Window_Video, #PB_Window_InnerCoordinate) * 9 / 10, WindowHeight(#Window_Video, #PB_Window_InnerCoordinate) * 9 / 10)
+                 UpdateLayout()
+              EndIf
+
+            Case #Command_SizeStepUp
+              If State\movieLoaded And State\movieHasVideo And IsWindow(#Window_Video)
+                 ResizeMainForVideo(WindowWidth(#Window_Video, #PB_Window_InnerCoordinate) * 11 / 10, WindowHeight(#Window_Video, #PB_Window_InnerCoordinate) * 11 / 10)
+                 UpdateLayout()
+              EndIf
          
           ; ---------------- Misc -------------------
             
@@ -629,7 +710,8 @@ Main()
 End
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 51
+; CursorPosition = 5
+; FirstLine = 2
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -640,12 +722,12 @@ End
 ; Executable = ..\HandyMPlayer.exe
 ; Debugger = IDE
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,5
-; VersionField1 = 1,0,3,5
+; VersionField0 = 1,0,3,7
+; VersionField1 = 1,0,3,7
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyMPlayer
-; VersionField4 = 1.0.3.5
-; VersionField5 = 1.0.3.5
+; VersionField4 = 1.0.3.7
+; VersionField5 = 1.0.3.7
 ; VersionField6 = A Handy Compact Media Player
 ; VersionField7 = HandyMPlayer
 ; VersionField8 = HandyMPlayer.exe

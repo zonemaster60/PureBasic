@@ -503,6 +503,7 @@ Procedure ResetPlaylistState(clearLastPath.i = #False)
 EndProcedure
 
 Procedure ClearPlaylistItems()
+  CloseCurrentMedia()
   ResetPlaylistState(#True)
   SaveCurrentPlaylistStore()
 EndProcedure

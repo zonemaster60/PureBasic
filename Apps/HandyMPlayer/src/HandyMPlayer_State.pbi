@@ -1,7 +1,6 @@
 Global isUserSeeking.i = 0
 
 ; Global variables moved to State structure or handled by Include
-Global version.s = "v1.0.3.5"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -66,6 +65,7 @@ Declare KeepStatusBarOnTop()
 Declare UpdateLayout()
 Declare ResizeMainForAudio(hasArtwork.i)
 Declare LoadFile(path.s)
+Declare CloseCurrentMedia()
 Declare StopPlayback()
 Declare TogglePlayback()
 Declare StartLoadedPlayback()
