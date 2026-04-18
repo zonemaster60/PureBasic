@@ -33,7 +33,7 @@ Procedure ShowArtworkPreview()
   EndIf
 
   If IsWindow(#Window_ArtworkPreview) = 0
-    If OpenWindow(#Window_ArtworkPreview, #PB_Ignore, #PB_Ignore, #ArtworkPreviewWindowWidth, #ArtworkPreviewWindowHeight, "Artwork", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered, WindowID(#Window_Main))
+    If OpenWindow(#Window_ArtworkPreview, #PB_Ignore, #PB_Ignore, #ArtworkPreviewWindowWidth, #ArtworkPreviewWindowHeight, "Artwork", #PB_Window_SizeGadget | #PB_Window_SystemMenu | #PB_Window_ScreenCentered, WindowID(#Window_Main))
       ScrollAreaGadget(#Gadget_ArtworkScroll, 0, 0, WindowWidth(#Window_ArtworkPreview), WindowHeight(#Window_ArtworkPreview), 400, 400, 16)
       ImageGadget(#Gadget_ArtworkPreviewImage, 0, 0, 400, 400, 0)
       CloseGadgetList()
@@ -81,7 +81,7 @@ Procedure ShowLyricsWindow()
   EndIf
 
   If IsWindow(#Window_Lyrics) = 0
-    If OpenWindow(#Window_Lyrics, #PB_Ignore, #PB_Ignore, #LyricsWindowWidth, #LyricsWindowHeight, "Lyrics", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered, WindowID(#Window_Main))
+    If OpenWindow(#Window_Lyrics, #PB_Ignore, #PB_Ignore, #LyricsWindowWidth, #LyricsWindowHeight, "Lyrics", #PB_Window_SizeGadget | #PB_Window_SystemMenu | #PB_Window_ScreenCentered, WindowID(#Window_Main))
       EditorGadget(#Gadget_LyricsEditor, 0, 0, WindowWidth(#Window_Lyrics), WindowHeight(#Window_Lyrics), #PB_Editor_ReadOnly | #PB_Editor_WordWrap)
     EndIf
   EndIf
@@ -168,7 +168,7 @@ EndProcedure
 
 Procedure ShowHelpWindow()
   If IsWindow(#Window_Help) = 0
-    If OpenWindow(#Window_Help, #PB_Ignore, #PB_Ignore, #HelpWindowWidth, #HelpWindowHeight, "Help", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered, WindowID(#Window_Main))
+    If OpenWindow(#Window_Help, #PB_Ignore, #PB_Ignore, #HelpWindowWidth, #HelpWindowHeight, "Help", #PB_Window_SystemMenu | #PB_Window_ScreenCentered, WindowID(#Window_Main))
       EditorGadget(#Gadget_HelpEditor, 0, 0, WindowWidth(#Window_Help), WindowHeight(#Window_Help), #PB_Editor_ReadOnly | #PB_Editor_WordWrap)
       SetGadgetText(#Gadget_HelpEditor, GetHelpText())
     EndIf
@@ -227,7 +227,7 @@ EndProcedure
 
 Procedure ShowPlaylistWindow()
   If IsWindow(#Window_Playlist) = 0
-    If OpenWindow(#Window_Playlist, #PB_Ignore, #PB_Ignore, #PlaylistWindowWidth, #PlaylistWindowHeight, "Playlist", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered, WindowID(#Window_Main))
+    If OpenWindow(#Window_Playlist, #PB_Ignore, #PB_Ignore, #PlaylistWindowWidth, #PlaylistWindowHeight, "Playlist", #PB_Window_SystemMenu | #PB_Window_ScreenCentered, WindowID(#Window_Main))
       TextGadget(#Gadget_PlaylistTitle, 10, 10, 200, 18, "Playlist")
       TrackBarGadget(#Gadget_PlaylistProgress, 10, 32, 390, #ProgressBarHeight + 6, 0, #ProgressScaleMax)
       TextGadget(#Gadget_PlaylistNowPlaying, 10, 56, 390, 18, "Now Playing: nothing loaded")
@@ -277,8 +277,8 @@ Procedure TogglePlaylistWindow()
 EndProcedure
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 107
-; FirstLine = 96
+; CursorPosition = 83
+; FirstLine = 45
 ; Folding = ---
 ; EnableXP
 ; DPIAware
