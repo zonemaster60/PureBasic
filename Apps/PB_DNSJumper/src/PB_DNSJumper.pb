@@ -15,9 +15,8 @@ EnableExplicit
 
 #APP_NAME        = "PB_DNSJumper"
 #EMAIL_NAME      = "zonemaster60@gmail.com"
-#AUTO_START_BENCHMARK_DELAY_MS = 120000
 #WORKER_EXIT_WAIT_MS           = 10000
-Global version.s = "v1.0.0.5"
+Global version.s = "v1.0.0.6"
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 If AppPath = "" : AppPath = GetCurrentDirectory() : EndIf
@@ -155,6 +154,8 @@ Enumeration Gadgets
   #G_ReloadAdapters
   #G_TriesSpin
   #G_TimeoutSpin
+  #G_AutoStartSpin
+  #G_TrayRescanCombo
   #G_Start
   #G_Stop
   #G_Apply
@@ -163,6 +164,10 @@ Enumeration Gadgets
   #G_List
   #G_Status
   #G_Exit
+EndEnumeration
+
+Enumeration Windows
+  #WinMain
 EndEnumeration
 
 ; Prevent multiple instances (don't rely on window title text)
@@ -270,6 +275,8 @@ EndProcedure
 
 Declare.s LastPowerShellMessage()
 Declare.s FmtMS(x.d)
+Declare.b ApplyProviderByName(name.s, adapter.s)
+Declare.b ApplyBest(adapter.s)
 
 Procedure.i IsInStartup()
   Protected args.s = "/Query /TN " + #DQUOTE$ + #APP_NAME + #DQUOTE$
@@ -638,8 +645,14 @@ Global gProvidersFromFile.l
 Global gCurrentTest.s
 Global gAutoStartDone.b = #False
 Global gQueueApplied.b = #False
+Global gAutoRunPending.b = #False
+Global gCurrentRunAuto.b = #False
 Global gStartTime.q = ElapsedMilliseconds()
 Global gStartToTray.b = #False
+Global gTrayIconReady.b = #False
+Global gAutoStartDelaySec.l = 90
+Global gTrayRescanHours.l = 4
+Global gLastTrayRescanTick.q = ElapsedMilliseconds()
 
 Procedure AddProvider(name.s, ip1.s, ip2.s)
   AddElement(Providers())
@@ -934,6 +947,201 @@ Procedure.s GetProviderPair(name.s)
   ProcedureReturn dns1 + "|" + dns2
 EndProcedure
 
+Procedure.s ProviderListLine(rank.i, providerName.s, providerIP.s, successText.s, medianText.s, p90Text.s, bestText.s)
+  ProcedureReturn Str(rank) + Chr(10) + providerName + Chr(10) + providerIP + Chr(10) + successText + Chr(10) + medianText + Chr(10) + p90Text + Chr(10) + bestText
+EndProcedure
+
+Procedure PopulateProviderList(listGadget.i)
+  ClearGadgetItems(listGadget)
+
+  ForEach Providers()
+    AddGadgetItem(listGadget, -1, ProviderListLine(0, Providers()\name, Providers()\ip1 + " / " + Providers()\ip2, "0%", "-", "-", "-"))
+  Next
+EndProcedure
+
+Procedure SetBenchmarkUiState(isRunning.i)
+  DisableGadget(#G_Start, Bool(isRunning))
+  DisableGadget(#G_Stop, Bool(Not isRunning))
+  DisableGadget(#G_Apply, Bool(isRunning Or ListSize(Results()) = 0))
+  DisableGadget(#G_ReloadAdapters, Bool(isRunning))
+  DisableGadget(#G_AdapterCombo, Bool(isRunning))
+  DisableGadget(#G_TriesSpin, Bool(isRunning))
+  DisableGadget(#G_TimeoutSpin, Bool(isRunning))
+  DisableGadget(#G_AutoStartSpin, Bool(isRunning))
+  DisableGadget(#G_TrayRescanCombo, Bool(isRunning))
+  DisableGadget(#G_Exit, Bool(isRunning))
+EndProcedure
+
+Procedure ShowMainWindow(show.i)
+  HideWindow(#WinMain, Bool(Not show))
+  If show
+    SetWindowState(#WinMain, #PB_Window_Normal)
+    SetForegroundWindow_(WindowID(#WinMain))
+  Else
+    gLastTrayRescanTick = ElapsedMilliseconds()
+  EndIf
+EndProcedure
+
+Procedure ToggleMainWindow()
+  If IsWindowVisible_(WindowID(#WinMain)) And GetWindowState(#WinMain) <> #PB_Window_Minimize
+    ShowMainWindow(#False)
+  Else
+    ShowMainWindow(#True)
+  EndIf
+EndProcedure
+
+Procedure.b ConfirmExit()
+  ProcedureReturn Bool(MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info) = #PB_MessageRequester_Yes)
+EndProcedure
+
+Procedure.b MainWindowVisible()
+  ProcedureReturn Bool(IsWindowVisible_(WindowID(#WinMain)) And GetWindowState(#WinMain) <> #PB_Window_Minimize)
+EndProcedure
+
+Procedure.l TrayRescanHours()
+  Protected selection = GetGadgetState(#G_TrayRescanCombo)
+
+  Select selection
+    Case 0
+      ProcedureReturn 2
+    Case 1
+      ProcedureReturn 4
+    Case 2
+      ProcedureReturn 8
+    Case 3
+      ProcedureReturn 12
+  EndSelect
+
+  ProcedureReturn 0
+EndProcedure
+
+Procedure.s FirstResultProviderName()
+  Protected providerName.s = ""
+
+  LockMutex(gMutex)
+  If ListSize(Results()) > 0
+    FirstElement(Results())
+    providerName = Results()\provider
+  EndIf
+  UnlockMutex(gMutex)
+
+  ProcedureReturn providerName
+EndProcedure
+
+Procedure.b ApplyProviderWithFeedback(providerName.s, adapter.s, pendingText.s, successText.s, failureText.s, dialogTitle.s)
+  SetGadgetText(#G_Status, pendingText)
+  If ApplyProviderByName(providerName, adapter)
+    SetGadgetText(#G_Status, successText)
+    ProcedureReturn #True
+  EndIf
+
+  SetGadgetText(#G_Status, failureText)
+  MessageRequester(dialogTitle, failureText + #CRLF$ + #CRLF$ + LastPowerShellMessage())
+  ProcedureReturn #False
+EndProcedure
+
+Procedure.b ApplyBestWithFeedback(adapter.s, providerName.s, dialogTitle.s)
+  If providerName = ""
+    MessageRequester(dialogTitle, "Run the test first to find the best provider.")
+    ProcedureReturn #False
+  EndIf
+
+  SetGadgetText(#G_Status, "Applying best: " + providerName + " (requires Administrator)...")
+  If ApplyBest(adapter)
+    SetGadgetText(#G_Status, "Best DNS (" + providerName + ") applied.")
+    LogLine("Best provider applied: " + providerName)
+    ProcedureReturn #True
+  EndIf
+
+  SetGadgetText(#G_Status, "Failed to apply best DNS (" + providerName + ").")
+  MessageRequester(dialogTitle, "Failed to apply best DNS (" + providerName + ")." + #CRLF$ + #CRLF$ + LastPowerShellMessage())
+  ProcedureReturn #False
+EndProcedure
+
+Procedure.b StartBenchmarkRun()
+  LogLine("Benchmark started")
+  ClearList(Results())
+  PopulateProviderList(#G_List)
+  SetGadgetText(#G_BestLabel, "Best: (running...)")
+  SetGadgetText(#G_Status, "Testing DNS servers...")
+
+  gTries = GetGadgetState(#G_TriesSpin)
+  gTimeoutMs = GetGadgetState(#G_TimeoutSpin)
+  gAutoStartDelaySec = GetGadgetState(#G_AutoStartSpin)
+  gTrayRescanHours = TrayRescanHours()
+
+  LockMutex(gMutex)
+  gStopFlag = 0
+  gWorkerRunning = 1
+  gWorkerDone = 0
+  gWorkerCancelled = 0
+  gCurrentRunAuto = gAutoRunPending
+  gAutoRunPending = #False
+  gWorkerStepsDone = 0
+  ClearList(gQueue())
+  ; steps = (providers * 2 IPs) * (tries * domains)
+  Protected domainCount = CountString(gDomains, "|") + 1
+  gWorkerTotalSteps = ListSize(Providers()) * 2 * gTries * domainCount
+  UnlockMutex(gMutex)
+
+  SetBenchmarkUiState(#True)
+  SetGadgetState(#G_Progress, 0)
+
+  gWorkerThread = CreateThread(@WorkerThread(), 0)
+  If gWorkerThread = 0
+    LogLine("Failed to create worker thread")
+    LockMutex(gMutex)
+    gWorkerRunning = 0
+    gWorkerDone = 0
+    gCurrentRunAuto = #False
+    UnlockMutex(gMutex)
+    SetBenchmarkUiState(#False)
+    SetGadgetState(#G_Progress, 0)
+    SetGadgetText(#G_Status, "Failed to start benchmark thread.")
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure FinishBenchmarkRun(wasCancelled.i)
+  SetBenchmarkUiState(#False)
+  If wasCancelled
+    SetGadgetText(#G_Status, "Stopped.")
+    LogLine("Benchmark stopped")
+    SysTrayIconToolTip(#SysTray, #APP_NAME + " - Benchmark Stopped")
+  Else
+    SetGadgetText(#G_Status, "Done. (Apply requires Administrator)")
+    LogLine("Benchmark completed")
+    SysTrayIconToolTip(#SysTray, #APP_NAME + " - Benchmark Complete")
+  EndIf
+
+  LockMutex(gMutex)
+  gWorkerDone = 0
+  gCurrentRunAuto = #False
+  gWorkerThread = 0
+  UnlockMutex(gMutex)
+EndProcedure
+
+Procedure.b AutoApplyBestProvider(adapter.s)
+  If adapter = ""
+    ProcedureReturn #False
+  EndIf
+
+  SetGadgetText(#G_Status, "Auto-Applying best DNS...")
+  If ApplyBest(adapter)
+    SetGadgetText(#G_Status, "Auto-Apply complete.")
+    SysTrayIconToolTip(#SysTray, #APP_NAME + " - Auto-Apply Complete")
+    LogLine("Auto-apply completed")
+    ProcedureReturn #True
+  EndIf
+
+  SetGadgetText(#G_Status, "Auto-Apply failed.")
+  LogLine("Auto-apply failed: " + LastPowerShellMessage())
+  MessageRequester("Auto-Apply", "Failed to apply the best DNS automatically." + #CRLF$ + #CRLF$ + LastPowerShellMessage())
+  ProcedureReturn #False
+EndProcedure
+
 Procedure.b ApplyDnsServers(adapter.s, dns1.s, dns2.s)
   If adapter = "" Or dns1 = "" Or dns2 = ""
     gLastPowerShellOutput = "DNS server pair is incomplete."
@@ -1049,6 +1257,7 @@ Procedure LoadAdapters(combo.i)
   ; Prefer physical hardware interfaces (Wi-Fi/Ethernet) and only those that are currently Up.
   ; We still return the interface Alias (Name) since Apply uses -InterfaceAlias.
   Protected out.s = ""
+  Protected seen.s = #LF$
   If ExecPowerShell(GetAdapterListPowerShell(#True))
     out = gLastPowerShellOutput
   EndIf
@@ -1056,7 +1265,10 @@ Procedure LoadAdapters(combo.i)
   For i = 1 To n
     line = Trim(StringField(out, i, #CRLF$))
     If line <> ""
-      AddGadgetItem(combo, -1, line)
+      If FindString(seen, #LF$ + LCase(line) + #LF$, 1) = 0
+        AddGadgetItem(combo, -1, line)
+        seen + LCase(line) + #LF$
+      EndIf
     EndIf
   Next
   ; Fallback: if nothing is Up (e.g., disconnected Ethernet), show physical adapters regardless of status.
@@ -1068,7 +1280,10 @@ Procedure LoadAdapters(combo.i)
       For i = 1 To n
         line = Trim(StringField(out, i, #CRLF$))
         If line <> ""
-          AddGadgetItem(combo, -1, line)
+          If FindString(seen, #LF$ + LCase(line) + #LF$, 1) = 0
+            AddGadgetItem(combo, -1, line)
+            seen + LCase(line) + #LF$
+          EndIf
         EndIf
       Next
     EndIf
@@ -1104,10 +1319,6 @@ EndProcedure
 ; ----------------------------
 ; UI
 ; ----------------------------
-
-Enumeration Windows
-  #WinMain
-EndEnumeration
 
 gMutex = CreateMutex()
 
@@ -1148,17 +1359,29 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
   SpinGadget(#G_TriesSpin, 525, 10, 60, 26, 1, 10, #PB_Spin_Numeric)
   SetGadgetState(#G_TriesSpin, gTries)
 
-  TextGadget(#PB_Any, 600, 14, 88, 20, "Timeout ms:")
-  SpinGadget(#G_TimeoutSpin, 688, 10, 80, 26, 100, 5000, #PB_Spin_Numeric)
+  TextGadget(#PB_Any, 595, 14, 88, 20, "Timeout ms:")
+  SpinGadget(#G_TimeoutSpin, 680, 10, 70, 26, 100, 5000, #PB_Spin_Numeric)
   SetGadgetState(#G_TimeoutSpin, gTimeoutMs)
 
-  ButtonGadget(#G_Start, 780, 10, 60, 26, "Test")
-  ButtonGadget(#G_Stop, 845, 10, 60, 26, "Stop")
+  TextGadget(#PB_Any, 760, 14, 68, 20, "Auto s:")
+  SpinGadget(#G_AutoStartSpin, 815, 10, 55, 26, 0, 3600, #PB_Spin_Numeric)
+  SetGadgetState(#G_AutoStartSpin, gAutoStartDelaySec)
+
+  TextGadget(#PB_Any, 665, 70, 85, 20, "Rescan:")
+  ComboBoxGadget(#G_TrayRescanCombo, 713, 66, 70, 26)
+  AddGadgetItem(#G_TrayRescanCombo, -1, "2h")
+  AddGadgetItem(#G_TrayRescanCombo, -1, "4h")
+  AddGadgetItem(#G_TrayRescanCombo, -1, "8h")
+  AddGadgetItem(#G_TrayRescanCombo, -1, "12h")
+  SetGadgetState(#G_TrayRescanCombo, 1)
+
+  ButtonGadget(#G_Start, 14, 66, 60, 26, "Test")
+  ButtonGadget(#G_Stop, 79, 66, 60, 26, "Stop")
 
   ProgressBarGadget(#G_Progress, 14, 44, 891, 18, 0, 100)
-  TextGadget(#G_BestLabel, 14, 70, 650, 22, "Best: (none)")
-  ButtonGadget(#G_Apply, 780, 66, 75, 26, "Apply Best")
-  ButtonGadget(#G_Exit, 865, 66, 40, 26, "Exit")
+  TextGadget(#G_BestLabel, 150, 70, 500, 22, "Best: (none)")
+  ButtonGadget(#G_Apply, 790, 66, 75, 26, "Apply Best")
+  ButtonGadget(#G_Exit, 870, 66, 40, 26, "Exit")
 
   ListIconGadget(#G_List, 14, 102, 891, 395, "Rank", 55, #PB_ListIcon_GridLines | #PB_ListIcon_FullRowSelect)
   AddGadgetColumn(#G_List, 1, "Provider", 150)
@@ -1184,16 +1407,19 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
   ; SysTray
   Define hIcon = ExtractIcon_(GetModuleHandle_(0), ProgramFilename(), 0)
   If hIcon
-    AddSysTrayIcon(#SysTray, WindowID(#WinMain), hIcon)
-    SysTrayIconToolTip(#SysTray, #APP_NAME)
+    gTrayIconReady = Bool(AddSysTrayIcon(#SysTray, WindowID(#WinMain), hIcon))
+    If gTrayIconReady
+      SysTrayIconToolTip(#SysTray, #APP_NAME)
+      LogLine("Tray icon created")
+    Else
+      LogLine("Failed to add tray icon")
+    EndIf
+  Else
+    LogLine("Failed to extract tray icon from executable")
   EndIf
 
   ; Populate list with initial provider information
-
-  ForEach Providers()
-    Define itemLine.s = "" + Chr(10) + Providers()\name + Chr(10) + Providers()\ip1 + " / " + Providers()\ip2 + Chr(10) + "0%" + Chr(10) + "-" + Chr(10) + "-" + Chr(10) + "-"
-    AddGadgetItem(#G_List, -1, itemLine)
-  Next
+  PopulateProviderList(#G_List)
 
   AddWindowTimer(#WinMain, 1, 100)
   DisableGadget(#G_Stop, #True)
@@ -1207,10 +1433,13 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
     cmdIdx + 1
   Wend
 
-  If gStartToTray
-    HideWindow(#WinMain, #True)
+  If gStartToTray And gTrayIconReady
+    ShowMainWindow(#False)
   Else
-    HideWindow(#WinMain, #False)
+    If gStartToTray And gTrayIconReady = #False
+      LogLine("/TRAY requested but tray icon is unavailable; showing main window instead")
+    EndIf
+    ShowMainWindow(#True)
   EndIf
   
   Define quitApp = #False
@@ -1218,29 +1447,39 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
   Repeat
     Define ev = WaitWindowEvent(20)
     
-    ; Auto-start benchmark logic (2 minutes after app start)
-    If gAutoStartDone = #False And gWorkerRunning = 0
-      If ElapsedMilliseconds() - gStartTime > #AUTO_START_BENCHMARK_DELAY_MS
+    gTrayRescanHours = TrayRescanHours()
+
+    ; Auto-start benchmark logic (delay in seconds; 0 disables auto-start)
+    gAutoStartDelaySec = GetGadgetState(#G_AutoStartSpin)
+    If gAutoStartDone = #False And gWorkerRunning = 0 And gAutoStartDelaySec > 0
+      If ElapsedMilliseconds() - gStartTime > (gAutoStartDelaySec * 1000)
         ; Check if we have an adapter
         If GetGadgetText(#G_AdapterCombo) <> ""
           ; Mark as done immediately so we don't re-trigger
           gAutoStartDone = #True
-          LogLine("Automatic benchmark triggered")
+          gAutoRunPending = #True
+          LogLine("Automatic benchmark triggered after " + Str(gAutoStartDelaySec) + " seconds")
           PostEvent(#PB_Event_Gadget, #WinMain, #G_Start)
-          SetGadgetText(#G_Status, "Automatic benchmark triggered (2m timer)...")
+          SetGadgetText(#G_Status, "Automatic benchmark triggered (" + Str(gAutoStartDelaySec) + "s timer)...")
+        EndIf
+      EndIf
+    EndIf
+
+    ; Periodic tray-only rescan. This only runs while the app is hidden to tray.
+    If gWorkerRunning = 0 And MainWindowVisible() = #False And gTrayRescanHours > 0
+      If ElapsedMilliseconds() - gLastTrayRescanTick > (gTrayRescanHours * 60 * 60 * 1000)
+        If GetGadgetText(#G_AdapterCombo) <> ""
+          gLastTrayRescanTick = ElapsedMilliseconds()
+          LogLine("Tray rescan triggered after " + Str(gTrayRescanHours) + " hours")
+          SetGadgetText(#G_Status, "Tray rescan triggered (" + Str(gTrayRescanHours) + "h interval)...")
+          PostEvent(#PB_Event_Gadget, #WinMain, #G_Start)
         EndIf
       EndIf
     EndIf
     
     If ev = #PB_Event_SysTray
       If EventType() = #PB_EventType_LeftDoubleClick
-        If IsWindowVisible_(WindowID(#WinMain)) And GetWindowState(#WinMain) <> #PB_Window_Minimize
-          HideWindow(#WinMain, #True)
-        Else
-          HideWindow(#WinMain, #False)
-          SetWindowState(#WinMain, #PB_Window_Normal)
-          SetForegroundWindow_(WindowID(#WinMain))
-        EndIf
+        ToggleMainWindow()
       ElseIf EventType() = #PB_EventType_RightClick
         UpdateTrayMenu()
         DisplayPopupMenu(0, WindowID(#WinMain))
@@ -1250,13 +1489,7 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
     If ev = #PB_Event_Menu
       Select EventMenu()
         Case #Tray_Show
-          If IsWindowVisible_(WindowID(#WinMain)) And GetWindowState(#WinMain) <> #PB_Window_Minimize
-            HideWindow(#WinMain, #True)
-          Else
-            HideWindow(#WinMain, #False)
-            SetWindowState(#WinMain, #PB_Window_Normal)
-            SetForegroundWindow_(WindowID(#WinMain))
-          EndIf
+          ToggleMainWindow()
           
         Case #Tray_StartTest
           PostEvent(#PB_Event_Gadget, #WinMain, #G_Start)
@@ -1276,7 +1509,7 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
           PostEvent(#PB_Event_Gadget, #WinMain, #G_Stop)
           
         Case #Tray_Exit
-          If MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info) = #PB_MessageRequester_Yes
+          If ConfirmExit()
             quitApp = #True
           EndIf
 
@@ -1289,13 +1522,8 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
               UnlockMutex(gMutex)
               Define adapter.s = GetGadgetText(#G_AdapterCombo)
               If adapter <> ""
-                SetGadgetText(#G_Status, "Applying " + pName + " from tray...")
-                If ApplyProviderByName(pName, adapter)
-                  SetGadgetText(#G_Status, pName + " applied.")
+                If ApplyProviderWithFeedback(pName, adapter, "Applying " + pName + " from tray...", pName + " applied.", "Failed to apply " + pName + ".", "Apply DNS")
                   LogLine("Provider applied from tray: " + pName)
-                Else
-                  SetGadgetText(#G_Status, "Failed to apply " + pName + ".")
-                  MessageRequester("Apply DNS", "Failed to apply " + pName + "." + #CRLF$ + #CRLF$ + LastPowerShellMessage())
                 EndIf
               EndIf
             Else
@@ -1306,17 +1534,17 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
     EndIf
 
     If ev = #PB_Event_MinimizeWindow
-      HideWindow(#WinMain, #True)
+      ShowMainWindow(#False)
     EndIf
 
     If ev = #PB_Event_CloseWindow
-      HideWindow(#WinMain, #True)
+      ShowMainWindow(#False)
     EndIf
 
     If ev = #PB_Event_Gadget
       Select EventGadget()
         Case #G_Exit
-          If MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info) = #PB_MessageRequester_Yes
+          If ConfirmExit()
             LogLine("Exit requested from button")
             quitApp = #True
           EndIf
@@ -1327,42 +1555,7 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
           SetGadgetText(#G_Status, "Adapters reloaded.")
 
         Case #G_Start
-          LogLine("Benchmark started")
-          ClearList(Results())
-          ClearGadgetItems(#G_List)
-          SetGadgetText(#G_BestLabel, "Best: (running...)")
-          SetGadgetText(#G_Status, "Testing DNS servers...")
-
-          gTries = GetGadgetState(#G_TriesSpin)
-          gTimeoutMs = GetGadgetState(#G_TimeoutSpin)
-
-          LockMutex(gMutex)
-          gStopFlag = 0
-          gWorkerRunning = 1
-          gWorkerDone = 0
-          gWorkerCancelled = 0
-          gWorkerStepsDone = 0
-          ClearList(gQueue())
-          ; steps = (providers * 2 IPs) * (tries * domains)
-          Define domainCount = CountString(gDomains, "|") + 1
-          gWorkerTotalSteps = ListSize(Providers()) * 2 * gTries * domainCount
-          UnlockMutex(gMutex)
-
-          ; Disable relevant UI elements during testing
-          DisableGadget(#G_Start, #True)
-          DisableGadget(#G_Stop, #False)
-          DisableGadget(#G_Apply, #True)
-          DisableGadget(#G_ReloadAdapters, #True)
-          DisableGadget(#G_AdapterCombo, #True)
-          DisableGadget(#G_TriesSpin, #True)
-          DisableGadget(#G_TimeoutSpin, #True)
-          DisableGadget(#G_Exit, #True)
-          SetGadgetState(#G_Progress, 0)
-
-          gWorkerThread = CreateThread(@WorkerThread(), 0)
-          If gWorkerThread = 0
-            LogLine("Failed to create worker thread")
-          EndIf
+          StartBenchmarkRun()
 
         Case #G_Stop
           LockMutex(gMutex)
@@ -1378,27 +1571,8 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
           If adapter = ""
             MessageRequester("Apply Best", "Select an adapter first.")
           Else
-            ; Get current best from Results (first element after RefreshListIcon sorts it)
-            Define bestName.s = ""
-            LockMutex(gMutex)
-            If ListSize(Results()) > 0
-              FirstElement(Results())
-              bestName = Results()\provider
-            EndIf
-            UnlockMutex(gMutex)
-
-            If bestName <> ""
-              SetGadgetText(#G_Status, "Applying best: " + bestName + " (requires Administrator)...")
-              If ApplyBest(adapter)
-                SetGadgetText(#G_Status, "Best DNS (" + bestName + ") applied.")
-                LogLine("Best provider applied: " + bestName)
-              Else
-                SetGadgetText(#G_Status, "Failed to apply best DNS (" + bestName + ").")
-                MessageRequester("Apply Best", "Failed to apply best DNS (" + bestName + ")." + #CRLF$ + #CRLF$ + LastPowerShellMessage())
-              EndIf
-            Else
-              MessageRequester("Apply Best", "Run the test first to find the best provider.")
-            EndIf
+            Define bestName.s = FirstResultProviderName()
+            ApplyBestWithFeedback(adapter, bestName, "Apply Best")
           EndIf
       EndSelect
     EndIf
@@ -1409,6 +1583,7 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
       Define running = gWorkerRunning
       Define done = gWorkerDone
       Define wasCancelled = gWorkerCancelled
+      Define currentRunAuto = gCurrentRunAuto
       Define stepsDone = gWorkerStepsDone
       Define totalSteps = gWorkerTotalSteps
       UnlockMutex(gMutex)
@@ -1432,50 +1607,13 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
       EndIf
 
       If done And running = 0
-        DisableGadget(#G_Start, #False)
-        DisableGadget(#G_Stop, #True)
-        DisableGadget(#G_Apply, Bool(ListSize(Results()) = 0))
-        DisableGadget(#G_ReloadAdapters, #False)
-        DisableGadget(#G_AdapterCombo, #False)
-        DisableGadget(#G_TriesSpin, #False)
-        DisableGadget(#G_TimeoutSpin, #False)
-        DisableGadget(#G_Exit, #False)
-        If wasCancelled
-          SetGadgetText(#G_Status, "Stopped.")
-          LogLine("Benchmark stopped")
-        Else
-          SetGadgetText(#G_Status, "Done. (Apply requires Administrator)")
-          LogLine("Benchmark completed")
-        EndIf
-        
-        ; Show notification when benchmark finishes
-        If wasCancelled
-          SysTrayIconToolTip(#SysTray, #APP_NAME + " - Benchmark Stopped")
-        Else
-          SysTrayIconToolTip(#SysTray, #APP_NAME + " - Benchmark Complete")
-        EndIf
-        
-        LockMutex(gMutex)
-        gWorkerDone = 0
-        gWorkerThread = 0
-        UnlockMutex(gMutex)
+        FinishBenchmarkRun(wasCancelled)
 
         ; If this was an automatic benchmark (timer), apply the best DNS now
-        If gAutoStartDone = #True And gQueueApplied = #False And wasCancelled = #False
+        If currentRunAuto = #True And gQueueApplied = #False And wasCancelled = #False
           gQueueApplied = #True
           Define adapter.s = GetGadgetText(#G_AdapterCombo)
-          If adapter <> ""
-            SetGadgetText(#G_Status, "Auto-Applying best DNS...")
-            If ApplyBest(adapter)
-              SetGadgetText(#G_Status, "Auto-Apply complete.")
-              SysTrayIconToolTip(#SysTray, #APP_NAME + " - Auto-Apply Complete")
-              LogLine("Auto-apply completed")
-            Else
-              SetGadgetText(#G_Status, "Auto-Apply failed.")
-              LogLine("Auto-apply failed: " + LastPowerShellMessage())
-              MessageRequester("Auto-Apply", "Failed to apply the best DNS automatically." + #CRLF$ + #CRLF$ + LastPowerShellMessage())
-            EndIf
-          EndIf
+          AutoApplyBestProvider(adapter)
         EndIf
       EndIf
     EndIf
@@ -1488,9 +1626,9 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
     End
 EndIf
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 1470
-; FirstLine = 1431
-; Folding = --------
+; CursorPosition = 652
+; FirstLine = 612
+; Folding = ----------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1499,12 +1637,12 @@ EndIf
 ; UseIcon = PB_DNSJumper.ico
 ; Executable = ..\PB_DNSJumper.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,5
-; VersionField1 = 1,0,0,5
+; VersionField0 = 1,0,0,6
+; VersionField1 = 1,0,0,6
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_DNSJumper
-; VersionField4 = 1.0.0.5
-; VersionField5 = 1.0.0.5
+; VersionField4 = 1.0.0.6
+; VersionField5 = 1.0.0.6
 ; VersionField6 = An automatic DNS changer similar to DNSJumper
 ; VersionField7 = PB_DNSJumper
 ; VersionField8 = PB_DNSJumper.exe
