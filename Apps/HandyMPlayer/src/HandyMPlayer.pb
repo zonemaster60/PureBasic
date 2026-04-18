@@ -3,7 +3,7 @@
 ;
 
 IncludeFile "HandyMPlayer_Inc.pb"
-Global version.s = "v1.0.3.8"
+Global version.s = "v1.0.3.9"
 
 EnableExplicit
 
@@ -19,6 +19,8 @@ IncludeFile "HandyMPlayer_Windows.pbi"
 IncludeFile "HandyMPlayer_MetadataAssets.pbi"
 IncludeFile "HandyMPlayer_PlaybackLayout.pbi"
 
+Global LastHighlightedMenuCommand.i = -1
+
 Procedure ExitApplication(confirm.i = #True)
   If confirm = #False Or MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info) = #PB_MessageRequester_Yes
     CleanupResources()
@@ -26,8 +28,25 @@ Procedure ExitApplication(confirm.i = #True)
   EndIf
 EndProcedure
 
+Procedure UpdateHighlightedMenuItem(command.i)
+  Select command
+    Case #Command_Load, #Command_LoadFolder, #Command_LoadPlaylist, #Command_SavePlaylist, #Command_CloseMedia, #Command_Exit,
+         #Command_PlayPause, #Command_Pause, #Command_PlayPrevious, #Command_PlayNext, #Command_PlaybackContinuous, #Command_PlaybackShuffle,
+         #Command_PlaybackRepeat, #Command_Stop, #Command_SizeHalf, #Command_SizeDefault, #Command_SizeFit, #Command_SizeX1,
+         #Command_SizeX15, #Command_SizeX2, #Command_SizeX3, #Command_SizeStepDown, #Command_SizeStepUp, #Command_VolumeFull,
+         #Command_Volume75, #Command_VolumeHalf, #Command_Volume25, #Command_VolumeMute, #Command_VolumeUp, #Command_VolumeDown,
+         #Command_BalanceCenter, #Command_BalanceSlightLeft, #Command_BalanceLeft, #Command_BalanceSlightRight, #Command_BalanceRight,
+         #Command_ShowPlaylist, #Command_ShowLyrics, #Command_ShowArtwork, #Command_ShowVideo, #Command_Help, #Command_About
+        If LastHighlightedMenuCommand >= 0
+          SetMenuItemState(0, LastHighlightedMenuCommand, #False)
+        EndIf
+        SetMenuItemState(0, command, #True)
+        LastHighlightedMenuCommand = command
+  EndSelect
+EndProcedure
+
 Procedure Main()
-  Protected now.i, st.q, curSec.q, totalSec.q, elapsedMS.q, windowMS.q, pos.i, mainStyle.i
+  Protected now.i, st.q, curSec.q, totalSec.q, elapsedMS.q, windowMS.q, pos.i, mainStyle.i, currentMenuCommand.i
   Protected windowFlags.i
   Protected windowX.i
   Protected windowY.i
@@ -231,7 +250,9 @@ Procedure Main()
 
       Case #PB_Event_Menu
         If EventWindow() = #Window_Main
-          Select EventMenu()
+          currentMenuCommand = EventMenu()
+          UpdateHighlightedMenuItem(currentMenuCommand)
+          Select currentMenuCommand
             
             Case #Command_Load ; Load
                LoadPlaylistFromRequester()
@@ -711,12 +732,12 @@ End
 ; Executable = ..\HandyMPlayer.exe
 ; Debugger = IDE
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,8
-; VersionField1 = 1,0,3,8
+; VersionField0 = 1,0,3,9
+; VersionField1 = 1,0,3,9
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyMPlayer
-; VersionField4 = 1.0.3.8
-; VersionField5 = 1.0.3.8
+; VersionField4 = 1.0.3.9
+; VersionField5 = 1.0.3.9
 ; VersionField6 = A Handy Compact Audio/Video Player
 ; VersionField7 = HandyMPlayer
 ; VersionField8 = HandyMPlayer.exe
