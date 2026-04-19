@@ -46,7 +46,7 @@ Global gTooltipOverrideText.s = ""
 
 ; Logging toggle
 Global loggingEnabled   = #True
-Global version.s = "v1.0.1.5"
+Global version.s = "v1.0.1.6"
 
 ; Memory threshold (auto-clean when available RAM <= threshold)
 Global gMemThresholdEnabled.i = #False
@@ -60,6 +60,7 @@ Global gLogRotateEnabled.i = #True
 Global gLogRotateMaxBytes.q = 1024 * 1024 ; 1 MiB
 Global gLogRotateKeep.i = 3
 Global gLogMutex.i = CreateMutex()
+Global gUiMutex.i = CreateMutex()
 Global gRunStateMutex.i = CreateMutex()
 Global gTimerThread.i = 0
 Global gWorkerThread.i = 0
@@ -72,6 +73,11 @@ Global gTrayGreenIconHandle.i = 0
 Global gTrayRedIconHandle.i = 0
 Global gTrayYellowIconHandle.i = 0
 Global gTrayActiveIconHandle.i = 0
+Global gPendingTrayBusyValid.i = #False
+Global gPendingTrayBusy.i = #False
+Global gPendingTooltipMode.i = 0
+Global gPendingTooltipText.s = ""
+Global gPendingTooltipHoldMs.q = 0
 
 ; Paths / config
 #INI_FILE        = "ClearRam.ini"
@@ -88,6 +94,15 @@ Declare.b LoadTrayIconsFromLibrary(iconLibraryPath.s)
 Declare DestroyTrayIcons()
 Declare.i GetTrayIconHandle(iconNumber.i)
 Declare.b EnsureTrayIconReady()
+Declare.b EnsureAppDirectory(dirPath.s)
+Declare EnsureAppDirectories()
+Declare SetTrayBusyState(isBusy.i)
+Declare SetTooltipOverride(text$, holdMs.q)
+Declare UpdateTrayTooltip(status.s)
+Declare QueueTrayBusyState(isBusy.i)
+Declare QueueTrayTooltip(status.s)
+Declare QueueTrayTooltipOverride(text.s, holdMs.q)
+Declare ApplyPendingTrayUpdates()
 
 Procedure.b HasArg(arg$)
   Protected i
@@ -178,12 +193,27 @@ Procedure LogMessage(msg.s)
   UnlockMutex(gLogMutex)
 EndProcedure
 
+Procedure.b EnsureAppDirectory(dirPath.s)
+  If FileSize(dirPath) = -2
+    ProcedureReturn #True
+  EndIf
+
+  ProcedureReturn Bool(CreateDirectory(dirPath))
+EndProcedure
+
+Procedure EnsureAppDirectories()
+  EnsureAppDirectory(AppPath + "files")
+  EnsureAppDirectory(AppPath + "Logs")
+EndProcedure
+
 ; ---------------------------------------------------------
 ; Load INI settings
 ; ---------------------------------------------------------
 
 Procedure LoadSettings()
   Protected iniFile.s = AppPath + "files\" + #INI_FILE
+
+  EnsureAppDirectories()
 
   ; Defaults
   IntervalMinutes = 5
@@ -295,6 +325,18 @@ EndProcedure
 
 Procedure SaveSettings()
   Protected iniFile.s = AppPath + "files\" + #INI_FILE
+
+  EnsureAppDirectories()
+
+  If IntervalMinutes <= 0 : IntervalMinutes = 5 : EndIf
+  If gLogRotateKeep < 1 : gLogRotateKeep = 1 : EndIf
+  If gLogRotateMaxBytes < 1024 : gLogRotateMaxBytes = 1024 : EndIf
+
+  Protected totalPhysMB.i = GetTotalPhysMB()
+  If gMemThresholdAvailMB < 64 : gMemThresholdAvailMB = 64 : EndIf
+  If totalPhysMB > 0 And gMemThresholdAvailMB > totalPhysMB : gMemThresholdAvailMB = totalPhysMB : EndIf
+
+  NormalizeTrayUsageThresholds()
 
   If OpenOrCreateSettingsPreferences(iniFile)
     WritePreferenceInteger("IntervalMinutes", IntervalMinutes)
@@ -722,10 +764,21 @@ Procedure Exit()
       CloseLibrary(gNtdll)
     EndIf
 
-    FreeMutex(gRunStateMutex)
-    FreeMutex(gLogMutex)
+    If gRunStateMutex
+      FreeMutex(gRunStateMutex)
+      gRunStateMutex = 0
+    EndIf
+    If gUiMutex
+      FreeMutex(gUiMutex)
+      gUiMutex = 0
+    EndIf
+    If gLogMutex
+      FreeMutex(gLogMutex)
+      gLogMutex = 0
+    EndIf
     If hMutex
       CloseHandle_(hMutex)
+      hMutex = 0
     EndIf
     End
   EndIf
@@ -737,6 +790,90 @@ Procedure SetTooltipOverride(text$, holdMs.q)
   If gTrayIconReady
     SysTrayIconToolTip(#TRAY_ICON, gTooltipOverrideText)
   EndIf
+EndProcedure
+
+Procedure ShutdownAndExit()
+  quitProgram = #True
+
+  If IsLibrary(gNtdll)
+    CloseLibrary(gNtdll)
+  EndIf
+
+  If gUiMutex
+    FreeMutex(gUiMutex)
+    gUiMutex = 0
+  EndIf
+
+  If gRunStateMutex
+    FreeMutex(gRunStateMutex)
+    gRunStateMutex = 0
+  EndIf
+
+  If gLogMutex
+    FreeMutex(gLogMutex)
+    gLogMutex = 0
+  EndIf
+
+  If hMutex
+    CloseHandle_(hMutex)
+    hMutex = 0
+  EndIf
+
+  End
+EndProcedure
+
+Procedure QueueTrayBusyState(isBusy.i)
+  LockMutex(gUiMutex)
+  gPendingTrayBusyValid = #True
+  gPendingTrayBusy = Bool(isBusy <> 0)
+  UnlockMutex(gUiMutex)
+EndProcedure
+
+Procedure QueueTrayTooltip(status.s)
+  LockMutex(gUiMutex)
+  gPendingTooltipMode = 1
+  gPendingTooltipText = status
+  gPendingTooltipHoldMs = 0
+  UnlockMutex(gUiMutex)
+EndProcedure
+
+Procedure QueueTrayTooltipOverride(text.s, holdMs.q)
+  LockMutex(gUiMutex)
+  gPendingTooltipMode = 2
+  gPendingTooltipText = text
+  gPendingTooltipHoldMs = holdMs
+  UnlockMutex(gUiMutex)
+EndProcedure
+
+Procedure ApplyPendingTrayUpdates()
+  Protected hasBusy.i = #False
+  Protected busyState.i = #False
+  Protected tooltipMode.i = 0
+  Protected tooltipText.s = ""
+  Protected tooltipHoldMs.q = 0
+
+  LockMutex(gUiMutex)
+  hasBusy = gPendingTrayBusyValid
+  busyState = gPendingTrayBusy
+  tooltipMode = gPendingTooltipMode
+  tooltipText = gPendingTooltipText
+  tooltipHoldMs = gPendingTooltipHoldMs
+  gPendingTrayBusyValid = #False
+  gPendingTooltipMode = 0
+  gPendingTooltipText = ""
+  gPendingTooltipHoldMs = 0
+  UnlockMutex(gUiMutex)
+
+  If hasBusy
+    SetTrayBusyState(busyState)
+  EndIf
+
+  Select tooltipMode
+    Case 1
+      UpdateTrayTooltip(tooltipText)
+    Case 2
+      SetTooltipOverride(tooltipText, tooltipHoldMs)
+  EndSelect
 EndProcedure
 
 Procedure UpdateTrayTooltip(status.s)
@@ -983,8 +1120,8 @@ EndProcedure
 
 Procedure.l RunClearRamInternal(showUi.i)
   If showUi
-    SetTrayBusyState(#True)
-    UpdateTrayTooltip("Clearing RAM...")
+    QueueTrayBusyState(#True)
+    QueueTrayTooltip("Clearing RAM...")
   EndIf
 
   ; Try to enable privileges that make these calls effective
@@ -1011,12 +1148,12 @@ Procedure.l RunClearRamInternal(showUi.i)
   LogMessage("Available RAM after: " + Str(availAfter / 1024 / 1024) + " MB")
 
   If showUi
+    QueueTrayBusyState(#False)
     If availAfter > availBefore
-      SetTooltipOverride("Freed ~" + Str((availAfter - availBefore) / 1024 / 1024) + " MB", 5000)
+      QueueTrayTooltipOverride("Freed ~" + Str((availAfter - availBefore) / 1024 / 1024) + " MB", 5000)
     Else
-      UpdateTrayTooltip("No change (try Run as Admin)")
+      QueueTrayTooltip("No change (try Run as Admin)")
     EndIf
-    SetTrayBusyState(#False)
   EndIf
 
   If okModified And okStandby And okLow And okWs
@@ -1040,7 +1177,7 @@ Procedure RunClearRam()
   Protected status.l = RunClearRamInternal(#True)
   If status = $C0000061 ; STATUS_PRIVILEGE_NOT_HELD
     LogMessage("Not enough privilege; requesting elevation")
-    UpdateTrayTooltip("Requesting admin...")
+    QueueTrayTooltip("Requesting admin...")
     ElevateAndClearOnce()
   EndIf
 
@@ -1259,19 +1396,19 @@ If gSingleRunMode
   ; Elevated helper mode: clear once then exit.
   LogMessage("--clearonce: running one purge")
   RunClearRamInternal(#False)
-  End
+  ShutdownAndExit()
 EndIf
 
 If gInstallStartupTaskMode
   LogMessage("--installstartup: ensuring startup task")
   AddToStartup()
-  End
+  ShutdownAndExit()
 EndIf
 
 If gRemoveStartupTaskMode
   LogMessage("--removestartup: removing startup task")
   RemoveFromStartup()
-  End
+  ShutdownAndExit()
 EndIf
 
 ; Best-effort cleanup of old registry startup entry.
@@ -1287,8 +1424,7 @@ Global IconLibraryPath.s = AppPath + "files\ClearRam.icl"
 
 If LoadTrayIconsFromLibrary(IconLibraryPath) = 0
   MessageRequester("Error", "Failed to load tray icons from: " + IconLibraryPath, #PB_MessageRequester_Error)
-  CloseHandle_(hMutex)
-  End
+  ShutdownAndExit()
 EndIf
 
 UpdateTrayIconVisual(GetUsedMemPercent(), #True)
@@ -1343,7 +1479,9 @@ QueueRunClearRam()
 Define event, menuID, remaining.q, text.s
 
 Repeat
+  ApplyPendingTrayUpdates()
   event = WaitWindowEvent(100)
+  ApplyPendingTrayUpdates()
 
   Select event
 
@@ -1431,10 +1569,9 @@ Repeat
   EndSelect
 
 Until quitProgram = #True
-; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 76
-; FirstLine = 73
-; Folding = ---------
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 48
+; Folding = ----------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1444,12 +1581,12 @@ Until quitProgram = #True
 ; Executable = ..\ClearRam.exe
 ; DisableDebugger
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,5
-; VersionField1 = 1,0,1,5
+; VersionField0 = 1,0,1,6
+; VersionField1 = 1,0,1,6
 ; VersionField2 = ZoneSoft
 ; VersionField3 = ClearRam
-; VersionField4 = 1.0.1.5
-; VersionField5 = 1.0.1.5
+; VersionField4 = 1.0.1.6
+; VersionField5 = 1.0.1.6
 ; VersionField6 = Clears RAM using native Windows APIs
 ; VersionField7 = ClearRam
 ; VersionField8 = ClearRam.exe
