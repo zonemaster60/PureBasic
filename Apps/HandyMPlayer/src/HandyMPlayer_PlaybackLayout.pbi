@@ -115,9 +115,11 @@ Procedure StartLoadedPlayback()
 
   If State\movieHasVideo
     ShowVideoWindow()
-    PlayMovie(0, WindowID(#Window_Video))
-    If IsWindow(#Window_Video)
-      ResizeMovie(0, 0, 0, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate))
+    If IsGadget(#Gadget_VideoHost)
+      PlayMovie(0, GadgetID(#Gadget_VideoHost))
+      ResizeMovie(0, 0, 0, GadgetWidth(#Gadget_VideoHost), GadgetHeight(#Gadget_VideoHost))
+    Else
+      PlayMovie(0, WindowID(#Window_Video))
     EndIf
   Else
     PlayMovie(0, WindowID(#Window_Main))
@@ -444,7 +446,8 @@ Procedure ResizeMainForAudio(hasArtwork.i)
   Protected frameDeltaW.i
   Protected frameDeltaH.i
   Protected sidebarMinW.i = DesktopScaledX(State\sidebarWidth + #SidebarSplitterWidth + (#LayoutPadding * 3) + #WindowWidth)
-  Protected sidebarMinH.i = DesktopScaledY(#SidebarMinHeight)
+  Protected sidebarContentMinH.i
+  Protected targetOuterH.i = DesktopScaledY(#PlaylistWindowHeight)
 
   If hasArtwork
     artworkH = DesktopScaledY(#DefaultArtworkSize + (#LayoutPadding * 2))
@@ -454,10 +457,15 @@ Procedure ResizeMainForAudio(hasArtwork.i)
   innerH = toolH + DesktopScaledY(#LayoutPadding) + pbH + DesktopScaledY(#LayoutPadding) + metaH + DesktopScaledY(#LayoutPadding) + artworkH + statusH
   If innerH < DesktopScaledY(#WindowHeight + 25) : innerH = DesktopScaledY(#WindowHeight + 25) : EndIf
   If innerW < sidebarMinW : innerW = sidebarMinW : EndIf
-  If innerH < sidebarMinH : innerH = sidebarMinH : EndIf
+
+  sidebarContentMinH = toolH + DesktopScaledY(176 + 56 + #SidebarButtonHeight + (#LayoutPadding * 2)) + statusH
+  If innerH < sidebarContentMinH : innerH = sidebarContentMinH : EndIf
 
   frameDeltaW = WindowWidth(#Window_Main, #PB_Window_FrameCoordinate) - WindowWidth(#Window_Main, #PB_Window_InnerCoordinate)
   frameDeltaH = WindowHeight(#Window_Main, #PB_Window_FrameCoordinate) - WindowHeight(#Window_Main, #PB_Window_InnerCoordinate)
+  If innerH + frameDeltaH < targetOuterH
+    innerH = targetOuterH - frameDeltaH
+  EndIf
   ResizeWindow(#Window_Main, #PB_Ignore, #PB_Ignore, innerW + frameDeltaW, innerH + frameDeltaH)
 
   If IsWindow(#Window_Video)
@@ -477,6 +485,10 @@ Procedure EnsureVideoHostWindow()
   If initialH < DesktopScaledY(240) : initialH = DesktopScaledY(240) : EndIf
 
   If OpenWindow(#Window_Video, #PB_Ignore, #PB_Ignore, initialW, initialH, "Video", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered, WindowID(#Window_Main))
+    ButtonGadget(#Gadget_VideoPlay, 10, 10, 55, 24, "Play")
+    ButtonGadget(#Gadget_VideoPause, 70, 10, 55, 24, "Pause")
+    ButtonGadget(#Gadget_VideoStop, 130, 10, 55, 24, "Stop")
+    CanvasGadget(#Gadget_VideoHost, 0, 40, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate) - 40)
     HideWindow(#Window_Video, 1)
   EndIf
 EndProcedure
@@ -491,8 +503,11 @@ Procedure ShowVideoWindow()
     SetWindowTitle(#Window_Video, "Video - " + State\fileName)
     HideWindow(#Window_Video, 0)
     SetActiveWindow(#Window_Video)
-    If IsMovie(0)
-      ResizeMovie(0, 0, 0, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate))
+    If IsGadget(#Gadget_VideoHost)
+      ResizeGadget(#Gadget_VideoHost, 0, 40, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate) - 40)
+    EndIf
+    If IsMovie(0) And IsGadget(#Gadget_VideoHost)
+      ResizeMovie(0, 0, 0, GadgetWidth(#Gadget_VideoHost), GadgetHeight(#Gadget_VideoHost))
     EndIf
   EndIf
 EndProcedure
@@ -692,13 +707,13 @@ Procedure UpdateLayout()
     ResizeGadget(#Gadget_LibraryTree, DesktopScaledX(#LayoutPadding), sidebarTop + DesktopScaledY(48), sidebarW - DesktopScaledX(#LayoutPadding * 2), DesktopScaledY(122))
   EndIf
   If IsGadget(#Gadget_LibraryInfo)
-    ResizeGadget(#Gadget_LibraryInfo, DesktopScaledX(#LayoutPadding), sidebarTop + DesktopScaledY(176), sidebarW - DesktopScaledX(#LayoutPadding * 2), DesktopScaledY(116))
+    ResizeGadget(#Gadget_LibraryInfo, DesktopScaledX(#LayoutPadding), sidebarTop + DesktopScaledY(176), sidebarW - DesktopScaledX(#LayoutPadding * 2), DesktopScaledY(56))
   EndIf
   If IsGadget(#Gadget_LibraryPlay)
-    ResizeGadget(#Gadget_LibraryPlay, DesktopScaledX(#LayoutPadding), sidebarTop + DesktopScaledY(298), (sidebarW - DesktopScaledX(#LayoutPadding * 3)) / 2, DesktopScaledY(#SidebarButtonHeight))
+    ResizeGadget(#Gadget_LibraryPlay, DesktopScaledX(#LayoutPadding), sidebarTop + DesktopScaledY(238), (sidebarW - DesktopScaledX(#LayoutPadding * 3)) / 2, DesktopScaledY(#SidebarButtonHeight))
   EndIf
   If IsGadget(#Gadget_LibraryAdd)
-    ResizeGadget(#Gadget_LibraryAdd, DesktopScaledX(#LayoutPadding) + ((sidebarW - DesktopScaledX(#LayoutPadding * 3)) / 2) + DesktopScaledX(#LayoutPadding), sidebarTop + DesktopScaledY(298), (sidebarW - DesktopScaledX(#LayoutPadding * 3)) / 2, DesktopScaledY(#SidebarButtonHeight))
+    ResizeGadget(#Gadget_LibraryAdd, DesktopScaledX(#LayoutPadding) + ((sidebarW - DesktopScaledX(#LayoutPadding * 3)) / 2) + DesktopScaledX(#LayoutPadding), sidebarTop + DesktopScaledY(238), (sidebarW - DesktopScaledX(#LayoutPadding * 3)) / 2, DesktopScaledY(#SidebarButtonHeight))
   EndIf
   If IsGadget(#Gadget_Progress)
     If GadgetWidth(#Gadget_Progress) <> pbW Or GadgetHeight(#Gadget_Progress) <> pbH

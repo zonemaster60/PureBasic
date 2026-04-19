@@ -52,6 +52,10 @@
 #Gadget_PlaylistProgress = 35
 #Gadget_PlaylistNowPlaying = 36
 #Gadget_LibraryInfo = 37
+#Gadget_VideoPlay = 38
+#Gadget_VideoPause = 39
+#Gadget_VideoStop = 40
+#Gadget_VideoHost = 41
 
 Enumeration
   #MovieState_Ready

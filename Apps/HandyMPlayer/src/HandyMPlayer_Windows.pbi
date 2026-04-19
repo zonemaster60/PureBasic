@@ -277,8 +277,8 @@ Procedure TogglePlaylistWindow()
 EndProcedure
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 83
-; FirstLine = 45
+; CursorPosition = 37
+; FirstLine = 15
 ; Folding = ---
 ; EnableXP
 ; DPIAware
