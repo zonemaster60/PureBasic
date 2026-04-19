@@ -34,6 +34,8 @@ Procedure EnsurePdhInitialized()
 
   LockMutex(Mutex_DiskData)
   If UsePdh : UnlockMutex(Mutex_DiskData) : ProcedureReturn #True : EndIf
+  If PdhInitAttempted : UnlockMutex(Mutex_DiskData) : ProcedureReturn #False : EndIf
+  PdhInitAttempted = #True
   PdhInitStage = "Opening library"
   
   PdhLib = OpenLibrary(#PB_Any, "pdh.dll")
@@ -66,14 +68,15 @@ Procedure EnsurePdhInitialized()
             EndIf
           EndIf
         EndIf
-        If status = 0
-          PdhInitStage = "Priming query"
-          status = PdhCollectQueryData(PdhQuery)
           If status = 0
-            UsePdh = #True
-            PdhCounterSource = source
-            PdhInitStatus = status
-            PdhInitStage = "Ready"
+            PdhInitStage = "Priming query"
+            status = PdhCollectQueryData(PdhQuery)
+            If status = 0
+              UsePdh = #True
+              PdhPrimed = #True
+              PdhCounterSource = source
+              PdhInitStatus = status
+              PdhInitStage = "Ready"
           EndIf
         EndIf
       EndIf
@@ -85,6 +88,12 @@ Procedure EnsurePdhInitialized()
   EndIf
 
   If Not UsePdh
+    If PdhQuery And PdhCloseQuery
+      PdhCloseQuery(PdhQuery)
+      PdhQuery = 0
+    EndIf
+    PdhReadCounter = 0
+    PdhWriteCounter = 0
     PdhInitStatus = status
     If PdhCounterSource = "" : PdhCounterSource = source : EndIf
   EndIf
@@ -102,6 +111,8 @@ EndProcedure
 Procedure PdhReadWriteActivity(*ReadBytesPerSec, *WriteBytesPerSec)
   Protected status.l
   Protected counterValue.PDH_FMT_COUNTERVALUE_DOUBLE
+  Protected readOk.i = #False
+  Protected writeOk.i = #False
   
   If Not UsePdh Or PdhQuery = 0 : ProcedureReturn #False : EndIf
   
@@ -116,6 +127,7 @@ Procedure PdhReadWriteActivity(*ReadBytesPerSec, *WriteBytesPerSec)
   PdhLastReadStatus = status
   If status = 0
     PokeD(*ReadBytesPerSec, counterValue\DoubleValue)
+    readOk = #True
   Else
     LogLine("PDH read counter failed: " + FormatPdhError(status), "PDH read fail")
   EndIf
@@ -124,11 +136,12 @@ Procedure PdhReadWriteActivity(*ReadBytesPerSec, *WriteBytesPerSec)
   PdhLastWriteStatus = status
   If status = 0
     PokeD(*WriteBytesPerSec, counterValue\DoubleValue)
+    writeOk = #True
   Else
     LogLine("PDH write counter failed: " + FormatPdhError(status), "PDH write fail")
   EndIf
   
-  ProcedureReturn #True
+  ProcedureReturn Bool(readOk And writeOk)
 EndProcedure
 
 Procedure MonitorThread(unused.i)
@@ -141,13 +154,25 @@ Procedure MonitorThread(unused.i)
   Protected HoldReadUntil.q, HoldWriteUntil.q
   Protected IoctlBackoff.i
   Protected NextPdhSample.q = 0
+  Protected forcePdhOnlyLocal.i
+  Protected disableIoctlLocal.i
+  Protected updateIntervalLocal.i
+  Protected activityThresholdLocal.d
+  Protected activityHoldLocal.i
+  Protected pdhSampleIntervalLocal.i
   
   Repeat
     If QuitThread : Break : EndIf
     
     Protected Result.i = 0
     LockMutex(Mutex_DiskData)
-    If Not (ForcePdhOnly Or DisableIoctlSession) And IoctlBackoff = 0
+    forcePdhOnlyLocal = ForcePdhOnly
+    disableIoctlLocal = DisableIoctlSession
+    updateIntervalLocal = UpdateIntervalMs
+    activityThresholdLocal = ActivityThresholdBps
+    activityHoldLocal = ActivityHoldMs
+    pdhSampleIntervalLocal = PdhSampleIntervalMs
+    If Not (forcePdhOnlyLocal Or disableIoctlLocal) And IoctlBackoff = 0
       Result = DeviceIoControl_(hdh, #IOCTL_DISK_PERFORMANCE, 0, 0, @dp, SizeOf(DISK_PERFORMANCE), @lBytesReturned, 0)
       If Not Result
         LastIoctlError = GetLastError_()
@@ -176,7 +201,7 @@ Procedure MonitorThread(unused.i)
     Else
       If IoctlBackoff > 0
         IoctlBackoff - 1
-      ElseIf Not ForcePdhOnly And Not DisableIoctlSession
+      ElseIf Not forcePdhOnlyLocal And Not disableIoctlLocal
         LogLine("IOCTL_DISK_PERFORMANCE failed with Win32 error " + Str(LastIoctlError) + "; switching to PDH fallback", "IOCTL fail")
         LockMutex(Mutex_DiskData)
         DisableIoctlSession = #True
@@ -188,10 +213,10 @@ Procedure MonitorThread(unused.i)
       
       If UsePdh
         If ElapsedMilliseconds() >= NextPdhSample
-          NextPdhSample = ElapsedMilliseconds() + PdhSampleIntervalMs
+          NextPdhSample = ElapsedMilliseconds() + pdhSampleIntervalLocal
           If PdhReadWriteActivity(@readBps, @writeBps)
-            If readBps >= ActivityThresholdBps : HoldReadUntil = ElapsedMilliseconds() + ActivityHoldMs : EndIf
-            If writeBps >= ActivityThresholdBps : HoldWriteUntil = ElapsedMilliseconds() + ActivityHoldMs : EndIf
+            If readBps >= activityThresholdLocal : HoldReadUntil = ElapsedMilliseconds() + activityHoldLocal : EndIf
+            If writeBps >= activityThresholdLocal : HoldWriteUntil = ElapsedMilliseconds() + activityHoldLocal : EndIf
             
             ReadDetected  = Bool(ElapsedMilliseconds() < HoldReadUntil)
             WriteDetected = Bool(ElapsedMilliseconds() < HoldWriteUntil)
@@ -212,7 +237,7 @@ Procedure MonitorThread(unused.i)
       EndIf
     EndIf
     
-    Delay(UpdateIntervalMs)
+    Delay(updateIntervalLocal)
   ForEver
 EndProcedure
 

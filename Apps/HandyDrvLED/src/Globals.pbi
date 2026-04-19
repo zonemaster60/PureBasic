@@ -142,11 +142,14 @@ Global PdhInitStage.s
 Global PdhCounterSource.s
 Global UsePdh.i
 Global PdhQuery.i
+Global PdhInitAttempted.i
 Global PdhLastCollectStatus.l
 Global PdhLastReadStatus.l
 Global PdhLastWriteStatus.l
 
 ; Prototypes
+Declare.s FormatPdhError(status.l)
+
 Prototype.l PdhOpenQueryW(szDataSource.i, dwUserData.i, *phQuery)
 Prototype.l PdhAddCounterW(hQuery.i, szFullCounterPath.i, dwUserData.i, *phCounter)
 Prototype.l PdhAddEnglishCounterW(hQuery.i, szFullCounterPath.i, dwUserData.i, *phCounter)
@@ -193,6 +196,13 @@ Procedure.s EnsureTrailingBackslash(path.s)
   ProcedureReturn path
 EndProcedure
 
+Procedure EnsureParentDirectory(filePath.s)
+  Protected dir.s = GetPathPart(filePath)
+  If dir <> "" And FileSize(dir) <> -2
+    CreateDirectory(dir)
+  EndIf
+EndProcedure
+
 Procedure.s ResolveWritableLogDir()
   Protected dir.s
   Protected probe.s
@@ -232,26 +242,87 @@ EndProcedure
 
 Procedure UpdateStartupMenuLabel()
   If StartupEnabled
-    SetMenuItemText(#Menu_Main, #MenuItem_Startup, "Disable Run at Startup")
+    SetMenuItemText(#Menu_Main, #MenuItem_Startup, Lng\StartupDisable)
   Else
-    SetMenuItemText(#Menu_Main, #MenuItem_Startup, "Enable Run at Startup")
+    SetMenuItemText(#Menu_Main, #MenuItem_Startup, Lng\StartupEnable)
   EndIf
 EndProcedure
 
 Procedure UpdateLogMenuLabel()
   If LoggingEnabled
-    SetMenuItemText(#Menu_Main, #MenuItem_LogToggle, "Disable Logging")
+    SetMenuItemText(#Menu_Main, #MenuItem_LogToggle, Lng\LoggingDisable)
   Else
-    SetMenuItemText(#Menu_Main, #MenuItem_LogToggle, "Enable Logging")
+    SetMenuItemText(#Menu_Main, #MenuItem_LogToggle, Lng\LoggingEnable)
   EndIf
 EndProcedure
 
 Procedure.s EnabledStateText(value.i)
   If value
-    ProcedureReturn "Enabled"
+    ProcedureReturn Lng\Enabled
   EndIf
 
-  ProcedureReturn "Disabled"
+  ProcedureReturn Lng\Disabled
+EndProcedure
+
+Procedure.s FormatKeepAndMaxKb(keepFiles.i, maxKb.q)
+  ProcedureReturn Lng\KeepLabel + "=" + Str(keepFiles) + " " + Lng\MaxKbLabel + "=" + Str(maxKb)
+EndProcedure
+
+Procedure.s BuildAboutText(iconSet.i)
+  Protected logState.s = EnabledStateText(LoggingEnabled)
+  Protected rotateState.s = EnabledStateText(LogRotateEnabled)
+
+  ProcedureReturn #APP_NAME + " - " + version + #CRLF$ +
+                  Lng\AboutUpdateInterval + ": " + Str(UpdateIntervalMs) + " ms" + #CRLF$ +
+                  Lng\AboutPdhFallbackDefault + ": " + Str(ForcePdhOnlyDefault) + #CRLF$ +
+                  Lng\Logging + ": " + logState + #CRLF$ +
+                  Lng\AboutLogRotation + ": " + rotateState + " " + FormatKeepAndMaxKb(LogRotateKeep, LogRotateMaxBytes / 1024) + #CRLF$ +
+                  Lng\AboutIniFile + ": files\" + #APP_NAME + ".ini" + #CRLF$ +
+                  Lng\Contact + ": " + #EMAIL_NAME + #CRLF$ +
+                  Lng\Website + ": https://github.com/zonemaster60" + #CRLF$ +
+                  Lng\UsingIconSet + ": " + Str(iconSet)
+EndProcedure
+
+Procedure.s BuildHelpText()
+  ProcedureReturn #APP_NAME + " " + Lng\HelpTitle + #LF$ +
+                  Lng\HelpTrayIconTitle + ":" + #LF$ +
+                  "  - " + Lng\HelpTrayIconLine1 + #LF$ +
+                  "  - " + Lng\HelpTrayIconLine2 + #LF$ + #LF$ +
+                  Lng\HelpLoggingTitle + ":" + #LF$ +
+                  "  - " + Lng\HelpLoggingLine1 + #LF$ +
+                  "  - " + Lng\HelpLoggingLine2 + #LF$ +
+                  "  - " + Lng\HelpLoggingLine3 + #LF$ +
+                  "  - " + Lng\HelpLoggingLine4 + #LF$ + #LF$ +
+                  Lng\HelpActivityTitle + ":" + #LF$ +
+                  "  - " + Lng\HelpActivityLine1 + #LF$ + #LF$ +
+                  Lng\HelpTrayMenuTitle + ":" + #LF$ +
+                  "  - " + Lng\HelpTrayMenuLine1 + #LF$ +
+                  "  - " + Lng\HelpTrayMenuLine2 + #LF$ +
+                  "  - " + Lng\HelpTrayMenuLine3 + #LF$ +
+                  "  - " + Lng\HelpTrayMenuLine4 + #LF$ +
+                  "  - " + Lng\HelpTrayMenuLine5 + #LF$ +
+                  "  - " + Lng\HelpTrayMenuLine6 + #LF$ + #LF$ +
+                  Lng\HelpDrivesTitle + ":" + #LF$ +
+                  "  - " + Lng\HelpDrivesLine1 + #LF$ +
+                  "  - " + Lng\HelpDrivesLine2 + #LF$ + #LF$ +
+                  Lng\HelpConfigLabel + ": files\HandyDrvLED.ini"
+EndProcedure
+
+Procedure.s BuildDiagnosticsText(ioErr.l, rawDisabled.i, forceP.i, useP.i, qry.i, pdhStage.s, pdhSource.s, pdhInit.l, pdhCollect.l, pdhRead.l, pdhWrite.l, logFile.s)
+  ProcedureReturn Lng\DiagIoctlLastError + ": " + Str(ioErr) + #CRLF$ +
+                  Lng\DiagRawDriveDisabled + ": " + Str(rawDisabled) + #CRLF$ +
+                  Lng\DiagForcePdhActive + ": " + Str(forceP) + #CRLF$ +
+                  Lng\DiagPdhInitialized + ": " + Str(useP) + #CRLF$ +
+                  Lng\DiagPdhQueryHandle + ": " + Str(qry) + #CRLF$ +
+                  Lng\DiagPdhInitStage + ": " + pdhStage + #CRLF$ +
+                  Lng\DiagPdhCounterSource + ": " + pdhSource + #CRLF$ +
+                  Lng\DiagPdhInitStatus + ": " + FormatPdhError(pdhInit) + #CRLF$ +
+                  Lng\DiagPdhCollectStatus + ": " + FormatPdhError(pdhCollect) + #CRLF$ +
+                  Lng\DiagPdhReadStatus + ": " + FormatPdhError(pdhRead) + #CRLF$ +
+                  Lng\DiagPdhWriteStatus + ": " + FormatPdhError(pdhWrite) + #CRLF$ +
+                  Lng\Logging + ": " + EnabledStateText(LoggingEnabled) + #CRLF$ +
+                  Lng\DiagLogFile + ": " + logFile + #CRLF$ +
+                  Lng\DiagLogRotation + ": " + EnabledStateText(LogRotateEnabled) + " " + FormatKeepAndMaxKb(LogRotateKeep, LogRotateMaxBytes / 1024)
 EndProcedure
 
 Procedure LogRotateIfNeeded()
@@ -335,6 +406,8 @@ Procedure LogLine(message.s, key.s = "")
 EndProcedure
 
 Procedure.b OpenOrCreateSettingsPreferences(iniFile.s)
+  EnsureParentDirectory(iniFile)
+
   If FileSize(iniFile) >= 0
     If OpenPreferences(iniFile)
       ProcedureReturn #True
@@ -349,6 +422,8 @@ Procedure LoadSettings()
   LogRotateEnabled = #True
   LogRotateMaxBytes = 1024 * 1024
   LogRotateKeep = 3
+
+  EnsureParentDirectory(IniPath)
 
   If OpenPreferences(IniPath)
     PreferenceGroup("General")
@@ -472,7 +547,7 @@ Procedure Cleanup()
 EndProcedure
 
 Procedure.i Exit()
-  If MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info) = #PB_MessageRequester_Yes
+  If MessageRequester(Lng\Exit, Lng\ExitPrompt, #PB_MessageRequester_YesNo | #PB_MessageRequester_Info) = #PB_MessageRequester_Yes
     LogMessage("Program exiting")
     ProcedureReturn #True
   EndIf
@@ -562,126 +637,89 @@ EndProcedure
 
 Procedure.i AddToStartup(targetUserSam.s = "")
   If Not IsProcessElevated()
-    ShellExecute_(0, "runas", ProgramFilename(), "--installstartup --user " + QuoteArgument(targetUserSam), "", #SW_SHOWNORMAL)
-    ProcedureReturn #True
+    If ShellExecute_(0, "runas", ProgramFilename(), "--installstartup --user " + QuoteArgument(targetUserSam), "", #SW_SHOWNORMAL) > 32
+      ProcedureReturn -1
+    EndIf
+    ProcedureReturn #False
   EndIf
   ProcedureReturn InstallStartupTask(targetUserSam)
 EndProcedure
 
 Procedure About(icon1.i)
-  Protected logState.s = EnabledStateText(LoggingEnabled)
-  Protected rotateState.s = EnabledStateText(LogRotateEnabled)
-  Protected msg.s
-
-  msg = #APP_NAME + " - " + version + #CRLF$ +
-        "Update interval: " + Str(UpdateIntervalMs) + " ms" + #CRLF$ +
-        "PDH fallback default: " + Str(ForcePdhOnlyDefault) + #CRLF$ +
-        "Logging: " + logState + #CRLF$ +
-        "Log rotation: " + rotateState + " keep=" + Str(LogRotateKeep) + " maxKB=" + Str(LogRotateMaxBytes / 1024) + #CRLF$ +
-        "INI file: " + "files\" +#APP_NAME + ".ini" + #CRLF$ +
-        "Contact: " + #EMAIL_NAME + #CRLF$ +
-        "Website: https://github.com/zonemaster60" + #CRLF$ +
-        "Using IconSet: " + Str(icon1)
-
-  MessageRequester("About " + #APP_NAME, msg, #PB_MessageRequester_Info)
+  MessageRequester(Lng\AboutTitle + " " + #APP_NAME, BuildAboutText(icon1), #PB_MessageRequester_Info)
 EndProcedure
 
 Procedure Help()
-  Protected helpText.s
-
-  helpText = #APP_NAME + " Help" + #LF$ +
-             "Tray icon:" + #LF$ +
-               "  - Right-click for options." + #LF$ +
-               "  - Colors: RED=Write, GREEN=Read, BLUE=Both, YELLOW=Idle" + #LF$ + #LF$ +
-              "Logging:" + #LF$ +
-              "  - Logging can be enabled or disabled from the tray menu." + #LF$ +
-              "  - Writes to HandyDrvLED.log in Logs\\ next to the EXE when writable." + #LF$ +
-              "  - Rotates to HandyDrvLED.log.1, .2, .3 based on size." + #LF$ +
-              "  - Settings are stored in HandyDrvLED.ini." + #LF$ + #LF$ +
-             "Activity detection:" + #LF$ +
-             "  - Uses IOCTL_DISK_PERFORMANCE or PDH fallback." + #LF$ + #LF$ +
-             "Tray menu:" + #LF$ +
-              "  - About: Version info." + #LF$ +
-              "  - Drive(s): Open drive browser." + #LF$ +
-              "  - Diagnostics: IOCTL/PDH status." + #LF$ +
-              "  - Reload Settings/Edit Settings: Manage config." + #LF$ +
-              "  - Run at Startup: Toggle auto-start." + #LF$ +
-              "  - Logging: Enable or disable logging." + #LF$ + #LF$ +
-             "Drive(s) window:" + #LF$ +
-             "  - View capacity, free space, and filesystem info." + #LF$ +
-             "  - Supports Fixed, Removable, Network, CDROM, RAMDisk." + #LF$ + #LF$ +
-             "Config: files\HandyDrvLED.ini"
-
-  MessageRequester("Help", helpText, #PB_MessageRequester_Info)
+  MessageRequester(Lng\Help, BuildHelpText(), #PB_MessageRequester_Info)
 EndProcedure
 
 Procedure EditSettings()
   Protected w = 410
   Protected h = 540
-  Protected win = OpenWindow(#PB_Any, 0, 0, w, h, "Edit Settings", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  Protected win = OpenWindow(#PB_Any, 0, 0, w, h, Lng\EditSettingsTitle, #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
   If win = 0 : ProcedureReturn : EndIf
 
   Protected ly = 15
-  TextGadget(#PB_Any, 15, ly, 365, 20, "Monitoring")
+  TextGadget(#PB_Any, 15, ly, 365, 20, Lng\MonitoringTitle)
   ly + 25
-  TextGadget(#PB_Any, 15, ly, 170, 20, "Update Interval (ms):")
+  TextGadget(#PB_Any, 15, ly, 170, 20, Lng\UpdateIntervalLabel)
   Protected gadUpdate = StringGadget(#PB_Any, 210, ly, 170, 20, Str(UpdateIntervalMs), #PB_String_Numeric)
 
   ly + 30
-  TextGadget(#PB_Any, 15, ly, 170, 20, "Tooltip Interval (ms):")
+  TextGadget(#PB_Any, 15, ly, 170, 20, Lng\TooltipIntervalLabel)
   Protected gadTooltip = StringGadget(#PB_Any, 210, ly, 170, 20, Str(TooltipUpdateIntervalMs), #PB_String_Numeric)
 
   ly + 30
-  TextGadget(#PB_Any, 15, ly, 170, 20, "Activity Threshold Bps:")
+  TextGadget(#PB_Any, 15, ly, 170, 20, Lng\ActivityThresholdLabel)
   Protected gadThreshold = StringGadget(#PB_Any, 210, ly, 170, 20, StrD(ActivityThresholdBps, 0))
 
   ly + 30
-  TextGadget(#PB_Any, 15, ly, 170, 20, "Activity Hold (ms):")
+  TextGadget(#PB_Any, 15, ly, 170, 20, Lng\ActivityHoldLabel)
   Protected gadHold = StringGadget(#PB_Any, 210, ly, 170, 20, Str(ActivityHoldMs), #PB_String_Numeric)
 
   ly + 30
-  TextGadget(#PB_Any, 15, ly, 170, 20, "PDH Sample Interval (ms):")
+  TextGadget(#PB_Any, 15, ly, 170, 20, Lng\PdhSampleIntervalLabel)
   Protected gadPdh = StringGadget(#PB_Any, 210, ly, 170, 20, Str(PdhSampleIntervalMs), #PB_String_Numeric)
 
   ly + 30
-  TextGadget(#PB_Any, 15, ly, 170, 20, "IOCTL Backoff Cycles:")
+  TextGadget(#PB_Any, 15, ly, 170, 20, Lng\IoctlBackoffLabel)
   Protected gadIoctl = StringGadget(#PB_Any, 210, ly, 170, 20, Str(IoctlBackoffCycles), #PB_String_Numeric)
 
   ly + 40
-  TextGadget(#PB_Any, 15, ly, 365, 20, "Startup and Icons")
+  TextGadget(#PB_Any, 15, ly, 365, 20, Lng\StartupIconsTitle)
   ly + 25
-  TextGadget(#PB_Any, 15, ly, 170, 20, "Default Icon Set:")
+  TextGadget(#PB_Any, 15, ly, 170, 20, Lng\DefaultIconSetLabel)
   Protected gadDefaultIcon = StringGadget(#PB_Any, 210, ly, 170, 20, Str(DefaultIconSet), #PB_String_Numeric)
 
   ly + 30
-  Protected gadStartRandom = CheckBoxGadget(#PB_Any, 15, ly, 365, 20, "Start with Random Icon Set")
+  Protected gadStartRandom = CheckBoxGadget(#PB_Any, 15, ly, 365, 20, Lng\StartRandomIconSetLabel)
   SetGadgetState(gadStartRandom, StartWithRandomIconSet)
 
   ly + 30
-  Protected gadForcePdh = CheckBoxGadget(#PB_Any, 15, ly, 365, 20, "Use PDH Only by Default")
+  Protected gadForcePdh = CheckBoxGadget(#PB_Any, 15, ly, 365, 20, Lng\ForcePdhDefaultLabel)
   SetGadgetState(gadForcePdh, ForcePdhOnlyDefault)
 
   ly + 40
-  TextGadget(#PB_Any, 15, ly, 365, 20, "Logging")
+  TextGadget(#PB_Any, 15, ly, 365, 20, Lng\Logging)
   ly + 25
-  Protected gadLogging = CheckBoxGadget(#PB_Any, 15, ly, 365, 20, "Enable Logging")
+  Protected gadLogging = CheckBoxGadget(#PB_Any, 15, ly, 365, 20, Lng\EnableLoggingLabel)
   SetGadgetState(gadLogging, LoggingEnabled)
 
   ly + 30
-  Protected gadRotate = CheckBoxGadget(#PB_Any, 15, ly, 365, 20, "Enable Log Rotation")
+  Protected gadRotate = CheckBoxGadget(#PB_Any, 15, ly, 365, 20, Lng\EnableLogRotationLabel)
   SetGadgetState(gadRotate, LogRotateEnabled)
 
   ly + 30
-  TextGadget(#PB_Any, 15, ly, 170, 20, "Rotate Keep Files:")
+  TextGadget(#PB_Any, 15, ly, 170, 20, Lng\RotateKeepFilesLabel)
   Protected gadRotateKeep = StringGadget(#PB_Any, 210, ly, 170, 20, Str(LogRotateKeep), #PB_String_Numeric)
 
   ly + 30
-  TextGadget(#PB_Any, 15, ly, 170, 20, "Rotate Max KB:")
+  TextGadget(#PB_Any, 15, ly, 170, 20, Lng\RotateMaxKbLabel)
   Protected gadRotateMax = StringGadget(#PB_Any, 210, ly, 170, 20, Str(LogRotateMaxBytes / 1024), #PB_String_Numeric)
 
   ly + 50
-  Protected gadOk = ButtonGadget(#PB_Any, w - 180, h - 42, 80, 26, "OK")
-  Protected gadCancel = ButtonGadget(#PB_Any, w - 92, h - 42, 80, 26, "Cancel")
+  Protected gadOk = ButtonGadget(#PB_Any, w - 180, h - 42, 80, 26, Lng\Ok)
+  Protected gadCancel = ButtonGadget(#PB_Any, w - 92, h - 42, 80, 26, Lng\Cancel)
 
   Protected changed.i = #False
   Protected done.i = #False
@@ -744,7 +782,7 @@ Procedure EditSettings()
             EndIf
             LogMessage("Settings updated via dialog")
           EndIf
-          MessageRequester("Settings Saved", "Settings have been saved successfully.", #PB_MessageRequester_Info)
+          MessageRequester(Lng\SettingsSavedTitle, Lng\SettingsSavedMessage, #PB_MessageRequester_Info)
         EndIf
         done = #True
       ElseIf g = gadCancel

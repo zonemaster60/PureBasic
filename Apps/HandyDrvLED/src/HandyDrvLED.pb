@@ -5,8 +5,8 @@
 
 #APP_NAME = "HandyDrvLED"
 
-IncludeFile "Globals.pbi"
 IncludeFile "Localization.pbi"
+IncludeFile "Globals.pbi"
 IncludeFile "DiskLogic.pbi"
 IncludeFile "UI_Drives.pbi"
 
@@ -30,7 +30,7 @@ EndProcedure
   If Not HelperMode
     hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
     If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
-      MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+      MessageRequester(Lng\InfoTitle, Lng\AlreadyRunning, #PB_MessageRequester_Info)
       CloseHandle_(hMutex)
       End
     EndIf
@@ -55,12 +55,12 @@ Procedure InitializeApp()
       Case "--installstartup"
         Define targetUser.s = FindCmdArgValue("--user")
         If Not InstallStartupTask(targetUser)
-          MessageRequester("Error", "Unable to install startup task.", #PB_MessageRequester_Error)
+          MessageRequester(Lng\ErrorTitle, Lng\StartupInstallError, #PB_MessageRequester_Error)
         EndIf
         End
       Case "--removestartup"
         If Not RemoveFromStartup()
-          MessageRequester("Error", "Unable to remove startup task.", #PB_MessageRequester_Error)
+          MessageRequester(Lng\ErrorTitle, Lng\StartupRemoveError, #PB_MessageRequester_Error)
         EndIf
         End
     EndSelect
@@ -74,16 +74,20 @@ Procedure InitializeApp()
   If Not LoadIconSet(icon1) : LogLine("Failed to load icon set") : End : EndIf
 
   CurrentIconID = IdIcon4
-  CurrentTooltip = "Starting monitor..."
+  CurrentTooltip = Lng\StartingMonitor
   
   If OpenPhysDrive(0) = #INVALID_HANDLE_VALUE
     LogLine("Unable to open physical drive 0. Win32 error " + Str(GetLastError_()))
     DisableIoctlSession = #True
-    CurrentTooltip = "PDH fallback active (physical drive access denied)"
+    CurrentTooltip = Lng\PdhFallbackActive
   EndIf
   
   ; Start Background Monitor Thread
   Thread_Monitor = CreateThread(@MonitorThread(), 0)
+EndProcedure
+
+Procedure.s BuildTrayTooltip(statusText.s)
+  ProcedureReturn statusText
 EndProcedure
 
 Procedure.i EnsureTrayIcon()
@@ -96,7 +100,7 @@ Procedure.i EnsureTrayIcon()
   UnlockMutex(Mutex_DiskData)
 
   If AddSysTrayIcon(#TrayIcon_Main, WindowID(#Window_Main), iconId)
-    SysTrayIconToolTip(#TrayIcon_Main, Lng\AppName + " " + version + #CRLF$ + tooltip)
+    SysTrayIconToolTip(#TrayIcon_Main, BuildTrayTooltip(tooltip))
     ProcedureReturn #True
   EndIf
 
@@ -110,7 +114,7 @@ Define Event.i, EventMenu.i, EventWindow.i, EventType.i
 Define ioErr.l, useP.i, qry.i, forceP.i, currentForce.i, result.i, logFile.s
 Define pdhInit.l, pdhCollect.l, pdhRead.l, pdhWrite.l, rawDisabled.i
 Define pdhStage.s, pdhSource.s
-Define TrayIconReady.i, TrayRetryActive.i
+Define TrayIconReady.i, TrayRetryActive.i, requestedStartupState.i
 
 OpenWindow(#Window_Main, 0, 0, 0, 0, Lng\AppName, #PB_Window_Invisible)
 CreatePopupMenu(#Menu_Main)
@@ -159,7 +163,7 @@ EndIf
       If TrayIconReady
         LockMutex(Mutex_DiskData)
         ChangeSysTrayIcon(#TrayIcon_Main, CurrentIconID)
-        SysTrayIconToolTip(#TrayIcon_Main, CurrentTooltip)
+        SysTrayIconToolTip(#TrayIcon_Main, BuildTrayTooltip(CurrentTooltip))
         UnlockMutex(Mutex_DiskData)
       EndIf
 
@@ -198,20 +202,7 @@ EndIf
           pdhStage = PdhInitStage
           pdhSource = PdhCounterSource
           UnlockMutex(Mutex_DiskData)
-          MessageRequester("Diagnostics", "IOCTL Last Error: " + Str(ioErr) + #CRLF$ +
-                                       "Raw Drive Disabled: " + Str(rawDisabled) + #CRLF$ +
-                                       "Force PDH Active: " + Str(forceP) + #CRLF$ +
-                                       "PDH Initialized: " + Str(useP) + #CRLF$ +
-                                       "PDH Query Handle: " + Str(qry) + #CRLF$ +
-                                       "PDH Init Stage: " + pdhStage + #CRLF$ +
-                                       "PDH Counter Source: " + pdhSource + #CRLF$ +
-                                       "PDH Init Status: " + FormatPdhError(pdhInit) + #CRLF$ +
-                                       "PDH Collect Status: " + FormatPdhError(pdhCollect) + #CRLF$ +
-                                       "PDH Read Status: " + FormatPdhError(pdhRead) + #CRLF$ +
-                                       "PDH Write Status: " + FormatPdhError(pdhWrite) + #CRLF$ +
-                                       "Logging: " + EnabledStateText(LoggingEnabled) + #CRLF$ +
-                                       "Log File: " + logFile + #CRLF$ +
-                                       "Log Rotation: " + EnabledStateText(LogRotateEnabled) + " keep=" + Str(LogRotateKeep) + " maxKB=" + Str(LogRotateMaxBytes / 1024), #PB_MessageRequester_Info)
+          MessageRequester(Lng\Diagnostics, BuildDiagnosticsText(ioErr, rawDisabled, forceP, useP, qry, pdhStage, pdhSource, pdhInit, pdhCollect, pdhRead, pdhWrite, logFile), #PB_MessageRequester_Info)
         Case #MenuItem_LogToggle
           LoggingEnabled ! 1
           UpdateLogMenuLabel()
@@ -238,17 +229,26 @@ EndIf
         Case #MenuItem_Edit : EditSettings()
         Case #MenuItem_Startup
           StartupEnabled ! 1
+          requestedStartupState = StartupEnabled
           If StartupEnabled
             result = AddToStartup(CurrentUserSam())
           Else
             result = RemoveFromStartup()
           EndIf
-          If result
+          If result = -1
+            StartupEnabled = IsInStartup()
             UpdateStartupMenuLabel()
+            MessageRequester(Lng\InfoTitle, Lng\StartupChangePending, #PB_MessageRequester_Info)
+          ElseIf result
+            StartupEnabled = IsInStartup()
+            UpdateStartupMenuLabel()
+            If StartupEnabled <> requestedStartupState
+              MessageRequester(Lng\ErrorTitle, Lng\StartupChangeError, #PB_MessageRequester_Error)
+            EndIf
           Else
             StartupEnabled = IsInStartup()
             UpdateStartupMenuLabel()
-            MessageRequester("Error", "Unable to change startup setting.", #PB_MessageRequester_Error)
+            MessageRequester(Lng\ErrorTitle, Lng\StartupChangeError, #PB_MessageRequester_Error)
           EndIf
         Case #MenuItem_Exit : If Exit() : QuitThread = #True : Break : EndIf
       EndSelect
@@ -265,7 +265,8 @@ Cleanup()
 End
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 161
+; CursorPosition = 89
+; FirstLine = 58
 ; Folding = -
 ; Optimizer
 ; EnableThread
