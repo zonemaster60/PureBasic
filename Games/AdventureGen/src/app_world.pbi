@@ -248,6 +248,7 @@ EndProcedure
 Procedure TakeItem(Query.s)
   Protected RoomID.i = GS\CurrentRoomID
   Protected DarknessMessage.s = RoomVisibilityBlockedMessage(RoomID)
+  Protected ItemName.s
 
   If Query = ""
     PrintN("Take what?")
@@ -273,11 +274,12 @@ Procedure TakeItem(Query.s)
     ProcedureReturn
   EndIf
 
+  ItemName = GS\World(RoomID)\Items()\Name
   AddElement(GS\Inventory())
   GS\Inventory() = GS\World(RoomID)\Items()
   DeleteElement(GS\World(RoomID)\Items())
 
-  PrintN("You take the " + Query + ".")
+  PrintN("You take the " + ItemName + ".")
   Print("> ")
 EndProcedure
 
@@ -474,6 +476,26 @@ Procedure.s GetExitSummary(RoomID.i)
 EndProcedure
 
 Procedure BuildWorld(Theme.s, Setting.s, Culture.s, Landmark.s, Role.s, Goal.s, Twist.s)
+  If Theme = ""
+    Theme = "Adventure"
+  EndIf
+
+  If Setting = ""
+    Setting = "Unknown Frontier"
+  EndIf
+
+  If Culture = ""
+    Culture = "Unknown Culture"
+  EndIf
+
+  If Landmark = ""
+    Landmark = "Unknown Landmark"
+  EndIf
+
+  If Role = ""
+    Role = "Wanderer"
+  EndIf
+
   If Goal = ""
     Goal = "survive the unknown"
   EndIf

@@ -1,9 +1,10 @@
 Procedure LoadThemes()
   Protected MF.MemoryFile
-  Protected Row.i
+  Protected Row.i = 2
   Protected Col.i
   Protected Count.i
   Protected Line.s
+  Protected Value.s
   Protected NewList Fields.s()
 
   ClearList(Themes())
@@ -33,37 +34,40 @@ Procedure LoadThemes()
     Themes()\Name = CSVFieldByIndex(Fields(), Col)
   Next
 
-  For Row = 2 To 7
-    If Memory_Eof(@MF)
-      Break
-    EndIf
-
+  While Row <= 7 And Not Memory_Eof(@MF)
     Line = Memory_ReadString(@MF)
-    ParseCSVLine(Line, Fields())
+    If Trim(Line) <> ""
+      ParseCSVLine(Line, Fields())
 
-    For Col = 0 To Count - 1
-      If SelectElement(Themes(), Col)
-        Select Row
-          Case 2
-            AddElement(Themes()\Settings())
-            Themes()\Settings() = CSVFieldByIndex(Fields(), Col)
-          Case 3
-            AddElement(Themes()\Cultures())
-            Themes()\Cultures() = CSVFieldByIndex(Fields(), Col)
-          Case 4
-            AddElement(Themes()\Landmarks())
-            Themes()\Landmarks() = CSVFieldByIndex(Fields(), Col)
-          Case 5
-            AddElement(Themes()\Roles())
-            Themes()\Roles() = CSVFieldByIndex(Fields(), Col)
-          Case 6
-            AddElement(Themes()\Goals())
-            Themes()\Goals() = CSVFieldByIndex(Fields(), Col)
-          Case 7
-            AddElement(Themes()\Twists())
-            Themes()\Twists() = CSVFieldByIndex(Fields(), Col)
-        EndSelect
-      EndIf
-    Next
-  Next
+      For Col = 0 To Count - 1
+        If SelectElement(Themes(), Col)
+          Value = CSVFieldByIndex(Fields(), Col)
+          If Value <> ""
+            Select Row
+              Case 2
+                AddElement(Themes()\Settings())
+                Themes()\Settings() = Value
+              Case 3
+                AddElement(Themes()\Cultures())
+                Themes()\Cultures() = Value
+              Case 4
+                AddElement(Themes()\Landmarks())
+                Themes()\Landmarks() = Value
+              Case 5
+                AddElement(Themes()\Roles())
+                Themes()\Roles() = Value
+              Case 6
+                AddElement(Themes()\Goals())
+                Themes()\Goals() = Value
+              Case 7
+                AddElement(Themes()\Twists())
+                Themes()\Twists() = Value
+            EndSelect
+          EndIf
+        EndIf
+      Next
+
+      Row + 1
+    EndIf
+  Wend
 EndProcedure

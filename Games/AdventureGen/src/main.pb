@@ -1,8 +1,9 @@
 ; AdventureGen: The Arcane Edition (Standalone Build System)
 ; ==========================================================
-; PureBasic v6.30 (x64) - Supports dynamic story generation and EXE export
+; PureBasic v6.40 (x64) - Supports dynamic story generation and EXE export
 
 EnableExplicit
+
 XIncludeFile "config_defaults.pbi"
 XIncludeFile "app_core.pbi"
 XIncludeFile "app_helpers.pbi"
@@ -18,8 +19,8 @@ DataSection
   HelpStart: : IncludeBinary "HELP.md" : HelpEnd:
 EndDataSection
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 19
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 13
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -28,13 +29,13 @@ EndDataSection
 ; UseIcon = main.ico
 ; Executable = ..\AdventureGen.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = AdventureGen
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
-; VersionField6 = An automated text adventure creator with themes
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
+; VersionField6 = An automated text adventure creator with theme
 ; VersionField7 = AdventureGen
 ; VersionField8 = AdventureGen.exe
 ; VersionField9 = David Scouten

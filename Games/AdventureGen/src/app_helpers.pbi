@@ -17,6 +17,10 @@ Procedure.s GetGeneratedProductName()
   ProcedureReturn ReplaceString(GetGeneratedBaseName(), "_", " ")
 EndProcedure
 
+Procedure.s GetVersionInfoTuple()
+  ProcedureReturn ReplaceString(RemoveString(version, "v"), ".", ",")
+EndProcedure
+
 Procedure.s GetConsoleTitle()
   If IsBuilderMode()
     ProcedureReturn #APP_NAME + " - " + version + " Build System"
@@ -35,6 +39,25 @@ EndProcedure
 
 Procedure.s EscapePBString(Value.s)
   ProcedureReturn ReplaceString(Value, Chr(34), Chr(34) + Chr(34))
+EndProcedure
+
+Procedure.b IsWholeNumberText(Value.s)
+  Protected Index.i
+  Protected CurrentChar.s
+
+  Value = Trim(Value)
+  If Value = ""
+    ProcedureReturn #False
+  EndIf
+
+  For Index = 1 To Len(Value)
+    CurrentChar = Mid(Value, Index, 1)
+    If CurrentChar < "0" Or CurrentChar > "9"
+      ProcedureReturn #False
+    EndIf
+  Next
+
+  ProcedureReturn #True
 EndProcedure
 
 Procedure.s ResolveSourceFile()
@@ -162,10 +185,17 @@ Procedure.i PromptForChoice(Prompt.s, Minimum.i, Maximum.i)
 
   Repeat
     Print(Prompt + " ")
-    ChoiceText = Trim(Input())
-    Choice = Val(ChoiceText)
-    If Choice >= Minimum And Choice <= Maximum
-      ProcedureReturn Choice
+    ChoiceText = Input()
+    If ChoiceText = #PB_Input_Eof
+      ProcedureReturn Minimum - 1
+    EndIf
+
+    ChoiceText = Trim(ChoiceText)
+    If IsWholeNumberText(ChoiceText)
+      Choice = Val(ChoiceText)
+      If Choice >= Minimum And Choice <= Maximum
+        ProcedureReturn Choice
+      EndIf
     EndIf
 
     PrintN("Please enter a number from " + Str(Minimum) + " to " + Str(Maximum) + ".")
@@ -212,6 +242,10 @@ Procedure.s PromptForListChoice(Title.s, List Values.s())
   EndIf
 
   Choice = PromptForChoice("Select option (1-" + Str(Count) + "):", 1, Count)
+  If Choice < 1
+    ProcedureReturn ""
+  EndIf
+
   SelectElement(Values(), Choice - 1)
   ProcedureReturn Values()
 EndProcedure

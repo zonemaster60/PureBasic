@@ -22,7 +22,7 @@ AdventureGen is a small, data-driven text adventure prototype. It builds a short
 - **EXIT**: Leave the current adventure and return to the main menu.
 
 ### 4. Builder-Only Command
-- **BUILD**: Available only in the AdventureGen builder. It writes a temporary generated config include beside `src\main.pb`, compiles `My_Adventure.exe` with `pbcompiler`, and then removes the temporary build files.
+- **BUILD**: Available only in the AdventureGen builder. It writes a temporary generated config include beside `main.pb`, compiles `My_Adventure.exe` with `pbcompiler`, and then removes the temporary build files.
 
 ### 5. World Generation Notes
 - Each adventure creates a compact five-room layout centered on the selected landmark.

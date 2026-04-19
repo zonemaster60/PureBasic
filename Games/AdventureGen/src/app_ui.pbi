@@ -1,8 +1,8 @@
 Procedure PrintGameHelp()
   If IsBuilderMode()
-    PrintN("Commands: N, S, E, W, LOOK, INV, TAKE, USE, EXAMINE, ATTACK, HELP, BUILD, EXIT")
+    PrintN("Commands: N, S, E, W, LOOK/L, INV/STATUS, TAKE/GET, USE, EXAMINE/X, ATTACK/FIGHT, HELP/?, BUILD, EXIT")
   Else
-    PrintN("Commands: N, S, E, W, LOOK, INV, TAKE, USE, EXAMINE, ATTACK, HELP, EXIT")
+    PrintN("Commands: N, S, E, W, LOOK/L, INV/STATUS, TAKE/GET, USE, EXAMINE/X, ATTACK/FIGHT, HELP/?, EXIT")
   EndIf
 EndProcedure
 
@@ -70,7 +70,9 @@ Procedure ShowHelpScreen()
     PrintN(Memory_ReadString(@MF))
   Wend
 
-  Input()
+  If Input() = #PB_Input_Eof
+    ProcedureReturn
+  EndIf
 EndProcedure
 
 Procedure GameLoop()
@@ -83,7 +85,12 @@ Procedure GameLoop()
   DescribeRoom()
 
   Repeat
-    InputLine = LCase(Trim(Input()))
+    InputLine = Input()
+    If InputLine = #PB_Input_Eof
+      Break
+    EndIf
+
+    InputLine = LCase(Trim(InputLine))
     Cmd = StringField(InputLine, 1, " ")
     Arg = Trim(Mid(InputLine, Len(Cmd) + 1))
 
@@ -128,13 +135,17 @@ Procedure GameLoop()
     EndSelect
 
     If GS\PlayerHealth <= 0
-      Input()
+      If Input() = #PB_Input_Eof
+        Break
+      EndIf
       Break
     EndIf
 
     If GS\AdventureWon
       PrintN("Victory! Press Enter to return to the main menu.")
-      Input()
+      If Input() = #PB_Input_Eof
+        Break
+      EndIf
       Break
     EndIf
   Until Cmd = "exit"
@@ -169,7 +180,12 @@ Procedure Main()
     PrintN("[W]izard")
     PrintN("[H]elp")
     PrintN("[E]xit")
-    Choice = UCase(Input())
+    Choice = Input()
+    If Choice = #PB_Input_Eof
+      Choice = "E"
+    Else
+      Choice = UCase(Trim(Choice))
+    EndIf
 
     Select Choice
       Case "H"
@@ -187,9 +203,11 @@ Procedure Main()
           GameLoop()
         Else
           PrintN("No themes were loaded.")
-          Input()
+          If Input() = #PB_Input_Eof
+            Choice = "E"
+          EndIf
         EndIf
-      Case "W", "A"
+      Case "W"
         If ListSize(Themes()) > 0
           ClearConsole()
           ThemeIndex = PromptForThemeChoice()
@@ -208,7 +226,9 @@ Procedure Main()
           EndIf
         Else
           PrintN("No themes were loaded.")
-          Input()
+          If Input() = #PB_Input_Eof
+            Choice = "E"
+          EndIf
         EndIf
     EndSelect
   Until Choice = "E"

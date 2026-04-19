@@ -75,15 +75,15 @@ Global CurrentCulture.s
 Global CurrentLandmark.s
 Global CurrentGoal.s
 Global CurrentTwist.s
-Global version.s = "v1.0.0.1"
+Global version.s = "v1.0.0.2"
 Global AppPath.s = GetFilePart(ProgramFilename())
 
 SetCurrentDirectory(AppPath)
 
 Declare DescribeRoom()
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 77
-; FirstLine = 50
+; FirstLine = 33
 ; EnableXP
 ; DPIAware

@@ -21,6 +21,7 @@ Procedure.b WriteStandaloneBuildSource(SourceFile.s, OutputSourceFile.s, ConfigI
   Protected OutputFile.i
   Protected Line.s
   Protected VersionString.s = RemoveString(version, "v")
+  Protected VersionTuple.s = GetVersionInfoTuple()
   Protected IncludeLine.s = "XIncludeFile " + Chr(34) + "config_defaults.pbi" + Chr(34)
   Protected ReplacementLine.s = "XIncludeFile " + Chr(34) + ConfigIncludeName + Chr(34)
 
@@ -58,8 +59,8 @@ Procedure.b WriteStandaloneBuildSource(SourceFile.s, OutputSourceFile.s, ConfigI
   WriteStringN(OutputFile, "; UseIcon = main.ico")
   WriteStringN(OutputFile, "; Executable = ..\\" + #BUILD_OUTPUT_FILE)
   WriteStringN(OutputFile, "; IncludeVersionInfo")
-  WriteStringN(OutputFile, "; VersionField0 = 1,0,0,0")
-  WriteStringN(OutputFile, "; VersionField1 = 1,0,0,0")
+  WriteStringN(OutputFile, "; VersionField0 = " + VersionTuple)
+  WriteStringN(OutputFile, "; VersionField1 = " + VersionTuple)
   WriteStringN(OutputFile, "; VersionField2 = ZoneSoft")
   WriteStringN(OutputFile, "; VersionField3 = " + GetGeneratedProductName())
   WriteStringN(OutputFile, "; VersionField4 = " + VersionString)
