@@ -298,6 +298,10 @@ Procedure.s LevelDescription(Level.i)
   ProcedureReturn "Hold the line."
 EndProcedure
 
+Procedure.s LevelBriefingText()
+  ProcedureReturn "Build around the route, reroute with blocks when needed, protect the core, and survive " + Str(#MaxWaves) + " waves."
+EndProcedure
+
 Procedure SetStatus(Text.s, Duration.f)
   MessageText = Text
   If MessageLogText = ""
@@ -619,10 +623,18 @@ Procedure RefreshBoardRouteVisuals()
 EndProcedure
 
 Procedure.i RecalculatePath(ApplyToEnemies.i, ExtraBlockGX.i = -1, ExtraBlockGZ.i = -1, PreviewOnly.i = #False)
+  Protected *Tower.Tower
   Protected Dim Dist.i(#GridWidth - 1, #GridHeight - 1)
   Protected Dim PrevGX.i(#GridWidth - 1, #GridHeight - 1)
   Protected Dim PrevGZ.i(#GridWidth - 1, #GridHeight - 1)
   Protected Dim Closed.i(#GridWidth - 1, #GridHeight - 1)
+  Protected Dim SavedPathGX.i(#MaxPathPoints - 1)
+  Protected Dim SavedPathGZ.i(#MaxPathPoints - 1)
+  Protected Dim SavedPathWX.f(#MaxPathPoints - 1)
+  Protected Dim SavedPathWZ.f(#MaxPathPoints - 1)
+  Protected Dim SavedSegmentLength.f(#MaxPathPoints - 2)
+  Protected Dim SavedSegmentDirX.f(#MaxPathPoints - 2)
+  Protected Dim SavedSegmentDirZ.f(#MaxPathPoints - 2)
   Protected GX.i
   Protected GZ.i
   Protected BestDist.i
@@ -648,9 +660,27 @@ Procedure.i RecalculatePath(ApplyToEnemies.i, ExtraBlockGX.i = -1, ExtraBlockGZ.
   Protected I.i
   Protected DX.f
   Protected DZ.f
+  Protected SavedPathPointCount.i
+  Protected Result.i
 
   If BasePathPointCount <= 1
     ProcedureReturn #False
+  EndIf
+
+  If PreviewOnly
+    SavedPathPointCount = PathPointCount
+    For I = 0 To #MaxPathPoints - 1
+      SavedPathGX(I) = PathGX(I)
+      SavedPathGZ(I) = PathGZ(I)
+      SavedPathWX(I) = PathWX(I)
+      SavedPathWZ(I) = PathWZ(I)
+    Next
+
+    For I = 0 To #MaxPathPoints - 2
+      SavedSegmentLength(I) = SegmentLength(I)
+      SavedSegmentDirX(I) = SegmentDirX(I)
+      SavedSegmentDirZ(I) = SegmentDirZ(I)
+    Next
   EndIf
 
   StartGX = BasePathGX(0)
@@ -714,15 +744,13 @@ Procedure.i RecalculatePath(ApplyToEnemies.i, ExtraBlockGX.i = -1, ExtraBlockGZ.
         If NeighborX = ExtraBlockGX And NeighborZ = ExtraBlockGZ
           HasBlock = #True
         ElseIf Grid(NeighborX, NeighborZ)\towerID <> 0
-          ForEach Towers()
-            If Towers()\id = Grid(NeighborX, NeighborZ)\towerID
-              BlockedByTower = #True
-              If Towers()\type = #TowerType_Block
-                HasBlock = #True
-              EndIf
-              Break
+          *Tower = FindTowerPointer(Grid(NeighborX, NeighborZ)\towerID)
+          If *Tower
+            BlockedByTower = #True
+            If *Tower\type = #TowerType_Block
+              HasBlock = #True
             EndIf
-          Next
+          EndIf
         EndIf
 
         If NeighborX = StartGX And NeighborZ = StartGZ
@@ -751,68 +779,86 @@ Procedure.i RecalculatePath(ApplyToEnemies.i, ExtraBlockGX.i = -1, ExtraBlockGZ.
     Next
   ForEver
 
-  If Found = #False
-    ProcedureReturn #False
-  EndIf
+  Result = Found
 
-  CurrentGX = EndGX
-  CurrentGZ = EndGZ
-  ReverseCount = 0
+  If Result
+    CurrentGX = EndGX
+    CurrentGZ = EndGZ
+    ReverseCount = 0
 
-  While CurrentGX <> -1 And CurrentGZ <> -1 And ReverseCount < #MaxPathPoints
-    PathGX(ReverseCount) = CurrentGX
-    PathGZ(ReverseCount) = CurrentGZ
-    NextGX = PrevGX(CurrentGX, CurrentGZ)
-    NextGZ = PrevGZ(CurrentGX, CurrentGZ)
-    CurrentGX = NextGX
-    CurrentGZ = NextGZ
-    ReverseCount + 1
-  Wend
+    While CurrentGX <> -1 And CurrentGZ <> -1 And ReverseCount < #MaxPathPoints
+      PathGX(ReverseCount) = CurrentGX
+      PathGZ(ReverseCount) = CurrentGZ
+      NextGX = PrevGX(CurrentGX, CurrentGZ)
+      NextGZ = PrevGZ(CurrentGX, CurrentGZ)
+      CurrentGX = NextGX
+      CurrentGZ = NextGZ
+      ReverseCount + 1
+    Wend
 
-  If ReverseCount < 2
-    ProcedureReturn #False
-  EndIf
-
-  PathPointCount = ReverseCount
-  For I = 0 To PathPointCount / 2 - 1
-    TempGX = PathGX(I)
-    TempGZ = PathGZ(I)
-    PathGX(I) = PathGX(PathPointCount - 1 - I)
-    PathGZ(I) = PathGZ(PathPointCount - 1 - I)
-    PathGX(PathPointCount - 1 - I) = TempGX
-    PathGZ(PathPointCount - 1 - I) = TempGZ
-  Next
-
-  For PathIndex = 0 To PathPointCount - 1
-    PathWX(PathIndex) = WorldXFromGrid(PathGX(PathIndex))
-    PathWZ(PathIndex) = WorldZFromGrid(PathGZ(PathIndex))
-  Next
-
-  For I = 0 To #MaxPathPoints - 2
-    SegmentLength(I) = 0
-    SegmentDirX(I) = 0
-    SegmentDirZ(I) = 0
-  Next
-
-  For I = 0 To PathPointCount - 2
-    DX = PathWX(I + 1) - PathWX(I)
-    DZ = PathWZ(I + 1) - PathWZ(I)
-    SegmentLength(I) = Sqr(DX * DX + DZ * DZ)
-    If SegmentLength(I) > 0.001
-      SegmentDirX(I) = DX / SegmentLength(I)
-      SegmentDirZ(I) = DZ / SegmentLength(I)
+    If ReverseCount < 2
+      Result = #False
     EndIf
-  Next
-
-  If PreviewOnly = #False And Grid(0, 0)\entity
-    RefreshBoardRouteVisuals()
   EndIf
 
-  If PreviewOnly = #False And ApplyToEnemies
-    ReprojectEnemiesToPath()
+  If Result
+    PathPointCount = ReverseCount
+    For I = 0 To PathPointCount / 2 - 1
+      TempGX = PathGX(I)
+      TempGZ = PathGZ(I)
+      PathGX(I) = PathGX(PathPointCount - 1 - I)
+      PathGZ(I) = PathGZ(PathPointCount - 1 - I)
+      PathGX(PathPointCount - 1 - I) = TempGX
+      PathGZ(PathPointCount - 1 - I) = TempGZ
+    Next
+
+    For PathIndex = 0 To PathPointCount - 1
+      PathWX(PathIndex) = WorldXFromGrid(PathGX(PathIndex))
+      PathWZ(PathIndex) = WorldZFromGrid(PathGZ(PathIndex))
+    Next
+
+    For I = 0 To #MaxPathPoints - 2
+      SegmentLength(I) = 0
+      SegmentDirX(I) = 0
+      SegmentDirZ(I) = 0
+    Next
+
+    For I = 0 To PathPointCount - 2
+      DX = PathWX(I + 1) - PathWX(I)
+      DZ = PathWZ(I + 1) - PathWZ(I)
+      SegmentLength(I) = Sqr(DX * DX + DZ * DZ)
+      If SegmentLength(I) > 0.001
+        SegmentDirX(I) = DX / SegmentLength(I)
+        SegmentDirZ(I) = DZ / SegmentLength(I)
+      EndIf
+    Next
+
+    If PreviewOnly = #False And Grid(0, 0)\entity
+      RefreshBoardRouteVisuals()
+    EndIf
+
+    If PreviewOnly = #False And ApplyToEnemies
+      ReprojectEnemiesToPath()
+    EndIf
   EndIf
 
-  ProcedureReturn #True
+  If PreviewOnly
+    PathPointCount = SavedPathPointCount
+    For I = 0 To #MaxPathPoints - 1
+      PathGX(I) = SavedPathGX(I)
+      PathGZ(I) = SavedPathGZ(I)
+      PathWX(I) = SavedPathWX(I)
+      PathWZ(I) = SavedPathWZ(I)
+    Next
+
+    For I = 0 To #MaxPathPoints - 2
+      SegmentLength(I) = SavedSegmentLength(I)
+      SegmentDirX(I) = SavedSegmentDirX(I)
+      SegmentDirZ(I) = SavedSegmentDirZ(I)
+    Next
+  EndIf
+
+  ProcedureReturn Result
 EndProcedure
 
 Procedure CreateMaterials()

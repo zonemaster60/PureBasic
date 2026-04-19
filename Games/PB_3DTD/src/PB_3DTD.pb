@@ -200,7 +200,7 @@ Structure Projectile
   special.i
 EndStructure
 
-Global version.s = "v1.0.0.2"
+Global version.s = "v1.0.0.3"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -372,6 +372,7 @@ Declare.s EnemyName(EnemyType.i)
 Declare.s TargetModeName(TargetMode.i)
 Declare.s LevelName(Level.i)
 Declare.s LevelDescription(Level.i)
+Declare.s LevelBriefingText()
 Declare.s RunModeName()
 Declare.s ChallengeModeName(Mode.i)
 Declare LoadBalanceConfig()
@@ -402,6 +403,7 @@ Declare SelectTower(TowerID.i)
 Declare HideRangeIndicators()
 Declare ShowRangeIndicators(CenterX.f, CenterZ.f, Radius.f)
 Declare.i FindTower(TowerID.i)
+Declare.i FindTowerPointer(TowerID.i)
 Declare.i AnyUpgradeableTower()
 Declare.f TowerPreviewRange(TowerType.i)
 Declare ConfigureTowerStats(*Tower.Tower)
@@ -415,10 +417,15 @@ Declare.i PlannedEnemyType(CurrentWave.i, SpawnIndex.i, SpawnCount.i)
 Declare SpawnEnemy(EnemyType.i, CurrentWave.i)
 Declare StartWave(EarlyBonus.i)
 Declare UpdateSpawner(DT.f)
+Declare.i FindEnemyPointer(EnemyID.i)
 Declare UpdateEnemies(DT.f)
 Declare UpdateTowers(DT.f)
 Declare SpawnProjectile(*Tower.Tower, TargetID.i)
-Declare ApplyImpact(TargetID.i, X.f, Z.f, Damage.f, Splash.f, SlowPower.f, SlowTime.f)
+Declare ApplySlowToEnemy(*Enemy.Enemy, SlowPower.f, SlowTime.f)
+Declare ApplyHitFeedback(*Enemy.Enemy, SourceType.i)
+Declare DestroyEnemy(*Enemy.Enemy)
+Declare ApplyImpactToEnemy(*Enemy.Enemy, Damage.f, SlowPower.f, SlowTime.f, SourceType.i)
+Declare ApplyImpact(TargetID.i, X.f, Z.f, Damage.f, Splash.f, SlowPower.f, SlowTime.f, SourceType.i)
 Declare UpdateProjectiles(DT.f)
 Declare SpawnSplitSwarm(SourceSegment.i, SourceProgress.f)
 Declare TriggerBossAbility(*Enemy.Enemy)
@@ -511,9 +518,9 @@ Repeat
   FlipBuffers()
 ForEver
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 202
-; FirstLine = 189
+; FirstLine = 174
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -522,12 +529,12 @@ ForEver
 ; UseIcon = PB_3DTD.ico
 ; Executable = ..\PB_3DTD.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_3DTD
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = A 3D Tower Defense game with levels
 ; VersionField7 = PB_3DTD
 ; VersionField8 = PB_3DTD.exe

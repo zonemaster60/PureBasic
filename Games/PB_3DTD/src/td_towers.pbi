@@ -22,13 +22,21 @@ Procedure ShowRangeIndicators(CenterX.f, CenterZ.f, Radius.f)
 EndProcedure
 
 Procedure.i FindTower(TowerID.i)
+  If FindTowerPointer(TowerID)
+    ProcedureReturn #True
+  EndIf
+
+  ProcedureReturn #False
+EndProcedure
+
+Procedure.i FindTowerPointer(TowerID.i)
   ForEach Towers()
     If Towers()\id = TowerID
-      ProcedureReturn #True
+      ProcedureReturn @Towers()
     EndIf
   Next
 
-  ProcedureReturn #False
+  ProcedureReturn 0
 EndProcedure
 
 Procedure.i AnyUpgradeableTower()
@@ -42,25 +50,30 @@ Procedure.i AnyUpgradeableTower()
 EndProcedure
 
 Procedure SelectTower(TowerID.i)
-  SelectedTowerID = TowerID
-  RangePreviewActive = #False
-
+  Protected *Tower.Tower
   Protected Radius.f
   Protected CenterX.f
   Protected CenterZ.f
 
-  If SelectedTowerID = 0
-    HideRangeIndicators()
-  Else
-    ForEach Towers()
-      If Towers()\id = SelectedTowerID
-        CenterX = WorldXFromGrid(Towers()\gx)
-        CenterZ = WorldZFromGrid(Towers()\gz)
-        Radius = Towers()\range
+  SelectedTowerID = 0
+  RangePreviewActive = #False
+  HideRangeIndicators()
+
+  If TowerID <> 0
+    *Tower = FindTowerPointer(TowerID)
+    If *Tower
+      SelectedTowerID = TowerID
+      CenterX = WorldXFromGrid(*Tower\gx)
+      CenterZ = WorldZFromGrid(*Tower\gz)
+      Radius = *Tower\range
+      If Radius > 0
         ShowRangeIndicators(CenterX, CenterZ, Radius)
-        Break
       EndIf
-    Next
+    EndIf
+  EndIf
+
+  If TowerID <> 0 And SelectedTowerID = 0
+    PendingGridAction = #GridAction_None
   EndIf
 
   RefreshSidebar()
@@ -313,40 +326,42 @@ Procedure.i BuildTower(GX.i, GZ.i, TowerType.i)
 EndProcedure
 
 Procedure UpgradeSelectedTower()
+  Protected *Tower.Tower
   Protected UpgradeCost.i
 
   If SelectedTowerID = 0
     ProcedureReturn
   EndIf
 
-  ForEach Towers()
-    If Towers()\id = SelectedTowerID
-      If Towers()\type = #TowerType_Block
-        SetStatus("Blocks cannot be upgraded.", 1.3)
-        ProcedureReturn
-      EndIf
+  *Tower = FindTowerPointer(SelectedTowerID)
+  If *Tower = 0
+    SelectTower(0)
+    ProcedureReturn
+  EndIf
 
-      If Towers()\level >= 3
-        SetStatus("That tower is already maxed.", 1.3)
-        ProcedureReturn
-      EndIf
+  If *Tower\type = #TowerType_Block
+    SetStatus("Blocks cannot be upgraded.", 1.3)
+    ProcedureReturn
+  EndIf
 
-      UpgradeCost = Int(TowerBaseCost(Towers()\type) * (0.65 + 0.30 * Towers()\level))
+  If *Tower\level >= 3
+    SetStatus("That tower is already maxed.", 1.3)
+    ProcedureReturn
+  EndIf
 
-      If Gold < UpgradeCost
-        SetStatus("You need " + Str(UpgradeCost) + " gold to upgrade.", 1.4)
-        ProcedureReturn
-      EndIf
+  UpgradeCost = Int(TowerBaseCost(*Tower\type) * (0.65 + 0.30 * *Tower\level))
 
-      Gold - UpgradeCost
-      Towers()\level + 1
-      Towers()\totalValue + UpgradeCost
-      ConfigureTowerStats(@Towers())
-      SetStatus(TowerName(Towers()\type) + " tower upgraded to level " + Str(Towers()\level) + ".", 1.4)
-      SelectTower(Towers()\id)
-      ProcedureReturn
-    EndIf
-  Next
+  If Gold < UpgradeCost
+    SetStatus("You need " + Str(UpgradeCost) + " gold to upgrade.", 1.4)
+    ProcedureReturn
+  EndIf
+
+  Gold - UpgradeCost
+  *Tower\level + 1
+  *Tower\totalValue + UpgradeCost
+  ConfigureTowerStats(*Tower)
+  SetStatus(TowerName(*Tower\type) + " tower upgraded to level " + Str(*Tower\level) + ".", 1.4)
+  SelectTower(*Tower\id)
 EndProcedure
 
 Procedure UpgradeTowerByID(TowerID.i)
@@ -355,6 +370,7 @@ Procedure UpgradeTowerByID(TowerID.i)
 EndProcedure
 
 Procedure SellSelectedTower()
+  Protected *Tower.Tower
   Protected SellValue.i
   Protected GX.i
   Protected GZ.i
@@ -363,27 +379,29 @@ Procedure SellSelectedTower()
     ProcedureReturn
   EndIf
 
-  ForEach Towers()
-    If Towers()\id = SelectedTowerID
-      SellValue = Int(Towers()\totalValue * 0.75)
-      GX = Towers()\gx
-      GZ = Towers()\gz
-      Gold + SellValue
-      Grid(GX, GZ)\towerID = 0
-      FreeEntity(Towers()\baseEntity)
-      FreeEntity(Towers()\headEntity)
-      FreeEntity(Towers()\muzzleEntity)
-      If Towers()\type = #TowerType_Block
-        RecalculatePath(#True, -1, -1)
-        SetStatus("Block sold. The route reopens and enemies adjust.", 1.4)
-      Else
-        SetStatus("Tower sold for " + Str(SellValue) + " gold.", 1.4)
-      EndIf
-      DeleteElement(Towers())
-      SelectTower(0)
-      ProcedureReturn
-    EndIf
-  Next
+  *Tower = FindTowerPointer(SelectedTowerID)
+  If *Tower = 0
+    SelectTower(0)
+    ProcedureReturn
+  EndIf
+
+  SellValue = Int(*Tower\totalValue * 0.75)
+  GX = *Tower\gx
+  GZ = *Tower\gz
+  Gold + SellValue
+  Grid(GX, GZ)\towerID = 0
+  ChangeCurrentElement(Towers(), *Tower)
+  FreeEntity(Towers()\baseEntity)
+  FreeEntity(Towers()\headEntity)
+  FreeEntity(Towers()\muzzleEntity)
+  If Towers()\type = #TowerType_Block
+    RecalculatePath(#True, -1, -1)
+    SetStatus("Block sold. The route reopens and enemies adjust.", 1.4)
+  Else
+    SetStatus("Tower sold for " + Str(SellValue) + " gold.", 1.4)
+  EndIf
+  DeleteElement(Towers())
+  SelectTower(0)
 EndProcedure
 
 Procedure SellTowerByID(TowerID.i)

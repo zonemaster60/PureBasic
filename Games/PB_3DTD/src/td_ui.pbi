@@ -146,6 +146,26 @@ Procedure SetOverlayVisible(Visible.i, ShowContinue.i, ShowLevel.i)
   EndIf
 EndProcedure
 
+Procedure BringDebugPanelToFront()
+  SetWindowPos_(GadgetID(#Gadget_DebugBack), #HWND_TOP, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOACTIVATE | #SWP_SHOWWINDOW)
+  SetWindowPos_(GadgetID(#Gadget_DebugTitle), #HWND_TOP, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOACTIVATE | #SWP_SHOWWINDOW)
+  SetWindowPos_(GadgetID(#Gadget_DebugInfo), #HWND_TOP, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOACTIVATE | #SWP_SHOWWINDOW)
+  SetWindowPos_(GadgetID(#Gadget_DebugGold), #HWND_TOP, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOACTIVATE | #SWP_SHOWWINDOW)
+  SetWindowPos_(GadgetID(#Gadget_DebugWave), #HWND_TOP, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOACTIVATE | #SWP_SHOWWINDOW)
+  SetWindowPos_(GadgetID(#Gadget_DebugLife), #HWND_TOP, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOACTIVATE | #SWP_SHOWWINDOW)
+  SetWindowPos_(GadgetID(#Gadget_DebugClear), #HWND_TOP, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOACTIVATE | #SWP_SHOWWINDOW)
+EndProcedure
+
+Procedure RefreshDebugPanel()
+  RedrawWindow_(GadgetID(#Gadget_DebugBack), 0, 0, #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ERASE | #RDW_FRAME)
+  RedrawWindow_(GadgetID(#Gadget_DebugTitle), 0, 0, #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ERASE | #RDW_FRAME)
+  RedrawWindow_(GadgetID(#Gadget_DebugInfo), 0, 0, #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ERASE | #RDW_FRAME)
+  RedrawWindow_(GadgetID(#Gadget_DebugGold), 0, 0, #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ERASE | #RDW_FRAME)
+  RedrawWindow_(GadgetID(#Gadget_DebugWave), 0, 0, #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ERASE | #RDW_FRAME)
+  RedrawWindow_(GadgetID(#Gadget_DebugLife), 0, 0, #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ERASE | #RDW_FRAME)
+  RedrawWindow_(GadgetID(#Gadget_DebugClear), 0, 0, #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ERASE | #RDW_FRAME)
+EndProcedure
+
 Procedure SetDebugPanelVisible(Visible.i)
   DebugPanelVisible = Visible
   HideGadget(#Gadget_DebugBack, Bool(Visible = 0))
@@ -155,9 +175,18 @@ Procedure SetDebugPanelVisible(Visible.i)
   HideGadget(#Gadget_DebugWave, Bool(Visible = 0))
   HideGadget(#Gadget_DebugLife, Bool(Visible = 0))
   HideGadget(#Gadget_DebugClear, Bool(Visible = 0))
+
+  If Visible
+    BringDebugPanelToFront()
+    RefreshDebugPanel()
+  EndIf
 EndProcedure
 
 Procedure ApplyDebugAction(Action.i)
+  Protected PriorMessageText.s
+  Protected PriorMessageLogText.s
+  Protected PriorMessageTimer.f
+
   Select Action
     Case #Gadget_DebugGold
       Gold + 100
@@ -177,15 +206,24 @@ Procedure ApplyDebugAction(Action.i)
       SetStatus("Debug: repaired the core by 5.", 1.0)
 
     Case #Gadget_DebugClear
+      PriorMessageText = MessageText
+      PriorMessageLogText = MessageLogText
+      PriorMessageTimer = MessageTimer
       ForEach Enemies()
         FreeEnemyVisuals(@Enemies())
         FreeEntity(Enemies()\entity)
         DeleteElement(Enemies())
       Next
       EnemyAliveCount = 0
-      WaveActive = 0
       WaveSpawned = WaveToSpawn
-      SetStatus("Debug: cleared all active enemies.", 1.0)
+      CheckWaveFinished()
+      If GameState = #GameState_Playing And WaveActive
+        SetStatus("Debug: cleared all active enemies.", 1.0)
+      Else
+        MessageText = PriorMessageText
+        MessageLogText = PriorMessageLogText
+        MessageTimer = PriorMessageTimer
+      EndIf
   EndSelect
 
   If Wave > HighestWaveReached
@@ -215,7 +253,7 @@ Procedure SetLevel(Level.i)
   SetGadgetText(#Gadget_MenuProgress, "Progress: cleared " + Str(HighestLevelCleared) + "/" + Str(#LevelCount) + "  wins " + Str(TotalVictories) + #LF$ + "Best wave: " + Str(HighestWaveReached))
   SetGadgetText(#Gadget_MenuChallenge, "Challenge: " + ChallengeModeName(ChallengeMode))
   If StartOverlayActive
-    SetGadgetText(#Gadget_MenuInfo, LevelName(CurrentLevel) + #LF$ + LevelDescription(CurrentLevel) + #LF$ + #LF$ + "Run Mode: " + RunModeName() + #LF$ + "Challenge: " + ChallengeModeName(ChallengeMode) + #LF$ + "Build around the route, reroute with blocks when needed, protect the core, and survive 12 waves." + #LF$ + #LF$ + "Shortcuts: 1-7 choose builds, Space launches a wave, U upgrades, S sells, Esc quits.")
+    SetGadgetText(#Gadget_MenuInfo, LevelName(CurrentLevel) + #LF$ + LevelDescription(CurrentLevel) + #LF$ + #LF$ + "Run Mode: " + RunModeName() + #LF$ + "Challenge: " + ChallengeModeName(ChallengeMode) + #LF$ + LevelBriefingText() + #LF$ + #LF$ + "Shortcuts: 1-7 choose builds, Space launches a wave, U upgrades, S sells, Esc quits.")
   EndIf
   SetStatus("Selected level: " + LevelName(CurrentLevel) + ".", 1.0)
 EndProcedure
@@ -296,7 +334,7 @@ Procedure RestartGame()
   RebuildBoard()
 
   SetGadgetText(#Gadget_MenuTitle, "3D TOWER DEFENSE" + #LF$ + version)
-  SetGadgetText(#Gadget_MenuInfo, LevelName(CurrentLevel) + #LF$ + LevelDescription(CurrentLevel) + #LF$ + #LF$ + "Run Mode: " + RunModeName() + #LF$ + "Challenge: " + ChallengeModeName(ChallengeMode) + #LF$ + "Build around the route, reroute with blocks when needed, protect the core, and survive 12 waves." + #LF$ + #LF$ + "Shortcuts: 1-7 choose builds, Space launches a wave, U upgrades, S sells, Esc quits.")
+  SetGadgetText(#Gadget_MenuInfo, LevelName(CurrentLevel) + #LF$ + LevelDescription(CurrentLevel) + #LF$ + #LF$ + "Run Mode: " + RunModeName() + #LF$ + "Challenge: " + ChallengeModeName(ChallengeMode) + #LF$ + LevelBriefingText() + #LF$ + #LF$ + "Shortcuts: 1-7 choose builds, Space launches a wave, U upgrades, S sells, Esc quits.")
   SetGadgetText(#Gadget_MenuStart, "Deploy Run")
   SetGadgetText(#Gadget_MenuContinue, "")
   SetGadgetText(#Gadget_MenuQuit, "Quit")
@@ -316,9 +354,9 @@ Procedure ShowEndOverlay()
     SaveProgression()
     SetGadgetText(#Gadget_MenuTitle, "VICTORY")
     If CampaignMode And CurrentLevel < #LevelCount
-      SetGadgetText(#Gadget_MenuInfo, LevelName(CurrentLevel) + " secured." + #LF$ + #LF$ + "All 12 waves were cleared." + #LF$ + #LF$ + "Next up: " + LevelName(CurrentLevel + 1))
+      SetGadgetText(#Gadget_MenuInfo, LevelName(CurrentLevel) + " secured." + #LF$ + #LF$ + "All " + Str(#MaxWaves) + " waves were cleared." + #LF$ + #LF$ + "Next up: " + LevelName(CurrentLevel + 1))
     Else
-      SetGadgetText(#Gadget_MenuInfo, LevelName(CurrentLevel) + " secured." + #LF$ + #LF$ + "All 12 waves were cleared." + #LF$ + #LF$ + "You cleared every level in the current set.")
+      SetGadgetText(#Gadget_MenuInfo, LevelName(CurrentLevel) + " secured." + #LF$ + #LF$ + "All " + Str(#MaxWaves) + " waves were cleared." + #LF$ + #LF$ + "You cleared every level in the current set.")
     EndIf
   ElseIf GameState = #GameState_Defeat
     SaveProgression()
@@ -367,7 +405,7 @@ Procedure CreateSidebar()
   TextGadget(#Gadget_Controls, SidebarLeft, 742, SidebarInnerWidth, 30, "1-7 builds, Level cycles maps." + #LF$ + "Space wave, U upgrade, S sell")
 
   TextGadget(#Gadget_MenuTitle, 190, 138, 560, 110, "3D TOWER DEFENSE" + #LF$ + version, #PB_Text_Center)
-  TextGadget(#Gadget_MenuInfo, 230, 260, 480, 156, LevelName(CurrentLevel) + #LF$ + LevelDescription(CurrentLevel) + #LF$ + #LF$ + "Run Mode: " + RunModeName() + #LF$ + "Challenge: " + ChallengeModeName(ChallengeMode) + #LF$ + "Build around the route, reroute with blocks when needed, protect the core, and survive 12 waves." + #LF$ + #LF$ + "Shortcuts: 1-7 choose builds, Space launches a wave, U upgrades, S sells, Esc quits.")
+  TextGadget(#Gadget_MenuInfo, 230, 260, 480, 156, LevelName(CurrentLevel) + #LF$ + LevelDescription(CurrentLevel) + #LF$ + #LF$ + "Run Mode: " + RunModeName() + #LF$ + "Challenge: " + ChallengeModeName(ChallengeMode) + #LF$ + LevelBriefingText() + #LF$ + #LF$ + "Shortcuts: 1-7 choose builds, Space launches a wave, U upgrades, S sells, Esc quits.")
   ButtonGadget(#Gadget_MenuLevel, 110, 630, 130, 30, "Level: " + Str(CurrentLevel) + " - " + LevelName(CurrentLevel))
   ButtonGadget(#Gadget_MenuRunMode, 250, 630, 130, 30, "Run Mode: " + RunModeName())
   ButtonGadget(#Gadget_MenuChallenge, 390, 630, 130, 30, "Challenge: " + ChallengeModeName(ChallengeMode))
@@ -384,6 +422,20 @@ Procedure CreateSidebar()
   ButtonGadget(#Gadget_DebugWave, 88, 66, 68, 22, "+Wave")
   ButtonGadget(#Gadget_DebugLife, 160, 66, 68, 22, "+Life")
   ButtonGadget(#Gadget_DebugClear, 232, 66, 52, 22, "Clear")
+
+  SetGadgetColor(#Gadget_DebugBack, #PB_Gadget_BackColor, RGB(26, 30, 36))
+  SetGadgetColor(#Gadget_DebugTitle, #PB_Gadget_BackColor, RGB(26, 30, 36))
+  SetGadgetColor(#Gadget_DebugTitle, #PB_Gadget_FrontColor, RGB(245, 247, 250))
+  SetGadgetColor(#Gadget_DebugInfo, #PB_Gadget_BackColor, RGB(26, 30, 36))
+  SetGadgetColor(#Gadget_DebugInfo, #PB_Gadget_FrontColor, RGB(226, 232, 240))
+  SetGadgetColor(#Gadget_DebugGold, #PB_Gadget_FrontColor, RGB(22, 22, 22))
+  SetGadgetColor(#Gadget_DebugGold, #PB_Gadget_BackColor, RGB(255, 214, 102))
+  SetGadgetColor(#Gadget_DebugWave, #PB_Gadget_FrontColor, RGB(22, 22, 22))
+  SetGadgetColor(#Gadget_DebugWave, #PB_Gadget_BackColor, RGB(255, 214, 102))
+  SetGadgetColor(#Gadget_DebugLife, #PB_Gadget_FrontColor, RGB(22, 22, 22))
+  SetGadgetColor(#Gadget_DebugLife, #PB_Gadget_BackColor, RGB(255, 214, 102))
+  SetGadgetColor(#Gadget_DebugClear, #PB_Gadget_FrontColor, RGB(22, 22, 22))
+  SetGadgetColor(#Gadget_DebugClear, #PB_Gadget_BackColor, RGB(255, 214, 102))
   SetDebugPanelVisible(#False)
 
   SetGameControlsEnabled(#False)
@@ -417,16 +469,17 @@ Procedure UpdateBuildButtons()
     PrefixBlock = "> "
   EndIf
 
-  SetGadgetText(#Gadget_BuildPulse, PrefixPulse + "1 Pulse   - 70")
-  SetGadgetText(#Gadget_BuildCannon, PrefixCannon + "2 Cannon - 110")
-  SetGadgetText(#Gadget_BuildFrost, PrefixFrost + "3 Frost  - 90")
-  SetGadgetText(#Gadget_BuildBeam, PrefixBeam + "4 Beam   - 125")
-  SetGadgetText(#Gadget_BuildMortar, PrefixMortar + "5 Mortar - 150")
-  SetGadgetText(#Gadget_BuildSky, PrefixSky + "6 Sky    - 135")
-  SetGadgetText(#Gadget_BuildBlock, PrefixBlock + "7 Block  - 50")
+  SetGadgetText(#Gadget_BuildPulse, PrefixPulse + "1 Pulse   - " + Str(TowerBaseCost(#TowerType_Pulse)))
+  SetGadgetText(#Gadget_BuildCannon, PrefixCannon + "2 Cannon - " + Str(TowerBaseCost(#TowerType_Cannon)))
+  SetGadgetText(#Gadget_BuildFrost, PrefixFrost + "3 Frost  - " + Str(TowerBaseCost(#TowerType_Frost)))
+  SetGadgetText(#Gadget_BuildBeam, PrefixBeam + "4 Beam   - " + Str(TowerBaseCost(#TowerType_Beam)))
+  SetGadgetText(#Gadget_BuildMortar, PrefixMortar + "5 Mortar - " + Str(TowerBaseCost(#TowerType_Mortar)))
+  SetGadgetText(#Gadget_BuildSky, PrefixSky + "6 Sky    - " + Str(TowerBaseCost(#TowerType_Sky)))
+  SetGadgetText(#Gadget_BuildBlock, PrefixBlock + "7 Block  - " + Str(TowerBaseCost(#TowerType_Block)))
 EndProcedure
 
 Procedure RefreshSidebar()
+  Protected *Tower.Tower
   Protected InfoText.s
   Protected SelectedText.s
   Protected UpgradeCost.i
@@ -434,9 +487,21 @@ Procedure RefreshSidebar()
   Protected WaveText.s
   Protected HoverTowerID.i
   Protected BuildCost.i
+  Protected SelectedFound.i
+
+  If SelectedTowerID <> 0
+    *Tower = FindTowerPointer(SelectedTowerID)
+    SelectedFound = Bool(*Tower <> 0)
+
+    If SelectedFound = #False
+      SelectedTowerID = 0
+      HideRangeIndicators()
+      RangePreviewActive = #False
+    EndIf
+  EndIf
 
   If GameState = #GameState_Victory
-    WaveText = "All 12 waves cleared"
+    WaveText = "All " + Str(#MaxWaves) + " waves cleared"
   ElseIf GameState = #GameState_Defeat
     WaveText = "Core lost"
   ElseIf StartOverlayActive
@@ -474,33 +539,25 @@ Procedure RefreshSidebar()
     SelectedText = "Selected: none" + #LF$
     If PendingGridAction = #GridAction_Upgrade
       SelectedText + "Upgrade mode active." + #LF$
-      If HoverTowerID <> 0 And FindTower(HoverTowerID)
-        ForEach Towers()
-          If Towers()\id = HoverTowerID
-            If Towers()\type = #TowerType_Block
-              SelectedText + "Blocks cannot be upgraded"
-            ElseIf Towers()\level < 3
-              UpgradeCost = Int(TowerBaseCost(Towers()\type) * (0.65 + 0.30 * Towers()\level))
-              SelectedText + TowerName(Towers()\type) + " ready: " + Str(UpgradeCost) + " gold"
-            Else
-              SelectedText + TowerName(Towers()\type) + " is already maxed"
-            EndIf
-            Break
-          EndIf
-        Next
+      *Tower = FindTowerPointer(HoverTowerID)
+      If *Tower
+        If *Tower\type = #TowerType_Block
+          SelectedText + "Blocks cannot be upgraded"
+        ElseIf *Tower\level < 3
+          UpgradeCost = Int(TowerBaseCost(*Tower\type) * (0.65 + 0.30 * *Tower\level))
+          SelectedText + TowerName(*Tower\type) + " ready: " + Str(UpgradeCost) + " gold"
+        Else
+          SelectedText + TowerName(*Tower\type) + " is already maxed"
+        EndIf
       Else
         SelectedText + "Click a placed tower to upgrade it."
       EndIf
     ElseIf PendingGridAction = #GridAction_Sell
       SelectedText + "Sell mode active." + #LF$
-      If HoverTowerID <> 0 And FindTower(HoverTowerID)
-        ForEach Towers()
-          If Towers()\id = HoverTowerID
-            SellValue = Int(Towers()\totalValue * 0.75)
-            SelectedText + TowerName(Towers()\type) + " refund: " + Str(SellValue) + " gold"
-            Break
-          EndIf
-        Next
+      *Tower = FindTowerPointer(HoverTowerID)
+      If *Tower
+        SellValue = Int(*Tower\totalValue * 0.75)
+        SelectedText + TowerName(*Tower\type) + " refund: " + Str(SellValue) + " gold"
       Else
         SelectedText + "Click a placed tower to sell it."
       EndIf
@@ -551,63 +608,61 @@ Procedure RefreshSidebar()
     DisableGadget(#Gadget_Upgrade, Bool(AnyUpgradeableTower() = 0 And PendingGridAction <> #GridAction_Upgrade))
     DisableGadget(#Gadget_Sell, Bool(AnySellableTower() = 0 And PendingGridAction <> #GridAction_Sell))
   Else
-    ForEach Towers()
-      If Towers()\id = SelectedTowerID
-        UpgradeCost = Int(TowerBaseCost(Towers()\type) * (0.65 + 0.30 * Towers()\level))
-        SellValue = Int(Towers()\totalValue * 0.75)
-        SelectedText = TowerName(Towers()\type) + " tower" + #LF$
-        If Towers()\type = #TowerType_Block
-          SelectedText + "Reroutes ground enemies" + #LF$
-          SelectedText + "No attacks or upgrades" + #LF$
-          SelectedText + "Sell value: " + Str(SellValue)
-          DisableGadget(#Gadget_Upgrade, #True)
-          SetGadgetText(#Gadget_Upgrade, "Upgrade (n/a)")
+    *Tower = FindTowerPointer(SelectedTowerID)
+    If *Tower
+      UpgradeCost = Int(TowerBaseCost(*Tower\type) * (0.65 + 0.30 * *Tower\level))
+      SellValue = Int(*Tower\totalValue * 0.75)
+      SelectedText = TowerName(*Tower\type) + " tower" + #LF$
+      If *Tower\type = #TowerType_Block
+        SelectedText + "Reroutes ground enemies" + #LF$
+        SelectedText + "No attacks or upgrades" + #LF$
+        SelectedText + "Sell value: " + Str(SellValue)
+        DisableGadget(#Gadget_Upgrade, #True)
+        SetGadgetText(#Gadget_Upgrade, "Upgrade (n/a)")
+      Else
+        SelectedText + "Level " + Str(*Tower\level) + "   Range " + StrF(*Tower\range, 1) + #LF$
+        SelectedText + "Damage " + StrF(*Tower\damage, 0) + "   Reload " + StrF(*Tower\fireDelay, 2) + "s" + #LF$
+        SelectedText + "Targeting: " + TargetModeName(*Tower\targetMode) + #LF$
+        If *Tower\type = #TowerType_Pulse Or *Tower\type = #TowerType_Beam Or *Tower\type = #TowerType_Sky
+          SelectedText + "Can hit flyers" + #LF$
         Else
-          SelectedText + "Level " + Str(Towers()\level) + "   Range " + StrF(Towers()\range, 1) + #LF$
-          SelectedText + "Damage " + StrF(Towers()\damage, 0) + "   Reload " + StrF(Towers()\fireDelay, 2) + "s" + #LF$
-          SelectedText + "Targeting: " + TargetModeName(Towers()\targetMode) + #LF$
-          If Towers()\type = #TowerType_Pulse Or Towers()\type = #TowerType_Beam Or Towers()\type = #TowerType_Sky
-            SelectedText + "Can hit flyers" + #LF$
-          Else
-            SelectedText + "Ground only" + #LF$
-          EndIf
-          If Towers()\type = #TowerType_Pulse And Towers()\level >= 3
-            SelectedText + "Special: pulse burst" + #LF$
-          ElseIf Towers()\type = #TowerType_Frost And Towers()\level >= 3
-            SelectedText + "Special: frost nova" + #LF$
-          ElseIf Towers()\type = #TowerType_Mortar And Towers()\level >= 3
-            SelectedText + "Special: impact chill" + #LF$
-          ElseIf Towers()\type = #TowerType_Sky And Towers()\level >= 3
-            SelectedText + "Special: twin interceptor" + #LF$
-          EndIf
-          If Towers()\level < 3
-            SelectedText + "Upgrade: " + Str(UpgradeCost) + " gold" + #LF$
-            DisableGadget(#Gadget_Upgrade, #False)
-            If PendingGridAction = #GridAction_Upgrade
-              SetGadgetText(#Gadget_Upgrade, "Upgrade: pick tower")
-            Else
-              SetGadgetText(#Gadget_Upgrade, "Upgrade")
-            EndIf
-          Else
-            SelectedText + "Upgrade: maxed" + #LF$
-            DisableGadget(#Gadget_Upgrade, #False)
-            If PendingGridAction = #GridAction_Upgrade
-              SetGadgetText(#Gadget_Upgrade, "Upgrade: pick tower")
-            Else
-              SetGadgetText(#Gadget_Upgrade, "Upgrade (max)")
-            EndIf
-          EndIf
-          SelectedText + "Sell value: " + Str(SellValue)
+          SelectedText + "Ground only" + #LF$
         EndIf
-        DisableGadget(#Gadget_Sell, Bool(AnySellableTower() = 0 And PendingGridAction <> #GridAction_Sell))
-        If PendingGridAction = #GridAction_Sell
-          SetGadgetText(#Gadget_Sell, "Sell: pick tower")
+        If *Tower\type = #TowerType_Pulse And *Tower\level >= 3
+          SelectedText + "Special: pulse burst" + #LF$
+        ElseIf *Tower\type = #TowerType_Frost And *Tower\level >= 3
+          SelectedText + "Special: frost nova" + #LF$
+        ElseIf *Tower\type = #TowerType_Mortar And *Tower\level >= 3
+          SelectedText + "Special: impact chill" + #LF$
+        ElseIf *Tower\type = #TowerType_Sky And *Tower\level >= 3
+          SelectedText + "Special: twin interceptor" + #LF$
+        EndIf
+        If *Tower\level < 3
+          SelectedText + "Upgrade: " + Str(UpgradeCost) + " gold" + #LF$
+          DisableGadget(#Gadget_Upgrade, #False)
+          If PendingGridAction = #GridAction_Upgrade
+            SetGadgetText(#Gadget_Upgrade, "Upgrade: pick tower")
+          Else
+            SetGadgetText(#Gadget_Upgrade, "Upgrade")
+          EndIf
         Else
-          SetGadgetText(#Gadget_Sell, "Sell")
+          SelectedText + "Upgrade: maxed" + #LF$
+          DisableGadget(#Gadget_Upgrade, #False)
+          If PendingGridAction = #GridAction_Upgrade
+            SetGadgetText(#Gadget_Upgrade, "Upgrade: pick tower")
+          Else
+            SetGadgetText(#Gadget_Upgrade, "Upgrade (max)")
+          EndIf
         EndIf
-        Break
+        SelectedText + "Sell value: " + Str(SellValue)
       EndIf
-    Next
+      DisableGadget(#Gadget_Sell, Bool(AnySellableTower() = 0 And PendingGridAction <> #GridAction_Sell))
+      If PendingGridAction = #GridAction_Sell
+        SetGadgetText(#Gadget_Sell, "Sell: pick tower")
+      Else
+        SetGadgetText(#Gadget_Sell, "Sell")
+      EndIf
+    EndIf
   EndIf
 
   If GameState <> #GameState_Playing Or Wave >= #MaxWaves And WaveActive = 0
@@ -630,18 +685,16 @@ Procedure RefreshSidebar()
     SetGadgetText(#Gadget_TargetMode, "Target: none")
     DisableGadget(#Gadget_TargetMode, #True)
   Else
-    ForEach Towers()
-      If Towers()\id = SelectedTowerID
-        If Towers()\type = #TowerType_Block
-          SetGadgetText(#Gadget_TargetMode, "Target: n/a")
-          DisableGadget(#Gadget_TargetMode, #True)
-        Else
-          SetGadgetText(#Gadget_TargetMode, "Target: " + TargetModeName(Towers()\targetMode))
-          DisableGadget(#Gadget_TargetMode, #False)
-        EndIf
-        Break
+    *Tower = FindTowerPointer(SelectedTowerID)
+    If *Tower
+      If *Tower\type = #TowerType_Block
+        SetGadgetText(#Gadget_TargetMode, "Target: n/a")
+        DisableGadget(#Gadget_TargetMode, #True)
+      Else
+        SetGadgetText(#Gadget_TargetMode, "Target: " + TargetModeName(*Tower\targetMode))
+        DisableGadget(#Gadget_TargetMode, #False)
       EndIf
-    Next
+    EndIf
   EndIf
 
   SetGadgetText(#Gadget_Info, InfoText)
@@ -655,6 +708,7 @@ Procedure RefreshSidebar()
 EndProcedure
 
 Procedure HandleGadget(Gadget.i)
+  Protected *Tower.Tower
   Select Gadget
     Case #Gadget_MenuStart
       If GameState = #GameState_Playing
@@ -753,20 +807,20 @@ Procedure HandleGadget(Gadget.i)
 
     Case #Gadget_TargetMode
       If SelectedTowerID <> 0
-        ForEach Towers()
-          If Towers()\id = SelectedTowerID
-            If Towers()\type = #TowerType_Block
-              SetStatus("Blocks do not use targeting.", 0.9)
-              Break
+        *Tower = FindTowerPointer(SelectedTowerID)
+        If *Tower
+          If *Tower\type = #TowerType_Block
+            SetStatus("Blocks do not use targeting.", 0.9)
+          Else
+            *Tower\targetMode + 1
+            If *Tower\targetMode > #TargetMode_Strongest
+              *Tower\targetMode = #TargetMode_First
             EndIf
-            Towers()\targetMode + 1
-            If Towers()\targetMode > #TargetMode_Strongest
-              Towers()\targetMode = #TargetMode_First
-            EndIf
-            SetStatus("Target mode: " + TargetModeName(Towers()\targetMode) + ".", 0.9)
-            Break
+            SetStatus("Target mode: " + TargetModeName(*Tower\targetMode) + ".", 0.9)
           EndIf
-        Next
+        Else
+          SelectTower(0)
+        EndIf
       EndIf
 
     Case #Gadget_Upgrade

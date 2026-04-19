@@ -1,4 +1,5 @@
 Procedure UpdateHover()
+  Protected *Tower.Tower
   Protected Picked.i
   Protected GX.i
   Protected GZ.i
@@ -14,6 +15,7 @@ Procedure UpdateHover()
   Protected HoverHeight.f
   Protected HoverMaterial.i
   Protected FoundCell.i
+  Protected PreviewRange.f
 
   HoverGX = -1
   HoverGZ = -1
@@ -68,17 +70,13 @@ Procedure UpdateHover()
     HoverMaterial = MatHoverGood
 
     If PendingGridAction = #GridAction_Upgrade
-      If TowerID <> 0 And FindTower(TowerID)
-        ForEach Towers()
-          If Towers()\id = TowerID
-            If Towers()\type <> #TowerType_Block And Towers()\level < 3
-              HoverMaterial = MatHoverUpgrade
-            Else
-              HoverMaterial = MatHoverBad
-            EndIf
-            Break
-          EndIf
-        Next
+      *Tower = FindTowerPointer(TowerID)
+      If *Tower
+        If *Tower\type <> #TowerType_Block And *Tower\level < 3
+          HoverMaterial = MatHoverUpgrade
+        Else
+          HoverMaterial = MatHoverBad
+        EndIf
       Else
         HoverMaterial = MatHoverBad
       EndIf
@@ -111,8 +109,14 @@ Procedure UpdateHover()
     MoveEntity(HoverEntity, WorldXFromGrid(HoverGX), 0.05 + HoverHeight * 0.5, WorldZFromGrid(HoverGZ), #PB_Absolute)
 
     If SelectedTowerID = 0 And PendingGridAction = #GridAction_None And CurrentBuildType <> #TowerType_None And TowerID = 0 And CellCanHostTower(HoverGX, HoverGZ, CurrentBuildType)
-      ShowRangeIndicators(WorldXFromGrid(HoverGX), WorldZFromGrid(HoverGZ), TowerPreviewRange(CurrentBuildType))
-      RangePreviewActive = #True
+      PreviewRange = TowerPreviewRange(CurrentBuildType)
+      If PreviewRange > 0
+        ShowRangeIndicators(WorldXFromGrid(HoverGX), WorldZFromGrid(HoverGZ), PreviewRange)
+        RangePreviewActive = #True
+      ElseIf RangePreviewActive
+        HideRangeIndicators()
+        RangePreviewActive = #False
+      EndIf
     ElseIf SelectedTowerID = 0 And RangePreviewActive
       HideRangeIndicators()
       RangePreviewActive = #False
@@ -121,6 +125,7 @@ Procedure UpdateHover()
 EndProcedure
 
 Procedure HandleBoardClick()
+  Protected *Tower.Tower
   Protected TowerID.i
 
   If HoverGX = -1 Or HoverGZ = -1
@@ -134,19 +139,15 @@ Procedure HandleBoardClick()
 
   If PendingGridAction = #GridAction_Upgrade
     If TowerID <> 0
-      If FindTower(TowerID)
-        ForEach Towers()
-          If Towers()\id = TowerID
-            If Towers()\level < 3
-              UpgradeTowerByID(TowerID)
-              PendingGridAction = #GridAction_None
-            Else
-              SelectTower(TowerID)
-              SetStatus("That tower is already maxed.", 1.2)
-            EndIf
-            Break
-          EndIf
-        Next
+      *Tower = FindTowerPointer(TowerID)
+      If *Tower
+        If *Tower\level < 3
+          UpgradeTowerByID(TowerID)
+          PendingGridAction = #GridAction_None
+        Else
+          SelectTower(TowerID)
+          SetStatus("That tower is already maxed.", 1.2)
+        EndIf
       EndIf
     Else
       SetStatus("Click a placed tower to upgrade it.", 1.2)
@@ -191,6 +192,10 @@ Procedure ProcessInput()
   Protected RightPressed.i
   Protected OverlayWasActive.i = StartOverlayActive
   Protected GadgetHandled.i
+  Protected StartButtonX.i
+  Protected StartButtonY.i
+  Protected StartButtonWidth.i
+  Protected StartButtonHeight.i
 
   Repeat
     Event = WindowEvent()
@@ -285,7 +290,12 @@ Procedure ProcessInput()
   EndIf
 
   If StartOverlayActive
-    If KeyboardPushed(#PB_Key_Return) Or KeyboardPushed(#PB_Key_Space) Or (LeftPressed And LeftWasDown = 0 And MousePX >= 530 And MousePX < 660 And MousePY >= 620 And MousePY < 650)
+    StartButtonX = GadgetX(#Gadget_MenuStart)
+    StartButtonY = GadgetY(#Gadget_MenuStart)
+    StartButtonWidth = GadgetWidth(#Gadget_MenuStart)
+    StartButtonHeight = GadgetHeight(#Gadget_MenuStart)
+
+    If KeyboardPushed(#PB_Key_Return) Or KeyboardPushed(#PB_Key_Space) Or (LeftPressed And LeftWasDown = 0 And MousePX >= StartButtonX And MousePX < StartButtonX + StartButtonWidth And MousePY >= StartButtonY And MousePY < StartButtonY + StartButtonHeight)
       If KeyEnterWasDown = 0
         If GameState = #GameState_Playing
           StartGame()

@@ -138,6 +138,16 @@ Procedure ReprojectEnemiesToPath()
   Next
 EndProcedure
 
+Procedure.i FindEnemyPointer(EnemyID.i)
+  ForEach Enemies()
+    If Enemies()\id = EnemyID
+      ProcedureReturn @Enemies()
+    EndIf
+  Next
+
+  ProcedureReturn 0
+EndProcedure
+
 Procedure UpdateEffects(DT.f)
   ForEach Towers()
     If Towers()\muzzleTimer > 0
@@ -722,12 +732,7 @@ Procedure UpdateEnemies(DT.f)
         Enemies()\burnTick = 0.35
         Enemies()\hp - Enemies()\burnDamage
         If Enemies()\hp <= 0
-          Gold + Enemies()\reward
-          PlayHitSound()
-          FreeEnemyVisuals(@Enemies())
-          FreeEntity(Enemies()\entity)
-          DeleteElement(Enemies())
-          EnemyAliveCount - 1
+          DestroyEnemy(@Enemies())
           Continue
         EndIf
       EndIf
@@ -873,13 +878,85 @@ Procedure SpawnProjectile(*Tower.Tower, TargetID.i)
   ScaleEntity(Projectiles()\entity, Scale, Scale, Scale, #PB_Absolute)
 EndProcedure
 
-Procedure ApplyImpact(TargetID.i, X.f, Z.f, Damage.f, Splash.f, SlowPower.f, SlowTime.f)
+Procedure ApplySlowToEnemy(*Enemy.Enemy, SlowPower.f, SlowTime.f)
+  Protected AppliedSlowPower.f
+
+  If SlowPower <= 0 Or SlowTime <= 0
+    ProcedureReturn
+  EndIf
+
+  AppliedSlowPower = SlowPower
+  If *Enemy\slowCap > 0 And AppliedSlowPower < *Enemy\slowCap
+    AppliedSlowPower = *Enemy\slowCap
+  EndIf
+
+  If *Enemy\slowTimer <= 0 Or *Enemy\slowFactor > AppliedSlowPower
+    *Enemy\slowFactor = AppliedSlowPower
+  EndIf
+  *Enemy\slowTimer = SlowTime
+EndProcedure
+
+Procedure ApplyHitFeedback(*Enemy.Enemy, SourceType.i)
+  If SourceType = #TowerType_Pulse
+    *Enemy\burnTimer = 1.8
+    *Enemy\burnTick = 0.35
+    *Enemy\burnDamage = 4 + Wave * 0.2
+  EndIf
+
+  *Enemy\flashTimer = 0.10
+  SetEntityMaterial(*Enemy\entity, MaterialID(MatFlash))
+  UpdateEnemyHealthBar(*Enemy)
+EndProcedure
+
+Procedure DestroyEnemy(*Enemy.Enemy)
+  Protected SpawnProgressA.f
+  Protected SpawnProgressB.f
+
+  Gold + *Enemy\reward
+  PlayHitSound()
+
+  If *Enemy\type = #EnemyType_Splitter And *Enemy\maxHP > 40
+    SpawnProgressA = *Enemy\progress + 0.15
+    SpawnProgressB = *Enemy\progress + 0.45
+    SpawnSplitSwarm(*Enemy\segment, SpawnProgressA)
+    SpawnSplitSwarm(*Enemy\segment, SpawnProgressB)
+  EndIf
+
+  ChangeCurrentElement(Enemies(), *Enemy)
+  FreeEnemyVisuals(*Enemy)
+  FreeEntity(*Enemy\entity)
+  DeleteElement(Enemies())
+  EnemyAliveCount - 1
+EndProcedure
+
+Procedure ApplyImpactToEnemy(*Enemy.Enemy, Damage.f, SlowPower.f, SlowTime.f, SourceType.i)
+  ChangeCurrentElement(Enemies(), *Enemy)
+
+  If *Enemy\shield > 0
+    *Enemy\shield - Damage
+    If *Enemy\shield < 0
+      *Enemy\hp + *Enemy\shield
+      *Enemy\shield = 0
+    EndIf
+  Else
+    *Enemy\hp - Damage
+  EndIf
+
+  ApplySlowToEnemy(*Enemy, SlowPower, SlowTime)
+
+  If *Enemy\hp <= 0
+    DestroyEnemy(*Enemy)
+  Else
+    ApplyHitFeedback(*Enemy, SourceType)
+  EndIf
+EndProcedure
+
+Procedure ApplyImpact(TargetID.i, X.f, Z.f, Damage.f, Splash.f, SlowPower.f, SlowTime.f, SourceType.i)
+  Protected *Target.Enemy
   Protected CurrentDamage.f
   Protected DX.f
   Protected DZ.f
   Protected Distance.f
-  Protected SpawnProgressA.f
-  Protected SpawnProgressB.f
 
   If Splash > 0.05
     ForEach Enemies()
@@ -893,109 +970,19 @@ Procedure ApplyImpact(TargetID.i, X.f, Z.f, Damage.f, Splash.f, SlowPower.f, Slo
           CurrentDamage = Damage * 0.35
         EndIf
 
-        If Enemies()\shield > 0
-          Enemies()\shield - CurrentDamage
-          If Enemies()\shield < 0
-            Enemies()\hp + Enemies()\shield
-            Enemies()\shield = 0
-          EndIf
-        Else
-          Enemies()\hp - CurrentDamage
-        EndIf
-
-        If SlowPower > 0 And SlowTime > 0
-          If Enemies()\slowCap > 0 And SlowPower < Enemies()\slowCap
-            SlowPower = Enemies()\slowCap
-          EndIf
-          If Enemies()\slowTimer <= 0 Or Enemies()\slowFactor > SlowPower
-            Enemies()\slowFactor = SlowPower
-          EndIf
-          Enemies()\slowTimer = SlowTime
-        EndIf
-
-        If Enemies()\hp <= 0
-          Gold + Enemies()\reward
-          PlayHitSound()
-
-          If Enemies()\type = #EnemyType_Splitter And Enemies()\maxHP > 40
-            SpawnProgressA = Enemies()\progress + 0.15
-            SpawnProgressB = Enemies()\progress + 0.45
-            SpawnSplitSwarm(Enemies()\segment, SpawnProgressA)
-            SpawnSplitSwarm(Enemies()\segment, SpawnProgressB)
-          EndIf
-
-          FreeEnemyVisuals(@Enemies())
-          FreeEntity(Enemies()\entity)
-          DeleteElement(Enemies())
-          EnemyAliveCount - 1
-        Else
-          If Projectiles()\type = #TowerType_Pulse
-            Enemies()\burnTimer = 1.8
-            Enemies()\burnTick = 0.35
-            Enemies()\burnDamage = 4 + Wave * 0.2
-          EndIf
-          Enemies()\flashTimer = 0.10
-          SetEntityMaterial(Enemies()\entity, MaterialID(MatFlash))
-          UpdateEnemyHealthBar(@Enemies())
-        EndIf
+        ApplyImpactToEnemy(@Enemies(), CurrentDamage, SlowPower, SlowTime, SourceType)
       EndIf
     Next
   Else
-    ForEach Enemies()
-      If Enemies()\id = TargetID
-        If Enemies()\shield > 0
-          Enemies()\shield - Damage
-          If Enemies()\shield < 0
-            Enemies()\hp + Enemies()\shield
-            Enemies()\shield = 0
-          EndIf
-        Else
-          Enemies()\hp - Damage
-        EndIf
-
-        If SlowPower > 0 And SlowTime > 0
-          If Enemies()\slowCap > 0 And SlowPower < Enemies()\slowCap
-            SlowPower = Enemies()\slowCap
-          EndIf
-          If Enemies()\slowTimer <= 0 Or Enemies()\slowFactor > SlowPower
-            Enemies()\slowFactor = SlowPower
-          EndIf
-          Enemies()\slowTimer = SlowTime
-        EndIf
-
-        If Enemies()\hp <= 0
-          Gold + Enemies()\reward
-          PlayHitSound()
-
-          If Enemies()\type = #EnemyType_Splitter And Enemies()\maxHP > 40
-            SpawnProgressA = Enemies()\progress + 0.15
-            SpawnProgressB = Enemies()\progress + 0.45
-            SpawnSplitSwarm(Enemies()\segment, SpawnProgressA)
-            SpawnSplitSwarm(Enemies()\segment, SpawnProgressB)
-          EndIf
-
-          FreeEnemyVisuals(@Enemies())
-          FreeEntity(Enemies()\entity)
-          DeleteElement(Enemies())
-          EnemyAliveCount - 1
-        Else
-          If Projectiles()\type = #TowerType_Pulse
-            Enemies()\burnTimer = 1.8
-            Enemies()\burnTick = 0.35
-            Enemies()\burnDamage = 4 + Wave * 0.2
-          EndIf
-          Enemies()\flashTimer = 0.10
-          SetEntityMaterial(Enemies()\entity, MaterialID(MatFlash))
-          UpdateEnemyHealthBar(@Enemies())
-        EndIf
-        Break
-      EndIf
-    Next
+    *Target = FindEnemyPointer(TargetID)
+    If *Target
+      ApplyImpactToEnemy(*Target, Damage, SlowPower, SlowTime, SourceType)
+    EndIf
   EndIf
 EndProcedure
 
 Procedure UpdateProjectiles(DT.f)
-  Protected Found.i
+  Protected *Target.Enemy
   Protected TargetX.f
   Protected TargetY.f
   Protected TargetZ.f
@@ -1006,19 +993,14 @@ Procedure UpdateProjectiles(DT.f)
   Protected TravelStep.f
 
   ForEach Projectiles()
-    Found = #False
+    *Target = FindEnemyPointer(Projectiles()\targetID)
+    If *Target
+      TargetX = *Target\x
+      TargetY = *Target\y
+      TargetZ = *Target\z
+    EndIf
 
-    ForEach Enemies()
-      If Enemies()\id = Projectiles()\targetID
-        Found = #True
-        TargetX = Enemies()\x
-        TargetY = Enemies()\y
-        TargetZ = Enemies()\z
-        Break
-      EndIf
-    Next
-
-    If Found = 0
+    If *Target = 0
       FreeEntity(Projectiles()\entity)
       DeleteElement(Projectiles())
     Else
@@ -1029,7 +1011,7 @@ Procedure UpdateProjectiles(DT.f)
       TravelStep = Projectiles()\speed * DT
 
       If Distance <= TravelStep Or Distance < 0.30
-        ApplyImpact(Projectiles()\targetID, TargetX, TargetZ, Projectiles()\damage, Projectiles()\splash, Projectiles()\slowPower, Projectiles()\slowTime)
+        ApplyImpact(Projectiles()\targetID, TargetX, TargetZ, Projectiles()\damage, Projectiles()\splash, Projectiles()\slowPower, Projectiles()\slowTime, Projectiles()\type)
         FreeEntity(Projectiles()\entity)
         DeleteElement(Projectiles())
       Else
@@ -1082,15 +1064,19 @@ Procedure.i TowerCanTargetEnemy(*Tower.Tower, *Enemy.Enemy)
 EndProcedure
 
 Procedure UpdateTowers(DT.f)
+  Protected *Target.Enemy
   Protected TowerX.f
   Protected TowerZ.f
   Protected DX.f
   Protected DZ.f
   Protected Distance.f
   Protected BestMetric.f
+  Protected TargetX.f
+  Protected TargetZ.f
   Protected Metric.f
   Protected TargetID.i
   Protected Shot.i
+  Protected BeamDistance.f
 
   ForEach Towers()
     If Towers()\type = #TowerType_Block
@@ -1137,25 +1123,21 @@ Procedure UpdateTowers(DT.f)
         Next
 
         If Towers()\type = #TowerType_Pulse And Towers()\level >= 3
-          ApplyImpact(TargetID, TowerX, TowerZ, Towers()\damage * 0.25, 1.7, 0, 0)
+          ApplyImpact(TargetID, TowerX, TowerZ, Towers()\damage * 0.25, 1.7, 0, 0, Towers()\type)
         EndIf
 
         If Towers()\type = #TowerType_Mortar And Towers()\level >= 3
-          ForEach Enemies()
-            If Enemies()\id = TargetID
-              ApplyImpact(TargetID, Enemies()\x, Enemies()\z, Towers()\damage * 0.22, 1.3, 0.80, 0.8)
-              Break
-            EndIf
-          Next
+          *Target = FindEnemyPointer(TargetID)
+          If *Target
+            ApplyImpact(TargetID, *Target\x, *Target\z, Towers()\damage * 0.22, 1.3, 0.80, 0.8, Towers()\type)
+          EndIf
         EndIf
 
         If Towers()\type = #TowerType_Frost And Towers()\level >= 3
-          ForEach Enemies()
-            If Enemies()\id = TargetID
-              ApplyImpact(TargetID, Enemies()\x, Enemies()\z, Towers()\damage * 0.20, 1.1, 0.55, 1.4)
-              Break
-            EndIf
-          Next
+          *Target = FindEnemyPointer(TargetID)
+          If *Target
+            ApplyImpact(TargetID, *Target\x, *Target\z, Towers()\damage * 0.20, 1.1, 0.55, 1.4, Towers()\type)
+          EndIf
         EndIf
 
         PlayTowerFireSound(Towers()\type)
@@ -1163,14 +1145,15 @@ Procedure UpdateTowers(DT.f)
         MoveEntity(Towers()\muzzleEntity, TowerX, 1.35, TowerZ, #PB_Absolute)
 
         If Towers()\type = #TowerType_Beam
-          ForEach Enemies()
-            If Enemies()\id = TargetID
-              Towers()\muzzleTimer = 0.06
-              MoveEntity(Towers()\muzzleEntity, (TowerX + Enemies()\x) * 0.5, 0.95, (TowerZ + Enemies()\z) * 0.5, #PB_Absolute)
-              ScaleEntity(Towers()\muzzleEntity, 0.12, 0.12, Distance * 0.5, #PB_Absolute)
-              Break
-            EndIf
-          Next
+          *Target = FindEnemyPointer(TargetID)
+          If *Target
+            TargetX = *Target\x
+            TargetZ = *Target\z
+            BeamDistance = Sqr((TargetX - TowerX) * (TargetX - TowerX) + (TargetZ - TowerZ) * (TargetZ - TowerZ))
+            Towers()\muzzleTimer = 0.06
+            MoveEntity(Towers()\muzzleEntity, (TowerX + TargetX) * 0.5, 0.95, (TowerZ + TargetZ) * 0.5, #PB_Absolute)
+            ScaleEntity(Towers()\muzzleEntity, 0.12, 0.12, BeamDistance * 0.5, #PB_Absolute)
+          EndIf
         EndIf
 
         Towers()\cooldown = Towers()\fireDelay
