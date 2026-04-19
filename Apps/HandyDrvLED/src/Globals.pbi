@@ -1,7 +1,7 @@
 ; HandyDrvLED Globals & Constants
 
 #APP_NAME = "HandyDrvLED"
-Global version.s = "v1.0.3.6"
+Global version.s = "v1.0.3.7"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
 #IOCTL_DISK_PERFORMANCE = $70020
@@ -756,9 +756,8 @@ Procedure EditSettings()
   CloseWindow(win)
 EndProcedure
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 612
-; FirstLine = 724
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 3
 ; Folding = ------
 ; EnableXP
 ; DPIAware

@@ -159,7 +159,7 @@ EndIf
       If TrayIconReady
         LockMutex(Mutex_DiskData)
         ChangeSysTrayIcon(#TrayIcon_Main, CurrentIconID)
-        SysTrayIconToolTip(#TrayIcon_Main, Lng\AppName + " " + version + #CRLF$ + CurrentTooltip)
+        SysTrayIconToolTip(#TrayIcon_Main, CurrentTooltip)
         UnlockMutex(Mutex_DiskData)
       EndIf
 
@@ -264,8 +264,8 @@ LogLine("Application shutting down")
 Cleanup()
 End
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 166
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 161
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -275,12 +275,12 @@ End
 ; UseIcon = HandyDrvLED.ico
 ; Executable = ..\HandyDrvLED.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,6
-; VersionField1 = 1,0,3,6
+; VersionField0 = 1,0,3,7
+; VersionField1 = 1,0,3,7
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyDrvLED
-; VersionField4 = 1.0.3.6
-; VersionField5 = 1.0.3.6
+; VersionField4 = 1.0.3.7
+; VersionField5 = 1.0.3.7
 ; VersionField6 = A handy drive monitor - with tons of features
 ; VersionField7 = HandyDrvLED
 ; VersionField8 = HandyDrvLED.exe
