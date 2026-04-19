@@ -8,6 +8,7 @@
 #WINDOW_WIDTH = 660
 #WINDOW_HEIGHT = 585
 #MAX_POWERUPS = 3
+#HELP_FILE = "tictactoe+_help.html"
 
 ; === Enumerations ===
 Enumeration
@@ -50,7 +51,7 @@ Enumeration
   #POWERUP_BOMB
 EndEnumeration
 
-#APP_NAME = "TicTacToe"
+#APP_NAME = "TicTacToe+"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
 Global AppPath.s = GetPathPart(ProgramFilename())
@@ -88,6 +89,9 @@ Declare CanvasPixelWidth()
 Declare CanvasPixelHeight()
 Declare CanvasCellWidth()
 Declare CanvasCellHeight()
+Declare HandleBoardStateChange()
+Declare GetRandomLegalMove()
+Declare EndGame(result.s)
 
 ; === Global Variables ===
 Global Dim Board.s(#BOARD_SIZE-1, #BOARD_SIZE-1)
@@ -107,7 +111,7 @@ Global DoubleStrikeActive = #False
 Global DoubleStrikeCount = 0
 Global LastMove.Position
 Global LastPlayer.s = ""
-Global version.s = "v1.0.0.3"
+Global version.s = "v1.0.0.4"
 
 ; Power-up arrays
 Global Dim Player1Powerups.PowerUp(#MAX_POWERUPS-1)
@@ -948,6 +952,27 @@ Procedure CountEmptyCells()
   ProcedureReturn count
 EndProcedure
 
+Procedure GetRandomLegalMove()
+  Protected Dim legalMoves.i(#BOARD_SIZE * #BOARD_SIZE - 1)
+  Protected legalMoveCount = 0
+  Protected x, y
+
+  For y = 0 To #BOARD_SIZE-1
+    For x = 0 To #BOARD_SIZE-1
+      If Board(x, y) = "" And Not BlockedBoard(x, y)
+        legalMoves(legalMoveCount) = (y << 16) | x
+        legalMoveCount + 1
+      EndIf
+    Next
+  Next
+
+  If legalMoveCount > 0
+    ProcedureReturn legalMoves(Random(legalMoveCount - 1))
+  EndIf
+
+  ProcedureReturn -1
+EndProcedure
+
 Procedure GetBestMove()
   Protected bestX = -1, bestY = -1, x, y, score, bestScore = -10000
   Protected randomnessThreshold
@@ -962,13 +987,7 @@ Procedure GetBestMove()
   EndSelect
 
   If randomnessThreshold >= 0 And Random(99) < randomnessThreshold
-    For y = 0 To #BOARD_SIZE-1
-      For x = 0 To #BOARD_SIZE-1
-        If Board(x, y) = "" And Not BlockedBoard(x, y)
-          ProcedureReturn (y << 16) | x
-        EndIf
-      Next
-    Next
+    ProcedureReturn GetRandomLegalMove()
   EndIf
 
   For y = 0 To #BOARD_SIZE-1
@@ -1077,7 +1096,9 @@ Procedure AITurn()
       If ExecutePowerup(Player2Powerups(bestPowerup)\type, "O")
         Player2Powerups(bestPowerup)\used = #True
         UpdatePowerupLists()
-        DrawBoard()
+        If HandleBoardStateChange()
+          ProcedureReturn
+        EndIf
         Delay(1000)
       EndIf
     EndIf
@@ -1167,6 +1188,19 @@ Procedure UpdateStatusMessage()
   SetGadgetText(#Gadget_Status, statusText)
 EndProcedure
 
+Procedure HandleBoardStateChange()
+  Protected result.s = CheckWinner()
+
+  DrawBoard()
+  If result <> ""
+    EndGame(result)
+    ProcedureReturn #True
+  EndIf
+
+  UpdateStatusMessage()
+  ProcedureReturn #False
+EndProcedure
+
 Procedure EndGame(result.s)
   GameOver = #True
   HoverX = -1 : HoverY = -1
@@ -1207,8 +1241,10 @@ Procedure CanvasClick()
   
   Protected mx = GetGadgetAttribute(#Canvas_Game, #PB_Canvas_MouseX)
   Protected my = GetGadgetAttribute(#Canvas_Game, #PB_Canvas_MouseY)
-  Protected x = mx / #CELL_SIZE
-  Protected y = my / #CELL_SIZE
+  Protected cellWidth = CanvasCellWidth()
+  Protected cellHeight = CanvasCellHeight()
+  Protected x = mx / cellWidth
+  Protected y = my / cellHeight
   Protected result.s
   
   If IsValidPosition(x, y) And Board(x, y) = "" And Not BlockedBoard(x, y)
@@ -1282,8 +1318,10 @@ Procedure CanvasMouseMove()
   
   Protected mx = GetGadgetAttribute(#Canvas_Game, #PB_Canvas_MouseX)
   Protected my = GetGadgetAttribute(#Canvas_Game, #PB_Canvas_MouseY)
-  Protected newX = mx / #CELL_SIZE
-  Protected newY = my / #CELL_SIZE
+  Protected cellWidth = CanvasCellWidth()
+  Protected cellHeight = CanvasCellHeight()
+  Protected newX = mx / cellWidth
+  Protected newY = my / cellHeight
   
   If Not IsValidPosition(newX, newY)
     newX = -1 : newY = -1
@@ -1345,17 +1383,15 @@ Procedure ChangePowerupMode()
   PowerupMode = GetGadgetState(#Gadget_PowerupMode)
 
   UpdatePowerupControls()
-  
+
+  ResetGame()
+
   If PowerupMode
-    InitializePowerups()
     SetGadgetText(#Gadget_PowerupStatus, "Power-ups enabled! Select and use them wisely.")
   Else
-    SetGadgetText(#Gadget_PowerupStatus, "")
     ClearGadgetItems(#Gadget_Player1PowerupList)
     ClearGadgetItems(#Gadget_Player2PowerupList)
   EndIf
-  
-  ResetGame()
 EndProcedure
 
 Procedure UsePowerup1()
@@ -1367,7 +1403,7 @@ Procedure UsePowerup1()
     If ExecutePowerup(Player1Powerups(selectedIndex)\type, "X")
       Player1Powerups(selectedIndex)\used = #True
       UpdatePowerupLists()
-      DrawBoard()
+      HandleBoardStateChange()
     EndIf
   EndIf
 EndProcedure
@@ -1382,7 +1418,7 @@ Procedure UsePowerup2()
     If ExecutePowerup(Player2Powerups(selectedIndex)\type, "O")
       Player2Powerups(selectedIndex)\used = #True
       UpdatePowerupLists()
-      DrawBoard()
+      HandleBoardStateChange()
     EndIf
   EndIf
 EndProcedure
@@ -1392,7 +1428,7 @@ Procedure OpenHelpFile()
   Protected helpPath.s
   
   ; Try to find the help file in the same directory as the executable
-  helpPath = GetPathPart(ProgramFilename()) + "files\" + #APP_NAME + "_Help.html"
+  helpPath = GetPathPart(ProgramFilename()) + "files\" + #HELP_FILE
   
   ; Check if help file exists
   If FileSize(helpPath) > 0
@@ -1401,7 +1437,7 @@ Procedure OpenHelpFile()
   Else
     ; Show message if help file not found
     MessageRequester("Help File Not Found", 
-                     "Could not find '" + #APP_NAME + "_Help.html' in the " + #APP_NAME + "\files directory." + Chr(10) + Chr(10) + 
+                     "Could not find '" + #HELP_FILE + "' in the " + #APP_NAME + "\files directory." + Chr(10) + Chr(10) + 
                      "Please make sure the help file is in the 'files' folder.", #PB_MessageRequester_Warning)
   EndIf
 EndProcedure
@@ -1532,26 +1568,25 @@ If OpenWindow(#Window_Main, 0, 0, #WINDOW_WIDTH, #WINDOW_HEIGHT, #APP_NAME + " -
     EndSelect
   ForEver
 EndIf
-; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 109
-; FirstLine = 87
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 10
 ; Folding = --------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
-; UseIcon = tictactoe.ico
-; Executable = ..\TicTacToe.exe
+; UseIcon = tictactoe+.ico
+; Executable = ..\TicTacToe+.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
-; VersionField3 = TicTacToe
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField3 = TicTacToe+
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = A full-featured 2-Player TicTacToe game.
-; VersionField7 = TicTacToe
-; VersionField8 = TicTacToe.exe
+; VersionField7 = TicTacToe+
+; VersionField8 = TicTacToe+.exe
 ; VersionField9 = David Scouten
 ; VersionField13 = zonemaster60@gmail.com
 ; VersionField14 = https://github.com/zonemaster60
