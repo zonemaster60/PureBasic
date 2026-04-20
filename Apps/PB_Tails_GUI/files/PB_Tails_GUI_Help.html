@@ -233,7 +233,9 @@
           </ul>
 
           <p>Examples of patterns:</p>
-          <pre><code> C:\Logs\*.log
+          <pre><code>C:\Logs\*.log
+C:\Windows\Logs\CBS\*.log
+..\logs\*.txt</code></pre>
 
           <div class="callout">
             <strong>Pattern behavior:</strong> If a wildcard matches nothing, the literal pattern is kept (similar to typical Windows command behavior). If matches are found, they are sorted and all matches are added.
@@ -338,7 +340,7 @@
           <h2>Debug log</h2>
           <p>Enable <code>Debug log</code> to record what pb_tails_gui is doing (settings and follow activity). This is useful when diagnosing issues like “no output”, lock errors, or unexpected decoding.</p>
           <ul>
-            <li>If the path field is empty, it defaults to <code>%TEMP%\pb_tails_gui.debug.log</code>.</li>
+            <li>If the path field is empty, it defaults to the app's <code>Logs\</code> folder beside the executable.</li>
             <li>It logs run settings, input list, initial tail result size, and follow tick activity.</li>
             <li>Follow ticks include which reader was used: <code>path=winapi</code> or <code>path=pb</code>.</li>
             <li>When reads fail, it logs a Windows error code (<code>winerr</code>) when available.</li>
@@ -356,7 +358,7 @@
           <h2>Capture output</h2>
           <p>Enable <code>Capture</code> to save the same text that the GUI displays to a file. This can help you share output for troubleshooting or keep a transcript of a follow session.</p>
           <ul>
-            <li>If the path field is empty, it defaults to <code>%TEMP%\pb_tails_gui.capture.txt</code>.</li>
+            <li>If the path field is empty, it defaults to the app's <code>Logs\</code> folder beside the executable.</li>
             <li>Capture is written as UTF-8 text and uses Windows-friendly newlines (<code>CRLF</code>).</li>
             <li>Capture contains the output as displayed by pb_tails_gui. If you choose an encoding option that changes the display, the capture reflects that choice.</li>
           </ul>
@@ -433,7 +435,7 @@
     </div>
 
     <footer>
-      pb_tails_gui help file (HTML). If you want this embedded into the app or linked from a Help button, say so.
+      pb_tails_gui help file (HTML).
     </footer>
   </div>
 </body>

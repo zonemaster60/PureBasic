@@ -166,6 +166,12 @@ Procedure SetProgressPosition(position.q)
     SetGadgetState(#Gadget_PlaylistProgress, position)
     isUserSeeking = 1
   EndIf
+
+  If IsGadget(#Gadget_VideoProgress)
+    isUserSeeking = 0
+    SetGadgetState(#Gadget_VideoProgress, position)
+    isUserSeeking = 1
+  EndIf
 EndProcedure
 
 Procedure ResetPlaybackState(clearMediaInfo.i = #True)
@@ -488,6 +494,9 @@ Procedure EnsureVideoHostWindow()
     ButtonGadget(#Gadget_VideoPlay, 10, 10, 55, 24, "Play")
     ButtonGadget(#Gadget_VideoPause, 70, 10, 55, 24, "Pause")
     ButtonGadget(#Gadget_VideoStop, 130, 10, 55, 24, "Stop")
+    TrackBarGadget(#Gadget_VideoProgress, 195, 10, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate) - 205, #ProgressBarHeight + 6, 0, #ProgressScaleMax)
+    BindGadgetEvent(#Gadget_VideoProgress, @ProgressBarSeekForGadget())
+    BindGadgetEvent(#Gadget_VideoProgress, @ProgressBarClickToSeekForGadget(), #PB_EventType_LeftClick)
     CanvasGadget(#Gadget_VideoHost, 0, 40, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate) - 40)
     HideWindow(#Window_Video, 1)
   EndIf
@@ -503,6 +512,9 @@ Procedure ShowVideoWindow()
     SetWindowTitle(#Window_Video, "Video - " + State\fileName)
     HideWindow(#Window_Video, 0)
     SetActiveWindow(#Window_Video)
+    If IsGadget(#Gadget_VideoProgress)
+      ResizeGadget(#Gadget_VideoProgress, 195, 10, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate) - 205, #ProgressBarHeight + 6)
+    EndIf
     If IsGadget(#Gadget_VideoHost)
       ResizeGadget(#Gadget_VideoHost, 0, 40, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate) - 40)
     EndIf

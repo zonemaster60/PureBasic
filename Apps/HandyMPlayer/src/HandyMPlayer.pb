@@ -3,7 +3,7 @@
 ;
 
 IncludeFile "HandyMPlayer_Inc.pb"
-Global version.s = "v1.0.4.0"
+Global version.s = "v1.0.4.1"
 
 EnableExplicit
 
@@ -539,6 +539,9 @@ Procedure Main()
           If IsGadget(#Gadget_VideoStop)
             ResizeGadget(#Gadget_VideoStop, 130, 10, 55, 24)
           EndIf
+          If IsGadget(#Gadget_VideoProgress)
+            ResizeGadget(#Gadget_VideoProgress, 195, 10, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate) - 205, #ProgressBarHeight + 6)
+          EndIf
           If IsGadget(#Gadget_VideoHost)
             ResizeGadget(#Gadget_VideoHost, 0, 40, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate) - 40)
             ResizeMovie(0, 0, 0, GadgetWidth(#Gadget_VideoHost), GadgetHeight(#Gadget_VideoHost))
@@ -750,12 +753,12 @@ End
 ; Executable = ..\HandyMPlayer.exe
 ; Debugger = IDE
 ; IncludeVersionInfo
-; VersionField0 = 1,0,4,0
-; VersionField1 = 1,0,4,0
+; VersionField0 = 1,0,4,1
+; VersionField1 = 1,0,4,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyMPlayer
-; VersionField4 = 1.0.4.0
-; VersionField5 = 1.0.4.0
+; VersionField4 = 1.0.4.1
+; VersionField5 = 1.0.4.1
 ; VersionField6 = A Handy Compact Audio/Video Player
 ; VersionField7 = HandyMPlayer
 ; VersionField8 = HandyMPlayer.exe

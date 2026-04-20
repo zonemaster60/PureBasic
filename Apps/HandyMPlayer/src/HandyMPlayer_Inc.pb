@@ -56,6 +56,7 @@
 #Gadget_VideoPause = 39
 #Gadget_VideoStop = 40
 #Gadget_VideoHost = 41
+#Gadget_VideoProgress = 42
 
 Enumeration
   #MovieState_Ready

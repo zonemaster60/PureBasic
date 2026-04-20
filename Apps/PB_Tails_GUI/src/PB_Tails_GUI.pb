@@ -4,7 +4,7 @@ EnableExplicit
 #CHUNK_SIZE    = 8192
 #APP_NAME = "PB_Tails_GUI"
 
-Global version.s ="v1.0.0.3"
+Global version.s ="v1.0.0.4"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -199,6 +199,9 @@ XIncludeFile "PB_Tails_Engine.pbi"
 ; ---------------- GUI ----------------
 
 Enumeration Gadgets
+  #gSourceFrame
+  #gOptionsFrame
+  #gOutputFrame
   #gFiles
   #gAdd
   #gRemove
@@ -345,6 +348,11 @@ Procedure CapClose()
   EndIf
 EndProcedure
 
+Procedure CloseRunOutputs()
+  LogClose()
+  CapClose()
+EndProcedure
+
 Declare.s NormalizeLF(text.s)
 Declare.s TailTextByLines(text.s, lineCount.i)
 Declare.s TailTextByBytes(text.s, byteCount.q, encMode.i, stripBOM.i)
@@ -428,6 +436,7 @@ Procedure.s TailTextByBytes(text.s, byteCount.q, encMode.i, stripBOM.i)
   Protected totalBytes.i
   Protected startOffset.i
   Protected *buf
+  Protected allocBytes.i
   Protected out.s = ""
 
   If byteCount <= 0 Or text = ""
@@ -449,7 +458,10 @@ Procedure.s TailTextByBytes(text.s, byteCount.q, encMode.i, stripBOM.i)
   If byteCount >= totalBytes
     out = text
   Else
-    *buf = AllocateMemory(totalBytes)
+    ; Reserve space for the encoded bytes plus the trailing terminator
+    ; written by PokeS() when length = -1.
+    allocBytes = totalBytes + SizeOf(Character)
+    *buf = AllocateMemory(allocBytes)
     If *buf = 0
       ProcedureReturn ""
     EndIf
@@ -467,12 +479,18 @@ Procedure.s TailTextByBytes(text.s, byteCount.q, encMode.i, stripBOM.i)
   ProcedureReturn out
 EndProcedure
 
-Procedure.i ShouldResetFollowByName(lastSize.q, curSize.q, offset.q)
+Procedure.i ShouldResetFollowByName(lastSize.q, lastStamp.q, curSize.q, curStamp.q, offset.q)
   If curSize < offset
     ProcedureReturn #True
   EndIf
   If lastSize <> -1 And curSize < lastSize
     ProcedureReturn #True
+  EndIf
+  If lastStamp <> -1 And curStamp <> -1
+    ; A same-size timestamp change usually means the file was replaced or rewritten.
+    If curStamp <> lastStamp And curSize = lastSize And curSize <= offset
+      ProcedureReturn #True
+    EndIf
   EndIf
   ProcedureReturn #False
 EndProcedure
@@ -538,6 +556,31 @@ EndProcedure
 
 Procedure SetStatus(msg.s)
   SetGadgetText(#gStatus, msg)
+EndProcedure
+
+Procedure.s BuildRunSummary(totalInputs.i, tailedCount.i, readErrors.i, decodeWarnings.i, followRequested.i, followStarted.i)
+  Protected msg.s
+
+  If followStarted
+    ProcedureReturn "Following: " + follow\fileName
+  EndIf
+
+  If totalInputs <= 0
+    ProcedureReturn "Ready"
+  EndIf
+
+  msg = "Tailed " + Str(tailedCount) + " of " + Str(totalInputs) + " file(s)"
+  If readErrors > 0
+    msg + "; " + Str(readErrors) + " unreadable"
+  EndIf
+  If decodeWarnings > 0
+    msg + "; " + Str(decodeWarnings) + " decode warning(s)"
+  EndIf
+  If followRequested And followStarted = #False
+    msg + "; follow requires exactly one file"
+  EndIf
+
+  ProcedureReturn msg
 EndProcedure
 
 Procedure.i TryParseNonNegativeInt(text.s, *result.IntResult)
@@ -723,6 +766,10 @@ Procedure RunTail()
   Protected out.s
   Protected shouldPrintHeader.i
   Protected totalInputs.i
+  Protected tailedCount.i
+  Protected readErrors.i
+  Protected decodeWarnings.i
+  Protected followStarted.i
 
   ClearOutput()
   SetStatus("")
@@ -749,6 +796,7 @@ Procedure RunTail()
     If gLogEnabled
       LogLine("validationError=" + validation\status)
     EndIf
+    CloseRunOutputs()
     ProcedureReturn
   EndIf
 
@@ -792,12 +840,14 @@ Procedure RunTail()
     If gLogEnabled
       LogLine("source=paste bytesOut=" + Str(Len(out)))
     EndIf
+    CloseRunOutputs()
     ProcedureReturn
   EndIf
 
   opt\fileCount = CountGadgetItems(#gFiles)
   If opt\fileCount <= 0
     SetStatus("Add at least one file")
+    CloseRunOutputs()
     ProcedureReturn
   EndIf
 
@@ -829,11 +879,14 @@ Procedure RunTail()
     If TailEngine_CanOpenForReadAny(fileName) = #False
       AppendTextToEditor(#gOutput, "Error: cannot read file: " + fileName + Chr(10))
       SetStatus("Unable to read: " + fileName)
+      readErrors + 1
       If gLogEnabled
         LogLine("cannotOpen=" + fileName)
       EndIf
       Continue
     EndIf
+
+    tailedCount + 1
 
     If shouldPrintHeader
       If i > 0
@@ -865,6 +918,7 @@ Procedure RunTail()
     If out = "" And ((opt\bytes >= 0 And opt\bytes > 0) Or (opt\bytes < 0 And opt\lines > 0))
       If TailEngine_AnyFileSize(fileName) > 0
         AppendTextToEditor(#gOutput, "(no output decoded; try encoding utf8/ansi)" + Chr(10))
+        decodeWarnings + 1
       EndIf
     Else
       AppendTextToEditor(#gOutput, out)
@@ -897,9 +951,11 @@ Procedure RunTail()
     AddWindowTimer(0, 1, ms)
     DisableGadget(#gRun, #True)
     DisableGadget(#gStop, #False)
-    SetStatus("Following: " + follow\fileName)
+    followStarted = #True
+    SetStatus(BuildRunSummary(totalInputs, tailedCount, readErrors, decodeWarnings, opt\follow, followStarted))
   Else
-    SetStatus("Ready")
+    SetStatus(BuildRunSummary(totalInputs, tailedCount, readErrors, decodeWarnings, opt\follow, #False))
+    CloseRunOutputs()
   EndIf
 EndProcedure
 
@@ -930,14 +986,22 @@ Procedure FollowTick()
       follow\lastStamp = -1
       follow\offset = 0
       follow\firstRead = #True
+      SetStatus("Following (waiting for file): " + follow\fileName)
+      If gLogEnabled
+        LogLine("tick missing reset=1 file=" + follow\fileName)
+      EndIf
       ProcedureReturn
     Else
+      SetStatus("Following (file unavailable): " + follow\fileName)
+      If gLogEnabled
+        LogLine("tick missing reset=0 file=" + follow\fileName)
+      EndIf
       ProcedureReturn
     EndIf
   EndIf
 
   If follow\followByName
-    If ShouldResetFollowByName(follow\lastSize, curSize, follow\offset)
+    If ShouldResetFollowByName(follow\lastSize, follow\lastStamp, curSize, curStamp, follow\offset)
       follow\offset = 0
       follow\firstRead = #True
     EndIf
@@ -981,11 +1045,41 @@ Procedure FollowTick()
   EndIf
 EndProcedure
 
+Procedure.i FindFileItem(fileName.s)
+  Protected normalized.s = NormalizePath(fileName)
+  Protected i.i
+
+  For i = 0 To CountGadgetItems(#gFiles) - 1
+    If NormalizePath(GetGadgetItemText(#gFiles, i, 0)) = normalized
+      ProcedureReturn i
+    EndIf
+  Next
+
+  ProcedureReturn -1
+EndProcedure
+
+Procedure.i AddFileItem(fileName.s)
+  Protected normalized.s = NormalizePath(fileName)
+
+  If normalized = ""
+    ProcedureReturn #False
+  EndIf
+  If FindFileItem(normalized) >= 0
+    ProcedureReturn #False
+  EndIf
+
+  AddGadgetItem(#gFiles, -1, normalized)
+  ProcedureReturn #True
+EndProcedure
+
 Procedure AddFilesFromRequester()
   Protected f.s = OpenFileRequester("Choose a file", "", "Log files|*.log;*.txt|All files|*.*", 0)
   If f = "" : ProcedureReturn : EndIf
-  AddGadgetItem(#gFiles, -1, NormalizePath(f))
-  SetStatus("Added file: " + GetFilePart(f))
+  If AddFileItem(f)
+    SetStatus("Added file: " + GetFilePart(f))
+  Else
+    SetStatus("File already in list: " + GetFilePart(f))
+  EndIf
 EndProcedure
 
 Procedure AddFromPattern()
@@ -1000,13 +1094,23 @@ Procedure AddFromPattern()
   AddInputArg(@opt, p)
   Protected i.i
   Protected added.i = 0
+  Protected skipped.i = 0
   For i = 0 To opt\fileCount - 1
-    AddGadgetItem(#gFiles, -1, opt\files[i])
-    added + 1
+    If AddFileItem(opt\files[i])
+      added + 1
+    Else
+      skipped + 1
+    EndIf
   Next
 
   If added > 0
-    SetStatus("Added " + Str(added) + " item(s)")
+    If skipped > 0
+      SetStatus("Added " + Str(added) + " item(s), skipped " + Str(skipped) + " duplicate(s)")
+    Else
+      SetStatus("Added " + Str(added) + " item(s)")
+    EndIf
+  ElseIf skipped > 0
+    SetStatus("All matching files are already in the list")
   Else
     SetStatus("No files matched: " + p)
   EndIf
@@ -1020,7 +1124,14 @@ Procedure UpdateSourceUI()
   DisableGadget(#gClear, usingPaste)
   DisableGadget(#gPattern, usingPaste)
   DisableGadget(#gAddPattern, usingPaste)
+  DisableGadget(#gFollow, usingPaste)
+  DisableGadget(#gFollowByName, usingPaste)
   DisableGadget(#gPaste, Bool(GetGadgetState(#gSourceFiles)))
+
+  If usingPaste
+    SetGadgetState(#gFollowByName, 0)
+    SetGadgetState(#gFollow, 0)
+  EndIf
 EndProcedure
 
 Procedure BrowseDebugLogPath()
@@ -1049,7 +1160,7 @@ If OpenWindow(0, 0, 0, 1020, 695, #APP_NAME + " " + version, #PB_Window_SystemMe
   ButtonGadget(#gAddPattern, 440, 188, 120, 24, "Add pattern")
 
   ; Source
-  FrameGadget(#PB_Any, 12, 222, 628, 70, "Input source")
+  FrameGadget(#gSourceFrame, 12, 222, 628, 70, "Input source")
   OptionGadget(#gSourceFiles, 24, 246, 140, 20, "Files")
   OptionGadget(#gSourcePaste, 180, 246, 200, 20, "Paste text")
   SetGadgetState(#gSourceFiles, 1)
@@ -1058,7 +1169,7 @@ If OpenWindow(0, 0, 0, 1020, 695, #APP_NAME + " " + version, #PB_Window_SystemMe
   SetGadgetText(#gPaste, "")
 
   ; Options
-  FrameGadget(#PB_Any, 660, 12, 348, 408, "Options")
+  FrameGadget(#gOptionsFrame, 660, 12, 348, 408, "Options")
   OptionGadget(#gModeLines, 672, 40, 120, 20, "Last lines")
   OptionGadget(#gModeBytes, 672, 66, 120, 20, "Last bytes")
   SetGadgetState(#gModeLines, 1)
@@ -1099,7 +1210,7 @@ If OpenWindow(0, 0, 0, 1020, 695, #APP_NAME + " " + version, #PB_Window_SystemMe
   DisableGadget(#gStop, #True)
 
   ; Output
-  FrameGadget(#PB_Any, 12, 432, 996, 250, "Output")
+  FrameGadget(#gOutputFrame, 12, 432, 996, 250, "Output")
   ListViewGadget(#gOutput, 24, 456, 972, 214)
 
   TextGadget(#gStatus, 12, 690, 996, 18, "")
@@ -1220,8 +1331,11 @@ If OpenWindow(0, 0, 0, 1020, 695, #APP_NAME + " " + version, #PB_Window_SystemMe
         ResizeGadget(#gPattern, leftX, 188, patW, 24)
         ResizeGadget(#gAddPattern, leftX + patW + innerGap, 188, btnW, 24)
 
+        ResizeGadget(#gSourceFrame, leftX, 222, leftW, 70)
         ResizeGadget(#gPaste, leftX, 300, leftW, 120)
 
+        ResizeGadget(#gOptionsFrame, w - margin - rightW, 12, rightW, 408)
+        ResizeGadget(#gOutputFrame, 12, 432, w - 24, h - 432 - 13)
         ResizeGadget(#gOutput, 24, 456, w - 48, h - 456 - 50)
         ResizeGadget(#gStatus, 12, h - 28, w - 24, 18)
     EndSelect
@@ -1230,9 +1344,9 @@ EndIf
 
 End
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 6
-; Folding = -------
+; Folding = --------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1241,12 +1355,12 @@ End
 ; UseIcon = PB_Tails_GUI.ico
 ; Executable = ..\PB_Tails_GUI.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_Tails_GUI
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = An app to view the last few lines of a log file
 ; VersionField7 = PB_Tails_GUI
 ; VersionField8 = PB_Tails_GUI.exe
