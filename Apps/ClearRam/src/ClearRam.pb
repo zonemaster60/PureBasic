@@ -46,7 +46,7 @@ Global gTooltipOverrideText.s = ""
 
 ; Logging toggle
 Global loggingEnabled   = #True
-Global version.s = "v1.0.1.6"
+Global version.s = "v1.0.1.7"
 
 ; Memory threshold (auto-clean when available RAM <= threshold)
 Global gMemThresholdEnabled.i = #False
@@ -1150,7 +1150,7 @@ Procedure.l RunClearRamInternal(showUi.i)
   If showUi
     QueueTrayBusyState(#False)
     If availAfter > availBefore
-      QueueTrayTooltipOverride("Freed ~" + Str((availAfter - availBefore) / 1024 / 1024) + " MB", 5000)
+      QueueTrayTooltipOverride("CLEARED ~" + Str((availAfter - availBefore) / 1024 / 1024) + " MB", 5000)
     Else
       QueueTrayTooltip("No change (try Run as Admin)")
     EndIf
@@ -1502,13 +1502,13 @@ Repeat
 
           ; Tray icon tooltips are length-limited (often ~64 chars).
           ; Keep it compact + single-line so it doesn't truncate.
-          text = "Avl:" + Str(availMB) + "MB Usg:" + Str(usedPct) + "% "
+          text = "AVL:" + Str(availMB) + "MB USG:" + Str(usedPct) + "% "
           If gMemThresholdEnabled
-            text = text + "Trg<=" + Str(gMemThresholdAvailMB) + "MB "
+            text = text + "TRG<=" + Str(gMemThresholdAvailMB) + "MB "
           Else
-            text = text + "Trg:off"
+            text = text + "TRG:OFF "
           EndIf
-          text = text + "Nxt:" + FormatCountdown(remaining)
+          text = text + "NXT:" + FormatCountdown(remaining)
 
           SysTrayIconToolTip(#TRAY_ICON, text)
         EndIf
@@ -1570,7 +1570,8 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 48
+; CursorPosition = 1152
+; FirstLine = 1131
 ; Folding = ----------
 ; Optimizer
 ; EnableThread
@@ -1581,12 +1582,12 @@ Until quitProgram = #True
 ; Executable = ..\ClearRam.exe
 ; DisableDebugger
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,6
-; VersionField1 = 1,0,1,6
+; VersionField0 = 1,0,1,7
+; VersionField1 = 1,0,1,7
 ; VersionField2 = ZoneSoft
 ; VersionField3 = ClearRam
-; VersionField4 = 1.0.1.6
-; VersionField5 = 1.0.1.6
+; VersionField4 = 1.0.1.7
+; VersionField5 = 1.0.1.7
 ; VersionField6 = Clears RAM using native Windows APIs
 ; VersionField7 = ClearRam
 ; VersionField8 = ClearRam.exe
