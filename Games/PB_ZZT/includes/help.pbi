@@ -116,9 +116,9 @@ Procedure OpenHelpDialog(EditModeHelp.b)
     content + "      Tip: save often while editing." + #LF$
     content + "    - Press F9 to load a world .txt file." + #LF$
     content + "  Editor autosave:" + #LF$
-    content + "    - While in the editor, PBZT writes pbzt_editor_autosave.txt every few minutes." + #LF$
-    content + "    - It also writes pbzt_editor_autosave.txt when you leave the editor or exit." + #LF$
-    content + "    - To recover: press Shift+F9 to load pbzt_editor_autosave.txt." + #LF$
+    content + "    - While in the editor, PBZT writes " + #APP_NAME + "_editor_autosave.txt every few minutes." + #LF$
+    content + "    - It also writes " + #APP_NAME + "_editor_autosave.txt when you leave the editor or exit." + #LF$
+    content + "    - To recover: press Shift+F9 to load " + #APP_NAME + "_editor_autosave.txt." + #LF$
     content + "      (Or press F9 and choose it manually.)" + #LF$
     content + "  Savegames (.sav.txt):" + #LF$
     content + "    - Default folder: 'saves' next to the executable." + #LF$

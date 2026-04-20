@@ -3,7 +3,7 @@
 ;------------------------------------------------------------------------------
 
 CompilerIf #PB_Compiler_IsMainFile
-  CompilerError "Compile pb_szzt.pb (main) instead of includes/world_io.pbi."
+  CompilerError "Compile PB_ZZT.pb (main) instead of includes/world_io.pbi."
 CompilerEndIf
 
 ;------------------------------------------------------------------------------
@@ -12,10 +12,28 @@ CompilerEndIf
 ;------------------------------------------------------------------------------
 
 Procedure.i ParseIntDefault(Value.s, DefaultValue.i)
+  Protected startIdx.i = 1
+  Protected i.i
+  Protected ch.i
+
   Value = Trim(Value)
   If Value = "" : ProcedureReturn DefaultValue : EndIf
 
-  If FindString(Value, "-", 1) Or (Asc(Left(Value, 1)) >= '0' And Asc(Left(Value, 1)) <= '9')
+  If Left(Value, 1) = "+" Or Left(Value, 1) = "-"
+    If Len(Value) = 1
+      ProcedureReturn DefaultValue
+    EndIf
+    startIdx = 2
+  EndIf
+
+  For i = startIdx To Len(Value)
+    ch = Asc(Mid(Value, i, 1))
+    If ch < Asc("0") Or ch > Asc("9")
+      ProcedureReturn DefaultValue
+    EndIf
+  Next
+
+  If startIdx <= Len(Value)
     ProcedureReturn Val(Value)
   EndIf
 
@@ -103,6 +121,11 @@ Procedure.b LoadWorld(FilePath.s)
   World\StartBoard = 0
   World\CurrentBoard = 0
   World\BangOneShot = 0
+  World\RespawnAtWorldStart = 1
+  World\DeathLoseScore = 0
+  World\DeathLoseKeys = 0
+  World\DeathRespawnDelayMS = 1200
+  World\DeathFadeMS = 700
 
   ; Sound tuning: default comes from INI (LoadPrefs), but worlds can override via [World] keys.
 
@@ -488,8 +511,8 @@ Procedure.b LoadWorld(FilePath.s)
         ReadKeyValueLine(line, @kvKey, @kvVal)
         If kvKey\s = "" : Continue : EndIf
 
-        ; Keep element selection stable: scripts stream into current object.
-        If ListSize(Objects()) > 0
+        ; Re-select by ID so object property parsing does not depend on list cursor state.
+        If SelectObjectById(objectId)
           Select kvKey\s
             Case "ID"
               Objects()\Id = ParseIntDefault(kvVal\s, Objects()\Id)
@@ -530,6 +553,9 @@ Procedure.b LoadWorld(FilePath.s)
   Else
     EnsureWorldBoards(boardIdx + 1)
   EndIf
+
+  World\StartBoard = Clamp(World\StartBoard, 0, BoardCount - 1)
+  World\CurrentBoard = Clamp(World\CurrentBoard, 0, BoardCount - 1)
 
   Protected bi.i
   For bi = 0 To BoardCount - 1
@@ -592,7 +618,7 @@ Procedure.b LoadWorld(FilePath.s)
 
   RebuildObjectOverlay()
 
-  SetStatus("Loaded game: " + GetFilePart(FilePath) + " (" + Str(BoardCount) + " boards, " + Str(ListSize(Objects())) + " objects)", 4000)
+  SetStatus("Loaded world: " + GetFilePart(FilePath) + " (" + Str(BoardCount) + " boards, " + Str(ListSize(Objects())) + " objects)", 4000)
   ProcedureReturn #True
 EndProcedure
 
@@ -711,7 +737,9 @@ Procedure.b SaveWorldCore(FilePath.s, UpdateWorldPath.b, CleanInvalidPassages.b,
   If CleanInvalidPassages
     ForEach Passages()
       If Passages()\Board >= 0 And Passages()\Board < BoardCount
-        If Boards(Passages()\Board)\Map[Passages()\X + Passages()\Y * #MAP_W] <> Asc("P")
+        If Passages()\X < 0 Or Passages()\X >= #MAP_W Or Passages()\Y < 0 Or Passages()\Y >= #MAP_H
+          DeleteElement(Passages())
+        ElseIf Boards(Passages()\Board)\Map[Passages()\X + Passages()\Y * #MAP_W] <> Asc("P")
           DeleteElement(Passages())
         EndIf
       Else

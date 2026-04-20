@@ -141,6 +141,7 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
   Protected cmd.s, arg1.s, arg2.s, arg3.s
   Protected parts.i
   Protected n.i, x.i, y.i
+  Protected objBoard.i
   Protected flagName.s
   Protected itemName.s
 
@@ -172,7 +173,7 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
     Case "SETFUEL"
       ; #SETFUEL TORCH|LANTERN n
       arg1 = UCase(Trim(StringField(CmdLine, 2, " ")))
-      n = Clamp(Val(Trim(StringField(CmdLine, 3, " "))), 0, 99999)
+      n = Clamp(ParseIntDefault(Trim(StringField(CmdLine, 3, " ")), 0), 0, 99999)
       Select arg1
         Case "TORCH"
           TorchStepsLeft = Clamp(n, 0, #TORCH_MAX_STEPS)
@@ -188,7 +189,7 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
       arg1 = UCase(Trim(StringField(CmdLine, 2, " ")))
       arg2 = Trim(StringField(CmdLine, 3, " "))
       arg3 = Trim(StringField(CmdLine, 4, " "))
-      n = Val(arg2)
+      n = ParseIntDefault(arg2, 0)
       If n < 0 : n = 0 : EndIf
       If arg3 = "" : ProcedureReturn #True : EndIf
       Select arg1
@@ -202,7 +203,7 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
       ; #GIVECKEY 1|2|3|4 n
       ; NOTE: Colored key doors A/B/C/F correspond to key counts 1/2/3/4.
       arg1 = Trim(StringField(CmdLine, 2, " "))
-      n = Val(Trim(StringField(CmdLine, 3, " ")))
+      n = ParseIntDefault(Trim(StringField(CmdLine, 3, " ")), 1)
       If n <= 0 : n = 1 : EndIf
       If arg1 <> ""
         AddColorKey(Left(arg1, 1), n)
@@ -211,7 +212,7 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
     Case "TAKECKEY"
       ; #TAKECKEY 1|2|3|4 n
       arg1 = Trim(StringField(CmdLine, 2, " "))
-      n = Val(Trim(StringField(CmdLine, 3, " ")))
+      n = ParseIntDefault(Trim(StringField(CmdLine, 3, " ")), 1)
       If n <= 0 : n = 1 : EndIf
       If arg1 <> ""
         AddColorKey(Left(arg1, 1), -n)
@@ -222,7 +223,7 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
       arg1 = Trim(StringField(CmdLine, 2, " "))
       arg2 = Trim(StringField(CmdLine, 3, " "))
       arg3 = Trim(StringField(CmdLine, 4, " "))
-      n = Val(arg2)
+      n = ParseIntDefault(arg2, 0)
       If n < 0 : n = 0 : EndIf
       If arg1 <> "" And arg3 <> ""
         If GetColorKeyCount(Left(arg1, 1)) >= n
@@ -240,7 +241,7 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
       Objects()\IP = GetScriptLineCount(Objects()\Script)
 
     Case "WAIT"
-      n = Val(Trim(StringField(CmdLine, 2, " ")))
+      n = ParseIntDefault(Trim(StringField(CmdLine, 2, " ")), 0)
       Objects()\Wait = Clamp(n, 0, 9999)
 
     Case "IFTOUCH"
@@ -258,7 +259,7 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
     Case "IFRAND"
       arg1 = Trim(StringField(CmdLine, 2, " "))
       arg2 = Trim(StringField(CmdLine, 3, " "))
-      n = Clamp(Val(arg1), 0, 100)
+      n = Clamp(ParseIntDefault(arg1, 0), 0, 100)
       If Random(99) < n
         TriggerObjectLabel(ObjectId, arg2)
       EndIf
@@ -312,7 +313,7 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
       arg2 = Trim(StringField(CmdLine, 3, " "))
       itemName = UCase(arg1)
       If itemName <> ""
-        n = Val(arg2)
+        n = ParseIntDefault(arg2, 1)
         If n <= 0 : n = 1 : EndIf
         ScriptItems(itemName) + n
       EndIf
@@ -323,7 +324,7 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
       arg2 = Trim(StringField(CmdLine, 3, " "))
       itemName = UCase(arg1)
       If itemName <> ""
-        n = Val(arg2)
+        n = ParseIntDefault(arg2, 1)
         If n <= 0 : n = 1 : EndIf
         If FindMapElement(ScriptItems(), itemName)
           ScriptItems() - n
@@ -349,7 +350,7 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
             EndIf
           EndIf
         Else
-          n = Val(arg2)
+          n = ParseIntDefault(arg2, 1)
           If n <= 0 : n = 1 : EndIf
           If FindMapElement(ScriptItems(), itemName)
             If ScriptItems() >= n
@@ -365,7 +366,7 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
       ; #IFHEALTH n label (branches if Health >= n)
       arg1 = Trim(StringField(CmdLine, 2, " "))
       arg2 = Trim(StringField(CmdLine, 3, " "))
-      n = Val(arg1)
+      n = ParseIntDefault(arg1, 0)
       Select cmd
         Case "IFSCORE"  : If Score >= n  : TriggerObjectLabel(ObjectId, arg2) : EndIf
         Case "IFKEYS"   : If Keys >= n   : TriggerObjectLabel(ObjectId, arg2) : EndIf
@@ -374,7 +375,7 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
 
     Case "GIVE"
       arg1 = UCase(Trim(StringField(CmdLine, 2, " ")))
-      n = Val(Trim(StringField(CmdLine, 3, " ")))
+      n = ParseIntDefault(Trim(StringField(CmdLine, 3, " ")), 0)
       Select arg1
         Case "SCORE"  : Score + n
         Case "KEYS"   : Keys + n
@@ -383,7 +384,7 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
 
     Case "TAKE"
       arg1 = UCase(Trim(StringField(CmdLine, 2, " ")))
-      n = Val(Trim(StringField(CmdLine, 3, " ")))
+      n = ParseIntDefault(Trim(StringField(CmdLine, 3, " ")), 0)
       Select arg1
         Case "SCORE"  : Score - n
         Case "KEYS"   : Keys - n
@@ -394,18 +395,20 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
       If Health < 0 : Health = 0 : EndIf
 
     Case "SET"
-      x = Val(Trim(StringField(CmdLine, 2, " ")))
-      y = Val(Trim(StringField(CmdLine, 3, " ")))
+      x = ParseIntDefault(Trim(StringField(CmdLine, 2, " ")), -1)
+      y = ParseIntDefault(Trim(StringField(CmdLine, 3, " ")), -1)
       arg3 = Trim(StringField(CmdLine, 4, " "))
-      If arg3 <> ""
+      If x >= 0 And y >= 0 And arg3 <> ""
         SetCell(x, y, Asc(Left(arg3, 1)))
       EndIf
 
     Case "SETCOLOR"
-      x = Val(Trim(StringField(CmdLine, 2, " ")))
-      y = Val(Trim(StringField(CmdLine, 3, " ")))
-      n = Val(Trim(StringField(CmdLine, 4, " ")))
-      SetCellColor(x, y, n)
+      x = ParseIntDefault(Trim(StringField(CmdLine, 2, " ")), -1)
+      y = ParseIntDefault(Trim(StringField(CmdLine, 3, " ")), -1)
+      n = ParseIntDefault(Trim(StringField(CmdLine, 4, " ")), 0)
+      If x >= 0 And y >= 0
+        SetCellColor(x, y, n)
+      EndIf
 
     Case "CHAR"
       arg1 = Trim(StringField(CmdLine, 2, " "))
@@ -414,21 +417,25 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
       EndIf
 
     Case "COLOR"
-      n = Val(Trim(StringField(CmdLine, 2, " ")))
+      n = ParseIntDefault(Trim(StringField(CmdLine, 2, " ")), 0)
       Objects()\Color = Clamp(n, 0, 255)
 
     Case "SOLID"
-      n = Val(Trim(StringField(CmdLine, 2, " ")))
+      n = ParseIntDefault(Trim(StringField(CmdLine, 2, " ")), 0)
       Objects()\Solid = Bool(n <> 0)
 
     Case "BOARD"
-      n = Val(Trim(StringField(CmdLine, 2, " ")))
-      If n >= 0 And n < BoardCount
+      n = Clamp(ParseIntDefault(Trim(StringField(CmdLine, 2, " ")), -1), -1, BoardCount - 1)
+      If n >= 0
         SwitchBoard(n, "")
       EndIf
 
     Case "WALK"
       arg1 = UCase(Trim(StringField(CmdLine, 2, " ")))
+      objBoard = Objects()\Board
+      If objBoard < 0 Or objBoard >= BoardCount
+        ProcedureReturn #True
+      EndIf
       x = Objects()\X
       y = Objects()\Y
       Select arg1
@@ -441,7 +448,7 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
       ; keep objects inside bounds
       If x >= 0 And y >= 0 And x < #MAP_W And y < #MAP_H
         If x <> PlayerX Or y <> PlayerY
-          If Solid(GetCell(x, y)) = 0 And GetObjectIdAt(Objects()\Board, x, y) = 0
+          If Solid(GetCell(x, y)) = 0 And GetObjectIdAt(objBoard, x, y) = 0
             Objects()\X = x
             Objects()\Y = y
           EndIf
@@ -449,13 +456,16 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
       EndIf
 
     Case "EXITN", "EXITS", "EXITW", "EXITE"
-      n = Val(Trim(StringField(CmdLine, 2, " ")))
-      Select cmd
-        Case "EXITN" : Boards(Objects()\Board)\ExitN = n
-        Case "EXITS" : Boards(Objects()\Board)\ExitS = n
-        Case "EXITW" : Boards(Objects()\Board)\ExitW = n
-        Case "EXITE" : Boards(Objects()\Board)\ExitE = n
-      EndSelect
+      objBoard = Objects()\Board
+      If objBoard >= 0 And objBoard < BoardCount
+        n = Clamp(ParseIntDefault(Trim(StringField(CmdLine, 2, " ")), -1), -1, BoardCount - 1)
+        Select cmd
+          Case "EXITN" : Boards(objBoard)\ExitN = n
+          Case "EXITS" : Boards(objBoard)\ExitS = n
+          Case "EXITW" : Boards(objBoard)\ExitW = n
+          Case "EXITE" : Boards(objBoard)\ExitE = n
+        EndSelect
+      EndIf
 
     Default
       ; unknown cmd

@@ -393,10 +393,14 @@ EndProcedure
 ;------------------------------------------------------------------------------
 
 Procedure PlaySfx(Kind.i)
-  If SfxReady And Kind >= 0 And Kind <= ArraySize(SfxSoundId()) And SfxSoundId(Kind) <> 0
-    SoundVolume(SfxSoundId(Kind), Int(ClampF(SfxMasterVol / #SFX_BAKE_MASTER_VOL, 0.0, 1.0) * 100.0))
-    PlaySound(SfxSoundId(Kind), #PB_Sound_MultiChannel)
-    ProcedureReturn
+  If SfxReady
+    If Kind >= 0 And Kind <= ArraySize(SfxSoundId())
+      If SfxSoundId(Kind) <> 0
+        SoundVolume(SfxSoundId(Kind), Int(ClampF(SfxMasterVol / #SFX_BAKE_MASTER_VOL, 0.0, 1.0) * 100.0))
+        PlaySound(SfxSoundId(Kind), #PB_Sound_MultiChannel)
+        ProcedureReturn
+      EndIf
+    EndIf
   EndIf
 
   ; Fallback sound if audio init/loading failed.

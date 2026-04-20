@@ -48,19 +48,23 @@ Procedure PaintAtCursor()
     If BrushChar = Asc("E")
       ; Place an enemy object without altering the underlying map tile.
       If b >= 0 And b < BoardCount
+        DeleteObjectAt(b, CursorX, CursorY)
         AddEnemy(b, CursorX, CursorY)
       EndIf
     ElseIf BrushChar = Asc("w")
       ; Place a water object without altering the underlying map tile.
       If b >= 0 And b < BoardCount
+        DeleteObjectAt(b, CursorX, CursorY)
         AddWater(b, CursorX, CursorY)
       EndIf
     ElseIf BrushChar = Asc("=")
       ; Place a bridge object without altering the underlying map tile.
       If b >= 0 And b < BoardCount
+        DeleteObjectAt(b, CursorX, CursorY)
         AddBridge(b, CursorX, CursorY)
       EndIf
     Else
+      DeleteObjectAt(b, CursorX, CursorY)
       SetCell(CursorX, CursorY, BrushChar)
       SetCellColor(CursorX, CursorY, BrushColor)
     EndIf

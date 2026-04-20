@@ -74,6 +74,10 @@ Procedure.s GetQuickSavePath()
   ProcedureReturn saveDir + #APP_NAME + "_quicksave" + Str(slot) + ".sav.txt"
 EndProcedure
 
+Procedure.s GetEditorAutosavePath()
+  ProcedureReturn GetPathPart(ProgramFilename()) + #APP_NAME + "_editor_autosave.txt"
+EndProcedure
+
 Procedure MainLoop(List WorldFiles.s())
   Define lastEnemyMS.i = ElapsedMilliseconds()
   Define lastObjMS.i = ElapsedMilliseconds()
@@ -90,7 +94,7 @@ Procedure MainLoop(List WorldFiles.s())
             If EditMode
               ; Safety net: write an autosave snapshot on exit.
               Define autoPath.s
-              autoPath = GetPathPart(ProgramFilename()) + #APP_NAME + "_editor_autosave.txt"
+              autoPath = GetEditorAutosavePath()
               SaveWorldAutosave(autoPath)
             EndIf
             quit = #True
@@ -105,7 +109,7 @@ Procedure MainLoop(List WorldFiles.s())
         If EditMode
           ; Safety net: write an autosave snapshot on exit.
           Define autoPath.s
-          autoPath = GetPathPart(ProgramFilename()) + #APP_NAME + "_editor_autosave.txt"
+          autoPath = GetEditorAutosavePath()
           SaveWorldAutosave(autoPath)
         EndIf
         quit = #True
@@ -116,7 +120,7 @@ Procedure MainLoop(List WorldFiles.s())
       If EditMode
         ; Safety net: write an autosave snapshot when leaving editor mode.
         Define autoPath.s
-        autoPath = GetPathPart(ProgramFilename()) + #APP_NAME + "_editor_autosave.txt"
+        autoPath = GetEditorAutosavePath()
         SaveWorldAutosave(autoPath)
 
         StopEditor()
@@ -204,7 +208,7 @@ Procedure MainLoop(List WorldFiles.s())
       ; Writes next to the executable and does not change World\FilePath.
       If ElapsedMilliseconds() - lastEditorAutosaveMS > 180000
         Define autoPath.s
-        autoPath = GetPathPart(ProgramFilename()) + #APP_NAME + "_editor_autosave.txt"
+        autoPath = GetEditorAutosavePath()
         If SaveWorldAutosave(autoPath)
           SetStatus("Autosaved: " + GetFilePart(autoPath), 2500)
         EndIf
@@ -330,7 +334,7 @@ Procedure MainLoop(List WorldFiles.s())
       If KeyHit(#PB_Key_F9)
         Define loadPath.s
         If KeyboardPushed(#PB_Key_LeftShift) Or KeyboardPushed(#PB_Key_RightShift)
-          loadPath = GetPathPart(ProgramFilename()) + #APP_NAME + "_editor_autosave.txt"
+          loadPath = GetEditorAutosavePath()
         Else
           loadPath = OpenFileRequester("Load world", LevelsDir, #APP_NAME + " world (*.txt)|*.txt", 0)
         EndIf
@@ -404,17 +408,25 @@ Procedure MainLoop(List WorldFiles.s())
 
         nearWater = #False
 
-        idx = (PlayerX - 1) + PlayerY * #MAP_W
-        If PlayerX > 0 And ObjOverlayChar(idx) = Asc("w") : nearWater = #True : EndIf
+        If PlayerX > 0
+          idx = (PlayerX - 1) + PlayerY * #MAP_W
+          If ObjOverlayChar(idx) = Asc("w") : nearWater = #True : EndIf
+        EndIf
 
-        idx = (PlayerX + 1) + PlayerY * #MAP_W
-        If PlayerX < #MAP_W - 1 And ObjOverlayChar(idx) = Asc("w") : nearWater = #True : EndIf
+        If PlayerX < #MAP_W - 1
+          idx = (PlayerX + 1) + PlayerY * #MAP_W
+          If ObjOverlayChar(idx) = Asc("w") : nearWater = #True : EndIf
+        EndIf
 
-        idx = PlayerX + (PlayerY - 1) * #MAP_W
-        If PlayerY > 0 And ObjOverlayChar(idx) = Asc("w") : nearWater = #True : EndIf
+        If PlayerY > 0
+          idx = PlayerX + (PlayerY - 1) * #MAP_W
+          If ObjOverlayChar(idx) = Asc("w") : nearWater = #True : EndIf
+        EndIf
 
-        idx = PlayerX + (PlayerY + 1) * #MAP_W
-        If PlayerY < #MAP_H - 1 And ObjOverlayChar(idx) = Asc("w") : nearWater = #True : EndIf
+        If PlayerY < #MAP_H - 1
+          idx = PlayerX + (PlayerY + 1) * #MAP_W
+          If ObjOverlayChar(idx) = Asc("w") : nearWater = #True : EndIf
+        EndIf
 
         If nearWater
           Protected roll.i

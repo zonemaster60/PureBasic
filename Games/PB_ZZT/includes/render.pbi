@@ -130,24 +130,24 @@ Procedure DrawWorld()
       fuelInfo = "  Dark"
 
       If LanternStepsLeft > 0 And HasScriptItem("LANTERN")
-        fuelInfo + "  Light:T(r=" + Str(#LANTERN_RADIUS) + ")"
+        fuelInfo + "  Light:L(r=" + Str(#LANTERN_RADIUS) + ")"
       ElseIf TorchStepsLeft > 0 And HasScriptItem("TORCH")
-        fuelInfo + "  Light:t(r=" + Str(#TORCH_RADIUS) + ")"
+        fuelInfo + "  Light:T(r=" + Str(#TORCH_RADIUS) + ")"
       Else
         fuelInfo + "  Light:None(r=" + Str(#DARK_NO_LIGHT_RADIUS) + ")"
       EndIf
 
       If LanternStepsLeft > 0
-        fuelInfo + "  T:" + Str(LanternStepsLeft)
+        fuelInfo + "  L:" + Str(LanternStepsLeft)
       EndIf
       If TorchStepsLeft > 0
-        fuelInfo + "  t:" + Str(TorchStepsLeft)
+        fuelInfo + "  T:" + Str(TorchStepsLeft)
       EndIf
     Else
       If TorchStepsLeft > 0 Or LanternStepsLeft > 0
         fuelInfo = "  Fuel"
-        If TorchStepsLeft > 0 : fuelInfo + "  t:" + Str(TorchStepsLeft) : EndIf
-        If LanternStepsLeft > 0 : fuelInfo + "  T:" + Str(LanternStepsLeft) : EndIf
+        If TorchStepsLeft > 0 : fuelInfo + "  T:" + Str(TorchStepsLeft) : EndIf
+        If LanternStepsLeft > 0 : fuelInfo + "  L:" + Str(LanternStepsLeft) : EndIf
       EndIf
     EndIf
   EndIf

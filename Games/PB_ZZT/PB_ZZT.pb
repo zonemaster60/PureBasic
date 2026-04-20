@@ -61,6 +61,7 @@ EnableExplicit
 ; Record the directory of the main source file for includes to use.
 Global MainSourceDir.s
 MainSourceDir = GetPathPart(#PB_Compiler_File)
+Global version.s = "v1.0.0.3"
 
 #APP_NAME = "PB_ZZT"
 #EMAIL_NAME = "zonemaster60@gmail.com"
@@ -1011,6 +1012,7 @@ Procedure SanitizeBoard(BoardIdx.i)
 EndProcedure
 
 Declare SwitchBoard(NewBoard.i, EntrySide.s = "")
+Declare.i ParseIntDefault(Value.s, DefaultValue.i)
 
 ;------------------------------------------------------------------------------
 ; ResetPlayerToBoardStart
@@ -1316,13 +1318,15 @@ EndProcedure
 ;------------------------------------------------------------------------------
 
 Procedure.b RemovePassageAt(BoardIdx.i, x.i, y.i)
+  Protected removed.b
+
   ForEach Passages()
     If Passages()\Board = BoardIdx And Passages()\X = x And Passages()\Y = y
       DeleteElement(Passages())
-      ProcedureReturn #True
+      removed = #True
     EndIf
   Next
-  ProcedureReturn #False
+  ProcedureReturn removed
 EndProcedure
 
 ;------------------------------------------------------------------------------
@@ -1605,13 +1609,15 @@ EndProcedure
 ;------------------------------------------------------------------------------
 
 Procedure.b DeleteObjectAt(BoardIdx.i, x.i, y.i)
+  Protected removed.b
+
   ForEach Objects()
     If Objects()\Alive And Objects()\Board = BoardIdx And Objects()\X = x And Objects()\Y = y
       DeleteElement(Objects())
-      ProcedureReturn #True
+      removed = #True
     EndIf
   Next
-  ProcedureReturn #False
+  ProcedureReturn removed
 EndProcedure
 
 ;------------------------------------------------------------------------------
@@ -1676,28 +1682,28 @@ Procedure.b AttemptBoardEdgeExit(dx.i, dy.i)
 
   If dx < 0
     target = Boards(b)\ExitW
-    If target >= 0
+    If target >= 0 And target < BoardCount
       SwitchBoard(target, "W")
       PlayerY = Clamp(PlayerY, 1, #MAP_H - 2)
       ProcedureReturn #True
     EndIf
   ElseIf dx > 0
     target = Boards(b)\ExitE
-    If target >= 0
+    If target >= 0 And target < BoardCount
       SwitchBoard(target, "E")
       PlayerY = Clamp(PlayerY, 1, #MAP_H - 2)
       ProcedureReturn #True
     EndIf
   ElseIf dy < 0
     target = Boards(b)\ExitN
-    If target >= 0
+    If target >= 0 And target < BoardCount
       SwitchBoard(target, "N")
       PlayerX = Clamp(PlayerX, 1, #MAP_W - 2)
       ProcedureReturn #True
     EndIf
   ElseIf dy > 0
     target = Boards(b)\ExitS
-    If target >= 0
+    If target >= 0 And target < BoardCount
       SwitchBoard(target, "S")
       PlayerX = Clamp(PlayerX, 1, #MAP_W - 2)
       ProcedureReturn #True
@@ -1876,16 +1882,16 @@ Procedure OpenPassageDialog()
   ButtonGadget(#Gad_PassageOk, 320, 170, 90, 30, "OK")
   ButtonGadget(#Gad_PassageCancel, 410, 170, 90, 30, "Cancel")
 
-  ; preload from existing mapping, otherwise default to current board start
+  ; Preload existing mapping; otherwise default to this board's start.
   If SelectPassageAt(b, CursorX, CursorY)
     SetGadgetState(#Gad_PassageDestBoard, Clamp(Passages()\DestBoard, 0, maxBoard))
     SetGadgetState(#Gad_PassageDestX, Clamp(Passages()\DestX, 0, #MAP_W - 1))
     SetGadgetState(#Gad_PassageDestY, Clamp(Passages()\DestY, 0, #MAP_H - 1))
     SetGadgetState(#Gad_PassageUseBoardStart, Bool(Passages()\UseBoardStart <> 0))
   Else
-    SetGadgetState(#Gad_PassageDestBoard, Clamp(World\CurrentBoard, 0, maxBoard))
-    SetGadgetState(#Gad_PassageDestX, Clamp(Boards(b)\StartX, 0, #MAP_W - 1))
-    SetGadgetState(#Gad_PassageDestY, Clamp(Boards(b)\StartY, 0, #MAP_H - 1))
+    SetGadgetState(#Gad_PassageDestBoard, Clamp(b, 0, maxBoard))
+    SetGadgetState(#Gad_PassageDestX, Clamp(Boards(b)\StartX, 1, #MAP_W - 2))
+    SetGadgetState(#Gad_PassageDestY, Clamp(Boards(b)\StartY, 1, #MAP_H - 2))
     SetGadgetState(#Gad_PassageUseBoardStart, 1)
   EndIf
 
@@ -2621,7 +2627,7 @@ Procedure.b OpenSongComposerDialog(BoardIdx.i, *outSong.String)
               Protected steps.i = GetGadgetState(gLen)
               Protected seedText.s = Trim(GetGadgetText(gSeed))
               Protected seed.i = 0
-              If seedText <> "" : seed = Val(seedText) : EndIf
+              If seedText <> "" : seed = ParseIntDefault(seedText, 0) : EndIf
 
               If mode = 0
                 SetGadgetText(gText, NormalizeMusicText(ComposeSongForBoard(BoardIdx, tempo, root, steps, seed)))
@@ -2648,6 +2654,7 @@ Procedure.b OpenSongComposerDialog(BoardIdx.i, *outSong.String)
     EndSelect
   ForEver
 
+  StopBoardMusic()
   CloseWindow(win)
   RefocusMainWindow()
   ProcedureReturn ok
@@ -2717,11 +2724,14 @@ Procedure OpenBoardMusicDialog(BoardIdx.i)
           Case gCompose
             Protected composed.String
             composed\s = ""
+            DisableWindow(win, 1)
             If OpenSongComposerDialog(BoardIdx, @composed)
               If composed\s <> ""
                 SetGadgetText(gEdit, composed\s)
               EndIf
             EndIf
+            DisableWindow(win, 0)
+            SetActiveWindow(win)
 
           Case gApplyNow
             ; Apply to the board and attempt to save directly to the current world.
@@ -3014,9 +3024,9 @@ MainLoop(WorldFiles())
 
 ShutdownApp()
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 2957
-; FirstLine = 387
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 63
+; FirstLine = 33
 ; Folding = -----------
 ; Optimizer
 ; EnableThread
@@ -3026,12 +3036,12 @@ ShutdownApp()
 ; UseIcon = PB_ZZT.ico
 ; Executable = PB_ZZT.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_ZZT
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = A ZZT clone with editor, sound, and music
 ; VersionField7 = PB_ZZT
 ; VersionField8 = PB_ZZT.exe
