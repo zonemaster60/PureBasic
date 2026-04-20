@@ -1,4 +1,4 @@
-﻿; UpdateRepair.pb (PureBasic 6.30, Windows)
+; WindowsUpdateRepair.pb (PureBasic 6.30, Windows)
 ; Windows Update repair tool (portable) for Windows 7 SP1 -> Windows 11 + Servers
 ; Features:
 ; - Selectable steps + Recommended preset
@@ -61,7 +61,7 @@ Declare.i IsAdmin()
 #APP_NAME = "WindowsUpdateRepair"
 
 SetCurrentDirectory(GetPathPart(ProgramFilename()))
-Global version.s = "v1.0.0.3"
+Global version.s = "v1.0.0.4"
 
 ; Prevent multiple instances (don't rely on window title text)
 Global hMutex.i
@@ -421,6 +421,11 @@ Procedure.i RunAndLog(exePath.s, args.s, workDir.s="")
     LogLine("WORKDIR: " + workDir)
   EndIf
 
+  If GetPathPart(exePath) <> "" And FileSize(exePath) < 0
+    LogLine("ERROR: executable not found: " + exePath)
+    ProcedureReturn #False
+  EndIf
+
   If gDryRun
     LogLine("DRYRUN: command not executed.")
     ProcedureReturn #True
@@ -437,10 +442,10 @@ Procedure.i RunAndLog(exePath.s, args.s, workDir.s="")
       line = ReadProgramString(p)
       If line <> "" : LogLine(line) : EndIf
     Wend
-    While AvailableProgramOutput(p)
-      line = ReadProgramString(p, #PB_Program_Error)
+    Repeat
+      line = ReadProgramError(p)
       If line <> "" : LogLine("ERR: " + line) : EndIf
-    Wend
+    Until line = ""
     Sleep_(30)
   Wend
 
@@ -448,10 +453,10 @@ Procedure.i RunAndLog(exePath.s, args.s, workDir.s="")
     line = ReadProgramString(p)
     If line <> "" : LogLine(line) : EndIf
   Wend
-  While AvailableProgramOutput(p)
-    line = ReadProgramString(p, #PB_Program_Error)
-      If line <> "" : LogLine("ERR: " + line) : EndIf
-  Wend
+  Repeat
+    line = ReadProgramError(p)
+    If line <> "" : LogLine("ERR: " + line) : EndIf
+  Until line = ""
 
   exitCode = ProgramExitCode(p)
   LogLine("EXITCODE: " + Str(exitCode))
@@ -529,6 +534,10 @@ Procedure.i WaitServiceInactiveByName(name.s, timeoutMs.i)
 
   Repeat
     st = GetServiceStateByName(name)
+    If st = -1
+      LogLine("ERROR: failed to query service state while waiting for inactivity: " + name)
+      ProcedureReturn #False
+    EndIf
     If st = -2 Or st = #SERVICE_STOPPED
       ProcedureReturn #True
     EndIf
@@ -990,16 +999,17 @@ EndProcedure
 
 Procedure.i CopyIfExists(src.s, dst.s)
   If FileSize(src) >= 0
-    CopyFile(src, dst)
-    ProcedureReturn #True
+    ProcedureReturn Bool(CopyFile(src, dst) <> 0)
   EndIf
   ProcedureReturn #False
 EndProcedure
 
-Procedure AddFolderToZip(pack.i, folder.s, relBase.s)
+Procedure.i AddFolderToZip(pack.i, folder.s, relBase.s)
   Protected dir.i, name.s, full.s, rel.s
+  Protected success.i = #True
+
   dir = ExamineDirectory(#PB_Any, folder, "*")
-  If dir = 0 : ProcedureReturn : EndIf
+  If dir = 0 : ProcedureReturn #False : EndIf
 
   While NextDirectoryEntry(dir)
     name = DirectoryEntryName(dir)
@@ -1007,12 +1017,18 @@ Procedure AddFolderToZip(pack.i, folder.s, relBase.s)
     full = folder + "\" + name
     rel = relBase + "/" + name
     If DirectoryEntryType(dir) = #PB_DirectoryEntry_Directory
-      AddFolderToZip(pack, full, rel)
+      If AddFolderToZip(pack, full, rel) = 0
+        success = #False
+      EndIf
     Else
-      AddPackFile(pack, full, rel)
+      If AddPackFile(pack, full, rel) = 0
+        LogLine("WARN: failed to add file to diagnostics ZIP: " + full)
+        success = #False
+      EndIf
     EndIf
   Wend
   FinishDirectory(dir)
+  ProcedureReturn success
 EndProcedure
 
 Procedure.i ExportDiagnosticsZip()
@@ -1021,7 +1037,7 @@ Procedure.i ExportDiagnosticsZip()
   Protected diagDir.s = baseDir + "Diag-" + ts
   Protected zipPath.s = baseDir + "Diag-" + ts + ".zip"
   Protected winDir.s = GetEnvironmentVariable("WINDIR")
-  Protected report.s, f.s
+  Protected report.s
   Protected wevtutil.s, regexe.s, ps.s
   Protected pack.i
 
@@ -1051,10 +1067,14 @@ Procedure.i ExportDiagnosticsZip()
            "msiserver=" + ServiceStateLabel(GetServiceStateByName("msiserver")) + #CRLF$ +
            "UsoSvc=" + ServiceStateLabel(GetServiceStateByName("UsoSvc")) + #CRLF$ +
            "DoSvc=" + ServiceStateLabel(GetServiceStateByName("DoSvc")) + #CRLF$ + #CRLF$
-  WriteTextFile(diagDir + "\summary.txt", report)
+  If WriteTextFile(diagDir + "\summary.txt", report) = 0
+    LogLine("WARN: failed to write diagnostics summary.")
+  EndIf
 
   ; Copy our main log
-  CopyIfExists(gLogFile, diagDir + "\UpdateRepair.log")
+  If CopyIfExists(gLogFile, diagDir + "\UpdateRepair.log") = 0
+    LogLine("WARN: active session log could not be copied into the diagnostics folder.")
+  EndIf
 
   ; WindowsUpdate.log
   If IsWin10OrLater()
@@ -1064,9 +1084,13 @@ Procedure.i ExportDiagnosticsZip()
       LogLine("Diagnostics: generating WindowsUpdate.log (Win10+).")
       RunAndLog(ps, "-NoProfile -ExecutionPolicy Bypass -Command " +
                     Quote("Get-WindowsUpdateLog -LogPath " + diagDir + "\WindowsUpdate.log"))
+    Else
+      LogLine("Diagnostics: SKIP PowerShell Get-WindowsUpdateLog (not found).")
     EndIf
   Else
-    CopyIfExists(winDir + "\WindowsUpdate.log", diagDir + "\WindowsUpdate.log")
+    If CopyIfExists(winDir + "\WindowsUpdate.log", diagDir + "\WindowsUpdate.log") = 0
+      LogLine("Diagnostics: SKIP legacy WindowsUpdate.log (not found).")
+    EndIf
   EndIf
 
   ; Export key policy registry areas (best effort)
@@ -1098,7 +1122,9 @@ Procedure.i ExportDiagnosticsZip()
     ProcedureReturn #False
   EndIf
 
-  AddFolderToZip(pack, diagDir, "Diag-" + ts)
+  If AddFolderToZip(pack, diagDir, "Diag-" + ts) = 0
+    LogLine("WARN: diagnostics ZIP is incomplete because one or more files could not be packaged.")
+  EndIf
   ClosePack(pack)
 
   LogLine("Diagnostics: done: " + zipPath)
@@ -1148,6 +1174,18 @@ Procedure LogSelectedStepsSummary(prefix.s)
           ", winhttp=" + BoolLabel(gSelectedStep(#Step_ResetWinHTTP)) +
           ", winsock=" + BoolLabel(gSelectedStep(#Step_ResetWinsock)) +
           ", dns=" + BoolLabel(gSelectedStep(#Step_FlushDNS)))
+EndProcedure
+
+Procedure.i AnySelectedSteps()
+  Protected stepId.i
+
+  For stepId = 0 To ArraySize(gSelectedStep())
+    If gSelectedStep(stepId)
+      ProcedureReturn #True
+    EndIf
+  Next
+
+  ProcedureReturn #False
 EndProcedure
 
 Procedure.i StopUpdateServices()
@@ -1346,6 +1384,50 @@ Procedure.i RecommendedStepEnabled(stepId.i)
   ProcedureReturn #False
 EndProcedure
 
+Procedure ClearSelectedSteps()
+  Protected stepId.i
+
+  For stepId = 0 To ArraySize(gSelectedStep())
+    gSelectedStep(stepId) = #False
+  Next
+EndProcedure
+
+Procedure ApplyCliStepList(stepList.s)
+  Protected tokenIndex.i, tokenCount.i, tok.s, stepId.i
+
+  ClearSelectedSteps()
+  ; Keep the default policy snapshot for explicit /run usage.
+  gSelectedStep(#Step_LogPolicyAndHealth) = #True
+
+  tokenCount = CountString(stepList, ",") + 1
+  For tokenIndex = 1 To tokenCount
+    tok = Trim(StringField(stepList, tokenIndex, ","))
+    If tok = ""
+      Continue
+    EndIf
+
+    stepId = StepIdFromToken(tok)
+    If stepId >= 0
+      gSelectedStep(stepId) = #True
+      LogLine("CLI step enabled: " + Lower(tok))
+    Else
+      LogLine("WARN: unknown CLI step ignored: " + tok)
+    EndIf
+  Next
+EndProcedure
+
+Procedure.i CliHasRunnableSelection()
+  Protected stepId.i
+
+  For stepId = 0 To ArraySize(gSelectedStep())
+    If stepId <> #Step_LogPolicyAndHealth And gSelectedStep(stepId)
+      ProcedureReturn #True
+    EndIf
+  Next
+
+  ProcedureReturn #False
+EndProcedure
+
 Procedure ApplyRecommendedPresetToArray()
   Protected stepId.i
 
@@ -1357,7 +1439,7 @@ EndProcedure
 
 Procedure.i ParseCliAndMaybeRun()
   Protected i.i, p.s, cmd.s, doRun.i, doDiag.i
-  Protected steps.s, tok.s, stepId.i, n.i
+  Protected steps.s
   Protected count.i = CountProgramParameters()
 
   If count = 0 : ProcedureReturn #False : EndIf
@@ -1365,9 +1447,7 @@ Procedure.i ParseCliAndMaybeRun()
   LogStartupContext("CLI")
 
   ; defaults
-  For i = 0 To ArraySize(gSelectedStep())
-    gSelectedStep(i) = #False
-  Next
+  ClearSelectedSteps()
 
   For i = 0 To count-1
     p = ProgramParameter(i)
@@ -1399,24 +1479,10 @@ Procedure.i ParseCliAndMaybeRun()
         If i+1 < count
           steps = ProgramParameter(i+1)
           i + 1
-          For n = 0 To ArraySize(gSelectedStep())
-            gSelectedStep(n) = #False
-          Next
-          ; always include policy snapshot unless user didn't ask
-          gSelectedStep(#Step_LogPolicyAndHealth) = #True
-          While Len(steps) > 0
-            tok = StringField(steps, 1, ",")
-            stepId = StepIdFromToken(tok)
-            If stepId >= 0
-              gSelectedStep(stepId) = #True
-              LogLine("CLI step enabled: " + Lower(Trim(tok)))
-            Else
-              LogLine("WARN: unknown CLI step ignored: " + tok)
-            EndIf
-            steps = RemoveString(steps, tok, #PB_String_CaseSensitive, 1, 1)
-            steps = Trim(RemoveString(steps, ",", #PB_String_CaseSensitive, 1, 1))
-          Wend
+          ApplyCliStepList(steps)
           doRun = #True
+        Else
+          LogLine("WARN: /run requires a comma-separated step list.")
         EndIf
 
       Case "exportdiag"
@@ -1429,6 +1495,11 @@ Procedure.i ParseCliAndMaybeRun()
   Next
 
   If doRun
+    If CliHasRunnableSelection() = 0
+      LogLine("WARN: CLI run requested with no runnable repair steps selected.")
+      ReleaseInstanceMutex()
+      ProcedureReturn #True
+    EndIf
     NormalizeSelectedSteps()
     LogSelectedStepsSummary("CLI run steps:")
     If RelaunchElevatedIfNeeded() = 0
@@ -1553,6 +1624,10 @@ EndProcedure
 ; ----------------------------
 
 gMutex = CreateMutex()
+If gMutex = 0
+  MessageRequester("Error", "Failed to create the logging mutex.", #PB_MessageRequester_Error)
+  End
+EndIf
 InitLogging()
 
 ; CLI early-exit if requested
@@ -1644,6 +1719,11 @@ Repeat
         Case #BtnRun
           If gIsRunning = 0 And gIsExporting = 0
             SyncSelectedStepsFromUI()
+            If AnySelectedSteps() = 0
+              LogLine("WARN: Run requested with no steps selected.")
+              ShowInfo("No Steps Selected", "Select at least one repair step before running.")
+              Continue
+            EndIf
             NormalizeSelectedSteps()
             LogSelectedStepsSummary("Selected steps:")
             gIsRunning = #True
@@ -1671,8 +1751,8 @@ Until gShouldExit
 
 ReleaseInstanceMutex()
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 59
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 63
 ; FirstLine = 36
 ; Folding = ------------
 ; Optimizer
@@ -1683,12 +1763,12 @@ ReleaseInstanceMutex()
 ; UseIcon = WindowsUpdateRepair.ico
 ; Executable = ..\WindowsUpdateRepair.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = WindowsUpdateRepair
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = A Windows Update Repair Tool
 ; VersionField7 = WindowsUpdateRepair
 ; VersionField8 = WindowsUpdateRepair.exe
