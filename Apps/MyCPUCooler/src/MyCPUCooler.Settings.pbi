@@ -93,6 +93,8 @@ Procedure LoadSettingsFromRegistry(settingsKey$, *settings.AppSettings)
   *settings\DCAutoRestoreThreshold = RegReadDword(settingsKey$, "DCAutoRestoreThreshold", *settings\DCAutoRestoreThreshold)
   *settings\ACAutoRestoreSeconds = RegReadDword(settingsKey$, "ACAutoRestoreSeconds", *settings\ACAutoRestoreSeconds)
   *settings\DCAutoRestoreSeconds = RegReadDword(settingsKey$, "DCAutoRestoreSeconds", *settings\DCAutoRestoreSeconds)
+  *settings\BenchmarkModeEnabled = RegReadDword(settingsKey$, "BenchmarkModeEnabled", *settings\BenchmarkModeEnabled)
+  *settings\BenchmarkModeEndsAt = RegReadDword(settingsKey$, "BenchmarkModeEndsAt", *settings\BenchmarkModeEndsAt)
 EndProcedure
 
 Procedure LoadSettingsFromIni(iniPath$, *settings.AppSettings)
@@ -145,6 +147,8 @@ Procedure LoadSettingsFromIni(iniPath$, *settings.AppSettings)
     *settings\DCAutoRestoreThreshold = ReadPreferenceLong("DCAutoRestoreThreshold", *settings\DCAutoRestoreThreshold)
     *settings\ACAutoRestoreSeconds = ReadPreferenceLong("ACAutoRestoreSeconds", *settings\ACAutoRestoreSeconds)
     *settings\DCAutoRestoreSeconds = ReadPreferenceLong("DCAutoRestoreSeconds", *settings\DCAutoRestoreSeconds)
+    *settings\BenchmarkModeEnabled = ReadPreferenceLong("BenchmarkModeEnabled", *settings\BenchmarkModeEnabled)
+    *settings\BenchmarkModeEndsAt = ReadPreferenceLong("BenchmarkModeEndsAt", *settings\BenchmarkModeEndsAt)
     ClosePreferences()
   EndIf
 EndProcedure
@@ -247,6 +251,8 @@ Procedure WriteSettingsToRegistry(settingsKey$, *settings.AppSettings)
   RegWriteDword(settingsKey$, "DCAutoRestoreThreshold", *settings\DCAutoRestoreThreshold)
   RegWriteDword(settingsKey$, "ACAutoRestoreSeconds", *settings\ACAutoRestoreSeconds)
   RegWriteDword(settingsKey$, "DCAutoRestoreSeconds", *settings\DCAutoRestoreSeconds)
+  RegWriteDword(settingsKey$, "BenchmarkModeEnabled", *settings\BenchmarkModeEnabled)
+  RegWriteDword(settingsKey$, "BenchmarkModeEndsAt", *settings\BenchmarkModeEndsAt)
 EndProcedure
 
 Procedure WriteSettingsToIni(iniPath$, *settings.AppSettings)
@@ -299,6 +305,8 @@ Procedure WriteSettingsToIni(iniPath$, *settings.AppSettings)
     WritePreferenceLong("DCAutoRestoreThreshold", *settings\DCAutoRestoreThreshold)
     WritePreferenceLong("ACAutoRestoreSeconds", *settings\ACAutoRestoreSeconds)
     WritePreferenceLong("DCAutoRestoreSeconds", *settings\DCAutoRestoreSeconds)
+    WritePreferenceLong("BenchmarkModeEnabled", *settings\BenchmarkModeEnabled)
+    WritePreferenceLong("BenchmarkModeEndsAt", *settings\BenchmarkModeEndsAt)
     ClosePreferences()
   EndIf
 EndProcedure
@@ -395,6 +403,8 @@ Procedure SaveAppSettings(iniPath$, *settings.AppSettings)
                       " acAutoSwitchProfile=" + Str(*settings\ACAutoSwitchProfile) + " dcAutoSwitchProfile=" + Str(*settings\DCAutoSwitchProfile) +
                       " acAutoSwitchThreshold=" + Str(*settings\ACAutoSwitchThreshold) + " dcAutoSwitchThreshold=" + Str(*settings\DCAutoSwitchThreshold))
   Protected settingsKey$ = SettingsRegistryKey()
+  gPendingSettingsSave = #False
+  gPendingSettingsSaveAt = 0
   *settings\BoostMode = *settings\ACBoostMode
   *settings\CoolingPolicy = *settings\ACCoolingPolicy
   *settings\ASPMMode = *settings\ACASPMMode

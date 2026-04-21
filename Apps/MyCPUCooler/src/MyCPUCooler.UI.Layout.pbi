@@ -201,12 +201,30 @@ Procedure RefreshCustomProfileCombo()
     idx + 1
   Next
 EndProcedure
+Procedure.i AutomationIsBatteryMode()
+  ProcedureReturn Bool(LCase(gTelemetry\PowerSource) = "battery")
+EndProcedure
+Procedure ScheduleSettingsSave(delayMs.i = 350)
+  If delayMs < 0
+    delayMs = 0
+  EndIf
+
+  gPendingSettingsSave = #True
+  gPendingSettingsSaveAt = ElapsedMilliseconds() + delayMs
+EndProcedure
+Procedure FlushPendingSettingsSave()
+  If gPendingSettingsSave = #False
+    ProcedureReturn
+  EndIf
+
+  SaveAppSettings(gIniPath, @gSettings)
+EndProcedure
 Procedure UpdateAutomationDisplay()
   Protected powerMode$ = "AC"
   Protected switchProfile$ = ProfileIdToName(gSettings\ACAutoSwitchProfile)
   Protected restoreText$ = "Restore " + Str(gSettings\ACAutoRestoreThreshold) + " C / " + Str(gSettings\ACAutoRestoreSeconds) + " sec"
 
-  If LCase(gTelemetry\PowerSource) = "battery"
+  If AutomationIsBatteryMode()
     powerMode$ = "Battery"
     switchProfile$ = ProfileIdToName(gSettings\DCAutoSwitchProfile)
     restoreText$ = "Restore " + Str(gSettings\DCAutoRestoreThreshold) + " C / " + Str(gSettings\DCAutoRestoreSeconds) + " sec"
@@ -863,29 +881,21 @@ Procedure CreateApplicationWindows(scheme$, useBoost.i, useCooling.i, useASPM.i,
   SetGadgetState(#ChkHeatAlertPopup, gSettings\HeatAlertEnabled)
   gHeatAlertThreshold = gSettings\HeatAlertThreshold
   gHeatPopupEnabled = gSettings\HeatAlertEnabled
-  SetGadgetState(#ChkAutoThermalSwitch, gSettings\AutoThermalSwitchEnabled)
   SetComboStateByData(#ComboAutoSwitchProfile, gSettings\DCAutoSwitchProfile, 3)
   SetGadgetState(#TrackAutoSwitchDelay, gSettings\DCAutoSwitchSeconds)
   SetGadgetText(#TxtAutoSwitchVal, Str(gSettings\DCAutoSwitchThreshold) + " C / " + Str(gSettings\DCAutoSwitchSeconds) + " sec")
   SetComboStateByData(#ComboStartupMode, gSettings\StartupMode, 0)
-  SetGadgetState(#ChkAutoRestore, gSettings\AutoRestoreEnabled)
   SetGadgetState(#TrackAutoRestoreThreshold, gSettings\DCAutoRestoreThreshold)
   SetGadgetState(#TrackAutoRestoreDelay, gSettings\DCAutoRestoreSeconds)
   SetGadgetText(#TxtAutoRestoreVal, Str(gSettings\DCAutoRestoreThreshold) + " C / " + Str(gSettings\DCAutoRestoreSeconds) + " sec")
   SetGadgetText(#TxtBenchmarkMode, "Benchmark mode inactive")
-  gAutoThermalSwitchEnabled = gSettings\AutoThermalSwitchEnabled
-  gAutoThermalSwitchProfile = gSettings\AutoThermalSwitchProfile
-  gAutoThermalSwitchSeconds = gSettings\AutoThermalSwitchSeconds
-  gAutoRestoreEnabled = gSettings\AutoRestoreEnabled
-  gAutoRestoreThreshold = gSettings\AutoRestoreThreshold
-  gAutoRestoreSeconds = gSettings\AutoRestoreSeconds
 
   ButtonGadget(#BtnApply, 15, 700, 870, 28, "Apply now")
   UpdateDisplayedValues(useBoost, useCooling, useASPM)
   UpdateTelemetryDisplay()
   EnsureTrayIcon()
   CreateTrayPopupMenu()
-  AddWindowTimer(#Win, #TimerTelemetry, 7000)
+  AddWindowTimer(#Win, #TimerTelemetry, #TELEMETRY_INTERVAL_MS)
   StartTelemetryRefresh()
   UpdateTrayMenuState()
   RefreshMiniProfileBadge()

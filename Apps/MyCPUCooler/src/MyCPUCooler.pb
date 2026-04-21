@@ -5,7 +5,7 @@ XIncludeFile "MyCPUCooler.Settings.pbi"
 XIncludeFile "MyCPUCooler.UI.Layout.pbi"
 XIncludeFile "MyCPUCooler.UI.Actions.pbi"
 XIncludeFile "MyCPUCooler.Runtime.pbi"
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 6
 ; Optimizer
 ; EnableThread
@@ -15,12 +15,12 @@ XIncludeFile "MyCPUCooler.Runtime.pbi"
 ; UseIcon = MyCPUCooler.ico
 ; Executable = ..\MyCPUCooler.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,7
-; VersionField1 = 1,0,0,7
+; VersionField0 = 1,0,0,8
+; VersionField1 = 1,0,0,8
 ; VersionField2 = ZoneSoft
 ; VersionField3 = MyCPUCooler
-; VersionField4 = 1.0.0.7
-; VersionField5 = 1.0.0.7
+; VersionField4 = 1.0.0.8
+; VersionField5 = 1.0.0.8
 ; VersionField6 = Chooses the coolest powerplan
 ; VersionField7 = MyCPUCooler
 ; VersionField8 = MyCPUCooler.exe

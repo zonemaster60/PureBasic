@@ -34,7 +34,7 @@ EndEnumeration
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.0.7"
+Global version.s = "v1.0.0.8"
 
 ; Registry base key (HKCU)
 #APP_NAME = "MyCPUCooler"
@@ -42,6 +42,8 @@ Global version.s = "v1.0.0.7"
 #HISTORY_POINTS = 36
 #MAX_CUSTOM_PROFILES = 12
 #BENCHMARK_MODE_SECONDS = 600
+#TELEMETRY_INTERVAL_MS = 7000
+#THERMAL_REFRESH_SECONDS = 30
 
 #NIM_MODIFY = 1
 #NIF_INFO = $10
@@ -54,6 +56,33 @@ Structure LiveTelemetry
   LastUpdated.s
   ErrorText.s
 EndStructure
+
+Structure FileTimeCompat
+  dwLowDateTime.l
+  dwHighDateTime.l
+EndStructure
+
+Structure SystemPowerStatusCompat
+  ACLineStatus.b
+  BatteryFlag.b
+  BatteryLifePercent.b
+  Reserved1.b
+  BatteryLifeTime.l
+  BatteryFullLifeTime.l
+EndStructure
+
+Procedure.q FileTimeToQuad(*value.FileTimeCompat)
+  Protected high.q
+  Protected low.q
+
+  If *value = 0
+    ProcedureReturn 0
+  EndIf
+
+  high = *value\dwHighDateTime & $FFFFFFFF
+  low = *value\dwLowDateTime & $FFFFFFFF
+  ProcedureReturn (high * 4294967296) + low
+EndProcedure
 
 Structure AppSettings
   SchemeGuid.s
@@ -134,6 +163,12 @@ Global gTelemetry.LiveTelemetry
 Global gTelemetryThread.i
 Global gTelemetryBusy.i
 Global gTelemetryAvailable.i = #True
+Global gLastCpuIdleTime.q
+Global gLastCpuKernelTime.q
+Global gLastCpuUserTime.q
+Global gCpuTimesReady.i
+Global gLastThermalRefreshTime.i
+Global gCachedThermalC.s = "Unavailable"
 Global gMainWindowVisible.i = #True
 Global gMiniWindowVisible.i
 Global gCurrentScheme.s
@@ -165,6 +200,8 @@ Global gLastManualACProfile.i
 Global gLastManualDCProfile.i
 Global gAutoSwitchedACProfile.i
 Global gAutoSwitchedDCProfile.i
+Global gPendingSettingsSave.i
+Global gPendingSettingsSaveAt.i
 Global Dim gThermalHistory.i(#HISTORY_POINTS - 1)
 Global Dim gCpuLoadHistory.i(#HISTORY_POINTS - 1)
 Global gHistoryCount.i
@@ -472,6 +509,8 @@ Declare LoadSelectedCustomProfile()
 Declare EnterBenchmarkMode()
 Declare CheckBenchmarkMode()
 Declare ApplyCurrentGadgetSettings(scheme$, useBoost.i, useCooling.i, useASPM.i, *diag.ApplyDiagnostics = 0)
+Declare ScheduleSettingsSave(delayMs.i = 350)
+Declare FlushPendingSettingsSave()
 
 ; -----------------------------
 ; Windows registry helpers (HKCU)
@@ -621,10 +660,15 @@ EndProcedure
 
 Prototype.i ProtoIsUserAnAdmin()
 Prototype.i ProtoShellExecuteW(hwnd.i, lpOperation.p-unicode, lpFile.p-unicode, lpParameters.p-unicode, lpDirectory.p-unicode, nShowCmd.i)
+Prototype.i ProtoGetSystemTimes(*lpIdleTime.FileTimeCompat, *lpKernelTime.FileTimeCompat, *lpUserTime.FileTimeCompat)
+Prototype.i ProtoGetSystemPowerStatus(*lpSystemPowerStatus.SystemPowerStatusCompat)
 
 Global gShell32.i
 Global IsUserAnAdmin.ProtoIsUserAnAdmin
 Global ShellExecuteW.ProtoShellExecuteW
+Global gKernel32.i
+Global GetSystemTimesAPI.ProtoGetSystemTimes
+Global GetSystemPowerStatusAPI.ProtoGetSystemPowerStatus
 
 Procedure SetupShell32()
   If gShell32
@@ -635,6 +679,25 @@ Procedure SetupShell32()
   If gShell32
     IsUserAnAdmin = GetFunction(gShell32, "IsUserAnAdmin")
     ShellExecuteW = GetFunction(gShell32, "ShellExecuteW")
+  EndIf
+EndProcedure
+
+Procedure SetupKernel32()
+  If gKernel32
+    ProcedureReturn
+  EndIf
+
+  gKernel32 = OpenLibrary(#PB_Any, "kernel32.dll")
+  If gKernel32
+    GetSystemTimesAPI = GetFunction(gKernel32, "GetSystemTimes")
+    GetSystemPowerStatusAPI = GetFunction(gKernel32, "GetSystemPowerStatus")
+  EndIf
+EndProcedure
+
+Procedure EnsureKernel32Telemetry()
+  SetupKernel32()
+  If gKernel32 = 0 Or GetSystemTimesAPI = 0 Or GetSystemPowerStatusAPI = 0
+    gTelemetryAvailable = #False
   EndIf
 EndProcedure
 
@@ -1305,53 +1368,91 @@ Procedure RestoreBalanced()
 EndProcedure
 
 Procedure RefreshTelemetryThread(*unused)
-  Protected ps$ = "-NoProfile -ExecutionPolicy Bypass -Command " + Chr(34) +
-                  "$cpu=(Get-Counter '\Processor Information(_Total)\\% Processor Utility' -ErrorAction SilentlyContinue).CounterSamples | Select-Object -First 1 -ExpandProperty CookedValue;" +
-                  "if($null -eq $cpu){$cpu=(Get-Counter '\Processor(_Total)\\% Processor Time' -ErrorAction SilentlyContinue).CounterSamples | Select-Object -First 1 -ExpandProperty CookedValue};" +
-                  "$tz=Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | Select-Object -First 1;" +
-                  "$power=Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1;" +
-                  "$temp='Unavailable';" +
-                  "if($tz -and $tz.CurrentTemperature){$temp=[math]::Round(($tz.CurrentTemperature / 10) - 273.15,1)};" +
-                  "$source='AC';" +
-                  "if($power){if($power.BatteryStatus -in 1,4,5,11){$source='Battery'}elseif($power.BatteryStatus -in 2,6,7,8,9){$source='Charging'}};" +
-                  "if($null -eq $cpu){$cpu='Unavailable'}else{$cpu=[math]::Round($cpu,1)};" +
-                  "Write-Output ('CpuLoad=' + $cpu);" +
-                  "Write-Output ('ThermalC=' + $temp);" +
-                  "Write-Output ('PowerSource=' + $source)" + Chr(34)
-
+  Protected idle.FileTimeCompat
+  Protected kernel.FileTimeCompat
+  Protected user.FileTimeCompat
+  Protected cpuIdle.q
+  Protected cpuKernel.q
+  Protected cpuUser.q
+  Protected totalDelta.q
+  Protected idleDelta.q
+  Protected cpuLoad.d
+  Protected powerStatus.SystemPowerStatusCompat
+  Protected ps$
   Protected result.ProgramCaptureResult
-  Protected out$ = RunProgramCaptureEx("powershell.exe", ps$, @result)
-  Protected i.i
-  Protected line$
-  Protected key$
-  Protected value$
-  Protected lines.i = CountString(out$, #LF$) + 1
+  Protected out$
+  Protected thermalLine$
+  Protected thermalPos.i
 
   gTelemetry\ErrorText = ""
-  If result\ExitCode <> 0
-    gTelemetry\ErrorText = "Telemetry unavailable"
-    LogLine(#LOG_WARN, "Telemetry refresh failed exit=" + Str(result\ExitCode))
-  EndIf
+  EnsureKernel32Telemetry()
 
-  For i = 1 To lines
-    line$ = Trim(StringField(out$, i, #LF$))
-    If line$ = "" Or FindString(line$, "=", 1) = 0
-      Continue
+  If GetSystemTimesAPI And GetSystemTimesAPI(@idle, @kernel, @user)
+    cpuIdle = FileTimeToQuad(@idle)
+    cpuKernel = FileTimeToQuad(@kernel)
+    cpuUser = FileTimeToQuad(@user)
+
+    If gCpuTimesReady
+      totalDelta = (cpuKernel - gLastCpuKernelTime) + (cpuUser - gLastCpuUserTime)
+      idleDelta = cpuIdle - gLastCpuIdleTime
+      If totalDelta > 0
+        cpuLoad = 100.0 - ((idleDelta * 100.0) / totalDelta)
+        If cpuLoad < 0.0 : cpuLoad = 0.0 : EndIf
+        If cpuLoad > 100.0 : cpuLoad = 100.0 : EndIf
+        gTelemetry\CpuLoad = StrD(cpuLoad, 1)
+      EndIf
+    ElseIf gTelemetry\CpuLoad = ""
+      gTelemetry\CpuLoad = "0.0"
     EndIf
 
-    key$ = StringField(line$, 1, "=")
-    value$ = Mid(line$, FindString(line$, "=", 1) + 1)
+    gLastCpuIdleTime = cpuIdle
+    gLastCpuKernelTime = cpuKernel
+    gLastCpuUserTime = cpuUser
+    gCpuTimesReady = #True
+  Else
+    gTelemetry\CpuLoad = "Unavailable"
+  EndIf
 
-    Select LCase(key$)
-      Case "cpuload"
-        gTelemetry\CpuLoad = value$
-      Case "thermalc"
-        gTelemetry\ThermalC = value$
-      Case "powersource"
-        gTelemetry\PowerSource = value$
+  If GetSystemPowerStatusAPI And GetSystemPowerStatusAPI(@powerStatus)
+    Select powerStatus\ACLineStatus
+      Case 0
+        gTelemetry\PowerSource = "Battery"
+      Case 1
+        If (powerStatus\BatteryFlag & 8) <> 0
+          gTelemetry\PowerSource = "Charging"
+        Else
+          gTelemetry\PowerSource = "AC"
+        EndIf
+      Default
+        gTelemetry\PowerSource = "Unknown"
     EndSelect
-  Next
+  Else
+    gTelemetry\PowerSource = "Unknown"
+  EndIf
 
+  If gLastThermalRefreshTime = 0 Or Date() - gLastThermalRefreshTime >= #THERMAL_REFRESH_SECONDS
+    ps$ = "-NoProfile -ExecutionPolicy Bypass -Command " + Chr(34) +
+          "$tz=Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | Select-Object -First 1;" +
+          "$temp='Unavailable';" +
+          "if($tz -and $tz.CurrentTemperature){$temp=[math]::Round(($tz.CurrentTemperature / 10) - 273.15,1)};" +
+          "Write-Output ('ThermalC=' + $temp)" + Chr(34)
+
+    out$ = RunProgramCaptureEx("powershell.exe", ps$, @result)
+    thermalLine$ = ""
+    thermalPos = FindString(out$, "ThermalC=", 1)
+    If thermalPos > 0
+      thermalLine$ = Trim(StringField(Mid(out$, thermalPos), 1, #LF$))
+      gCachedThermalC = Trim(Mid(thermalLine$, Len("ThermalC=") + 1))
+      If gCachedThermalC = ""
+        gCachedThermalC = "Unavailable"
+      EndIf
+    ElseIf result\ExitCode <> 0
+      LogLine(#LOG_WARN, "Thermal telemetry refresh failed exit=" + Str(result\ExitCode))
+    EndIf
+    gLastThermalRefreshTime = Date()
+  EndIf
+
+  gTelemetry\ThermalC = gCachedThermalC
   gTelemetry\LastUpdated = FormatDate("%hh:%ii:%ss", Date())
   gTelemetryBusy = #False
 EndProcedure
@@ -1363,6 +1464,11 @@ Procedure StartTelemetryRefresh()
 
   gTelemetryBusy = #True
   gTelemetryThread = CreateThread(@RefreshTelemetryThread(), 0)
+  If gTelemetryThread = 0
+    gTelemetryBusy = #False
+    gTelemetry\ErrorText = "Telemetry unavailable"
+    LogLine(#LOG_WARN, "Failed to create telemetry thread")
+  EndIf
 EndProcedure
 
 
@@ -1471,9 +1577,8 @@ Procedure StartSystemInfoUpdate(iniPath$)
   CreateThread(@SaveSystemInfoThread(), @gSysInfoData)
 EndProcedure
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 36
-; FirstLine = 15
 ; Folding = ---------
 ; EnableXP
 ; DPIAware

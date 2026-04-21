@@ -1,3 +1,25 @@
+Procedure CopyTuningSettings(*src.AppSettings, *dst.AppSettings)
+  If *src = 0 Or *dst = 0
+    ProcedureReturn
+  EndIf
+
+  *dst\ACProfile = *src\ACProfile
+  *dst\DCProfile = *src\DCProfile
+  *dst\ACMaxCPU = *src\ACMaxCPU
+  *dst\DCMaxCPU = *src\DCMaxCPU
+  *dst\ACMinCPU = *src\ACMinCPU
+  *dst\DCMinCPU = *src\DCMinCPU
+  *dst\ACBoostMode = *src\ACBoostMode
+  *dst\DCBoostMode = *src\DCBoostMode
+  *dst\ACCoolingPolicy = *src\ACCoolingPolicy
+  *dst\DCCoolingPolicy = *src\DCCoolingPolicy
+  *dst\ACASPMMode = *src\ACASPMMode
+  *dst\DCASPMMode = *src\DCASPMMode
+  *dst\BoostMode = *src\ACBoostMode
+  *dst\CoolingPolicy = *src\ACCoolingPolicy
+  *dst\ASPMMode = *src\ACASPMMode
+EndProcedure
+
 Procedure LoadCustomProfiles()
   Protected i.i
   Protected key$
@@ -10,6 +32,7 @@ Procedure LoadCustomProfiles()
       If ReadPreferenceString(key$, "") <> ""
         AddElement(gCustomProfiles())
         gCustomProfiles()\Name = ReadPreferenceString(key$, "")
+        CopyStructure(@gSettings, @gCustomProfiles()\Settings, AppSettings)
         gCustomProfiles()\Settings\ACProfile = ReadPreferenceLong("Profile" + Str(i) + "_ACProfile", gSettings\ACProfile)
         gCustomProfiles()\Settings\DCProfile = ReadPreferenceLong("Profile" + Str(i) + "_DCProfile", gSettings\DCProfile)
         gCustomProfiles()\Settings\ACMaxCPU = ReadPreferenceLong("Profile" + Str(i) + "_ACMaxCPU", gSettings\ACMaxCPU)
@@ -29,6 +52,7 @@ Procedure LoadCustomProfiles()
 EndProcedure
 Procedure SaveCustomProfiles()
   Protected idx.i = 0
+  Protected clearIdx.i
 
   If OpenPreferences(gIniPath)
     PreferenceGroup("CustomProfiles")
@@ -49,6 +73,23 @@ Procedure SaveCustomProfiles()
       idx + 1
       If idx >= #MAX_CUSTOM_PROFILES : Break : EndIf
     Next
+
+    For clearIdx = idx To #MAX_CUSTOM_PROFILES - 1
+      WritePreferenceString("Profile" + Str(clearIdx) + "_Name", "")
+      WritePreferenceLong("Profile" + Str(clearIdx) + "_ACProfile", 0)
+      WritePreferenceLong("Profile" + Str(clearIdx) + "_DCProfile", 0)
+      WritePreferenceLong("Profile" + Str(clearIdx) + "_ACMaxCPU", 0)
+      WritePreferenceLong("Profile" + Str(clearIdx) + "_DCMaxCPU", 0)
+      WritePreferenceLong("Profile" + Str(clearIdx) + "_ACMinCPU", 0)
+      WritePreferenceLong("Profile" + Str(clearIdx) + "_DCMinCPU", 0)
+      WritePreferenceLong("Profile" + Str(clearIdx) + "_ACBoost", 0)
+      WritePreferenceLong("Profile" + Str(clearIdx) + "_DCBoost", 0)
+      WritePreferenceLong("Profile" + Str(clearIdx) + "_ACCooling", 0)
+      WritePreferenceLong("Profile" + Str(clearIdx) + "_DCCooling", 0)
+      WritePreferenceLong("Profile" + Str(clearIdx) + "_ACASPM", 0)
+      WritePreferenceLong("Profile" + Str(clearIdx) + "_DCASPM", 0)
+    Next
+
     ClosePreferences()
   EndIf
 EndProcedure
@@ -62,6 +103,7 @@ Procedure SaveCustomProfileFromCurrentUI()
   AddElement(gCustomProfiles())
   gCustomProfiles()\Name = Trim(name$)
   CopyStructure(@gSettings, @gCustomProfiles()\Settings, AppSettings)
+  CopyTuningSettings(@gSettings, @gCustomProfiles()\Settings)
   SaveCustomProfiles()
   RefreshCustomProfileCombo()
   ShowTrayNotification("Profile Saved", gCustomProfiles()\Name)
@@ -72,7 +114,7 @@ Procedure LoadSelectedCustomProfile()
 
   ForEach gCustomProfiles()
     If idx = selected
-      CopyStructure(@gCustomProfiles()\Settings, @gSettings, AppSettings)
+      CopyTuningSettings(@gCustomProfiles()\Settings, @gSettings)
       LoadSettingsIntoUI(@gSettings)
       SaveAppSettings(gIniPath, @gSettings)
       ShowTrayNotification("Profile Loaded", gCustomProfiles()\Name)
@@ -391,6 +433,8 @@ Procedure SetStartupModeFromTray(mode.i, comboDefaultIndex.i, notification$)
   ShowTrayNotification("Startup Mode", notification$)
 EndProcedure
 Procedure HandleGadgetEvent(eventGadget.i, scheme$, useBoost.i, useCooling.i, useASPM.i, *applyDiag.ApplyDiagnostics)
+  Protected isBatteryMode.i = AutomationIsBatteryMode()
+
   Select eventGadget
     Case #ChkAutoApply, #ChkLiveApply, #ChkRunAtStartup, #ChkUseTaskScheduler
       gSettings\AutoApply = GetGadgetState(#ChkAutoApply)
@@ -403,7 +447,7 @@ Procedure HandleGadgetEvent(eventGadget.i, scheme$, useBoost.i, useCooling.i, us
       gSettings\HeatAlertThreshold = GetGadgetState(#TrackHeatAlert)
       gHeatAlertThreshold = gSettings\HeatAlertThreshold
       SetGadgetText(#TxtHeatAlertVal, Str(gSettings\HeatAlertThreshold) + " C")
-      SaveAppSettings(gIniPath, @gSettings)
+      ScheduleSettingsSave()
 
     Case #ChkHeatAlertPopup
       gSettings\HeatAlertEnabled = GetGadgetState(#ChkHeatAlertPopup)
@@ -411,53 +455,62 @@ Procedure HandleGadgetEvent(eventGadget.i, scheme$, useBoost.i, useCooling.i, us
       SaveAppSettings(gIniPath, @gSettings)
 
     Case #ChkAutoThermalSwitch
-      gSettings\AutoThermalSwitchEnabled = GetGadgetState(#ChkAutoThermalSwitch)
-      gAutoThermalSwitchEnabled = gSettings\AutoThermalSwitchEnabled
+      If isBatteryMode
+        gSettings\DCAutoSwitchEnabled = GetGadgetState(#ChkAutoThermalSwitch)
+      Else
+        gSettings\ACAutoSwitchEnabled = GetGadgetState(#ChkAutoThermalSwitch)
+      EndIf
       SaveAppSettings(gIniPath, @gSettings)
 
     Case #ComboAutoSwitchProfile
-      gSettings\AutoThermalSwitchProfile = GetSelectedItemData(#ComboAutoSwitchProfile, #PROFILE_COOL)
-      gAutoThermalSwitchProfile = gSettings\AutoThermalSwitchProfile
+      If isBatteryMode
+        gSettings\DCAutoSwitchProfile = GetSelectedItemData(#ComboAutoSwitchProfile, #PROFILE_COOL)
+      Else
+        gSettings\ACAutoSwitchProfile = GetSelectedItemData(#ComboAutoSwitchProfile, #PROFILE_COOL)
+      EndIf
       SaveAppSettings(gIniPath, @gSettings)
 
     Case #TrackAutoSwitchDelay
-      If LCase(gTelemetry\PowerSource) = "battery"
+      If isBatteryMode
         gSettings\DCAutoSwitchSeconds = GetGadgetState(#TrackAutoSwitchDelay)
         SetGadgetText(#TxtAutoSwitchVal, Str(gSettings\DCAutoSwitchThreshold) + " C / " + Str(gSettings\DCAutoSwitchSeconds) + " sec")
       Else
         gSettings\ACAutoSwitchSeconds = GetGadgetState(#TrackAutoSwitchDelay)
         SetGadgetText(#TxtAutoSwitchVal, Str(gSettings\ACAutoSwitchThreshold) + " C / " + Str(gSettings\ACAutoSwitchSeconds) + " sec")
       EndIf
-      SaveAppSettings(gIniPath, @gSettings)
+      ScheduleSettingsSave()
 
     Case #ComboStartupMode
       gSettings\StartupMode = GetSelectedItemData(#ComboStartupMode, 0)
       SaveAppSettings(gIniPath, @gSettings)
 
     Case #ChkAutoRestore
-      gSettings\AutoRestoreEnabled = GetGadgetState(#ChkAutoRestore)
-      gAutoRestoreEnabled = gSettings\AutoRestoreEnabled
+      If isBatteryMode
+        gSettings\DCAutoRestoreEnabled = GetGadgetState(#ChkAutoRestore)
+      Else
+        gSettings\ACAutoRestoreEnabled = GetGadgetState(#ChkAutoRestore)
+      EndIf
       SaveAppSettings(gIniPath, @gSettings)
 
     Case #TrackAutoRestoreThreshold
-      If LCase(gTelemetry\PowerSource) = "battery"
+      If isBatteryMode
         gSettings\DCAutoRestoreThreshold = GetGadgetState(#TrackAutoRestoreThreshold)
         SetGadgetText(#TxtAutoRestoreVal, Str(gSettings\DCAutoRestoreThreshold) + " C / " + Str(gSettings\DCAutoRestoreSeconds) + " sec")
       Else
         gSettings\ACAutoRestoreThreshold = GetGadgetState(#TrackAutoRestoreThreshold)
         SetGadgetText(#TxtAutoRestoreVal, Str(gSettings\ACAutoRestoreThreshold) + " C / " + Str(gSettings\ACAutoRestoreSeconds) + " sec")
       EndIf
-      SaveAppSettings(gIniPath, @gSettings)
+      ScheduleSettingsSave()
 
     Case #TrackAutoRestoreDelay
-      If LCase(gTelemetry\PowerSource) = "battery"
+      If isBatteryMode
         gSettings\DCAutoRestoreSeconds = GetGadgetState(#TrackAutoRestoreDelay)
         SetGadgetText(#TxtAutoRestoreVal, Str(gSettings\DCAutoRestoreThreshold) + " C / " + Str(gSettings\DCAutoRestoreSeconds) + " sec")
       Else
         gSettings\ACAutoRestoreSeconds = GetGadgetState(#TrackAutoRestoreDelay)
         SetGadgetText(#TxtAutoRestoreVal, Str(gSettings\ACAutoRestoreThreshold) + " C / " + Str(gSettings\ACAutoRestoreSeconds) + " sec")
       EndIf
-      SaveAppSettings(gIniPath, @gSettings)
+      ScheduleSettingsSave()
 
     Case #BtnExportProfile
       ExportCurrentProfile()
@@ -629,6 +682,9 @@ Procedure HandleMenuEvent(eventMenu.i, *applyDiag.ApplyDiagnostics)
 EndProcedure
 Procedure HandleTimerEvent(timerId.i)
   If timerId = #TimerTelemetry
+    If gPendingSettingsSave And ElapsedMilliseconds() >= gPendingSettingsSaveAt
+      FlushPendingSettingsSave()
+    EndIf
     If gTelemetryBusy = #False
       StartTelemetryRefresh()
     EndIf
