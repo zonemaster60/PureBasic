@@ -144,12 +144,12 @@ EndProcedure
 ; Parameters:
 ;   *p - Pointer to player ship
 ;   *cs - Pointer to combat state
-;   dir - Direction: "closer" or "away" (or "in" / "out")
+;   dir - Direction: "approach"/"closer"/"in", "retreat"/"away"/"out", or "hold"
 ;   amount - How many units to move (default 2)
 ; 
 ; What it does:
 ; - Consumes fuel for each move (1 fuel per move)
-; - Changes combat range: closer moves toward enemy, away moves farther
+; - Changes combat range: approach/closer moves toward enemy, retreat/away moves farther
 ; - Minimum range is 1, maximum is 40
 ; - Each move uses engine power from weapon cap
 ;==============================================================================
@@ -169,13 +169,13 @@ Procedure PlayerMove(*p.Ship, *cs.CombatState, dir.s, amount.i)
   amount = ClampInt(amount, 1, maxMove)
 
   Select dir
-    Case "approach"
+    Case "approach", "closer", "in"
       *cs\range - amount
       If *cs\range < 1 : *cs\range = 1 : EndIf
       *p\fuel - 1
       PrintN("You close distance by " + Str(amount) + ".")
       GainCrewXP(*p, #CREW_HELM, 10)
-    Case "retreat"
+    Case "retreat", "away", "out"
       *cs\range + amount
       If *cs\range > 40 : *cs\range = 40 : EndIf
       *p\fuel - 1
@@ -185,7 +185,7 @@ Procedure PlayerMove(*p.Ship, *cs.CombatState, dir.s, amount.i)
       PrintN("You hold position.")
       GainCrewXP(*p, #CREW_HELM, 2)
     Default
-      PrintN("MOVE expects APPROACH, RETREAT, or HOLD.")
+      PrintN("MOVE expects APPROACH/CLOSER/IN, RETREAT/AWAY/OUT, or HOLD.")
   EndSelect
 EndProcedure
 
@@ -373,28 +373,25 @@ Procedure PlayerTractor(*p.Ship, *e.Ship, *cs.CombatState, mode.s)
       PrintN("Not enough fuel or dilithium for tractor beam.")
       ProcedureReturn
     EndIf
+    If *cs\range <= 3
+      PrintN("Target already in close range!")
+      ProcedureReturn
+    EndIf
     If *p\dilithium >= 1
       *p\dilithium - 1
       costType = "dilithium"
     Else
       *p\fuel - 1
     EndIf
-    
-    ; Cannot pull if already very close
-    If *cs\range <= 3
-      PrintN("Target already in close range!")
-      ProcedureReturn
-    EndIf
-    
+    Protected pulledRange.i = *cs\range - 2
+    If pulledRange < 1 : pulledRange = 1 : EndIf
     ; Pull enemy 2 sectors closer
-    *cs\range - 2
-    If *cs\range < 1 : *cs\range = 1 : EndIf
-    
     ; Check if enemy can resist (smaller chance at close range)
-    Protected resistChance.i = 40 - (30 - *cs\range) * 2
+    Protected resistChance.i = 40 - (30 - pulledRange) * 2
     If resistChance < 10 : resistChance = 10 : EndIf
     
     If Random(99) < resistChance
+      *cs\range = pulledRange
       ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
       PrintN(">>> TRACTOR BEAM: Pulling target closer! <<<")
       ResetColor()
@@ -518,46 +515,56 @@ Procedure EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
   ; Phaser attack (40% chance)
   If actionRoll < 40 And weaponsOk
     Protected maxPhaser.i = *e\phaserBanks * 20
-    Protected phaserPower.i = Random(maxPhaser)
-    If phaserPower < 5 : phaserPower = 5 : EndIf
-    
-    TacticalFxPhaser(*cs\range, 1)
-    PlayDisruptorSound()
-    
-    Protected chance.i = HitChance(*cs\range, *e, *p) + *cs\eAim
-    If Random(99) < chance
-      Protected base.i = (phaserPower / 3) + Random(ClampInt(phaserPower / 3, 0, 999999))
-      If base < 1 : base = 1 : EndIf
-      Protected falloff.f = 1.0 - (*cs\range / 55.0)
-      falloff = ClampF(falloff, 0.25, 1.0)
-      Protected dmg.i = Int(base * falloff)
-      If dmg < 1 : dmg = 1 : EndIf
-      
-      ; Enemy phasers damage shields first, then hull when shields are down
-      If *p\shields > 0 And ((*p\sysShields & #SYS_DISABLED) = 0)
-        If dmg > *p\shields
-          Protected rem.i = dmg - *p\shields
-          *p\shields = 0
-          *p\hull - rem
-          If *p\hull < 0 : *p\hull = 0 : EndIf
-          PrintN("Enemy fires disruptors! (" + Str(dmg) + " shields, " + Str(rem) + " hull)!")
-        Else
-          *p\shields - dmg
-          If *p\shields < 0 : *p\shields = 0 : EndIf
-          PrintN("Enemy fires disruptors! (" + Str(dmg) + " shields).")
-        EndIf
-      Else
-        ; Shields down - phasers damage hull directly
-        *p\hull - dmg
-        If *p\hull < 0 : *p\hull = 0 : EndIf
-        PrintN("Enemy disruptors hit HULL! (" + Str(dmg) + " hull damage)!")
-      EndIf
-      *cs\eAim = 0
+    If maxPhaser <= 0 Or *e\weaponCap <= 0
+      weaponsOk = 0
     Else
-      PrintN("Enemy disruptors miss.")
-      *cs\eAim = ClampInt(*cs\eAim + 7, 0, 28)
+      Protected phaserPower.i = Random(maxPhaser)
+      If phaserPower < 5 : phaserPower = 5 : EndIf
+      If phaserPower > *e\weaponCap : phaserPower = *e\weaponCap : EndIf
+      If phaserPower < 1
+        weaponsOk = 0
+      Else
+        *e\weaponCap - phaserPower
+
+        TacticalFxPhaser(*cs\range, 1)
+        PlayDisruptorSound()
+
+        Protected chance.i = HitChance(*cs\range, *e, *p) + *cs\eAim
+        If Random(99) < chance
+          Protected base.i = (phaserPower / 3) + Random(ClampInt(phaserPower / 3, 0, 999999))
+          If base < 1 : base = 1 : EndIf
+          Protected falloff.f = 1.0 - (*cs\range / 55.0)
+          falloff = ClampF(falloff, 0.25, 1.0)
+          Protected dmg.i = Int(base * falloff)
+          If dmg < 1 : dmg = 1 : EndIf
+
+          ; Enemy phasers damage shields first, then hull when shields are down
+          If *p\shields > 0 And ((*p\sysShields & #SYS_DISABLED) = 0)
+            If dmg > *p\shields
+              Protected rem.i = dmg - *p\shields
+              *p\shields = 0
+              *p\hull - rem
+              If *p\hull < 0 : *p\hull = 0 : EndIf
+              PrintN("Enemy fires disruptors! (" + Str(dmg) + " shields, " + Str(rem) + " hull)!")
+            Else
+              *p\shields - dmg
+              If *p\shields < 0 : *p\shields = 0 : EndIf
+              PrintN("Enemy fires disruptors! (" + Str(dmg) + " shields).")
+            EndIf
+          Else
+            ; Shields down - phasers damage hull directly
+            *p\hull - dmg
+            If *p\hull < 0 : *p\hull = 0 : EndIf
+            PrintN("Enemy disruptors hit HULL! (" + Str(dmg) + " hull damage)!")
+          EndIf
+          *cs\eAim = 0
+        Else
+          PrintN("Enemy disruptors miss.")
+          *cs\eAim = ClampInt(*cs\eAim + 7, 0, 28)
+        EndIf
+        ProcedureReturn
+      EndIf
     EndIf
-    ProcedureReturn
   EndIf
   
   ; Torpedo attack (20% chance, if torpedoes available and in range)
@@ -679,15 +686,16 @@ EndProcedure
 ;   - Enemy names update as they upgrade (Raider -> Fighter -> Cruiser -> Destroyer)
 ;   - Higher level enemies have more hull, shields, and weapons
 ;==============================================================================
-Procedure EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
+Procedure.i EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
   Protected mx.i, my.i, x.i, y.i, dx.i, dy.i, nx.i, ny.i
   Protected targetFound.i, targetX.i, targetY.i
   Protected moveChance.i = 30
   Protected enemy.Ship
+  Protected Dim movedCell.i(#GALAXY_W - 1, #GALAXY_H - 1, #MAP_W - 1, #MAP_H - 1)
   
   ; Base movement chance is fixed, logic below handles "intent"
   If Random(99) >= moveChance
-    ProcedureReturn
+    ProcedureReturn 0
   EndIf
   
   ; Pirate behavior scales with Dilithium
@@ -703,6 +711,9 @@ Procedure EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
       
       For y = 0 To #MAP_H - 1
         For x = 0 To #MAP_W - 1
+          If movedCell(mx, my, x, y)
+            Continue
+          EndIf
           Protected entType.i = gGalaxy(mx, my, x, y)\entType
           If entType <> #ENT_ENEMY And entType <> #ENT_PIRATE And entType <> #ENT_PLANETKILLER
             Continue
@@ -771,6 +782,14 @@ Procedure EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
                moveY = ClampInt(moveY, 0, #MAP_H - 1)
             EndIf
 
+            If mx = gMapX And my = gMapY And moveX = gx And moveY = gy
+              gEnemyMapX = mx
+              gEnemyMapY = my
+              gEnemyX = x
+              gEnemyY = y
+              ProcedureReturn 1
+            EndIf
+
             If gGalaxy(mx, my, moveX, moveY)\entType = #ENT_EMPTY
               Protected oldEnt.i = gGalaxy(mx, my, x, y)\entType
               Protected oldName.s = gGalaxy(mx, my, x, y)\name
@@ -781,37 +800,25 @@ Procedure EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
               gGalaxy(mx, my, x, y)\name = ""
               gGalaxy(mx, my, x, y)\enemyLevel = 0
               
-              gGalaxy(mx, my, moveX, moveY)\entType = oldEnt
-              gGalaxy(mx, my, moveX, moveY)\name = oldName
-              gGalaxy(mx, my, moveX, moveY)\enemyLevel = oldLevel
-              
-              ; Check for immediate combat
-              If mx = gMapX And my = gMapY And moveX = gx And moveY = gy
-                ; ... (combat logic handled in the loop below or via player move)
+               gGalaxy(mx, my, moveX, moveY)\entType = oldEnt
+               gGalaxy(mx, my, moveX, moveY)\name = oldName
+               gGalaxy(mx, my, moveX, moveY)\enemyLevel = oldLevel
+               movedCell(mx, my, moveX, moveY) = 1
+               
               EndIf
             EndIf
-          EndIf
         Next
       Next
     Next
   Next
+  ProcedureReturn 0
 EndProcedure
 
 Procedure PrintScanTactical(*p.Ship, *e.Ship, *cs.CombatState)
-  ; Ensure enemy has valid stats (defensive)
+  ; Display-only fallback: do not mutate combat state from the sensor view.
   If *e\name = "" Or *e\hullMax <= 0
-    *e\name = "Raider"
-    *e\class = "Raider"
-    *e\hullMax = 100
-    *e\hull = 100
-    *e\shieldsMax = 90
-    *e\shields = 90
-    *e\weaponCapMax = 210
-    *e\weaponCap = 105
-    *e\phaserBanks = 6
-    *e\torpTubes = 2
-    *e\torpMax = 8
-    *e\torp = 8
+    PrintN("Sensors: contact data incomplete.")
+    ProcedureReturn
   EndIf
   
   If *cs\range > *p\sensorRange

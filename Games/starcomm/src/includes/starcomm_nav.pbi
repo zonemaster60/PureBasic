@@ -2,7 +2,7 @@
 ; Navigation: Nav, AutopilotToMission
 ; XIncluded from starcomm.pb
 
-Procedure Nav(*p.Ship, dir.s, steps.i, *enemyTemplate.Ship = 0, *cs.CombatState = 0)
+Procedure.i Nav(*p.Ship, dir.s, steps.i, *enemyTemplate.Ship = 0, *cs.CombatState = 0)
   dir = TrimLower(dir)
   steps = ClampInt(steps, 1, 5)
 
@@ -14,6 +14,18 @@ Procedure Nav(*p.Ship, dir.s, steps.i, *enemyTemplate.Ship = 0, *cs.CombatState 
 
   Protected dx.i = 0
   Protected dy.i = 0
+  Protected movedIntoCombat.i = 0
+
+  Select dir
+    Case "n", "north" : dir = "0"
+    Case "ne", "northeast" : dir = "45"
+    Case "e", "east" : dir = "90"
+    Case "se", "southeast" : dir = "135"
+    Case "s", "south" : dir = "180"
+    Case "sw", "southwest" : dir = "225"
+    Case "w", "west" : dir = "270"
+    Case "nw", "northwest" : dir = "315"
+  EndSelect
   
   ; Convert compass heading to direction
   Protected heading.i = ParseIntSafe(dir, -1)
@@ -37,7 +49,7 @@ Procedure Nav(*p.Ship, dir.s, steps.i, *enemyTemplate.Ship = 0, *cs.CombatState 
     Default
       PrintN("NAV expects compass heading: 0=N, 45=NE, 90=E, 135=SE, 180=S, 225=SW, 270=W, 315=NW")
       PrintN("Example: NAV 45 2  (northeast 2 sectors)")
-      ProcedureReturn
+      ProcedureReturn 0
   EndSelect
 
   Protected i.i
@@ -190,7 +202,8 @@ Procedure Nav(*p.Ship, dir.s, steps.i, *enemyTemplate.Ship = 0, *cs.CombatState 
         gEnemyIsPlanetKiller = 0
         
         EnterCombat(*p, @interEnemy, *cs)
-        ProcedureReturn ; Exit Nav procedure as we are now in combat mode
+        movedIntoCombat = 1
+        ProcedureReturn moved ; Exit Nav procedure as we are now in combat mode
       EndIf
       
       Break
@@ -217,18 +230,11 @@ Procedure Nav(*p.Ship, dir.s, steps.i, *enemyTemplate.Ship = 0, *cs.CombatState 
     ElseIf startX <> gx Or startY <> gy
       LogLine("NAV " + UCase(dir) + " " + Str(steps) + ": moved " + Str(moved) + " step(s) to Sector (" + Str(gx) + "," + Str(gy) + ")")
     EndIf
-    gGameTurn = gGameTurn + 1
-    ; Bank Interest: 1% every 50 turns
-    If gGameTurn > 0 And gGameTurn % 50 = 0 And gBankBalance > 0
-      Protected interest.i = Int(gBankBalance * 0.01)
-      If interest < 1 : interest = 1 : EndIf
-      gBankBalance + interest
-      ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
-      PrintN("BANK NOTIFICATION: Interest earned! (+" + Str(interest) + " credits)")
-      ResetColor()
+    If movedIntoCombat = 0
+      AdvanceGameTurn(1)
     EndIf
-    GenerateCheatCode()
   EndIf
+  ProcedureReturn moved
 EndProcedure
 
 ; Returns 1 if it did something (moved or provided a message).
@@ -279,7 +285,11 @@ Procedure.i AutopilotToMission(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Co
 
     Protected d.s = Mid(path, i, 1)
     Protected beforeMapX.i = gMapX, beforeMapY.i = gMapY, beforeX.i = gx, beforeY.i = gy
-    Nav(*p, d, 1)
+    Nav(*p, d, 1, *enemyTemplate, *cs)
+    If gMode = #MODE_TACTICAL
+      movedAny = 1
+      Break
+    EndIf
     If gMapX <> beforeMapX Or gMapY <> beforeMapY Or gx <> beforeX Or gy <> beforeY
       movedAny = 1
     EndIf

@@ -160,6 +160,66 @@ EndProcedure
 ; the next queued command without blocking. PAUSE lines prompt the user to press
 ; Enter (and optionally type 'stop'). Falls through to real Input() when idle.
 ;==============================================================================
+CompilerIf Defined(TEST_MODE, #PB_Constant)
+Global gTestInputLoaded.i = 0
+Global Dim gTestInputLines.s(0)
+Global gTestInputCount.i = 0
+Global gTestInputPos.i = 0
+
+CompilerIf Defined(TEST_SCRIPT, #PB_Constant) = 0
+  #TEST_SCRIPT = "test_scripts/smoke_start_quit.txt"
+CompilerEndIf
+
+Procedure LoadTestInputScript()
+  If gTestInputLoaded
+    ProcedureReturn
+  EndIf
+
+  gTestInputLoaded = 1
+
+  Protected testScriptName.s = ReplaceString(#TEST_SCRIPT, "'", "")
+  testScriptName = ReplaceString(testScriptName, Chr(34), "")
+  Protected testPath.s = AppPath + testScriptName
+  Protected f.i
+  Protected line.s
+
+  If FileSize(testPath) < 0
+    ProcedureReturn
+  EndIf
+
+  f = ReadFile(#PB_Any, testPath)
+  If f = 0
+    ProcedureReturn
+  EndIf
+
+  While Eof(f) = 0
+    line = ReadString(f)
+    If gTestInputCount > ArraySize(gTestInputLines())
+      ReDim gTestInputLines(gTestInputCount)
+    EndIf
+    gTestInputLines(gTestInputCount) = line
+    gTestInputCount + 1
+  Wend
+
+  CloseFile(f)
+EndProcedure
+CompilerEndIf
+
+Procedure.s ReadConsoleInput()
+  CompilerIf Defined(TEST_MODE, #PB_Constant)
+    LoadTestInputScript()
+    If gTestInputPos < gTestInputCount
+      Protected scriptedLine.s = gTestInputLines(gTestInputPos)
+      gTestInputPos + 1
+      PrintN(scriptedLine)
+      ProcedureReturn scriptedLine
+    EndIf
+    ProcedureReturn Chr(4)
+  CompilerElse
+    ProcedureReturn Input()
+  CompilerEndIf
+EndProcedure
+
 Procedure.s GetNextInput()
   ; All locals declared up-front (EnableExplicit + loop-safe)
   Protected nextCmd.s    = ""
@@ -183,7 +243,7 @@ Procedure.s GetNextInput()
       ConsoleColor(#C_YELLOW, #C_BLACK)
       Print("[MACRO] Paused press Enter to continue (type 'stop' to abort) > ")
       ResetColor()
-      pauseResp = TrimLower(Trim(Input()))
+      pauseResp = TrimLower(Trim(ReadConsoleInput()))
       pauseResp = ReplaceString(ReplaceString(pauseResp, Chr(13), ""), Chr(10), "")
       If pauseResp = "stop"
         gMacroPlaybackActive = 0
@@ -283,7 +343,7 @@ Procedure.s GetNextInput()
     gMacroPlaybackName = ""
   EndIf
 
-  ProcedureReturn Input()
+  ProcedureReturn ReadConsoleInput()
 EndProcedure
 
 ;==============================================================================

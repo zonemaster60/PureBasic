@@ -147,21 +147,16 @@ EndProcedure
 ; - Visual arena showing positions of ships and fleet
 ;==============================================================================
 Procedure PrintStatusTactical(*p.Ship, *e.Ship, *cs.CombatState)
-  ; Ensure enemy has valid stats (defensive)
-  If *e\name = "" Or *e\hullMax <= 0
-    *e\name = "Raider"
-    *e\class = "Raider"
-    *e\hullMax = 100
-    *e\hull = 100
-    *e\shieldsMax = 90
-    *e\shields = 90
-    *e\weaponCapMax = 210
-    *e\weaponCap = 105
-    *e\phaserBanks = 6
-    *e\torpTubes = 2
-    *e\torpMax = 8
-    *e\torp = 8
-  EndIf
+  Protected enemyName.s = *e\name
+  Protected enemyClass.s = *e\class
+  Protected enemyHull.i = *e\hull
+  Protected enemyHullMax.i = *e\hullMax
+  Protected enemyShields.i = *e\shields
+  Protected enemyShieldsMax.i = *e\shieldsMax
+  If enemyName = "" : enemyName = "Unknown Contact" : EndIf
+  If enemyClass = "" : enemyClass = "Unknown" : EndIf
+  If enemyHullMax <= 0 : enemyHullMax = 1 : enemyHull = 0 : EndIf
+  If enemyShieldsMax < 0 : enemyShieldsMax = 0 : enemyShields = 0 : EndIf
   
   PrintDivider()
   PrintN("Tactical Turn: " + Str(*cs\turn) + "  Range: " + Str(*cs\range))
@@ -255,7 +250,7 @@ Procedure PrintStatusTactical(*p.Ship, *e.Ship, *cs.CombatState)
   PrintN("")
 
   ; Check if in range for weapons (Typical range for drones/enemy attacks is <= 15)
-  If *cs\range <= 15 And (*p\weaponCap > 0 Or *p\torp > 0) And *p\sysWeapons <> #SYS_DISABLED
+  If *cs\range <= 15 And (*p\weaponCap > 0 Or *p\torp > 0) And ((*p\sysWeapons & #SYS_DISABLED) = 0)
     ConsoleColor(#C_CYAN, #C_BLACK)
     PrintN("You are now in range. Ready to fire!")
     ResetColor()
@@ -263,16 +258,16 @@ Procedure PrintStatusTactical(*p.Ship, *e.Ship, *cs.CombatState)
 
   ConsoleColor(#C_LIGHTRED, #C_BLACK)
 
-  PrintN("Enemy: " + *e\name + " [" + *e\class + "]")
+  PrintN("Enemy: " + enemyName + " [" + enemyClass + "]")
   ResetColor()
   Print("  Hull: ")
   ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
-  SetColorForPercent(Int(100.0 * *e\hull / ClampInt(*e\hullMax, 1, 999999)))
-  Print(Str(*e\hull) + "/" + Str(*e\hullMax))
+  SetColorForPercent(Int(100.0 * enemyHull / ClampInt(enemyHullMax, 1, 999999)))
+  Print(Str(enemyHull) + "/" + Str(enemyHullMax))
   ResetColor()
   Print("  Shields: ")
   ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
-  PrintN(Str(*e\shields) + "/" + Str(*e\shieldsMax))
+  PrintN(Str(enemyShields) + "/" + Str(enemyShieldsMax))
   ResetColor()
   PrintDivider()
 EndProcedure

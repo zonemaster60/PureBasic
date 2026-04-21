@@ -57,6 +57,22 @@ Procedure AdvanceStardate(steps.i = 1)
   gGameDay = Int(totalTurns / 10) + 1
 EndProcedure
 
+Procedure AdvanceGameTurn(steps.i = 1)
+  Protected i.i
+  For i = 1 To steps
+    gGameTurn + 1
+    If gGameTurn % 50 = 0 And gBankBalance > 0
+      Protected interest.i = Int(gBankBalance * 0.01)
+      If interest < 1 : interest = 1 : EndIf
+      gBankBalance + interest
+      ConsoleColor(#C_LIGHTGREEN, #C_BLACK)
+      PrintN("BANK NOTIFICATION: Interest earned! (+" + Str(interest) + " credits)")
+      ResetColor()
+    EndIf
+    GenerateCheatCode()
+  Next
+EndProcedure
+
 Procedure.s FormatStardate()
   Protected dayStr.s = "Day " + Str(gGameDay)
   Protected stardateStr.s = " [" + FormatNumber(gStardate, 1) + "]"
@@ -137,7 +153,7 @@ Procedure AddCaptainLog(entry.s)
       For k = 0 To ArraySize(gCaptainLog()) - 1
         gCaptainLog(k) = ""
       Next
-      gCaptainLog(0) = entry
+      gCaptainLog(0) = loggedEntry
       gCaptainLogCount = 1
     Else
       ; All archives full - shift current log like before
@@ -145,7 +161,7 @@ Procedure AddCaptainLog(entry.s)
       For m = 0 To ArraySize(gCaptainLog()) - 2
         gCaptainLog(m) = gCaptainLog(m + 1)
       Next
-      gCaptainLog(ArraySize(gCaptainLog())) = entry
+      gCaptainLog(ArraySize(gCaptainLog())) = loggedEntry
     EndIf
   EndIf
 EndProcedure
@@ -179,7 +195,7 @@ Procedure PrintCaptainLog(search.s)
     ProcedureReturn
   EndIf
   
-  arcPrefix = "ARCHIVE "
+  arcPrefix = "archive "
   If FindString(search, arcPrefix) = 1
     ; View specific archive
     arcNum = RemoveString(search, arcPrefix)

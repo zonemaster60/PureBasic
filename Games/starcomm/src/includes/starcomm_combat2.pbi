@@ -32,6 +32,7 @@ Procedure EnterCombat(*p.Ship, *enemy.Ship, *cs.CombatState)
   EndIf
   
   PlayRedAlert()
+  *p\sysTractor = *p\sysTractor & ~#SYS_TRACTOR
   gMode = #MODE_TACTICAL
   *cs\range = 16 + Random(10)
   *cs\turn = 1
@@ -42,8 +43,12 @@ Procedure EnterCombat(*p.Ship, *enemy.Ship, *cs.CombatState)
   *cs\eFleetAttack = 0
   *cs\eFleetHit = 0
   
-  ; Spawn enemy fleet based on enemy level (Planet Killer fights alone)
-  Protected enemyLvl.i = CurCell(gx, gy)\enemyLevel
+  ; Spawn enemy fleet based on the tracked hostile contact, not the player's cell.
+  Protected enemyLvl.i = 1
+  If gEnemyMapX >= 0 And gEnemyMapY >= 0 And gEnemyX >= 0 And gEnemyY >= 0
+    enemyLvl = gGalaxy(gEnemyMapX, gEnemyMapY, gEnemyX, gEnemyY)\enemyLevel
+  EndIf
+  If enemyLvl < 1 : enemyLvl = 1 : EndIf
   
   ; Tier 2 Enemy Scaling: Levels 10+ gain significant stat boosts to match Tier 2 player
   If enemyLvl >= 10
@@ -104,10 +109,13 @@ EndProcedure
 ;==============================================================================
 Procedure LeaveCombat()
   gMode = #MODE_GALAXY
-  gEngineLoopChannel = -1
+  StopEngineLoop()
   gEnemyFleetCount = 0
   gEnemyIsPirate = 0
   gEnemyIsPlanetKiller = 0
+  gEnemyMapX = -1 : gEnemyMapY = -1 : gEnemyX = -1 : gEnemyY = -1
+  ; Combat-only tractor holds should not persist after battle.
+  ; The active player ship instance remains in scope after returning to galaxy mode.
   If gDocked = 0
     StartEngineLoop()
   EndIf

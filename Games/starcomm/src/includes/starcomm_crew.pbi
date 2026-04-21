@@ -503,7 +503,7 @@ Procedure.i LoadShip(section.s, *s.Ship)
   *s\impulseMax  = ClampF(*s\impulseMax, 0.0, 5.0)
   *s\phaserBanks = ClampInt(*s\phaserBanks, 0, 50)
   *s\torpMax     = ClampInt(*s\torpMax, 0, 200)
-  *s\torpTubes   = ClampInt(*s\torpTubes, 1, 16)
+  *s\torpTubes   = ClampInt(*s\torpTubes, 0, 16)
   If *s\torpMax > 0 And *s\torpTubes > *s\torpMax : *s\torpTubes = *s\torpMax : EndIf
   *s\sensorRange = ClampInt(*s\sensorRange, 1, 120)
   *s\weaponCapMax= ClampInt(*s\weaponCapMax, 10, 4000)

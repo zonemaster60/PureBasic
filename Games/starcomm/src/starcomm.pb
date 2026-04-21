@@ -12,7 +12,7 @@ EnableExplicit
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.1.5.5"
+Global version.s = "v1.1.6.0"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -40,13 +40,6 @@ Global gUpgradePropulsion.i = 0
 Global gUpgradePowerCargo.i = 0
 Global gUpgradeProbes.i = 0
 Global gUpgradeShuttle.i = 0
-
-; Refinery system
-Global gIron.i = 0
-Global gAluminum.i = 0
-Global gCopper.i = 0
-Global gTin.i = 0
-Global gBronze.i = 0
 
 ; Sound system - PureBasic Sound library
 Global gSoundEnabled.i = 1
@@ -142,7 +135,7 @@ Declare PlayerPhaser(*p.Ship, *e.Ship, *cs.CombatState, power.i)
 Declare PlayerTorpedo(*p.Ship, *e.Ship, *cs.CombatState, count.i)
 Declare PlayerTractor(*p.Ship, *e.Ship, *cs.CombatState, mode.s)
 Declare EnemyAI(*e.Ship, *p.Ship, *cs.CombatState)
-Declare EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
+Declare.i EnemyGalaxyAI(*p.Ship, *enemyTemplate.Ship, *cs.CombatState)
 Declare PrintScanTactical(*p.Ship, *e.Ship, *cs.CombatState)
 Declare.s EntSymbol(t.i)
 Declare.i RandomEmptyCell(mapX.i, mapY.i, *outX.Integer, *outY.Integer)
@@ -166,6 +159,8 @@ Declare MinePlanet(*p.Ship)
 Declare Nav(*p.Ship, dir.s, steps.i, *enemyTemplate.Ship = 0, *cs.CombatState = 0)
 Declare EnterCombat(*p.Ship, *enemy.Ship, *cs.CombatState)
 Declare LeaveCombat()
+Declare ResetGameState(*p.Ship)
+Declare BeginEnemyContact(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.CombatState, mapX.i, mapY.i, x.i, y.i)
 
 ; Autopilot
 Declare.i AutopilotToMission(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.CombatState)
@@ -711,7 +706,7 @@ XIncludeFile "includes/starcomm_main.pbi"
 
 Main()
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 14
 ; Folding = -
 ; Optimizer
@@ -721,12 +716,12 @@ Main()
 ; UseIcon = starcomm.ico
 ; Executable = ..\starcomm.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,1,5,5
-; VersionField1 = 1,1,5,5
+; VersionField0 = 1,1,6,0
+; VersionField1 = 1,1,6,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarComm
-; VersionField4 = 1.1.5.5
-; VersionField5 = 1.1.5.5
+; VersionField4 = 1.1.6.0
+; VersionField5 = 1.1.6.0
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarComm
 ; VersionField8 = StarComm.exe

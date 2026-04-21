@@ -4,6 +4,7 @@
 
 Procedure ResetGameState(*p.Ship)
   ; 1. Clear ship structure (crew, components, stats)
+  StopEngineLoop()
   ClearStructure(*p, Ship)
   
   ; 2. Reset Global Game Progress
@@ -38,6 +39,7 @@ Procedure ResetGameState(*p.Ship)
   gPowerBuffTurns = 0
   gCheatsUnlocked = 0
   gCheatCode = ""
+  gCheatCodeTurn = 0
   gLastHeading = -1
   gAutosaveCounter = 0
   gAutoclearCounter = 0
@@ -87,6 +89,12 @@ Procedure ResetGameState(*p.Ship)
   gTransporterCrew = 2
   gProbeRange = 3
   gProbeAccuracy = 75
+  gEnemyMapX = -1 : gEnemyMapY = -1 : gEnemyX = -1 : gEnemyY = -1
+  gEnemyIsPirate = 0
+  gEnemyIsPlanetKiller = 0
+  gEnemyFleetCount = 0
+  gDockedShipCount = 0
+  gStationType = 0
 
   ; 10. Reset Galaxy
   GenerateGalaxy()
@@ -98,11 +106,69 @@ Procedure ResetGameState(*p.Ship)
   ; LogLine("Game state reset to factory defaults.") ; Silenced for cleaner startup
 EndProcedure
 
+Procedure BeginEnemyContact(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.CombatState, mapX.i, mapY.i, x.i, y.i)
+  Protected entType.i = gGalaxy(mapX, mapY, x, y)\entType
+  Protected lvl.i = gGalaxy(mapX, mapY, x, y)\enemyLevel
+  If lvl < 1 : lvl = 1 : EndIf
+
+  gEnemyMapX = mapX
+  gEnemyMapY = mapY
+  gEnemyX = x
+  gEnemyY = y
+
+  CopyStructure(*enemyTemplate, *enemy, Ship)
+  If gGalaxy(mapX, mapY, x, y)\name <> ""
+    *enemy\name = gGalaxy(mapX, mapY, x, y)\name
+  EndIf
+
+  If entType = #ENT_PLANETKILLER
+    *enemy\name = "Planet Killer"
+    *enemy\class = "Planet Killer"
+    *enemy\hullMax = 500 + (lvl * 50)
+    *enemy\hull = *enemy\hullMax
+    *enemy\shieldsMax = 400 + (lvl * 40)
+    *enemy\shields = *enemy\shieldsMax
+    *enemy\weaponCapMax = 600 + (lvl * 50)
+    *enemy\weaponCap = *enemy\weaponCapMax
+    *enemy\phaserBanks = 12
+    *enemy\torpTubes = 4
+    *enemy\torpMax = 20
+    *enemy\torp = *enemy\torpMax
+  Else
+    If *enemy\name = "" Or *enemy\hullMax <= 0
+      *enemy\name = "Raider"
+      *enemy\class = "Raider"
+      *enemy\hullMax = 100
+      *enemy\hull = 100
+      *enemy\shieldsMax = 90
+      *enemy\shields = 90
+      *enemy\weaponCapMax = 210
+      *enemy\weaponCap = 105
+      *enemy\phaserBanks = 6
+      *enemy\torpTubes = 2
+      *enemy\torpMax = 8
+      *enemy\torp = 8
+    EndIf
+    *enemy\hullMax + (lvl * 10)
+    *enemy\hull = *enemy\hullMax
+    *enemy\shieldsMax + (lvl * 12)
+    *enemy\shields = *enemy\shieldsMax
+    *enemy\weaponCapMax + (lvl * 20)
+    *enemy\weaponCap = *enemy\weaponCapMax / 2
+    *enemy\torp = *enemy\torpMax
+  EndIf
+
+  gEnemyIsPirate = Bool(entType = #ENT_PIRATE)
+  gEnemyIsPlanetKiller = Bool(entType = #ENT_PLANETKILLER)
+  EnterCombat(*p, *enemy, *cs)
+EndProcedure
+
 Procedure Main()
   Protected player.Ship
   Protected enemyTemplate.Ship
   Protected enemy.Ship
   Protected cs.CombatState
+  Protected enemyAIPendingContact.i
   Protected playerSection.s
   Protected enemySection.s
 
@@ -149,11 +215,6 @@ Procedure Main()
       End
     EndIf
 
-    ; Legacy Directory Cleanup (detect and remove 'save\' if 'saves\' exists)
-    If FileSize(GetCurrentDirectory() + "save") = -2 And FileSize(GetCurrentDirectory() + "saves") = -2
-      DeleteDirectory(GetCurrentDirectory() + "save", "*.*")
-    EndIf
-
     ; Starcomm Startup Console
     ClearConsole()
     ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
@@ -181,7 +242,10 @@ Procedure Main()
     ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
     Print("OPTION> ")
     ResetColor()
-    Protected startupChoice.s = Trim(Input())
+    Protected startupChoice.s = Trim(ReadConsoleInput())
+    If startupChoice = Chr(4) Or startupChoice = Chr(26)
+      End
+    EndIf
     Protected skipInit.i = #False
     If startupChoice = "1"
       ; start new game
@@ -552,9 +616,6 @@ Procedure Main()
         ScanGalaxy()
         PrintN("< Press ENTER >")
         Input()
-
-        CheckMissionCompletion(@player)
-        DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         RedrawGalaxy(@player)
       ElseIf cmd = "longscan"
         ClearConsole()
@@ -575,13 +636,19 @@ Procedure Main()
             PrintN("             NAV 90 3    (east 3 sectors, costs 3 fuel)")
             PrintN("             NAV 225 2   (southwest 2 sectors, costs 2 fuel)")
             RedrawGalaxy(@player)
+            Continue
           Else
           SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode, gIron, gAluminum, gCopper, gTin, gBronze)
           Protected navSteps.i = ParseIntSafe(TokenAt(line, 3), 1)
+          Protected navMoved.i
           Protected oldX.i = gx
           Protected oldY.i = gy
-          Nav(@player, navDir, navSteps, @enemyTemplate, @cs)
+          navMoved = Nav(@player, navDir, navSteps, @enemyTemplate, @cs)
           If gMode = #MODE_TACTICAL : Continue : EndIf
+          If navMoved <= 0
+            RedrawGalaxy(@player)
+            Continue
+          EndIf
 
           ; Track last intended heading for compass display (set even if movement was blocked)
           Protected navHeadVal.i = ParseIntSafe(navDir, -1)
@@ -595,9 +662,9 @@ Procedure Main()
             AddCaptainLog("NAV: " + navDir + " to (" + Str(gMapX) + "," + Str(gMapY) + ") sector (" + Str(gx) + "," + Str(gy) + ")")
           EndIf
           
-          CheckMissionCompletion(@player)
-          DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
-          AdvanceStardate(navSteps)
+          If navMoved > 0
+            AdvanceStardate(navMoved)
+          EndIf
           
           ; Dilithium bounty - high dilithium attracts pirates!
           If player\dilithium >= 15
@@ -657,64 +724,7 @@ Procedure Main()
           
           If engageResp <> "a" And engageResp <> "abort"
             ; Fight!
-            CopyStructure(@enemyTemplate, @enemy, Ship)
-            ; Override name from galaxy cell (e.g., "Pirate Hunter")
-            If CurCell(gx, gy)\name <> ""
-              enemy\name = CurCell(gx, gy)\name
-            EndIf
-            Protected lvl.i = CurCell(gx, gy)\enemyLevel
-            If lvl < 1 : lvl = 1 : EndIf
-            ; Check for Planet Killer (very powerful)
-            If CurCell(gx, gy)\entType = #ENT_PLANETKILLER
-              enemy\name = "Planet Killer"
-              enemy\class = "Planet Killer"
-              enemy\hullMax = 500 + (lvl * 50)
-              enemy\hull = enemy\hullMax
-              enemy\shieldsMax = 400 + (lvl * 40)
-              enemy\shields = enemy\shieldsMax
-              enemy\weaponCapMax = 600 + (lvl * 50)
-              enemy\weaponCap = enemy\weaponCapMax
-              enemy\phaserBanks = 12
-              enemy\torpTubes = 4
-              enemy\torpMax = 20
-              enemy\torp = enemy\torpMax
-            ElseIf enemy\name = "" Or enemy\hullMax <= 0
-              enemy\name = "Raider"
-              enemy\class = "Raider"
-              enemy\hullMax = 100
-              enemy\hull = 100
-              enemy\shieldsMax = 90
-              enemy\shields = 90
-              enemy\weaponCapMax = 210
-              enemy\weaponCap = 105
-              enemy\phaserBanks = 6
-              enemy\torpTubes = 2
-              enemy\torpMax = 8
-              enemy\torp = 8
-            EndIf
-            enemy\hullMax = enemy\hullMax + (lvl * 10)
-            enemy\hull = enemy\hullMax
-            enemy\shieldsMax = enemy\shieldsMax + (lvl * 12)
-            enemy\shields = enemy\shieldsMax
-            enemy\weaponCapMax = enemy\weaponCapMax + (lvl * 20)
-            enemy\weaponCap = enemy\weaponCapMax / 2
-            enemy\torp = enemy\torpMax
-            ; Track if enemy is a pirate for tactical display
-            If CurCell(gx, gy)\entType = #ENT_PIRATE
-              gEnemyIsPirate = 1
-              gEnemyIsPlanetKiller = 0
-            ElseIf CurCell(gx, gy)\entType = #ENT_PLANETKILLER
-              gEnemyIsPirate = 0
-              gEnemyIsPlanetKiller = 1
-            Else
-              gEnemyIsPirate = 0
-              gEnemyIsPlanetKiller = 0
-            EndIf
-            EnterCombat(@player, @enemy, @cs)
-            ; Clear the cell immediately after starting combat so it's gone if we win or leave
-            CurCell(gx, gy)\entType = #ENT_EMPTY
-            CurCell(gx, gy)\name = ""
-            CurCell(gx, gy)\enemyLevel = 0
+            BeginEnemyContact(@player, @enemyTemplate, @enemy, @cs, gMapX, gMapY, gx, gy)
             Continue
           Else
             PrintN("You evade the enemy and continue exploring.")
@@ -732,7 +742,14 @@ Procedure Main()
           EndIf
         EndIf
         
-        EnemyGalaxyAI(@player, @enemyTemplate, @cs)
+        enemyAIPendingContact = EnemyGalaxyAI(@player, @enemyTemplate, @cs)
+        If enemyAIPendingContact
+          ConsoleColor(#C_LIGHTRED, #C_BLACK)
+          PrintN("Enemy contact! Hostile vessel has closed to your position.")
+          ResetColor()
+          BeginEnemyContact(@player, @enemyTemplate, @enemy, @cs, gEnemyMapX, gEnemyMapY, gEnemyX, gEnemyY)
+          Continue
+        EndIf
         EndIf
       ElseIf cmd = "warp"
         If gDocked
@@ -783,24 +800,7 @@ Procedure Main()
                 LogLine("INTERDICTION: pirate intercepted warp exit")
                 
                 ; Setup enemy and enter combat immediately
-                CopyStructure(@enemyTemplate, @enemy, Ship)
-                enemy\name = gGalaxy(gMapX, gMapY, gx, gy)\name
-                Protected warpLvl.i = gGalaxy(gMapX, gMapY, gx, gy)\enemyLevel
-                enemy\hullMax = enemy\hullMax + (warpLvl * 10)
-                enemy\hull = enemy\hullMax
-                enemy\shieldsMax = enemy\shieldsMax + (warpLvl * 12)
-                enemy\shields = enemy\shieldsMax
-                enemy\weaponCapMax = enemy\weaponCapMax + (warpLvl * 20)
-                enemy\weaponCap = enemy\weaponCapMax / 2
-                enemy\torp = enemy\torpMax
-                gEnemyIsPirate = 1
-                gEnemyIsPlanetKiller = 0
-                
-                EnterCombat(@player, @enemy, @cs)
-                ; Clear the interdicted cell
-                CurCell(gx, gy)\entType = #ENT_EMPTY
-                CurCell(gx, gy)\name = ""
-                CurCell(gx, gy)\enemyLevel = 0
+                BeginEnemyContact(@player, @enemyTemplate, @enemy, @cs, gMapX, gMapY, gx, gy)
                 RedrawGalaxy(@player)
                 Continue
               EndIf
@@ -809,7 +809,15 @@ Procedure Main()
         EndIf
         CheckMissionCompletion(@player)
         DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
-        EnemyGalaxyAI(@player, @enemyTemplate, @cs)
+        enemyAIPendingContact = EnemyGalaxyAI(@player, @enemyTemplate, @cs)
+        If enemyAIPendingContact
+          ConsoleColor(#C_LIGHTRED, #C_BLACK)
+          PrintN("Enemy contact! Hostile vessel has closed to your position.")
+          ResetColor()
+          BeginEnemyContact(@player, @enemyTemplate, @enemy, @cs, gEnemyMapX, gEnemyMapY, gEnemyX, gEnemyY)
+          Continue
+        EndIf
+        AdvanceGameTurn(1)
         AdvanceStardate()
         RedrawGalaxy(@player)
       ElseIf cmd = "mine"
@@ -840,12 +848,13 @@ Procedure Main()
             ElseIf targetMapX = gMapX And targetMapY = gMapY
               PrintN("Target is current galaxy sector. Use SCAN instead.")
             Else
-              player\probes - 1
               SaveUndoState(player\fuel, player\hull, player\shields, gCredits, player\ore, player\dilithium, gMapX, gMapY, gx, gy, gMode, gIron, gAluminum, gCopper, gTin, gBronze)
+              player\probes - 1
               LogLine("PROBE: launched to " + Str(targetMapX) + "," + Str(targetMapY))
               PrintN("Launching probe to galaxy (" + Str(targetMapX) + "," + Str(targetMapY) + ")...")
               PlayProbeSound()
               PrintProbeScan(targetMapX, targetMapY)
+              AdvanceGameTurn(1)
               AdvanceStardate()
               PlayEngineSound()
               PlayAmbientChatter()
@@ -883,7 +892,15 @@ Procedure Main()
 
         CheckMissionCompletion(@player)
         DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
-        EnemyGalaxyAI(@player, @enemyTemplate, @cs)
+        enemyAIPendingContact = EnemyGalaxyAI(@player, @enemyTemplate, @cs)
+        If enemyAIPendingContact
+          ConsoleColor(#C_LIGHTRED, #C_BLACK)
+          PrintN("Enemy contact! Hostile vessel has closed to your position.")
+          ResetColor()
+          BeginEnemyContact(@player, @enemyTemplate, @enemy, @cs, gEnemyMapX, gEnemyMapY, gEnemyX, gEnemyY)
+          Continue
+        EndIf
+        AdvanceGameTurn(1)
         AdvanceStardate()
         PlayEngineSound()
         PlayAmbientChatter()
@@ -933,7 +950,15 @@ Procedure Main()
 
         CheckMissionCompletion(@player)
         DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
-        EnemyGalaxyAI(@player, @enemyTemplate, @cs)
+        enemyAIPendingContact = EnemyGalaxyAI(@player, @enemyTemplate, @cs)
+        If enemyAIPendingContact
+          ConsoleColor(#C_LIGHTRED, #C_BLACK)
+          PrintN("Enemy contact! Hostile vessel has closed to your position.")
+          ResetColor()
+          BeginEnemyContact(@player, @enemyTemplate, @enemy, @cs, gEnemyMapX, gEnemyMapY, gEnemyX, gEnemyY)
+          Continue
+        EndIf
+        AdvanceGameTurn(1)
         AdvanceStardate()
         PlayEngineSound()
         PlayAmbientChatter()
@@ -1106,16 +1131,11 @@ Procedure Main()
       ElseIf cmd = "accept"
         GenerateMission(@player)
         AcceptMission(@player)
-
-        DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         RedrawGalaxy(@player)
 
       ElseIf cmd = "computer"
         ; Autopilot to mission destination (best-effort)
         AutopilotToMission(@player, @enemyTemplate, @enemy, @cs)
-
-        CheckMissionCompletion(@player)
-        DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         RedrawGalaxy(@player)
       ElseIf cmd = "abandon"
         If gMission\active = 0
@@ -1135,7 +1155,6 @@ Procedure Main()
             PrintN("Abandon cancelled.")
           EndIf
         EndIf
-        DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         RedrawGalaxy(@player)
       ElseIf cmd = "save"
         Protected saveSlot.s = TokenAt(line, 2)
@@ -1510,6 +1529,8 @@ Procedure Main()
 
       ; Mission housekeeping after commands that consume a turn.
       If turnConsumed And gMode = #MODE_GALAXY
+        CheckMissionCompletion(@player)
+        DefendMissionTick(@player, @enemyTemplate, @enemy, @cs)
         GenerateMission(@player)
         
         ; Refinery price volatility
@@ -1566,6 +1587,7 @@ Procedure Main()
         EndIf
 
       ElseIf gMode = #MODE_TACTICAL
+        Protected tacticalTurnConsumed.i = 0
         ; Reset fleet combat display bits at the start of every command so stale
         ; bits from the previous turn's enemy fleet attack don't carry into this
         ; turn's player fleet display.
@@ -1626,63 +1648,94 @@ Procedure Main()
         Protected moveDir.s = TokenAt(line, 2)
         Protected moveAmt.i = ParseIntSafe(TokenAt(line, 3), 2)
         PlayerMove(@player, @cs, moveDir, moveAmt)
+        tacticalTurnConsumed = 1
         PrintStatusTactical(@player, @enemy, @cs)
           Case "phaser"
         Protected pwr.i = ParseIntSafe(TokenAt(line, 2), 30)
-        PlayerPhaser(@player, @enemy, @cs, pwr)
-        
-        ; Check if player wants to target fleet
         Protected phaserTarget.s = TokenAt(line, 3)
         If phaserTarget = "fleet" And gEnemyFleetCount > 0
-          Protected pfHit.i = Random(gEnemyFleetCount - 1) + 1
-          If gEnemyFleet(pfHit)\hull > 0
-            Protected pfDmg.i = Random(pwr / 2) + 5
-            gEnemyFleet(pfHit)\hull - pfDmg
-            cs\eFleetHit = cs\eFleetHit | (1 << (pfHit - 1))  ; Mark enemy fleet ship as hit
-            ConsoleColor(#C_RED, #C_BLACK)
-            PrintN("Phasers hit enemy fleet ship " + Str(pfHit) + " for " + Str(pfDmg) + " damage!")
-            ResetColor()
-            If gEnemyFleet(pfHit)\hull <= 0
+          If (player\sysWeapons & #SYS_DISABLED)
+            PrintN("Weapons are disabled.")
+          ElseIf player\weaponCap <= 0
+            PrintN("Weapon capacitor empty.")
+          Else
+            Protected maxPerTurnFleet.i = player\phaserBanks * 25
+            Protected fleetPwr.i = ClampInt(pwr, 1, player\weaponCap)
+            fleetPwr = ClampInt(fleetPwr, 1, maxPerTurnFleet)
+            player\weaponCap - fleetPwr
+            PlayPhaserSound()
+            TacticalFxPhaser(cs\range, 0)
+            Protected pfHit.i = Random(gEnemyFleetCount - 1) + 1
+            If gEnemyFleet(pfHit)\hull > 0
+              Protected pfDmg.i = Random(fleetPwr / 2) + 5
+              gEnemyFleet(pfHit)\hull - pfDmg
+              If gEnemyFleet(pfHit)\hull < 0 : gEnemyFleet(pfHit)\hull = 0 : EndIf
+              cs\eFleetHit = cs\eFleetHit | (1 << (pfHit - 1))
               ConsoleColor(#C_RED, #C_BLACK)
-              PrintN("Enemy fleet ship " + Str(pfHit) + " destroyed!")
+              PrintN("Phasers hit enemy fleet ship " + Str(pfHit) + " for " + Str(pfDmg) + " damage!")
               ResetColor()
-              Protected efCompact1.i
-              For efCompact1 = pfHit To gEnemyFleetCount - 1
-                CopyStructure(@gEnemyFleet(efCompact1 + 1), @gEnemyFleet(efCompact1), Ship)
-              Next
-              gEnemyFleetCount - 1
+              If gEnemyFleet(pfHit)\hull <= 0
+                ConsoleColor(#C_RED, #C_BLACK)
+                PrintN("Enemy fleet ship " + Str(pfHit) + " destroyed!")
+                ResetColor()
+                Protected efCompact1.i
+                For efCompact1 = pfHit To gEnemyFleetCount - 1
+                  CopyStructure(@gEnemyFleet(efCompact1 + 1), @gEnemyFleet(efCompact1), Ship)
+                Next
+                gEnemyFleetCount - 1
+              EndIf
             EndIf
           EndIf
+        Else
+          PlayerPhaser(@player, @enemy, @cs, pwr)
         EndIf
+        tacticalTurnConsumed = 1
         
         PrintStatusTactical(@player, @enemy, @cs)
           Case "torpedo"
         Protected cnt.i = ParseIntSafe(TokenAt(line, 2), 1)
-        PlayerTorpedo(@player, @enemy, @cs, cnt)
-        
-        ; Check if player wants to target fleet
         Protected torpTarget.s = TokenAt(line, 3)
         If torpTarget = "fleet" And gEnemyFleetCount > 0
-          Protected tfHit.i = Random(gEnemyFleetCount - 1) + 1
-          If gEnemyFleet(tfHit)\hull > 0
-            Protected tfDmg.i = Random(50) + 30
-            gEnemyFleet(tfHit)\hull - tfDmg
-            cs\eFleetHit = cs\eFleetHit | (1 << (tfHit - 1))  ; Mark enemy fleet ship as hit
-            ConsoleColor(#C_RED, #C_BLACK)
-            PrintN("Torpedo hits enemy fleet ship " + Str(tfHit) + " for " + Str(tfDmg) + " damage!")
-            ResetColor()
-            If gEnemyFleet(tfHit)\hull <= 0
+          If (player\sysWeapons & #SYS_DISABLED)
+            PrintN("Weapons are disabled.")
+          ElseIf player\torp <= 0
+            PrintN("No torpedoes remaining.")
+          ElseIf cs\range > 24
+            PrintN("Target out of torpedo effective range.")
+          Else
+            Protected fleetTorpCount.i = ClampInt(cnt, 1, player\torpTubes)
+            fleetTorpCount = ClampInt(fleetTorpCount, 1, player\torp)
+            Protected tfHit.i = Random(gEnemyFleetCount - 1) + 1
+            Protected torpShot.i
+            For torpShot = 1 To fleetTorpCount
+              player\torp - 1
+              PlayTorpedoSound()
+              TacticalFxTorpedo(cs\range, 0)
+              If gEnemyFleet(tfHit)\hull <= 0 : Break : EndIf
+              Protected tfDmg.i = Random(50) + 30
+              gEnemyFleet(tfHit)\hull - tfDmg
+              If gEnemyFleet(tfHit)\hull < 0 : gEnemyFleet(tfHit)\hull = 0 : EndIf
+              cs\eFleetHit = cs\eFleetHit | (1 << (tfHit - 1))
               ConsoleColor(#C_RED, #C_BLACK)
-              PrintN("Enemy fleet ship " + Str(tfHit) + " destroyed!")
+              PrintN("Torpedo hits enemy fleet ship " + Str(tfHit) + " for " + Str(tfDmg) + " damage!")
               ResetColor()
-              Protected efCompact2.i
-              For efCompact2 = tfHit To gEnemyFleetCount - 1
-                CopyStructure(@gEnemyFleet(efCompact2 + 1), @gEnemyFleet(efCompact2), Ship)
-              Next
-              gEnemyFleetCount - 1
-            EndIf
+              If gEnemyFleet(tfHit)\hull <= 0
+                ConsoleColor(#C_RED, #C_BLACK)
+                PrintN("Enemy fleet ship " + Str(tfHit) + " destroyed!")
+                ResetColor()
+                Protected efCompact2.i
+                For efCompact2 = tfHit To gEnemyFleetCount - 1
+                  CopyStructure(@gEnemyFleet(efCompact2 + 1), @gEnemyFleet(efCompact2), Ship)
+                Next
+                gEnemyFleetCount - 1
+                Break
+              EndIf
+            Next
           EndIf
+        Else
+          PlayerTorpedo(@player, @enemy, @cs, cnt)
         EndIf
+        tacticalTurnConsumed = 1
         
         ; Player's fleet attacks automatically after player fires (BEFORE display so color shows)
         If gPlayerFleetCount > 0 And enemy\hull > 0
@@ -1697,6 +1750,7 @@ Procedure Main()
                 If enemy\shields < 0
                   enemy\hull + enemy\shields
                   enemy\shields = 0
+                  If enemy\hull < 0 : enemy\hull = 0 : EndIf
                 EndIf
                 cs\pFleetHit = cs\pFleetHit | (1 << (pf - 1))  ; hit enemy - show RED
                 ConsoleColor(#C_RED, #C_BLACK)
@@ -1721,6 +1775,7 @@ Procedure Main()
           Continue
         EndIf
         PlayerTractor(@player, @enemy, @cs, tractorMode)
+        tacticalTurnConsumed = 1
           Case "transporter"
         Protected trMode.s = TokenAt(line, 2)
         
@@ -1786,7 +1841,8 @@ Procedure Main()
             PrintN("Away team failed to damage the enemy!")
             LogLine("TRANSPORTER: away team failed")
           EndIf
-          
+          tacticalTurnConsumed = 1
+           
         Else
           PrintN("Unknown transporter command. Use: TRANSPORTER ATTACK")
         EndIf
@@ -1824,6 +1880,7 @@ Procedure Main()
                   PrintN("Shuttle damaged enemy engines!")
               EndSelect
             EndIf
+            tacticalTurnConsumed = 1
           EndIf
         ElseIf shutMode = "info"
           PrintN("Shuttle Status:")
@@ -1837,12 +1894,15 @@ Procedure Main()
           PrintN("Fuel depleted. Cannot flee.")
         ElseIf Random(99) < ClampInt(18 + (cs\range * 2), 15, 65)
           player\fuel - 1
+          AdvanceGameTurn(1)
+          AdvanceStardate()
           PrintN("You disengage and escape to the galaxy map.")
           LeaveCombat()
           RedrawGalaxy(@player)
           Continue
         Else
           PrintN("Flee attempt fails.")
+          tacticalTurnConsumed = 1
         EndIf
         PrintStatusTactical(@player, @enemy, @cs)
           Case "end"
@@ -1858,6 +1918,7 @@ Procedure Main()
                 If enemy\shields < 0
                   enemy\hull + enemy\shields
                   enemy\shields = 0
+                  If enemy\hull < 0 : enemy\hull = 0 : EndIf
                 EndIf
                 cs\pFleetHit = cs\pFleetHit | (1 << (pf - 1))  ; hit enemy - show RED
                 ConsoleColor(#C_RED, #C_BLACK)
@@ -1873,6 +1934,7 @@ Procedure Main()
         EndIf
 
         PrintStatusTactical(@player, @enemy, @cs)
+        tacticalTurnConsumed = 1
 
         ; no-op
           Case "quit", "exit"
@@ -1885,7 +1947,7 @@ Procedure Main()
         EndSelect
       EndIf
 
-      If gMode = #MODE_TACTICAL And IsAlive(@player)
+      If gMode = #MODE_TACTICAL And IsAlive(@player) And tacticalTurnConsumed
         ; Enemy killed by player's attack this turn (no Goto across block boundaries)
         If enemy\hull <= 0
           PlayExplosionSound()
@@ -2030,6 +2092,7 @@ Procedure Main()
                   Protected pfTarget.i = Random(gPlayerFleetCount - 1) + 1
                   If gPlayerFleet(pfTarget)\hull > 0
                     gPlayerFleet(pfTarget)\hull - efDmg
+                    If gPlayerFleet(pfTarget)\hull < 0 : gPlayerFleet(pfTarget)\hull = 0 : EndIf
                     cs\pFleetHit = cs\pFleetHit | (1 << (pfTarget - 1))  ; Mark player fleet ship as hit
                     PlaySoundFX(SoundExplode)  ; Fleet ship hit!
                     ConsoleColor(#C_RED, #C_BLACK)
@@ -2052,6 +2115,7 @@ Procedure Main()
                   If player\shields < 0
                     player\hull + player\shields
                     player\shields = 0
+                    If player\hull < 0 : player\hull = 0 : EndIf
                   EndIf
                   ConsoleColor(#C_RED, #C_BLACK)
                   PrintN("Enemy fleet ship " + Str(ef) + " fires! " + Str(efDmg) + " damage to shields!")
@@ -2068,6 +2132,8 @@ Procedure Main()
         
         PrintStatusTactical(@player, @enemy, @cs)
         
+        AdvanceGameTurn(1)
+        AdvanceStardate()
         cs\turn + 1
 
         If player\hull <= 0

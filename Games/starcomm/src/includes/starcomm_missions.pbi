@@ -203,7 +203,7 @@ Procedure PrintMission(*p.Ship)
       PrintN(LocText(gMission\destMapX, gMission\destMapY, gMission\destX, gMission\destY))
       PrintN("  Distance: Galaxy offset (" + Str(gMission\destMapX - gMapX) + "," + Str(gMission\destMapY - gMapY) + ")  Sector offset (" + Str(gMission\destX - gx) + "," + Str(gMission\destY - gy) + ")")
       ConsoleColor(#C_DARKGRAY, #C_BLACK)
-      PrintN("  Tip: MAP shows M markers. Use AUTOPILOT to navigate there.")
+      PrintN("  Tip: MAP shows M markers. Use COMPUTER to navigate there.")
       ResetColor()
     EndIf
     ConsoleColor(#C_YELLOW, #C_BLACK)
@@ -278,7 +278,7 @@ Procedure AcceptMission(*p.Ship)
 
   ; Offer autopilot convenience immediately after accepting.
   If gMission\destEntType <> #ENT_EMPTY
-    PrintN("Autopilot available: type COMPUTER to navigate to the mission destination.")
+    PrintN("Navigation computer available: type COMPUTER to route to the mission destination.")
   EndIf
 EndProcedure
 

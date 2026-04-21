@@ -242,12 +242,23 @@ Procedure.i PackShipsDatFromIni()
     DeleteFile(tmpPath)
     ProcedureReturn 0
   EndIf
-  If FileSize(gDatPath) >= 0
-    DeleteFile(gDatPath)
+  Protected bakPath.s = gDatPath + ".bak"
+  If FileSize(bakPath) >= 0
+    DeleteFile(bakPath)
   EndIf
-  If RenameFile(tmpPath, gDatPath) = 0
+  If FileSize(gDatPath) >= 0 And RenameFile(gDatPath, bakPath) = 0
     DeleteFile(tmpPath)
     ProcedureReturn 0
+  EndIf
+  If RenameFile(tmpPath, gDatPath) = 0
+    If FileSize(bakPath) >= 0
+      RenameFile(bakPath, gDatPath)
+    EndIf
+    DeleteFile(tmpPath)
+    ProcedureReturn 0
+  EndIf
+  If FileSize(bakPath) >= 0
+    DeleteFile(bakPath)
   EndIf
   ProcedureReturn 1
 EndProcedure

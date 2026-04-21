@@ -185,9 +185,48 @@ EndProcedure
 
 Procedure.s SafeField(s.s)
   ; Save-file fields are | delimited and line-based.
-  s = ReplaceString(s, Chr(13), " ")
-  s = ReplaceString(s, Chr(10), " ")
-  s = ReplaceString(s, "|", "/")
+  ; Encode text as UTF-8 hex so round-tripping preserves names and log entries.
+  Protected byteLen.i = StringByteLength(s, #PB_UTF8)
+  Protected *mem = AllocateMemory(byteLen + 1)
+  Protected i.i
+  Protected out.s = "~h"
+  If *mem = 0
+    ProcedureReturn "~h"
+  EndIf
+  PokeS(*mem, s, -1, #PB_UTF8)
+  For i = 0 To byteLen - 1
+    out + RSet(Hex(PeekA(*mem + i) & $FF), 2, "0")
+  Next
+  FreeMemory(*mem)
+  ProcedureReturn out
+EndProcedure
+
+Procedure.s LoadField(s.s)
+  Protected raw.s = s
+  Protected hexPart.s
+  Protected byteLen.i
+  Protected *mem
+  Protected i.i
+  Protected v.i
+  If Left(s, 2) <> "~h"
+    ProcedureReturn s
+  EndIf
+  hexPart = Mid(s, 3)
+  If Len(hexPart) % 2 <> 0
+    ProcedureReturn raw
+  EndIf
+  byteLen = Len(hexPart) / 2
+  *mem = AllocateMemory(byteLen + 1)
+  If *mem = 0
+    ProcedureReturn raw
+  EndIf
+  For i = 0 To byteLen - 1
+    v = Val("$" + Mid(hexPart, i * 2 + 1, 2))
+    PokeA(*mem + i, v)
+  Next
+  PokeA(*mem + byteLen, 0)
+  s = PeekS(*mem, -1, #PB_UTF8)
+  FreeMemory(*mem)
   ProcedureReturn s
 EndProcedure
 

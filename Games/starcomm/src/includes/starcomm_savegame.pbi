@@ -78,8 +78,8 @@ Procedure.i SaveShipLine(f.i, prefix.s, idx.i, *s.Ship)
 EndProcedure
 
 Procedure LoadShipFields(*s.Ship, line.s, startField.i)
-  *s\name         = StringField(line, startField, "|")
-  *s\class        = StringField(line, startField + 1, "|")
+  *s\name         = LoadField(StringField(line, startField, "|"))
+  *s\class        = LoadField(StringField(line, startField + 1, "|"))
   *s\hullMax      = Val(StringField(line, startField + 2, "|"))
   *s\hull         = Val(StringField(line, startField + 3, "|"))
   *s\shieldsMax   = Val(StringField(line, startField + 4, "|"))
@@ -109,22 +109,22 @@ Procedure LoadShipFields(*s.Ship, line.s, startField.i)
   *s\sysWeapons   = Val(StringField(line, startField + 28, "|"))
   *s\sysShields   = Val(StringField(line, startField + 29, "|"))
   *s\sysTractor   = Val(StringField(line, startField + 30, "|"))
-  *s\crew1\name   = StringField(line, startField + 31, "|")
+  *s\crew1\name   = LoadField(StringField(line, startField + 31, "|"))
   *s\crew1\role   = Val(StringField(line, startField + 32, "|"))
   *s\crew1\rank   = Val(StringField(line, startField + 33, "|"))
   *s\crew1\xp     = Val(StringField(line, startField + 34, "|"))
   *s\crew1\level  = Val(StringField(line, startField + 35, "|"))
-  *s\crew2\name   = StringField(line, startField + 36, "|")
+  *s\crew2\name   = LoadField(StringField(line, startField + 36, "|"))
   *s\crew2\role   = Val(StringField(line, startField + 37, "|"))
   *s\crew2\rank   = Val(StringField(line, startField + 38, "|"))
   *s\crew2\xp     = Val(StringField(line, startField + 39, "|"))
   *s\crew2\level  = Val(StringField(line, startField + 40, "|"))
-  *s\crew3\name   = StringField(line, startField + 41, "|")
+  *s\crew3\name   = LoadField(StringField(line, startField + 41, "|"))
   *s\crew3\role   = Val(StringField(line, startField + 42, "|"))
   *s\crew3\rank   = Val(StringField(line, startField + 43, "|"))
   *s\crew3\xp     = Val(StringField(line, startField + 44, "|"))
   *s\crew3\level  = Val(StringField(line, startField + 45, "|"))
-  *s\crew4\name   = StringField(line, startField + 46, "|")
+  *s\crew4\name   = LoadField(StringField(line, startField + 46, "|"))
   *s\crew4\role   = Val(StringField(line, startField + 47, "|"))
   *s\crew4\rank   = Val(StringField(line, startField + 48, "|"))
   *s\crew4\xp     = Val(StringField(line, startField + 49, "|"))
@@ -146,7 +146,7 @@ Procedure.i SaveGame(*p.Ship, slotName.s = "autosave")
   Protected ok.i = 1
   Protected playerExtLine.s
 
-  ok = SaveFileLine(f, "version|2")
+  ok = SaveFileLine(f, "version|3")
   If ok : ok = SaveFileLine(f, "mode|" + Str(gMode)) : EndIf
   If ok : ok = SaveFileLine(f, "pos|" + Str(gMapX) + "|" + Str(gMapY) + "|" + Str(gx) + "|" + Str(gy)) : EndIf
   If ok : ok = SaveFileLine(f, "credits|" + Str(gCredits)) : EndIf
@@ -246,13 +246,25 @@ Procedure.i SaveGame(*p.Ship, slotName.s = "autosave")
     LogLine("SAVE: failed while writing " + GetFilePart(fullPath))
     ProcedureReturn 0
   EndIf
-  If FileSize(fullPath) >= 0
-    DeleteFile(fullPath)
+  Protected bakPath.s = fullPath + ".bak"
+  If FileSize(bakPath) >= 0
+    DeleteFile(bakPath)
+  EndIf
+  If FileSize(fullPath) >= 0 And RenameFile(fullPath, bakPath) = 0
+    DeleteFile(tmpPath)
+    LogLine("SAVE: failed to prepare " + GetFilePart(fullPath))
+    ProcedureReturn 0
   EndIf
   If RenameFile(tmpPath, fullPath) = 0
+    If FileSize(bakPath) >= 0
+      RenameFile(bakPath, fullPath)
+    EndIf
     DeleteFile(tmpPath)
     LogLine("SAVE: failed to finalize " + GetFilePart(fullPath))
     ProcedureReturn 0
+  EndIf
+  If FileSize(bakPath) >= 0
+    DeleteFile(bakPath)
   EndIf
   LogLine("SAVE: wrote " + GetFilePart(fullPath))
   ProcedureReturn 1
@@ -277,6 +289,9 @@ Procedure.i LoadGame(*p.Ship, slotName.s = "autosave")
     ProcedureReturn 0
   EndIf
 
+  StopEngineLoop()
+  ResetGameState(*p)
+
   ; Clear galaxy before applying saved cells
   Protected mx.i, my.i
   For my = 0 To #GALAXY_H - 1
@@ -297,7 +312,12 @@ Procedure.i LoadGame(*p.Ship, slotName.s = "autosave")
     kind = StringField(line, 1, "|")
     Select kind
       Case "version"
-        ; reserved
+        Protected saveVersion.i = Val(StringField(line, 2, "|"))
+        If saveVersion <> 2 And saveVersion <> 3
+          CloseFile(f)
+          LogLine("LOAD: unsupported save version in " + GetFilePart(fullPath))
+          ProcedureReturn 0
+        EndIf
       Case "mode"
         ; Always start in galaxy mode when loading - never load into combat
         gMode = #MODE_GALAXY
@@ -411,8 +431,8 @@ Procedure.i LoadGame(*p.Ship, slotName.s = "autosave")
           LoadShipFields(@gPlayerFleet(pfLoad), line, 3)
         EndIf
       Case "player"
-        *p\name        = StringField(line, 2, "|")
-        *p\class       = StringField(line, 3, "|")
+        *p\name        = LoadField(StringField(line, 2, "|"))
+        *p\class       = LoadField(StringField(line, 3, "|"))
         *p\hullMax     = Val(StringField(line, 4, "|"))
         *p\hull        = Val(StringField(line, 5, "|"))
         *p\shieldsMax  = Val(StringField(line, 6, "|"))
@@ -454,25 +474,25 @@ Procedure.i LoadGame(*p.Ship, slotName.s = "autosave")
         Protected crewIdx.i = Val(StringField(line, 2, "|"))
         Select crewIdx
           Case 0
-            *p\crew1\name   = StringField(line, 3, "|")
+            *p\crew1\name   = LoadField(StringField(line, 3, "|"))
             *p\crew1\role   = Val(StringField(line, 4, "|"))
             *p\crew1\rank   = Val(StringField(line, 5, "|"))
             *p\crew1\xp     = Val(StringField(line, 6, "|"))
             *p\crew1\level  = Val(StringField(line, 7, "|"))
           Case 1
-            *p\crew2\name   = StringField(line, 3, "|")
+            *p\crew2\name   = LoadField(StringField(line, 3, "|"))
             *p\crew2\role   = Val(StringField(line, 4, "|"))
             *p\crew2\rank   = Val(StringField(line, 5, "|"))
             *p\crew2\xp     = Val(StringField(line, 6, "|"))
             *p\crew2\level  = Val(StringField(line, 7, "|"))
           Case 2
-            *p\crew3\name   = StringField(line, 3, "|")
+            *p\crew3\name   = LoadField(StringField(line, 3, "|"))
             *p\crew3\role   = Val(StringField(line, 4, "|"))
             *p\crew3\rank   = Val(StringField(line, 5, "|"))
             *p\crew3\xp     = Val(StringField(line, 6, "|"))
             *p\crew3\level  = Val(StringField(line, 7, "|"))
           Case 3
-            *p\crew4\name   = StringField(line, 3, "|")
+            *p\crew4\name   = LoadField(StringField(line, 3, "|"))
             *p\crew4\role   = Val(StringField(line, 4, "|"))
             *p\crew4\rank   = Val(StringField(line, 5, "|"))
             *p\crew4\xp     = Val(StringField(line, 6, "|"))
@@ -486,14 +506,14 @@ Procedure.i LoadGame(*p.Ship, slotName.s = "autosave")
       Case "recruit"
         Protected recIdx.i = Val(StringField(line, 2, "|"))
         If recIdx >= 0 And recIdx < 3
-          gRecruitNames(recIdx) = StringField(line, 3, "|")
-          gRecruitRoles(recIdx) = StringField(line, 4, "|")
+          gRecruitNames(recIdx) = LoadField(StringField(line, 3, "|"))
+          gRecruitRoles(recIdx) = LoadField(StringField(line, 4, "|"))
         EndIf
       Case "mission", "missions"
         gMission\active        = Val(StringField(line, 2, "|"))
         gMission\type          = Val(StringField(line, 3, "|"))
-        gMission\title         = StringField(line, 4, "|")
-        gMission\desc          = StringField(line, 5, "|")
+        gMission\title         = LoadField(StringField(line, 4, "|"))
+        gMission\desc          = LoadField(StringField(line, 5, "|"))
         gMission\oreRequired   = Val(StringField(line, 6, "|"))
         gMission\killsRequired = Val(StringField(line, 7, "|"))
         gMission\killsDone     = Val(StringField(line, 8, "|"))
@@ -502,7 +522,7 @@ Procedure.i LoadGame(*p.Ship, slotName.s = "autosave")
         gMission\destX         = Val(StringField(line, 11, "|"))
         gMission\destY         = Val(StringField(line, 12, "|"))
         gMission\destEntType   = Val(StringField(line, 13, "|"))
-        gMission\destName      = StringField(line, 14, "|")
+        gMission\destName      = LoadField(StringField(line, 14, "|"))
         gMission\rewardCredits = Val(StringField(line, 15, "|"))
         gMission\turnsLeft     = Val(StringField(line, 16, "|"))
         gMission\yardHP        = Val(StringField(line, 17, "|"))
@@ -511,7 +531,7 @@ Procedure.i LoadGame(*p.Ship, slotName.s = "autosave")
         gCaptainLogCount = 0
       Case "capentry"
         If gCaptainLogCount >= 0 And gCaptainLogCount < ArraySize(gCaptainLog())
-          gCaptainLog(gCaptainLogCount) = StringField(line, 2, "|")
+          gCaptainLog(gCaptainLogCount) = LoadField(StringField(line, 2, "|"))
           gCaptainLogCount = gCaptainLogCount + 1
         EndIf
       Case "cell"
@@ -523,7 +543,7 @@ Procedure.i LoadGame(*p.Ship, slotName.s = "autosave")
           gGalaxy(cx, cy, sx, sy)\entType    = Val(StringField(line, 6, "|"))
           gGalaxy(cx, cy, sx, sy)\richness   = Val(StringField(line, 7, "|"))
           gGalaxy(cx, cy, sx, sy)\enemyLevel = Val(StringField(line, 8, "|"))
-          gGalaxy(cx, cy, sx, sy)\name       = StringField(line, 9, "|")
+          gGalaxy(cx, cy, sx, sy)\name       = LoadField(StringField(line, 9, "|"))
           gGalaxy(cx, cy, sx, sy)\spawned    = Val(StringField(line, 10, "|"))
           gGalaxy(cx, cy, sx, sy)\ore        = Val(StringField(line, 11, "|"))
           gGalaxy(cx, cy, sx, sy)\dilithium  = Val(StringField(line, 12, "|"))
@@ -538,6 +558,28 @@ Procedure.i LoadGame(*p.Ship, slotName.s = "autosave")
   gMapY = ClampInt(gMapY, 0, #GALAXY_H - 1)
   gx    = ClampInt(gx, 0, #MAP_W - 1)
   gy    = ClampInt(gy, 0, #MAP_H - 1)
+  *p\hullMax = ClampInt(*p\hullMax, 10, 2000)
+  *p\hull = ClampInt(*p\hull, 0, *p\hullMax)
+  *p\shieldsMax = ClampInt(*p\shieldsMax, 0, 2000)
+  *p\shields = ClampInt(*p\shields, 0, *p\shieldsMax)
+  *p\reactorMax = ClampInt(*p\reactorMax, 50, 2000)
+  *p\warpMax = ClampF(*p\warpMax, 0.0, 30.0)
+  *p\impulseMax = ClampF(*p\impulseMax, 0.0, 5.0)
+  *p\phaserBanks = ClampInt(*p\phaserBanks, 0, 50)
+  *p\torpMax = ClampInt(*p\torpMax, 0, 200)
+  *p\torpTubes = ClampInt(*p\torpTubes, 0, 16)
+  If *p\torpMax > 0 And *p\torpTubes > *p\torpMax : *p\torpTubes = *p\torpMax : EndIf
+  *p\sensorRange = ClampInt(*p\sensorRange, 1, 120)
+  *p\weaponCapMax = ClampInt(*p\weaponCapMax, 10, 4000)
+  *p\weaponCap = ClampInt(*p\weaponCap, 0, *p\weaponCapMax)
+  *p\fuelMax = ClampInt(*p\fuelMax, 10, 2000)
+  *p\fuel = ClampInt(*p\fuel, 0, *p\fuelMax)
+  *p\oreMax = ClampInt(*p\oreMax, 0, 1000)
+  *p\ore = ClampInt(*p\ore, 0, *p\oreMax)
+  *p\dilithiumMax = ClampInt(*p\dilithiumMax, 0, 200)
+  *p\dilithium = ClampInt(*p\dilithium, 0, *p\dilithiumMax)
+  *p\probesMax = ClampInt(*p\probesMax, 0, 100)
+  *p\probes = ClampInt(*p\probes, 0, *p\probesMax)
   gEnemyMapX = -1 : gEnemyMapY = -1 : gEnemyX = -1 : gEnemyY = -1
 
   ; If loaded into tactical mode, fall back to galaxy (no tactical persistence yet)
