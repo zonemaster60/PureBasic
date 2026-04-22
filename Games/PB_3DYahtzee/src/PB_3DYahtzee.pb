@@ -4,7 +4,7 @@
 
 EnableExplicit
 
-#APP_NAME = "Yahtzee_3D"
+#APP_NAME = "PB_3DYahtzee"
 
 Global version.s = "v1.0.0.3"
 Global AppPath.s        = GetPathPart(ProgramFilename())
@@ -2635,15 +2635,16 @@ End
 
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 8
+; CursorPosition = 153
+; FirstLine = 132
 ; Folding = ------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = Yahtzee_3D.ico
-; Executable = ..\Yahtzee_3D.exe
+; UseIcon = PB_3DYahtzee.ico
+; Executable = ..\PB_3DYahtzee.exe
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,3
 ; VersionField1 = 1,0,0,3
