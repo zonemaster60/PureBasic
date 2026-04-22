@@ -6,7 +6,7 @@ EnableExplicit
 
 #APP_NAME = "Yahtzee_3D"
 
-Global version.s = "v1.0.0.2"
+Global version.s = "v1.0.0.3"
 Global AppPath.s        = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -161,6 +161,11 @@ Global HostIP.s = ""
 Global LastJoinedIP.s = ""
 
 Declare DisconnectNetwork()
+Declare.s ArrayToListCSV(Array items.s(1))
+Declare.i IsLocalPlayersTurn()
+Declare ResetHeldDiceState()
+Declare.s GetLANPrefix(baseIP.s = "")
+Declare.s GetLocalIPAddress()
 
 Procedure StopLanScan()
   If IsThread(LanScanThread)
@@ -205,13 +210,26 @@ Procedure LanScannerThread(dummy.i)
         CloseNetworkConnection(conn)
         
         LockMutex(LanScanMutex)
-        LanHostCount + 1
-        ReDim LanHostList.s(LanHostCount)
-        LanHostList(LanHostCount) = ip
+        If FindString("," + ArrayToListCSV(LanHostList()), "," + ip + ",", 1) = 0
+          LanHostCount + 1
+          ReDim LanHostList.s(LanHostCount)
+          LanHostList(LanHostCount) = ip
+        EndIf
         UnlockMutex(LanScanMutex)
       EndIf
     EndIf
   Until currentIndex > 254
+EndProcedure
+
+Procedure.s ArrayToListCSV(Array items.s(1))
+  Protected i.i
+  Protected result.s = ","
+  For i = 1 To ArraySize(items())
+    If items(i) <> ""
+      result + items(i) + ","
+    EndIf
+  Next
+  ProcedureReturn result
 EndProcedure
 
 Procedure StartLanScan(prefix.s)
@@ -226,6 +244,44 @@ Procedure StartLanScan(prefix.s)
   UnlockMutex(LanScanMutex)
   
   LanScanThread = CreateThread(@LanScannerThread(), 0)
+EndProcedure
+
+Procedure.i IsLocalPlayersTurn()
+  If GameState\networkActive
+    If NetworkState\isHost
+      ProcedureReturn Bool(GameState\currentPlayer = 0)
+    EndIf
+
+    ProcedureReturn Bool(GameState\currentPlayer = 1)
+  EndIf
+
+  ProcedureReturn Bool(GameState\currentPlayer = 0)
+EndProcedure
+
+Procedure ResetHeldDiceState()
+  Protected i.i
+
+  For i = 0 To #NUM_DICE - 1
+    Dice(i)\held = 0
+    GameState\diceHeld[i] = 0
+  Next
+EndProcedure
+
+Procedure.s GetLANPrefix(baseIP.s = "")
+  Protected dotPos.i
+
+  If baseIP = "" Or FindString(baseIP, " ", 1)
+    baseIP = GetLocalIPAddress()
+  EndIf
+
+  dotPos = FindString(baseIP, ".", 1)
+  If dotPos = 0 : ProcedureReturn "192.168.1." : EndIf
+  dotPos = FindString(baseIP, ".", dotPos + 1)
+  If dotPos = 0 : ProcedureReturn "192.168.1." : EndIf
+  dotPos = FindString(baseIP, ".", dotPos + 1)
+  If dotPos = 0 : ProcedureReturn "192.168.1." : EndIf
+
+  ProcedureReturn Left(baseIP, dotPos)
 EndProcedure
 
 Procedure InitializeCategories()
@@ -311,6 +367,9 @@ EndProcedure
 
 ; Network: Process one single extracted packet
 Procedure ProcessSinglePacket(packetType.i, dataStr.s)
+  Protected i.i, pos.i, nextPos.i, val.i, idx.i, catPos.i, cat.i, scr.i, j.i
+  Protected Dim parsedDice.i(#NUM_DICE - 1)
+
   Select packetType
     Case #PKT_CONNECT
       GameState\opponentName = dataStr
@@ -326,7 +385,8 @@ Procedure ProcessSinglePacket(packetType.i, dataStr.s)
 
     Case #PKT_ROLL_DICE
       ; Opponent rolled - extract comma separated dice array
-      Protected i = 0, pos = 1, nextPos = 0, val.i
+      i = 0
+      pos = 1
       While i < #NUM_DICE
         nextPos = FindString(dataStr, ",", pos)
         If nextPos
@@ -335,22 +395,35 @@ Procedure ProcessSinglePacket(packetType.i, dataStr.s)
         Else
           val = Val(Mid(dataStr, pos))
         EndIf
-        
-        GameState\diceValues[i] = val
-        Dice(i)\value = val
-        Dice(i)\rolling = 1
-        Dice(i)\targetRotX = Random(360) * 10
-        Dice(i)\targetRotY = Random(360) * 10
-        Dice(i)\targetRotZ = Random(360) * 10
+
+        If val < 1 Or val > 6
+          Break
+        EndIf
+
+        parsedDice(i) = val
         i + 1
       Wend
-      GameState\rollsLeft = GameState\rollsLeft - 1
-      GameState\showingDiceRoll = 1
-      GameState\rollAnimTime = 0.0
+
+      If i = #NUM_DICE
+        For j = 0 To #NUM_DICE - 1
+          GameState\diceValues[j] = parsedDice(j)
+          Dice(j)\value = parsedDice(j)
+          Dice(j)\rolling = 1
+          Dice(j)\targetRotX = Random(360) * 10
+          Dice(j)\targetRotY = Random(360) * 10
+          Dice(j)\targetRotZ = Random(360) * 10
+        Next
+
+        If GameState\rollsLeft > 0
+          GameState\rollsLeft = GameState\rollsLeft - 1
+        EndIf
+        GameState\showingDiceRoll = 1
+        GameState\rollAnimTime = 0.0
+      EndIf
 
     Case #PKT_HOLD_DICE
       ; Opponent toggled hold state on a die (dataStr is index)
-      Protected idx = Val(dataStr)
+      idx = Val(dataStr)
       If idx >= 0 And idx < #NUM_DICE
         Dice(idx)\held = 1 - Dice(idx)\held
         GameState\diceHeld[idx] = Dice(idx)\held
@@ -358,10 +431,10 @@ Procedure ProcessSinglePacket(packetType.i, dataStr.s)
 
     Case #PKT_SCORE
       ; Opponent scored - update their scorecard
-      Protected catPos = FindString(dataStr, ",", 1)
+      catPos = FindString(dataStr, ",", 1)
       If catPos
-        Protected cat = Val(Left(dataStr, catPos - 1))
-        Protected scr = Val(Mid(dataStr, catPos + 1))
+        cat = Val(Left(dataStr, catPos - 1))
+        scr = Val(Mid(dataStr, catPos + 1))
         If cat >= 0 And cat < #NUM_CATEGORIES
           Categories(cat)\aiScore = scr
           Categories(cat)\aiUsed = 1
@@ -375,7 +448,7 @@ Procedure ProcessSinglePacket(packetType.i, dataStr.s)
         GameState\currentPlayer = 0
         ; When client ends its turn, host advances to next round.
         GameState\round = GameState\round + 1
-        If GameState\round > 13
+        If GameState\round > #NUM_CATEGORIES
           GameState\gameOver = 1
         EndIf
       Else
@@ -383,7 +456,7 @@ Procedure ProcessSinglePacket(packetType.i, dataStr.s)
         ; Client receives round number from host
         If dataStr <> ""
           GameState\round = Val(dataStr)
-          If GameState\round > 13
+          If GameState\round > #NUM_CATEGORIES
             GameState\gameOver = 1
           EndIf
         EndIf
@@ -391,11 +464,7 @@ Procedure ProcessSinglePacket(packetType.i, dataStr.s)
       GameState\rollsLeft = #MAX_ROLLS
       
       ; Reset local dice held state for new turn
-      Protected j
-      For j = 0 To #NUM_DICE - 1
-        Dice(j)\held = 0
-        GameState\diceHeld[j] = 0
-      Next
+      ResetHeldDiceState()
 
   EndSelect
 EndProcedure
@@ -568,6 +637,7 @@ EndProcedure
 Procedure.s GetPrivateIPv4FromIPConfigLine(line.s)
   Protected pos = FindString(line, ":", 1)
   Protected ip.s
+  Protected octet2.i
 
   If pos = 0 : ProcedureReturn "" : EndIf
   ip = Trim(Mid(line, pos + 1))
@@ -577,8 +647,15 @@ Procedure.s GetPrivateIPv4FromIPConfigLine(line.s)
   If ip = "0.0.0.0" : ProcedureReturn "" : EndIf
 
   ; Prefer private ranges
-  If Left(ip, 8) = "192.168." Or Left(ip, 4) = "10." Or Left(ip, 4) = "172."
+  If Left(ip, 8) = "192.168." Or Left(ip, 3) = "10."
     ProcedureReturn ip
+  EndIf
+
+  If Left(ip, 4) = "172."
+    octet2 = Val(StringField(ip, 2, "."))
+    If octet2 >= 16 And octet2 <= 31
+      ProcedureReturn ip
+    EndIf
   EndIf
 
   ProcedureReturn ""
@@ -587,8 +664,13 @@ EndProcedure
 Procedure.s GetLocalIPAddress()
   Protected tempFile.s = GetTemporaryDirectory() + "ip.txt"
   Protected ip.s = ""
+  Protected program.i
 
-  RunProgram("cmd.exe", "/c ipconfig | findstr /i " + Chr(34) + "IPv4" + Chr(34) + " > " + Chr(34) + tempFile + Chr(34), "", #PB_Program_Wait | #PB_Program_Hide)
+  program = RunProgram("cmd.exe", "/c ipconfig | findstr /i " + Chr(34) + "IPv4" + Chr(34) + " > " + Chr(34) + tempFile + Chr(34), "", #PB_Program_Wait | #PB_Program_Hide)
+
+  If program = 0
+    ProcedureReturn ""
+  EndIf
 
   If ReadFile(0, tempFile)
     While Eof(0) = 0
@@ -608,6 +690,10 @@ EndProcedure
 
 ; Network: Host game
 Procedure HostGame()
+  If NetworkState\serverID Or NetworkState\clientID
+    DisconnectNetwork()
+  EndIf
+
   NetworkState\serverID = CreateNetworkServer(#PB_Any, #NETWORK_PORT)
   
   If NetworkState\serverID
@@ -630,6 +716,10 @@ EndProcedure
 
 ; Network: Join game
 Procedure JoinGame(ip.s)
+  If NetworkState\serverID Or NetworkState\clientID
+    DisconnectNetwork()
+  EndIf
+
   NetworkState\serverID = OpenNetworkConnection(ip, #NETWORK_PORT)
   
   If NetworkState\serverID
@@ -674,6 +764,8 @@ Procedure DisconnectNetwork()
   NetworkState\isHost = 0
   FreeNetworkBuffer()
   GameState\networkActive = 0
+  HostIP = ""
+  GameState\opponentName = ""
 EndProcedure
 
 ; Calculate score for a category
@@ -1097,9 +1189,7 @@ Procedure RollDice()
     ProcedureReturn
   EndIf
   lastRollFrame = nowFrame
-  
-  Debug "RollDice() called @" + Str(nowFrame) + " - rollsLeft before: " + Str(GameState\rollsLeft)
-  
+
   For i = 0 To #NUM_DICE - 1
     If Dice(i)\held = 0
       Dice(i)\value = Random(5) + 1
@@ -1114,8 +1204,6 @@ Procedure RollDice()
   GameState\rollsLeft = GameState\rollsLeft - 1
   GameState\showingDiceRoll = 1
   GameState\rollAnimTime = 0.0
-  
-  Debug "RollDice() finished - rollsLeft after: " + Str(GameState\rollsLeft)
 EndProcedure
 
 
@@ -1308,7 +1396,7 @@ EndProcedure
 
 ; Draw menu screen
 Procedure DrawMenu()
-  Protected screenW, screenH, centerX, centerY, menuY, i
+  Protected screenW, screenH, centerX, centerY, menuY
   Protected diffText.s, fsText.s
   Protected menuBoxWidth = 440
   Protected menuBoxX
@@ -1468,25 +1556,9 @@ EndProcedure
 ; Draw 2D UI
 Procedure DrawUI()
   Protected i, y = 10, playerTotal = 0, aiTotal = 0, upperPlayerTotal = 0, upperAITotal = 0
-  Protected bonus.s, screenW, screenH
-  Protected isMyTurn.i = #False
-  
-  ; Determine if it's my turn for display purposes
-  If GameState\networkActive
-    If NetworkState\isHost
-      If GameState\currentPlayer = 0
-        isMyTurn = #True
-      EndIf
-    Else
-      If GameState\currentPlayer = 1
-        isMyTurn = #True
-      EndIf
-    EndIf
-  Else
-    If GameState\currentPlayer = 0
-      isMyTurn = #True
-    EndIf
-  EndIf
+  Protected screenW, screenH
+  Protected isMyTurn.i = IsLocalPlayersTurn()
+  Protected controlsText.s
   
   StartDrawing(ScreenOutput())
   screenW = ScreenWidth()
@@ -1644,9 +1716,17 @@ Procedure DrawUI()
   If GameState\gameOver
     FrontColor(RGB(255, 255, 0))
     If GameState\playerTotalScore > GameState\aiTotalScore
-      DrawText(textX, textY, "GAME OVER - PLAYER WINS! " + Str(GameState\playerTotalScore) + " - " + Str(GameState\aiTotalScore))
+      If GameState\networkActive
+        DrawText(textX, textY, "GAME OVER - PLAYER 1 WINS! " + Str(GameState\playerTotalScore) + " - " + Str(GameState\aiTotalScore))
+      Else
+        DrawText(textX, textY, "GAME OVER - PLAYER WINS! " + Str(GameState\playerTotalScore) + " - " + Str(GameState\aiTotalScore))
+      EndIf
     ElseIf GameState\aiTotalScore > GameState\playerTotalScore
-      DrawText(textX, textY, "GAME OVER - AI WINS! " + Str(GameState\aiTotalScore) + " - " + Str(GameState\playerTotalScore))
+      If GameState\networkActive
+        DrawText(textX, textY, "GAME OVER - PLAYER 2 WINS! " + Str(GameState\aiTotalScore) + " - " + Str(GameState\playerTotalScore))
+      Else
+        DrawText(textX, textY, "GAME OVER - AI WINS! " + Str(GameState\aiTotalScore) + " - " + Str(GameState\playerTotalScore))
+      EndIf
     Else
       DrawText(textX, textY, "GAME OVER - TIE! " + Str(GameState\playerTotalScore) + " - " + Str(GameState\aiTotalScore))
     EndIf
@@ -1655,16 +1735,16 @@ Procedure DrawUI()
     If GameState\currentPlayer = 0
       FrontColor(RGB(255, 255, 100))
       If GameState\networkActive
-        DrawText(textX, textY, "PLAYER 1'S TURN - Round " + Str(GameState\round) + "/13")
+        DrawText(textX, textY, "PLAYER 1'S TURN - Round " + Str(GameState\round) + "/" + Str(#NUM_CATEGORIES))
       Else
-        DrawText(textX, textY, "PLAYER'S TURN - Round " + Str(GameState\round) + "/13")
+        DrawText(textX, textY, "PLAYER'S TURN - Round " + Str(GameState\round) + "/" + Str(#NUM_CATEGORIES))
       EndIf
     Else
       FrontColor(RGB(255, 150, 150))
       If GameState\networkActive
-        DrawText(textX, textY, "PLAYER 2'S TURN - Round " + Str(GameState\round) + "/13")
+        DrawText(textX, textY, "PLAYER 2'S TURN - Round " + Str(GameState\round) + "/" + Str(#NUM_CATEGORIES))
       Else
-        DrawText(textX, textY, "AI'S TURN - Round " + Str(GameState\round) + "/13")
+        DrawText(textX, textY, "AI'S TURN - Round " + Str(GameState\round) + "/" + Str(#NUM_CATEGORIES))
       EndIf
     EndIf
     
@@ -1702,21 +1782,14 @@ Procedure DrawUI()
     EndIf
     
     FrontColor(RGB(200, 200, 255))
-    If GameState\currentPlayer = 0 Or (GameState\networkActive And isMyTurn)
-      ; Keyboard control instructions
-      If GameState\rollsLeft = #MAX_ROLLS
-        If GameState\gameMode = #MODE_VS_AI
-          DrawText(textX, textY + 85, "SPACE: Roll | 1-5: Hold/Unhold | Enter: Score | D: Change Difficulty")
-        Else
-          DrawText(textX, textY + 85, "SPACE: Roll | 1-5: Hold/Unhold | Enter: Score | ESC: Disconnect")
-        EndIf
+    If isMyTurn
+      If GameState\gameMode = #MODE_VS_AI
+        controlsText = "SPACE: Roll | 1-5: Hold/Unhold | Enter: Score | D: Change Difficulty"
       Else
-        If GameState\gameMode = #MODE_VS_AI
-          DrawText(textX, textY + 85, "SPACE: Roll | 1-5: Hold/Unhold | Enter: Score | D: Change Difficulty")
-        Else
-          DrawText(textX, textY + 85, "SPACE: Roll | 1-5: Hold/Unhold | Enter: Score | ESC: Disconnect")
-        EndIf
+        controlsText = "SPACE: Roll | 1-5: Hold/Unhold | Enter: Score | ESC: Disconnect"
       EndIf
+
+      DrawText(textX, textY + 85, controlsText)
     EndIf
   EndIf
   
@@ -1745,9 +1818,12 @@ Procedure NewGame()
   GameState\gameOver = 0
   GameState\message = "Press SPACE to roll the dice!"
   GameState\showingDiceRoll = 0
+  GameState\rollAnimTime = 0.0
   GameState\inMenu = 1  ; Start in menu
   GameState\menuSelection = 0
   GameState\opponentName = ""
+  GameState\networkActive = 0
+  GameState\gameMode = #MODE_VS_AI
   If Not SettingsInitialized
     GameState\aiDifficulty = #AI_MEDIUM
     SettingsInitialized = #True
@@ -1755,10 +1831,9 @@ Procedure NewGame()
     GameState\aiDifficulty = #AI_MEDIUM
   EndIf
   
+  ResetHeldDiceState()
   For i = 0 To #NUM_DICE - 1
-    Dice(i)\held = 0
     Dice(i)\rolling = 0
-    GameState\diceHeld[i] = 0
     GameState\diceValues[i] = 1
     Dice(i)\value = 1
   Next
@@ -1779,7 +1854,6 @@ Procedure AITakeTurn(deltaTime.f)
 
   If aiState = 0
     ; First roll
-    Debug "AITakeTurn: first roll"
     RollDice()
     GameState\message = "AI is rolling..."
     aiState = 1
@@ -1800,7 +1874,6 @@ Procedure AITakeTurn(deltaTime.f)
     aiTimer + deltaTime
     If aiTimer > 1.0
       If GameState\rollsLeft > 0
-        Debug "AITakeTurn: rolling again"
         RollDice()
         GameState\message = "AI is rolling again..."
         aiState = 1
@@ -1824,17 +1897,14 @@ Procedure AITakeTurn(deltaTime.f)
     EndIf
     
     ; Reset for next turn
-    For i = 0 To #NUM_DICE - 1
-      Dice(i)\held = 0
-      GameState\diceHeld[i] = 0
-    Next
+    ResetHeldDiceState()
     
     GameState\currentPlayer = 0
     GameState\rollsLeft = #MAX_ROLLS
     GameState\round = GameState\round + 1
     aiState = 0
     
-    If GameState\round > 13
+    If GameState\round > #NUM_CATEGORIES
       GameState\gameOver = 1
     EndIf
   EndIf
@@ -1866,8 +1936,12 @@ Repeat
     GameState\rollAnimTime + deltaTime
     If GameState\rollAnimTime > 1.5
       GameState\showingDiceRoll = 0
-      If GameState\currentPlayer = 0
-        GameState\message = "Press SPACE to roll or ENTER to score"
+      If IsLocalPlayersTurn()
+        If GameState\rollsLeft > 0
+          GameState\message = "Press SPACE to roll or ENTER to score"
+        Else
+          GameState\message = "Press ENTER to score"
+        EndIf
       EndIf
     EndIf
   EndIf
@@ -1941,10 +2015,15 @@ Repeat
     If enterPressed
       Select GameState\menuSelection
         Case 0 ; Start Game (VS AI)
+          DisconnectNetwork()
+          NewGame()
           GameState\inMenu = 0
           GameState\gameMode = #MODE_VS_AI
 
         Case 1 ; Multiplayer
+          DisconnectNetwork()
+          NewGame()
+
           ; Show multiplayer submenu on screen (avoid freeze by rendering)
           Define mpWaiting = #True
           Define mpTimer = 0
@@ -2107,23 +2186,11 @@ Repeat
                  mpSelectedHost = 1
                EndIf
              EndIf
-             UnlockMutex(LanScanMutex)
-             
-             If sPressed
-               ; Derive a reasonable LAN prefix from HostIP if possible
-               Define baseIP.s = HostIP
-               If baseIP = "" Or FindString(baseIP, " ", 1)
-                 baseIP = GetLocalIPAddress()
-               EndIf
-               Define dotPos = FindString(baseIP, ".", 1)
-               dotPos = FindString(baseIP, ".", dotPos + 1)
-               dotPos = FindString(baseIP, ".", dotPos + 1)
-               If dotPos
-                 StartLanScan(Left(baseIP, dotPos))
-               Else
-                 StartLanScan("192.168.1.")
-               EndIf
-             EndIf
+              UnlockMutex(LanScanMutex)
+              
+              If sPressed
+                StartLanScan(GetLANPrefix(HostIP))
+              EndIf
              
              LockMutex(LanScanMutex)
              If upPressed And LanHostCount > 0
@@ -2135,23 +2202,14 @@ Repeat
              EndIf
              
                If enterPressed2
-                 If LanHostCount > 0
-                   ServerIP = LanHostList(mpSelectedHost)
-                 Else
-                   ; Auto-join guesses (cycle each Enter)
-                   Define basePrefix.s = LanScanPrefix
-                   If basePrefix = ""
-                     Define baseIP2.s = HostIP
-                     If baseIP2 = "" Or FindString(baseIP2, " ", 1)
-                       baseIP2 = GetLocalIPAddress()
-                     EndIf
-                     Define dp = FindString(baseIP2, ".", 1)
-                     dp = FindString(baseIP2, ".", dp + 1)
-                     dp = FindString(baseIP2, ".", dp + 1)
-                     If dp
-                       basePrefix = Left(baseIP2, dp)
-                     EndIf
-                   EndIf
+                  If LanHostCount > 0
+                    ServerIP = LanHostList(mpSelectedHost)
+                  Else
+                    ; Auto-join guesses (cycle each Enter)
+                    Define basePrefix.s = LanScanPrefix
+                    If basePrefix = ""
+                      basePrefix = GetLANPrefix(HostIP)
+                    EndIf
  
                    mpAutoJoinAttempt + 1
                    If mpAutoJoinAttempt > 6 : mpAutoJoinAttempt = 1 : EndIf
@@ -2358,25 +2416,7 @@ Repeat
     
   ElseIf Not GameState\gameOver
     ; Determine if it's the local player's turn
-    Define isMyTurn.i = #False
-    
-    If GameState\networkActive
-      ; In multiplayer: Host is player 0, Client is player 1
-      If NetworkState\isHost
-        If GameState\currentPlayer = 0
-          isMyTurn = #True
-        EndIf
-      Else
-        If GameState\currentPlayer = 1
-          isMyTurn = #True
-        EndIf
-      EndIf
-    Else
-      ; In single player: Player is always 0
-      If GameState\currentPlayer = 0
-        isMyTurn = #True
-      EndIf
-    EndIf
+    Define isMyTurn.i = IsLocalPlayersTurn()
     
     If isMyTurn And GameState\showingDiceRoll = 0
       ; Check if host is waiting for opponent
@@ -2386,7 +2426,6 @@ Repeat
       Else
         ; Player turn - Keyboard controls (edge detection)
         If spacePressed And GameState\rollsLeft > 0 And GameState\showingDiceRoll = 0
-          Debug "PlayerInput: Space pressed -> RollDice"
           RollDice()
           GameState\message = "Rolling dice..."
           ; Send roll to network opponent if multiplayer
@@ -2473,10 +2512,7 @@ Repeat
           EndIf
           
           ; Reset for next turn
-          For i = 0 To #NUM_DICE - 1
-            Dice(i)\held = 0
-            GameState\diceHeld[i] = 0
-          Next
+          ResetHeldDiceState()
           
           ; Switch turns based on mode
           If GameState\networkActive
@@ -2493,6 +2529,10 @@ Repeat
           
           GameState\rollsLeft = #MAX_ROLLS
           GameState\message = "You scored " + Str(score) + " in " + Categories(category)\name
+
+          If GameState\networkActive And Not NetworkState\isHost And GameState\round >= #NUM_CATEGORIES
+            GameState\gameOver = 1
+          EndIf
           
           ; Send turn end packet with round number (host only)
           If GameState\networkActive
@@ -2585,14 +2625,18 @@ If CreatePreferences(#APP_NAME + ".ini")
   ClosePreferences()
 EndIf
 StopLanScan()
-FreeMutex(LanScanMutex)
-CloseHandle_(hMutex)
+If LanScanMutex
+  FreeMutex(LanScanMutex)
+EndIf
+If hMutex
+  CloseHandle_(hMutex)
+EndIf
 End
 
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 8
-; Folding = -----
+; Folding = ------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -2601,12 +2645,12 @@ End
 ; UseIcon = Yahtzee_3D.ico
 ; Executable = ..\Yahtzee_3D.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = Yahtzee_3D
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = Yahtzee game for 2 players or with AI
 ; VersionField7 = Yahtzee_3D
 ; VersionField8 = Yahtzee_3D.exe
