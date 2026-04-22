@@ -85,8 +85,8 @@ Module Input
     Protected key.s = LCase(name)
 
     g_bindings(key)\name = name
-    g_bindings()\keyPrimary = keyPrimary
-    g_bindings()\keySecondary = keySecondary
+    g_bindings(key)\keyPrimary = keyPrimary
+    g_bindings(key)\keySecondary = keySecondary
 
     ; Ensure state maps contain this name
     If FindMapElement(g_downByName(), key) = 0
@@ -150,7 +150,7 @@ Module Input
       ; Compute down-state for all named bindings
       ResetMap(g_bindings())
       While NextMapElement(g_bindings())
-        g_downByName(MapKey(g_bindings())) = Bool(KeyboardPushed(g_bindings()\keyPrimary) Or KeyboardPushed(g_bindings()\keySecondary))
+        g_downByName(MapKey(g_bindings())) = Bool((g_bindings()\keyPrimary And KeyboardPushed(g_bindings()\keyPrimary)) Or (g_bindings()\keySecondary And KeyboardPushed(g_bindings()\keySecondary)))
       Wend
 
       SyncBuiltInActionsFromBindings()
@@ -314,6 +314,8 @@ Module Input
   EndProcedure
 
   Procedure.i LoadBindings(jsonFile.s)
+    Protected loadedAny.i = #False
+
     If FileSize(jsonFile) <= 0
       ProcedureReturn #False
     EndIf
@@ -343,8 +345,6 @@ Module Input
       ProcedureReturn #False
     EndIf
 
-    ResetDefaultBindings()
-
     ; PureBasic doesn't expose direct member enumeration for JSON objects,
     ; so we use ExamineJSONMembers().
     If ExamineJSONMembers(actions)
@@ -367,13 +367,16 @@ Module Input
             EndIf
           EndIf
 
-          AddBinding(name, k1, k2)
+          If k1 Or k2
+            AddBinding(name, k1, k2)
+            loadedAny = #True
+          EndIf
         EndIf
       Wend
     EndIf
 
     FreeJSON(json)
-    ProcedureReturn #True
+    ProcedureReturn loadedAny
   EndProcedure
 
   Procedure.i ActionDown(action.i)

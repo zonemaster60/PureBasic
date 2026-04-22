@@ -76,6 +76,7 @@ Procedure.i CreateMidiFile(filename.s, *clip.MusicClip)
   ; Collect note on/off as step-based events, then sort by tick.
   Structure MidiMsg
     tick.i
+    sortKey.i
     status.a
     d1.a
     d2.a
@@ -87,20 +88,26 @@ Procedure.i CreateMidiFile(filename.s, *clip.MusicClip)
   ForEach *clip\events()
     e = *clip\events()
 
+    Protected startTick.i = Round(SwungStepPosition(e\startStep, *clip\swing) * stepLenTicks, #PB_Round_Nearest)
+    Protected endTick.i = Round(SwungStepPosition(e\startStep + e\lengthSteps, *clip\swing) * stepLenTicks, #PB_Round_Nearest)
+
     AddElement(msgs())
-    msgs()\tick = e\startStep * stepLenTicks
+    msgs()\tick = startTick
+    msgs()\sortKey = (msgs()\tick * 2) + 1
     msgs()\status = $90 | (e\channel & $0F)
     msgs()\d1 = e\midiNote & $7F
     msgs()\d2 = e\velocity & $7F
 
     AddElement(msgs())
-    msgs()\tick = (e\startStep + e\lengthSteps) * stepLenTicks
+    msgs()\tick = endTick
+    msgs()\sortKey = msgs()\tick * 2
     msgs()\status = $80 | (e\channel & $0F)
     msgs()\d1 = e\midiNote & $7F
     msgs()\d2 = 0
   Next
 
-  SortStructuredList(msgs(), #PB_Sort_Ascending, OffsetOf(MidiMsg\tick), TypeOf(MidiMsg\tick))
+  ; Note-offs sort before note-ons at the same tick to avoid zero-gap overlaps.
+  SortStructuredList(msgs(), #PB_Sort_Ascending, OffsetOf(MidiMsg\sortKey), TypeOf(MidiMsg\sortKey))
 
   Protected lastTick.i = 0
   ForEach msgs()

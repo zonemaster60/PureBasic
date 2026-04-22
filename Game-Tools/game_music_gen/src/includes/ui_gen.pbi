@@ -146,7 +146,7 @@ EndProcedure
 Procedure RunEventLoop()
   Define event.i
   Repeat
-    event = WaitWindowEvent()
+    event = WaitWindowEvent(50)
 
     Select event
       Case #PB_Event_CloseWindow
@@ -170,5 +170,7 @@ Procedure RunEventLoop()
             SaveCurrentMidi()
         EndSelect
     EndSelect
+
+    PollPlaybackState()
   ForEver
 EndProcedure

@@ -10,9 +10,10 @@ EnableExplicit
 #TILE_SIZE = 32
 #PREVIEW_SCALE = 8
 #MAX_COLORS = 16
+#TILE_VARIANTS = 16
 #APP_NAME = "Game_Tile_Gen"
 
-Global version.s = "v1.0.0.2"
+Global version.s = "v1.0.0.3"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -81,6 +82,8 @@ Declare.l SaveTilePNG(filename.s, *tile.TileData)
 Declare.l SaveTilesetPNG(filename.s)
 Declare.l SaveTsx(filename.s, imageFilename.s)
 Declare.i Clamp(value.i, minVal.i, maxVal.i)
+Declare.i IsNumericText(text.s)
+Declare.s GetTileTypeName(tileType.l)
 Declare CleanupAndExit()
 Declare SetStatus(text.s)
 Declare UpdateExportButtons(hasTile.i)
@@ -186,7 +189,7 @@ Procedure AddOutline(*tile.TileData, outlineColor.l)
       If GetPixel(*tile, x, y) <> 0
         For j = -1 To 1
           For i = -1 To 1
-            If GetPixel(*tile, x + i, y + j) = 0
+            If (i <> 0 Or j <> 0) And x + i >= 0 And x + i < #TILE_SIZE And y + j >= 0 And y + j < #TILE_SIZE And GetPixel(*tile, x + i, y + j) = 0
               AddElement(outline())
               outline() = (x + i) | ((y + j) << 16)
             EndIf
@@ -201,6 +204,45 @@ Procedure AddOutline(*tile.TileData, outlineColor.l)
     y = (outline() >> 16) & $FFFF
     SetPixel(*tile, x, y, outlineColor)
   Next
+EndProcedure
+
+Procedure.i IsNumericText(text.s)
+  Protected i, length
+  Protected character.s
+
+  text = Trim(text)
+  length = Len(text)
+  If length = 0
+    ProcedureReturn #False
+  EndIf
+
+  For i = 1 To length
+    character = Mid(text, i, 1)
+    If i = 1 And (character = "+" Or character = "-")
+      If length = 1
+        ProcedureReturn #False
+      EndIf
+    ElseIf character < "0" Or character > "9"
+      ProcedureReturn #False
+    EndIf
+  Next
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure.s GetTileTypeName(tileType.l)
+  Select tileType
+    Case #TileGrass
+      ProcedureReturn "grass"
+    Case #TileWater
+      ProcedureReturn "water"
+    Case #TileDirt
+      ProcedureReturn "dirt"
+    Case #TileStone
+      ProcedureReturn "stone"
+  EndSelect
+
+  ProcedureReturn "tile"
 EndProcedure
 
 Procedure GenerateTile(*tile.TileData, tileType.l, *palette.ColorPalette, symmetry.l, complexity.l)
@@ -373,7 +415,7 @@ EndProcedure
 Procedure.l SaveTilesetPNG(filename.s)
   Protected tileType, variant
   Protected img, x, y, px, py, color
-  Protected symmetry, outline, complexity, paletteIndex
+  Protected symmetry, outline, complexity, paletteIndex, tileTypeCount, tileTypeId
   Protected tilesetW, tilesetH
   Protected tileLocal.TileData
 
@@ -382,10 +424,15 @@ Procedure.l SaveTilesetPNG(filename.s)
   symmetry = GetGadgetState(#CheckSymmetry)
   outline = GetGadgetState(#CheckOutline)
 
+  tileTypeCount = ListSize(tileTypeIds())
+  If tileTypeCount <= 0
+    ProcedureReturn #False
+  EndIf
+
   paletteIndex = Clamp(paletteIndex, 0, ArraySize(palettes()))
 
-  tilesetW = #TILE_SIZE * 16
-  tilesetH = #TILE_SIZE * 4
+  tilesetW = #TILE_SIZE * #TILE_VARIANTS
+  tilesetH = #TILE_SIZE * tileTypeCount
 
   img = CreateImage(#PB_Any, tilesetW, tilesetH, 32, RGBA(0, 0, 0, 0))
   If img = 0
@@ -399,10 +446,18 @@ Procedure.l SaveTilesetPNG(filename.s)
 
   Box(0, 0, tilesetW, tilesetH, RGBA(0, 0, 0, 0))
 
-  For tileType = 0 To 3
-    For variant = 0 To 15
+  For tileType = 0 To tileTypeCount - 1
+    ResetList(tileTypeIds())
+    If SelectElement(tileTypeIds(), tileType) = 0
+      StopDrawing()
+      FreeImage(img)
+      ProcedureReturn #False
+    EndIf
+    tileTypeId = tileTypeIds()
+
+    For variant = 0 To #TILE_VARIANTS - 1
       RandomSeed((randomSeed + tileType * 1000 + variant) & $7FFFFFFF)
-      GenerateTile(@tileLocal, tileType, @palettes(paletteIndex), symmetry, complexity)
+      GenerateTile(@tileLocal, tileTypeId, @palettes(paletteIndex), symmetry, complexity)
       If outline
         AddOutline(@tileLocal, RGB2(0, 0, 0))
       EndIf
@@ -446,12 +501,19 @@ EndProcedure
 
 Procedure.l SaveTsx(filename.s, imageFilename.s)
   Protected tsxName.s = GetFilePart(filename, #PB_FileSystem_NoExtension)
-  Protected columns = 16
-  Protected tileCount = 16 * 4
+  Protected columns = #TILE_VARIANTS
+  Protected rows = ListSize(tileTypeIds())
+  Protected tileCount = columns * rows
   Protected imgW = #TILE_SIZE * columns
-  Protected imgH = #TILE_SIZE * 4
+  Protected imgH = #TILE_SIZE * rows
   Protected file
   Protected imageRef.s = EscapeXml(GetFileNameOnly(imageFilename))
+  Protected tileId, row, typeId
+  Protected typeName.s
+
+  If rows <= 0
+    ProcedureReturn #False
+  EndIf
 
   file = CreateFile(#PB_Any, filename)
   If file = 0
@@ -463,17 +525,15 @@ Procedure.l SaveTsx(filename.s, imageFilename.s)
   WriteStringN(file, "  <image source='" + imageRef + "' width='" + Str(imgW) + "' height='" + Str(imgH) + "'/>")
 
   ; Per-tile type labels (helps filtering in Tiled)
-  Protected tileId, row
-  Protected typeName.s
   For tileId = 0 To tileCount - 1
     row = tileId / columns
-    Select row
-      Case 0 : typeName = "grass"
-      Case 1 : typeName = "water"
-      Case 2 : typeName = "dirt"
-      Case 3 : typeName = "stone"
-      Default : typeName = "tile"
-    EndSelect
+    ResetList(tileTypeIds())
+    If SelectElement(tileTypeIds(), row)
+      typeId = tileTypeIds()
+    Else
+      typeId = -1
+    EndIf
+    typeName = GetTileTypeName(typeId)
     WriteStringN(file, "  <tile id='" + Str(tileId) + "' type='" + typeName + "'/>")
   Next
 
@@ -586,9 +646,17 @@ Procedure GenerateCurrentTile()
   outline = GetGadgetState(#CheckOutline)
   complexity = GetGadgetState(#SpinComplexity)
 
-  inputSeed = GetGadgetText(#StringSeed)
+  inputSeed = Trim(GetGadgetText(#StringSeed))
   If inputSeed <> ""
+    If IsNumericText(inputSeed) = 0
+      SetStatus("Seed must be a whole number.")
+      SetActiveGadget(#StringSeed)
+      ProcedureReturn
+    EndIf
+
     randomSeed = Val(inputSeed)
+    randomSeed = randomSeed & $7FFFFFFF
+    SetGadgetText(#StringSeed, Str(randomSeed))
   Else
     SetRandomSeed()
   EndIf
@@ -697,9 +765,9 @@ If InitSprite()
 
   ButtonGadget(#ButtonGenerate, 500, 30, 200, 40, "Generate Tile")
   ButtonGadget(#ButtonSaveTile, 500, 80, 200, 35, "Save Tile PNG")
-  ButtonGadget(#ButtonExportTileset, 500, 125, 200, 35, "Export Tileset (16x4)")
+  ButtonGadget(#ButtonExportTileset, 500, 125, 200, 35, "Export Tileset (" + Str(#TILE_VARIANTS) + "x4)")
 
-  TextGadget(#PB_Any, 500, 180, 200, 80, "Tileset layout: 4 rows (types) x 16 cols (variants)." + #CRLF$ + "Row0=Grass Row1=Water Row2=Dirt Row3=Stone")
+  TextGadget(#PB_Any, 500, 180, 200, 80, "Tileset layout: " + Str(ListSize(tileTypeIds())) + " rows (types) x " + Str(#TILE_VARIANTS) + " cols (variants)." + #CRLF$ + "Row0=Grass Row1=Water Row2=Dirt Row3=Stone")
 
   FrameGadget(#PB_Any, 10, 420, 690, 130, "Status")
   TextGadget(#TextStatus, 20, 445, 670, 95, "Ready. Select a palette and tile type, then click Generate.")
@@ -748,9 +816,9 @@ EndIf
 
 End
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 14
-; Folding = -----
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 15
+; Folding = ------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -759,12 +827,12 @@ End
 ; UseIcon = game_tile_gen.ico
 ; Executable = ..\Game_Tile_Gen.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = Game_Tile_Gen
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = A configurable game tile generator
 ; VersionField7 = Game_Tile_Gen
 ; VersionField8 = Game_Tile_Gen.exe

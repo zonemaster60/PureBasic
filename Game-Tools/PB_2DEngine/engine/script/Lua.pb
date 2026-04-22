@@ -35,22 +35,15 @@ EndDeclareModule
   PrototypeC lua_getfield(L.i, idx.i, k.s)
   PrototypeC lua_settop(L.i, idx.i)
   PrototypeC lua_pushnumber(L.i, n.d)
-  PrototypeC lua_pushstring(L.i, s.s)
   PrototypeC lua_createtable(L.i, narr.i, nrec.i)
   PrototypeC lua_setfield(L.i, idx.i, k.s)
   PrototypeC.i lua_type(L.i, idx.i)
-  PrototypeC.d lua_tonumber(L.i, idx.i)
-  PrototypeC.i lua_toboolean(L.i, idx.i)
   PrototypeC lua_pushboolean(L.i, b.i)
   PrototypeC.i lua_tolstring(L.i, idx.i, *len)
   PrototypeC.i lua_gettop(L.i)
   PrototypeC lua_pushvalue(L.i, idx.i)
   PrototypeC.d luaL_checknumber(L.i, arg.i)
-  PrototypeC.i luaL_checklstring(L.i, arg.i, *len)
-  PrototypeC.i luaL_error(L.i, fmt.s)
   PrototypeC.i lua_pushcclosure(L.i, fn.i, n.i)
-  PrototypeC.i lua_settable(L.i, idx.i)
-  PrototypeC lua_setglobal(L.i, name.s)
 
   Global p_luaL_newstate.luaL_newstate
   Global p_luaL_openlibs.luaL_openlibs
@@ -60,20 +53,35 @@ EndDeclareModule
   Global p_lua_getfield.lua_getfield
   Global p_lua_settop.lua_settop
   Global p_lua_pushnumber.lua_pushnumber
-  Global p_lua_pushstring.lua_pushstring
   Global p_lua_createtable.lua_createtable
   Global p_lua_setfield.lua_setfield
   Global p_lua_type.lua_type
-  Global p_lua_tonumber.lua_tonumber
-  Global p_lua_toboolean.lua_toboolean
   Global p_lua_pushboolean.lua_pushboolean
   Global p_lua_tolstring.lua_tolstring
   Global p_lua_gettop.lua_gettop
   Global p_lua_pushvalue.lua_pushvalue
   Global p_luaL_checknumber.luaL_checknumber
-  Global p_luaL_checklstring.luaL_checklstring
-  Global p_luaL_error.luaL_error
   Global p_lua_pushcclosure.lua_pushcclosure
+
+  Procedure ResetLuaBindings()
+    p_luaL_newstate = 0
+    p_luaL_openlibs = 0
+    p_luaL_loadfile = 0
+    p_lua_pcall = 0
+    p_lua_close = 0
+    p_lua_getfield = 0
+    p_lua_settop = 0
+    p_lua_pushnumber = 0
+    p_lua_createtable = 0
+    p_lua_setfield = 0
+    p_lua_type = 0
+    p_lua_pushboolean = 0
+    p_lua_tolstring = 0
+    p_lua_gettop = 0
+    p_lua_pushvalue = 0
+    p_luaL_checknumber = 0
+    p_lua_pushcclosure = 0
+  EndProcedure
 
   Procedure ClearStack()
     If g_L And p_lua_settop
@@ -97,7 +105,7 @@ EndDeclareModule
   EndProcedure
 
   Procedure.i PrepareGlobalFunctionCall(functionName.s)
-    If g_L = 0
+    If g_L = 0 Or p_lua_getfield = 0 Or p_lua_type = 0
       ProcedureReturn #False
     EndIf
 
@@ -124,6 +132,8 @@ EndDeclareModule
       ProcedureReturn #True
     EndIf
 
+    ResetLuaBindings()
+
     g_dll = OpenLibrary(#PB_Any, dllPath)
     If g_dll = 0
       Log::Warn("LuaJIT DLL not found: " + dllPath)
@@ -138,19 +148,14 @@ EndDeclareModule
     p_lua_getfield = GetFunction(g_dll, "lua_getfield")
     p_lua_settop = GetFunction(g_dll, "lua_settop")
     p_lua_pushnumber = GetFunction(g_dll, "lua_pushnumber")
-    p_lua_pushstring = GetFunction(g_dll, "lua_pushstring")
     p_lua_createtable = GetFunction(g_dll, "lua_createtable")
     p_lua_setfield = GetFunction(g_dll, "lua_setfield")
     p_lua_type = GetFunction(g_dll, "lua_type")
-    p_lua_tonumber = GetFunction(g_dll, "lua_tonumber")
-    p_lua_toboolean = GetFunction(g_dll, "lua_toboolean")
     p_lua_pushboolean = GetFunction(g_dll, "lua_pushboolean")
     p_lua_tolstring = GetFunction(g_dll, "lua_tolstring")
     p_lua_gettop = GetFunction(g_dll, "lua_gettop")
     p_lua_pushvalue = GetFunction(g_dll, "lua_pushvalue")
     p_luaL_checknumber = GetFunction(g_dll, "luaL_checknumber")
-    p_luaL_checklstring = GetFunction(g_dll, "luaL_checklstring")
-    p_luaL_error = GetFunction(g_dll, "luaL_error")
     p_lua_pushcclosure = GetFunction(g_dll, "lua_pushcclosure")
 
     If p_luaL_newstate = 0 : Log::Error("Lua bind missing: luaL_newstate") : EndIf
@@ -161,25 +166,21 @@ EndDeclareModule
     If p_lua_getfield = 0 : Log::Error("Lua bind missing: lua_getfield") : EndIf
     If p_lua_settop = 0 : Log::Error("Lua bind missing: lua_settop") : EndIf
     If p_lua_pushnumber = 0 : Log::Error("Lua bind missing: lua_pushnumber") : EndIf
-    If p_lua_pushstring = 0 : Log::Error("Lua bind missing: lua_pushstring") : EndIf
     If p_lua_createtable = 0 : Log::Error("Lua bind missing: lua_createtable") : EndIf
     If p_lua_setfield = 0 : Log::Error("Lua bind missing: lua_setfield") : EndIf
     If p_lua_type = 0 : Log::Error("Lua bind missing: lua_type") : EndIf
-    If p_lua_tonumber = 0 : Log::Error("Lua bind missing: lua_tonumber") : EndIf
-    If p_lua_toboolean = 0 : Log::Error("Lua bind missing: lua_toboolean") : EndIf
     If p_lua_pushboolean = 0 : Log::Error("Lua bind missing: lua_pushboolean") : EndIf
     If p_lua_tolstring = 0 : Log::Error("Lua bind missing: lua_tolstring") : EndIf
     If p_lua_gettop = 0 : Log::Error("Lua bind missing: lua_gettop") : EndIf
     If p_lua_pushvalue = 0 : Log::Error("Lua bind missing: lua_pushvalue") : EndIf
     If p_luaL_checknumber = 0 : Log::Error("Lua bind missing: luaL_checknumber") : EndIf
-    If p_luaL_checklstring = 0 : Log::Error("Lua bind missing: luaL_checklstring") : EndIf
-    If p_luaL_error = 0 : Log::Error("Lua bind missing: luaL_error") : EndIf
     If p_lua_pushcclosure = 0 : Log::Error("Lua bind missing: lua_pushcclosure") : EndIf
 
-    If p_luaL_newstate = 0 Or p_luaL_openlibs = 0 Or p_luaL_loadfile = 0 Or p_lua_pcall = 0 Or p_lua_close = 0 Or p_lua_getfield = 0 Or p_lua_settop = 0 Or p_lua_pushnumber = 0 Or p_lua_pushstring = 0 Or p_lua_createtable = 0 Or p_lua_setfield = 0 Or p_lua_gettop = 0 Or p_lua_pushvalue = 0 Or p_lua_type = 0 Or p_lua_tonumber = 0 Or p_lua_toboolean = 0 Or p_lua_pushboolean = 0 Or p_lua_tolstring = 0 Or p_luaL_checknumber = 0 Or p_luaL_checklstring = 0 Or p_luaL_error = 0 Or p_lua_pushcclosure = 0
+    If p_luaL_newstate = 0 Or p_luaL_openlibs = 0 Or p_luaL_loadfile = 0 Or p_lua_pcall = 0 Or p_lua_close = 0 Or p_lua_getfield = 0 Or p_lua_settop = 0 Or p_lua_pushnumber = 0 Or p_lua_createtable = 0 Or p_lua_setfield = 0 Or p_lua_gettop = 0 Or p_lua_pushvalue = 0 Or p_lua_type = 0 Or p_lua_pushboolean = 0 Or p_lua_tolstring = 0 Or p_luaL_checknumber = 0 Or p_lua_pushcclosure = 0
       Log::Error("LuaJIT function binding failed")
       CloseLibrary(g_dll)
       g_dll = 0
+      ResetLuaBindings()
       ProcedureReturn #False
     EndIf
 
@@ -188,6 +189,7 @@ EndDeclareModule
       Log::Error("luaL_newstate failed")
       CloseLibrary(g_dll)
       g_dll = 0
+      ResetLuaBindings()
       ProcedureReturn #False
     EndIf
 
@@ -322,6 +324,8 @@ EndDeclareModule
       CloseLibrary(g_dll)
       g_dll = 0
     EndIf
+
+    ResetLuaBindings()
   EndProcedure
 
   Procedure.i LoadFile(scriptPath.s)

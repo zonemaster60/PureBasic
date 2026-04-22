@@ -10,8 +10,17 @@ EndDeclareModule
 Module Log
   Global g_logFile.i = 0
 
+  Procedure WriteLine(line.s)
+    Debug line
+
+    If g_logFile
+      WriteStringN(g_logFile, line)
+      FlushFileBuffers(g_logFile)
+    EndIf
+  EndProcedure
+
   Procedure Init()
-    Debug "LOG: Init"
+    WriteLine("[INFO] Log initialized")
   EndProcedure
 
   Procedure InitFile(path.s)
@@ -22,26 +31,22 @@ Module Log
 
     g_logFile = CreateFile(#PB_Any, path)
     If g_logFile
-      WriteStringN(g_logFile, "LOG: Started at " + FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date()))
+      WriteLine("[INFO] Log started at " + FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date()))
+    Else
+      Debug "[ERROR] Failed to open log file: " + path
     EndIf
   EndProcedure
 
   Procedure Info(msg.s)
-    Protected t.s = "[INFO] " + msg
-    Debug t
-    If g_logFile : WriteStringN(g_logFile, t) : FlushFileBuffers(g_logFile) : EndIf
+    WriteLine("[INFO] " + msg)
   EndProcedure
 
   Procedure Warn(msg.s)
-    Protected t.s = "[WARN] " + msg
-    Debug t
-    If g_logFile : WriteStringN(g_logFile, t) : FlushFileBuffers(g_logFile) : EndIf
+    WriteLine("[WARN] " + msg)
   EndProcedure
 
   Procedure Error(msg.s)
-    Protected t.s = "[ERROR] " + msg
-    Debug t
-    If g_logFile : WriteStringN(g_logFile, t) : FlushFileBuffers(g_logFile) : EndIf
+    WriteLine("[ERROR] " + msg)
   EndProcedure
 
   Procedure Shutdown()

@@ -11,7 +11,7 @@ EnableExplicit
 #CHANNELS = 1
 #APP_NAME = "Game_Sndfx_Gen"
 
-Global version.s = "v1.0.0.2"
+Global version.s = "v1.0.0.3"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -58,10 +58,49 @@ Structure SoundParams
   release.f
 EndStructure
 
+Enumeration
+  #Window
+  #ListEffect
+  #ButtonGenerate
+  #ButtonSave
+  #ButtonPlay
+  #ButtonStop
+  #TextDuration
+  #SpinDuration
+  #TextFrequency
+  #SpinFrequency
+  #TextFreqLabel
+  #TextPitch
+  #SpinPitch
+  #TextSpeed
+  #SpinSpeed
+  #TextAttack
+  #SpinAttack
+  #TextDecay
+  #SpinDecay
+  #TextSustain
+  #SpinSustain
+  #TextRelease
+  #SpinRelease
+  #ButtonRandomize
+  #TextStatus
+EndEnumeration
+
+#PlaybackPollTimer = 1
+
+Global.SoundEffect currentEffect
+Global.SoundParams params
+Global sound.i = -1
+Global tempSoundFile.s
+
 Declare StopPlayback()
 Declare CleanupAndExit()
 Declare SetStatus(text.s)
 Declare UpdateActionButtons(hasEffect.i, isPlaying.i)
+Declare UpdatePlaybackState()
+Declare.s EnsureWaveExtension(filename.s)
+Declare.s GetDefaultSaveFilename()
+Declare.i PrepareEffect(*effect.SoundEffect, *params.SoundParams, name.s)
 Declare.i CreateWaveFile(filename.s, *effect.SoundEffect)
 Declare GenerateExplosion(*effect.SoundEffect, *params.SoundParams)
 Declare GenerateLaser(*effect.SoundEffect, *params.SoundParams)
@@ -83,12 +122,63 @@ Declare GenerateGameOver(*effect.SoundEffect, *params.SoundParams)
 Procedure CleanupAndExit()
   StopPlayback()
 
+  If IsWindow(#Window)
+    RemoveWindowTimer(#Window, #PlaybackPollTimer)
+  EndIf
+
   If hMutex
     CloseHandle_(hMutex)
     hMutex = 0
   EndIf
 
   End
+EndProcedure
+
+Procedure.s EnsureWaveExtension(filename.s)
+  If filename = ""
+    ProcedureReturn ""
+  EndIf
+
+  If LCase(GetExtensionPart(filename)) <> "wav"
+    ProcedureReturn filename + ".wav"
+  EndIf
+
+  ProcedureReturn filename
+EndProcedure
+
+Procedure.s GetDefaultSaveFilename()
+  Protected baseName.s = "sound_effect"
+
+  If currentEffect\name
+    baseName = LCase(currentEffect\name)
+    baseName = ReplaceString(baseName, " ", "_")
+  EndIf
+
+  ProcedureReturn baseName + ".wav"
+EndProcedure
+
+Procedure.i PrepareEffect(*effect.SoundEffect, *params.SoundParams, name.s)
+  Protected numSamples.i
+
+  If *params\speed <= 0.0 Or *params\duration <= 0.0
+    *effect\name = name
+    *effect\duration = 0.0
+    *effect\numSamples = 0
+    Dim *effect\samples(0)
+    ProcedureReturn 0
+  EndIf
+
+  numSamples = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  If numSamples < 1
+    numSamples = 1
+  EndIf
+
+  *effect\duration = *params\duration
+  *effect\name = name
+  *effect\numSamples = numSamples
+  Dim *effect\samples(numSamples - 1)
+
+  ProcedureReturn numSamples
 EndProcedure
 
 Procedure ConfirmExit()
@@ -164,14 +254,13 @@ Procedure.f Envelope(t.f, attack.f, decay.f, sustain.f, release.f, duration.f)
 EndProcedure
 
 Procedure GenerateExplosion(*effect.SoundEffect, *params.SoundParams)
-  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = PrepareEffect(*effect, *params, "Explosion")
   Protected.f t, amplitude, noise, envelope
   Protected i.i
-  
-  *effect\duration = *params\duration
-  *effect\name = "Explosion"
-  *effect\numSamples = numSamples
-  Dim *effect\samples(numSamples - 1)
+
+  If numSamples <= 0
+    ProcedureReturn
+  EndIf
   
   For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
@@ -185,15 +274,14 @@ Procedure GenerateExplosion(*effect.SoundEffect, *params.SoundParams)
 EndProcedure
 
 Procedure GenerateLaser(*effect.SoundEffect, *params.SoundParams)
-  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = PrepareEffect(*effect, *params, "Laser")
   Protected.f t, amplitude, currentFreq, phase
   Protected i.i
   Protected.f twoPi = 2.0 * #PI
-  
-  *effect\duration = *params\duration
-  *effect\name = "Laser"
-  *effect\numSamples = numSamples
-  Dim *effect\samples(numSamples - 1)
+
+  If numSamples <= 0
+    ProcedureReturn
+  EndIf
   
   For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
@@ -206,15 +294,14 @@ Procedure GenerateLaser(*effect.SoundEffect, *params.SoundParams)
 EndProcedure
 
 Procedure GenerateJump(*effect.SoundEffect, *params.SoundParams)
-  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = PrepareEffect(*effect, *params, "Jump")
   Protected.f t, amplitude, frequency, phase
   Protected i.i
   Protected.f twoPi = 2.0 * #PI
-  
-  *effect\duration = *params\duration
-  *effect\name = "Jump"
-  *effect\numSamples = numSamples
-  Dim *effect\samples(numSamples - 1)
+
+  If numSamples <= 0
+    ProcedureReturn
+  EndIf
   
   For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
@@ -227,15 +314,14 @@ Procedure GenerateJump(*effect.SoundEffect, *params.SoundParams)
 EndProcedure
 
 Procedure GeneratePickup(*effect.SoundEffect, *params.SoundParams)
-  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = PrepareEffect(*effect, *params, "Pickup")
   Protected.f t, amplitude, frequency, phase
   Protected i.i
   Protected.f twoPi = 2.0 * #PI
-  
-  *effect\duration = *params\duration
-  *effect\name = "Pickup"
-  *effect\numSamples = numSamples
-  Dim *effect\samples(numSamples - 1)
+
+  If numSamples <= 0
+    ProcedureReturn
+  EndIf
   
   For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
@@ -248,15 +334,14 @@ Procedure GeneratePickup(*effect.SoundEffect, *params.SoundParams)
 EndProcedure
 
 Procedure GeneratePowerUp(*effect.SoundEffect, *params.SoundParams)
-  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = PrepareEffect(*effect, *params, "PowerUp")
   Protected.f t, amplitude, frequency, phase, envelope
   Protected i.i
   Protected.f twoPi = 2.0 * #PI
-  
-  *effect\duration = *params\duration
-  *effect\name = "PowerUp"
-  *effect\numSamples = numSamples
-  Dim *effect\samples(numSamples - 1)
+
+  If numSamples <= 0
+    ProcedureReturn
+  EndIf
   
   For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
@@ -270,14 +355,13 @@ Procedure GeneratePowerUp(*effect.SoundEffect, *params.SoundParams)
 EndProcedure
 
 Procedure GenerateHit(*effect.SoundEffect, *params.SoundParams)
-  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = PrepareEffect(*effect, *params, "Hit")
   Protected.f t, amplitude, noise
   Protected i.i
-  
-  *effect\duration = *params\duration
-  *effect\name = "Hit"
-  *effect\numSamples = numSamples
-  Dim *effect\samples(numSamples - 1)
+
+  If numSamples <= 0
+    ProcedureReturn
+  EndIf
   
   For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
@@ -289,15 +373,14 @@ Procedure GenerateHit(*effect.SoundEffect, *params.SoundParams)
 EndProcedure
 
 Procedure GenerateShoot(*effect.SoundEffect, *params.SoundParams)
-  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = PrepareEffect(*effect, *params, "Shoot")
   Protected.f t, amplitude, frequency, phase, noise
   Protected i.i
   Protected.f twoPi = 2.0 * #PI
-  
-  *effect\duration = *params\duration
-  *effect\name = "Shoot"
-  *effect\numSamples = numSamples
-  Dim *effect\samples(numSamples - 1)
+
+  If numSamples <= 0
+    ProcedureReturn
+  EndIf
   
   For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
@@ -311,15 +394,14 @@ Procedure GenerateShoot(*effect.SoundEffect, *params.SoundParams)
 EndProcedure
 
 Procedure GenerateBeep(*effect.SoundEffect, *params.SoundParams)
-  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = PrepareEffect(*effect, *params, "Beep")
   Protected.f t, amplitude, phase, envelope
   Protected i.i
   Protected.f twoPi = 2.0 * #PI
-  
-  *effect\duration = *params\duration
-  *effect\name = "Beep"
-  *effect\numSamples = numSamples
-  Dim *effect\samples(numSamples - 1)
+
+  If numSamples <= 0
+    ProcedureReturn
+  EndIf
   
   For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
@@ -332,15 +414,14 @@ Procedure GenerateBeep(*effect.SoundEffect, *params.SoundParams)
 EndProcedure
 
 Procedure GenerateAlarm(*effect.SoundEffect, *params.SoundParams)
-  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = PrepareEffect(*effect, *params, "Alarm")
   Protected.f t, amplitude, frequency, phase
   Protected i.i
   Protected.f twoPi = 2.0 * #PI
-  
-  *effect\duration = *params\duration
-  *effect\name = "Alarm"
-  *effect\numSamples = numSamples
-  Dim *effect\samples(numSamples - 1)
+
+  If numSamples <= 0
+    ProcedureReturn
+  EndIf
   
   For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
@@ -353,15 +434,14 @@ Procedure GenerateAlarm(*effect.SoundEffect, *params.SoundParams)
 EndProcedure
 
 Procedure GenerateCoin(*effect.SoundEffect, *params.SoundParams)
-  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = PrepareEffect(*effect, *params, "Coin")
   Protected.f t, amplitude, frequency, phase
   Protected i.i
   Protected.f twoPi = 2.0 * #PI
-  
-  *effect\duration = *params\duration
-  *effect\name = "Coin"
-  *effect\numSamples = numSamples
-  Dim *effect\samples(numSamples - 1)
+
+  If numSamples <= 0
+    ProcedureReturn
+  EndIf
   
   For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
@@ -374,15 +454,14 @@ Procedure GenerateCoin(*effect.SoundEffect, *params.SoundParams)
 EndProcedure
 
 Procedure GenerateFootstep(*effect.SoundEffect, *params.SoundParams)
-  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = PrepareEffect(*effect, *params, "Footstep")
   Protected.f t, amplitude, noise, lowFreq, phase
   Protected i.i
   Protected.f twoPi = 2.0 * #PI
-  
-  *effect\duration = *params\duration
-  *effect\name = "Footstep"
-  *effect\numSamples = numSamples
-  Dim *effect\samples(numSamples - 1)
+
+  If numSamples <= 0
+    ProcedureReturn
+  EndIf
   
   For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
@@ -396,14 +475,13 @@ Procedure GenerateFootstep(*effect.SoundEffect, *params.SoundParams)
 EndProcedure
 
 Procedure GenerateClick(*effect.SoundEffect, *params.SoundParams)
-  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = PrepareEffect(*effect, *params, "Click")
   Protected.f t, amplitude, noise
   Protected i.i
-  
-  *effect\duration = *params\duration
-  *effect\name = "Click"
-  *effect\numSamples = numSamples
-  Dim *effect\samples(numSamples - 1)
+
+  If numSamples <= 0
+    ProcedureReturn
+  EndIf
   
   For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
@@ -415,14 +493,13 @@ Procedure GenerateClick(*effect.SoundEffect, *params.SoundParams)
 EndProcedure
 
 Procedure GenerateWhoosh(*effect.SoundEffect, *params.SoundParams)
-  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = PrepareEffect(*effect, *params, "Whoosh")
   Protected.f t, amplitude, noise, envelope
   Protected i.i
-  
-  *effect\duration = *params\duration
-  *effect\name = "Whoosh"
-  *effect\numSamples = numSamples
-  Dim *effect\samples(numSamples - 1)
+
+  If numSamples <= 0
+    ProcedureReturn
+  EndIf
   
   For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
@@ -435,15 +512,14 @@ Procedure GenerateWhoosh(*effect.SoundEffect, *params.SoundParams)
 EndProcedure
 
 Procedure GenerateBounce(*effect.SoundEffect, *params.SoundParams)
-  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = PrepareEffect(*effect, *params, "Bounce")
   Protected.f t, amplitude, frequency, phase
   Protected i.i
   Protected.f twoPi = 2.0 * #PI
-  
-  *effect\duration = *params\duration
-  *effect\name = "Bounce"
-  *effect\numSamples = numSamples
-  Dim *effect\samples(numSamples - 1)
+
+  If numSamples <= 0
+    ProcedureReturn
+  EndIf
   
   For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
@@ -456,15 +532,14 @@ Procedure GenerateBounce(*effect.SoundEffect, *params.SoundParams)
 EndProcedure
 
 Procedure GenerateGameOver(*effect.SoundEffect, *params.SoundParams)
-  Protected numSamples.i = Round(#SAMPLE_RATE * *params\duration / *params\speed, #PB_Round_Down)
+  Protected numSamples.i = PrepareEffect(*effect, *params, "GameOver")
   Protected.f t, amplitude, frequency, phase, envelope
   Protected i.i
   Protected.f twoPi = 2.0 * #PI
-  
-  *effect\duration = *params\duration
-  *effect\name = "GameOver"
-  *effect\numSamples = numSamples
-  Dim *effect\samples(numSamples - 1)
+
+  If numSamples <= 0
+    ProcedureReturn
+  EndIf
   
   For i = 0 To numSamples - 1
     t = (i / #SAMPLE_RATE) * *params\speed
@@ -483,6 +558,7 @@ Procedure NormalizeEffect(*effect.SoundEffect)
   Protected.f currentAbs
   Protected.d sum = 0.0
   Protected.f mean = 0.0
+  Protected.f ratio
 
   If *effect\numSamples <= 0
     ProcedureReturn
@@ -509,7 +585,7 @@ Procedure NormalizeEffect(*effect.SoundEffect)
   
   ; Normalize if needed
   If maxAmp > 0.0001
-    Protected.f ratio = 0.95 / maxAmp ; Target 95% of full range
+    ratio = 0.95 / maxAmp ; Target 95% of full range
     For i = 0 To *effect\numSamples - 1
       *effect\samples(i) = *effect\samples(i) * ratio
     Next
@@ -564,39 +640,6 @@ EndProcedure
 ; GUI Section
 ; ====================================================================
 
-Enumeration
-  #Window
-  #ListEffect
-  #ButtonGenerate
-  #ButtonSave
-  #ButtonPlay
-  #ButtonStop
-  #TextDuration
-  #SpinDuration
-  #TextFrequency
-  #SpinFrequency
-  #TextFreqLabel
-  #TextPitch
-  #SpinPitch
-  #TextSpeed
-  #SpinSpeed
-  #TextAttack
-  #SpinAttack
-  #TextDecay
-  #SpinDecay
-  #TextSustain
-  #SpinSustain
-  #TextRelease
-  #SpinRelease
-  #ButtonRandomize
-  #TextStatus
-EndEnumeration
-
-Global.SoundEffect currentEffect
-Global.SoundParams params
-Global sound = -1
-Global tempSoundFile.s
-
 Procedure SetStatus(text.s)
   If IsGadget(#TextStatus)
     SetGadgetText(#TextStatus, text)
@@ -620,7 +663,11 @@ EndProcedure
 Procedure UpdateControls()
   Protected selectedItem = GetGadgetState(#ListEffect)
   Protected showFrequency = #False
-  Protected hideFrequency
+  Protected hideFrequency = #True
+
+  If IsGadget(#ButtonRandomize)
+    DisableGadget(#ButtonRandomize, Bool(selectedItem < 0))
+  EndIf
   
   If selectedItem >= 0
     DisableGadget(#ButtonGenerate, #False)
@@ -641,20 +688,24 @@ Procedure UpdateControls()
     HideGadget(#TextFreqLabel, hideFrequency)
   Else
     DisableGadget(#ButtonGenerate, #True)
+    HideGadget(#TextFrequency, #True)
+    HideGadget(#SpinFrequency, #True)
+    HideGadget(#TextFreqLabel, #True)
   EndIf
 
   UpdateActionButtons(Bool(currentEffect\numSamples > 0), Bool(sound >= 0))
 EndProcedure
 
 Procedure RandomizeParameters()
-  SetGadgetState(#SpinDuration, Random(200, 20)) ; 0.2s - 2.0s
-  SetGadgetState(#SpinFrequency, Random(1500, 100))
-  SetGadgetState(#SpinPitch, Random(150, 50))
-  SetGadgetState(#SpinSpeed, Random(150, 50))
-  SetGadgetState(#SpinAttack, Random(200, 0))
-  SetGadgetState(#SpinDecay, Random(300, 0))
+  ; Keep randomized values aligned with the configured spin gadget ranges.
+  SetGadgetState(#SpinDuration, Random(500, 5))
+  SetGadgetState(#SpinFrequency, Random(2000, 100))
+  SetGadgetState(#SpinPitch, Random(200, 50))
+  SetGadgetState(#SpinSpeed, Random(200, 50))
+  SetGadgetState(#SpinAttack, Random(500, 0))
+  SetGadgetState(#SpinDecay, Random(500, 0))
   SetGadgetState(#SpinSustain, Random(100, 0))
-  SetGadgetState(#SpinRelease, Random(500, 10))
+  SetGadgetState(#SpinRelease, Random(1000, 0))
 EndProcedure
 
 Procedure GenerateCurrentEffect()
@@ -676,10 +727,10 @@ Procedure GenerateCurrentEffect()
   params\release = GetGadgetState(#SpinRelease) / 1000.0
 
   ; Defensive validation (don’t rely only on gadget min/max).
-  params\duration = Clamp(params\duration, 0.01, 60.0)
-  params\frequency = Clamp(params\frequency, 20.0, 20000.0)
-  params\pitch = Clamp(params\pitch, 0.01, 10.0)
-  params\speed = Clamp(params\speed, 0.01, 10.0)
+  params\duration = Clamp(params\duration, 0.05, 5.0)
+  params\frequency = Clamp(params\frequency, 100.0, 2000.0)
+  params\pitch = Clamp(params\pitch, 0.5, 2.0)
+  params\speed = Clamp(params\speed, 0.5, 2.0)
   params\sustain = Clamp(params\sustain, 0.0, 1.0)
 
   params\attack = Clamp(params\attack, 0.0, params\duration)
@@ -736,14 +787,18 @@ Procedure GenerateCurrentEffect()
 EndProcedure
 
 Procedure SaveCurrentEffect()
-  Protected filename.s = SaveFileRequester("Save Sound Effect", "sound_effect.wav", "Wave Files (*.wav)|*.wav", 0)
+  Protected filename.s
 
   If currentEffect\numSamples <= 0
     SetStatus("Generate an effect first")
     ProcedureReturn
   EndIf
+
+  filename = SaveFileRequester("Save Sound Effect", GetDefaultSaveFilename(), "Wave Files (*.wav)|*.wav", 0)
   
   If filename
+    filename = EnsureWaveExtension(filename)
+
     If CreateWaveFile(filename, @currentEffect)
       SetStatus("Saved: " + filename)
       MessageRequester("Success", "Sound effect saved successfully!", #PB_MessageRequester_Ok)
@@ -752,6 +807,27 @@ Procedure SaveCurrentEffect()
       MessageRequester("Error", "Failed to save sound effect!", #PB_MessageRequester_Error)
     EndIf
   EndIf
+EndProcedure
+
+Procedure UpdatePlaybackState()
+  If sound < 0
+    ProcedureReturn
+  EndIf
+
+  If SoundStatus(sound) = #PB_Sound_Playing
+    ProcedureReturn
+  EndIf
+
+  FreeSound(sound)
+  sound = -1
+
+  If tempSoundFile
+    DeleteFile(tempSoundFile)
+    tempSoundFile = ""
+  EndIf
+
+  SetStatus("Playback finished")
+  UpdateControls()
 EndProcedure
 
 Procedure StopPlayback()
@@ -792,9 +868,18 @@ Procedure PlayCurrentEffect()
     sound = LoadSound(#PB_Any, tempFile)
     If sound >= 0
       tempSoundFile = tempFile
-      PlaySound(sound)
-      UpdateActionButtons(#True, #True)
-      SetStatus("Playing: " + currentEffect\name)
+
+      If PlaySound(sound)
+        UpdateActionButtons(#True, #True)
+        SetStatus("Playing: " + currentEffect\name)
+      Else
+        FreeSound(sound)
+        sound = -1
+        DeleteFile(tempFile)
+        tempSoundFile = ""
+        UpdateActionButtons(#True, #False)
+        SetStatus("Error: Failed to start playback")
+      EndIf
     Else
       DeleteFile(tempFile)
       UpdateActionButtons(#True, #False)
@@ -812,7 +897,12 @@ EndProcedure
 
 If InitSound()
   
-  OpenWindow(#Window, 0, 0, 800, 600, #APP_NAME + " - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget)
+  If OpenWindow(#Window, 0, 0, 800, 600, #APP_NAME + " - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget) = 0
+    MessageRequester("Error", "Failed to open application window!", #PB_MessageRequester_Error)
+    CleanupAndExit()
+  EndIf
+
+  AddWindowTimer(#Window, #PlaybackPollTimer, 100)
   
   TextGadget(#PB_Any, 10, 10, 200, 20, "Select Sound Effect:")
   ListIconGadget(#ListEffect, 10, 30, 280, 480, "Effect", 250, #PB_ListIcon_GridLines | #PB_ListIcon_FullRowSelect)
@@ -887,8 +977,7 @@ If InitSound()
   FrameGadget(#PB_Any, 10, 520, 770, 70, "Status")
   TextGadget(#TextStatus, 20, 545, 750, 40, "Ready. Select a sound effect and adjust parameters, then click Generate.")
   
-  DisableGadget(#ButtonGenerate, #True)
-  UpdateActionButtons(#False, #False)
+  UpdateControls()
   
   Define event
   
@@ -920,6 +1009,11 @@ If InitSound()
           Case #ButtonStop
             StopPlayback()
         EndSelect
+
+      Case #PB_Event_Timer
+        If EventTimer() = #PlaybackPollTimer
+          UpdatePlaybackState()
+        EndIf
     EndSelect
   ForEver
   
@@ -936,7 +1030,7 @@ EndIf
 
 End
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 13
 ; Folding = ------
 ; Optimizer
@@ -947,12 +1041,12 @@ End
 ; UseIcon = game_sndfx_gen.ico
 ; Executable = ..\Game_Sndfx_Gen.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = Game_Sndfx_Gen
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = A configurable Sound Effects generator
 ; VersionField7 = Game_Sndfx_Gen
 ; VersionField8 = Game_Sndfx_Gen.exe

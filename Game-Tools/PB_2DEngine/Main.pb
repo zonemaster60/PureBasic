@@ -3,6 +3,8 @@
 
 EnableExplicit
 
+Global version.s = "v1.0.0.1"
+
 XIncludeFile "engine/core/Time.pb"
 XIncludeFile "engine/core/Log.pb"
 XIncludeFile "engine/gfx/Gfx.pb"
@@ -100,6 +102,10 @@ Procedure Main()
 
   Protected quit.i = #False
   Protected dtFixed.f = Time::FixedDeltaSeconds()
+  If dtFixed <= 0.0
+    dtFixed = 1.0 / 60.0
+  EndIf
+
   Protected accumulator.f = 0.0
   Protected lastTime.d = Time::NowSeconds()
 
@@ -134,10 +140,17 @@ Procedure Main()
       If Time::NowSeconds() >= smokeEndTime
         quit = #True
       EndIf
+    CompilerElseIf Defined(HEADLESS, #PB_Constant)
+      If Time::NowSeconds() >= smokeEndTime
+        quit = #True
+      EndIf
     CompilerEndIf
 
     Protected now.d = Time::NowSeconds()
     Protected frameDelta.f = (now - lastTime)
+    If frameDelta < 0.0
+      frameDelta = 0.0
+    EndIf
     If frameDelta > 0.25
       frameDelta = 0.25
     EndIf
@@ -199,9 +212,8 @@ EndProcedure
 
 Main()
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 137
-; FirstLine = 137
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 5
 ; Folding = ---
 ; Optimizer
 ; EnableThread
@@ -211,12 +223,12 @@ Main()
 ; UseIcon = Main.ico
 ; Executable = PB_2DEngine.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_2DEngine
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = PureBasic 2D Engine with LUA scripting
 ; VersionField7 = PB_2DEngine
 ; VersionField8 = PB_2DEngine.exe
