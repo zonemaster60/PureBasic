@@ -11,10 +11,10 @@ EnableExplicit
 #TaskXmlNamespace = "http://schemas.microsoft.com/windows/2004/02/mit/task"
 #TaskSchemaVersion = "1.6"
 
-#APP_NAME = "XML-Task_Maker"
+#APP_NAME = "PB_XML-Task_Maker"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
-#LogFileDefault = "XML-Task_Maker.log"
+#LogFileDefault = "PB_XML-Task_Maker.log"
 #DefaultTaskName = "MyDailyTask"
 #DefaultExe       = "C:\Tools\MyApp.exe"
 #DefaultArgs      = "--quiet"
@@ -24,7 +24,7 @@ EnableExplicit
 Global LogBuffer.s = ""
 Global LogFile.s = #LogFileDefault
 
-Global version.s = "v1.0.0.4"
+Global version.s = "v1.0.0.5"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -53,6 +53,7 @@ Structure TaskOptions
   repeatISO.s
   runLevelHighest.i
   logonType.s
+  strictPathValidation.i
   allowDemandStart.i
   allowHardTerminate.i
   runOnlyIfNetworkAvailable.i
@@ -167,6 +168,8 @@ EndProcedure
 
 Procedure.i IsValidIsoDateTime(value.s)
   Protected i
+  Protected year.i, month.i, day.i, hour.i, minute.i, second.i
+  Protected maxDay.i
 
   If Len(value) <> 19
     ProcedureReturn #False
@@ -186,11 +189,43 @@ Procedure.i IsValidIsoDateTime(value.s)
     EndSelect
   Next
 
+  year = Val(Mid(value, 1, 4))
+  month = Val(Mid(value, 6, 2))
+  day = Val(Mid(value, 9, 2))
+  hour = Val(Mid(value, 12, 2))
+  minute = Val(Mid(value, 15, 2))
+  second = Val(Mid(value, 18, 2))
+
+  If year < 1601 Or month < 1 Or month > 12 Or hour > 23 Or minute > 59 Or second > 59
+    ProcedureReturn #False
+  EndIf
+
+  Select month
+    Case 4, 6, 9, 11
+      maxDay = 30
+    Case 2
+      maxDay = 28
+      If (year % 400 = 0) Or ((year % 4 = 0) And (year % 100 <> 0))
+        maxDay = 29
+      EndIf
+    Default
+      maxDay = 31
+  EndSelect
+
+  If day < 1 Or day > maxDay
+    ProcedureReturn #False
+  EndIf
+
   ProcedureReturn #True
 EndProcedure
 
 Procedure.i IsValidIsoDuration(value.s)
   Protected upperValue.s = UCase(Trim(value))
+  Protected pos.i
+  Protected hasDesignator.i
+  Protected inTimeSection.i
+  Protected currentNumber.s = ""
+  Protected currentChar.s
 
   If upperValue = ""
     ProcedureReturn #True
@@ -204,13 +239,89 @@ Procedure.i IsValidIsoDuration(value.s)
     ProcedureReturn #False
   EndIf
 
+  If upperValue = "P"
+    ProcedureReturn #False
+  EndIf
+
+  For pos = 2 To Len(upperValue)
+    currentChar = Mid(upperValue, pos, 1)
+
+    Select currentChar
+      Case "T"
+        If inTimeSection Or pos = Len(upperValue)
+          ProcedureReturn #False
+        EndIf
+        inTimeSection = #True
+        currentNumber = ""
+
+      Case "Y", "M", "W", "D", "H", "S"
+        If currentNumber = ""
+          ProcedureReturn #False
+        EndIf
+
+        Select currentChar
+          Case "Y", "W", "D"
+            If inTimeSection
+              ProcedureReturn #False
+            EndIf
+          Case "H", "S"
+            If inTimeSection = #False
+              ProcedureReturn #False
+            EndIf
+          Case "M"
+            ; Months are only valid before T, minutes only after T.
+        EndSelect
+
+        currentNumber = ""
+        hasDesignator = #True
+
+      Default
+        If FindString("0123456789", currentChar) = 0
+          ProcedureReturn #False
+        EndIf
+        currentNumber + currentChar
+    EndSelect
+  Next
+
+  If currentNumber <> "" Or hasDesignator = #False
+    ProcedureReturn #False
+  EndIf
+
   ProcedureReturn #True
+EndProcedure
+
+Procedure.i IsReservedTaskName(value.s)
+  Protected upperValue.s = UCase(Trim(value))
+
+  Select upperValue
+    Case "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+      ProcedureReturn #True
+  EndSelect
+
+  ProcedureReturn #False
+EndProcedure
+
+Procedure NormalizeTaskOptions(*opt.TaskOptions)
+  *opt\taskName = Trim(*opt\taskName)
+  *opt\author = Trim(*opt\author)
+  *opt\description = Trim(*opt\description)
+  *opt\exePath = Trim(*opt\exePath)
+  *opt\arguments = Trim(*opt\arguments)
+  *opt\workingDir = Trim(*opt\workingDir)
+  *opt\startBoundaryISO = Trim(*opt\startBoundaryISO)
+  *opt\repeatISO = UCase(Trim(*opt\repeatISO))
+  *opt\logonType = Trim(*opt\logonType)
+  *opt\multipleInstancesPolicy = Trim(*opt\multipleInstancesPolicy)
+
+  If *opt\workingDir = "" And *opt\exePath <> ""
+    *opt\workingDir = GetPathPart(*opt\exePath)
+  EndIf
 EndProcedure
 
 Procedure.s SanitizeFileComponent(value.s)
   Protected result.s = Trim(value)
 
-  result = ReplaceString(result, "\\", "_")
+  result = ReplaceString(result, "\", "_")
   result = ReplaceString(result, "/", "_")
   result = ReplaceString(result, ":", "_")
   result = ReplaceString(result, "*", "_")
@@ -302,8 +413,12 @@ Procedure.s BuildTaskXml(*opt.TaskOptions)
   Protected actionsBlock.s = "    <Actions Context="+Chr(34)+"Author"+Chr(34)+">" + #CRLF$ +
                              "      <Exec>" + #CRLF$ +
                              "        <Command>" + exe + "</Command>" + #CRLF$
-  If args <> "" : actionsBlock + "        <Arguments>" + args + "</Arguments>" + #CRLF$ : EndIf
-  If wdir <> "" : actionsBlock + "        <WorkingDirectory>" + wdir + "</WorkingDirectory>" + #CRLF$ : EndIf
+  If args <> ""
+    actionsBlock + "        <Arguments>" + args + "</Arguments>" + #CRLF$
+  EndIf
+  If wdir <> ""
+    actionsBlock + "        <WorkingDirectory>" + wdir + "</WorkingDirectory>" + #CRLF$
+  EndIf
   actionsBlock + "      </Exec>" + #CRLF$ +
                  "    </Actions>" + #CRLF$
 
@@ -322,8 +437,16 @@ EndProcedure
 
 Procedure.s SaveXmlToTemp(xml.s, baseName.s)
   Protected tmpDir.s = GetTemporaryDirectory()
-  Protected filePath.s = tmpDir + SanitizeFileComponent(baseName) + ".xml"
-  Protected file = CreateFile(#PB_Any, filePath)
+  Protected sanitizedBaseName.s = SanitizeFileComponent(baseName)
+  Protected filePath.s
+  Protected file
+
+  If IsReservedTaskName(sanitizedBaseName)
+    sanitizedBaseName = sanitizedBaseName + "_task"
+  EndIf
+
+  filePath = tmpDir + sanitizedBaseName + ".xml"
+  file = CreateFile(#PB_Any, filePath)
 
   If file
     WriteStringFormat(file, #PB_Unicode)
@@ -347,9 +470,10 @@ EndProcedure
 ;-----------------------------
 
 Procedure.i RegisterTaskFromXml(xmlPath.s, taskName.s)
-  Protected cmd.s = "schtasks.exe"
-  ; Added /F to force creation if it already exists
-  Protected args.s = "/Create /F /TN " + Chr(34) + taskName + Chr(34) + " /XML " + Chr(34) + xmlPath + Chr(34)
+  Protected cmd.s = "cmd.exe"
+  ; Use cmd /C so stderr is redirected to stdout for consistent logging.
+  Protected taskCommand.s = "schtasks.exe /Create /F /TN " + Chr(34) + taskName + Chr(34) + " /XML " + Chr(34) + xmlPath + Chr(34) + " 2>&1"
+  Protected args.s = "/C " + taskCommand
 
   LogLine("Executing: " + cmd + " " + args)
 
@@ -377,7 +501,7 @@ Procedure.i RegisterTaskFromXml(xmlPath.s, taskName.s)
     
     Protected exitCode = ProgramExitCode(prog)
     CloseProgram(prog)
-    LogLine("schtasks.exe finished with exit code: " + Str(exitCode))
+    LogLine("cmd.exe finished with exit code: " + Str(exitCode))
     
     If exitCode = 0
       ProcedureReturn #True
@@ -385,7 +509,7 @@ Procedure.i RegisterTaskFromXml(xmlPath.s, taskName.s)
       LogLine("ERROR: schtasks returned non-zero exit code.")
     EndIf
   Else
-    LogLine("ERROR: Failed to start schtasks.exe")
+    LogLine("ERROR: Failed to start cmd.exe for schtasks execution.")
   EndIf
   ProcedureReturn #False
 EndProcedure
@@ -395,7 +519,7 @@ Procedure.i LoadTaskOptions(*opt.TaskOptions, iniFile.s)
     PreferenceGroup("Task")
     *opt\taskName                 = ReadPreferenceString("Name", #DefaultTaskName)
     *opt\author                   = ReadPreferenceString("Author", "David Scouten")
-    *opt\description              = ReadPreferenceString("Description", "Generated by PureBasic TaskXmlMaker")
+    *opt\description              = ReadPreferenceString("Description", "Generated by PB_XML-Task_Maker")
     *opt\exePath                  = ReadPreferenceString("ExePath", #DefaultExe)
     *opt\arguments                = ReadPreferenceString("Arguments", #DefaultArgs)
     *opt\workingDir               = ReadPreferenceString("WorkingDir", #DefaultWorkingDir)
@@ -403,7 +527,8 @@ Procedure.i LoadTaskOptions(*opt.TaskOptions, iniFile.s)
     *opt\daily                    = ReadPreferenceInteger("Daily", 0)
     *opt\repeatISO                = ReadPreferenceString("RepeatISO", "")
     *opt\runLevelHighest          = ReadPreferenceInteger("RunLevelHighest", 0)
-    *opt\logonType                = ReadPreferenceString("LogonType", "InteractiveToken")
+    *opt\logonType                = ReadPreferenceString("LogonType", "ServiceAccount")
+    *opt\strictPathValidation     = ReadPreferenceInteger("StrictPathValidation", 0)
     *opt\allowDemandStart         = ReadPreferenceInteger("AllowDemandStart", 1)
     *opt\allowHardTerminate       = ReadPreferenceInteger("AllowHardTerminate", 1)
     *opt\runOnlyIfNetworkAvailable= ReadPreferenceInteger("RunOnlyIfNetworkAvailable", 0)
@@ -412,9 +537,15 @@ Procedure.i LoadTaskOptions(*opt.TaskOptions, iniFile.s)
     *opt\multipleInstancesPolicy  = ReadPreferenceString("MultipleInstancesPolicy", "IgnoreNew")
     ClosePreferences()
 
+    NormalizeTaskOptions(*opt)
+
     ; Basic Validation
     If *opt\taskName = ""
       LogLine("ERROR: Task name cannot be empty.")
+      ProcedureReturn #False
+    EndIf
+    If FindString(*opt\taskName, Chr(34)) Or FindString(*opt\taskName, #CR$) Or FindString(*opt\taskName, #LF$)
+      LogLine("ERROR: Task name contains invalid characters.")
       ProcedureReturn #False
     EndIf
     If *opt\exePath = ""
@@ -422,12 +553,20 @@ Procedure.i LoadTaskOptions(*opt.TaskOptions, iniFile.s)
       ProcedureReturn #False
     EndIf
     If FileSize(*opt\exePath) < 0
-      LogLine("ERROR: Executable path not found: " + *opt\exePath)
-      ProcedureReturn #False
+      If *opt\strictPathValidation
+        LogLine("ERROR: Executable path not found: " + *opt\exePath)
+        ProcedureReturn #False
+      Else
+        LogLine("WARNING: Executable path not found at load time: " + *opt\exePath)
+      EndIf
     EndIf
     If *opt\workingDir <> "" And FileSize(*opt\workingDir) <> -2
-      LogLine("ERROR: Working directory not found: " + *opt\workingDir)
-      ProcedureReturn #False
+      If *opt\strictPathValidation
+        LogLine("ERROR: Working directory not found: " + *opt\workingDir)
+        ProcedureReturn #False
+      Else
+        LogLine("WARNING: Working directory not found at load time: " + *opt\workingDir)
+      EndIf
     EndIf
     If IsValidIsoDateTime(*opt\startBoundaryISO) = #False
       LogLine("ERROR: StartBoundaryISO must use yyyy-mm-ddThh:ii:ss format.")
@@ -466,7 +605,7 @@ LogLine("Starting " + #APP_NAME)
 
 Define opts.TaskOptions
 If LoadTaskOptions(@opts, AppPath + #APP_NAME + ".ini") = #False
-  FatalError("Failed To load " + AppPath + #APP_NAME + ".ini")
+  FatalError("Failed to load " + AppPath + #APP_NAME + ".ini")
 EndIf
 
 ; Build XML
@@ -477,7 +616,7 @@ EndIf
 
 Define xmlPath.s = SaveXmlToTemp(xml, ReplaceString(opts\taskName, " ", "_"))
 If xmlPath = ""
-  FatalError("Failed To write XML To temp.")
+  FatalError("Failed to write XML to temp.")
 EndIf
 
 ; Registration via schtasks
@@ -485,6 +624,9 @@ Define registrationOk.i = RegisterTaskFromXml(xmlPath, opts\taskName)
 
 If registrationOk
   LogLine("SUCCESS: Task registered: " + opts\taskName)
+  If DeleteFile(xmlPath) = #False
+    LogLine("WARNING: Unable to delete temp XML: " + xmlPath)
+  EndIf
 Else
   LogLine("ERROR: Task registration failed.")
 EndIf
@@ -504,27 +646,26 @@ Else
 EndIf
 
 CleanupAndExit()
-; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 26
-; FirstLine = 9
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 468
 ; Folding = ---
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = XML-Task_Maker.ico
-; Executable = ..\XML-Task_Maker.exe
+; UseIcon = PB_XML-Task_Maker.ico
+; Executable = ..\PB_XML-Task_Maker.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,4
-; VersionField1 = 1,0,0,4
+; VersionField0 = 1,0,0,5
+; VersionField1 = 1,0,0,5
 ; VersionField2 = ZoneSoft
-; VersionField3 = XML-Task_Maker
-; VersionField4 = 1.0.0.4
-; VersionField5 = 1.0.0.4
+; VersionField3 = PB_XML-Task_Maker
+; VersionField4 = 1.0.0.5
+; VersionField5 = 1.0.0.5
 ; VersionField6 = Creates Tasks for use with Task Scheduler
-; VersionField7 = XML-Task_Maker
-; VersionField8 = XML-Task_Maker.exe
+; VersionField7 = PB_XML-Task_Maker
+; VersionField8 = PB_XML-Task_Maker.exe
 ; VersionField9 = David Scouten
 ; VersionField13 = zonemaster60@gmail.com
 ; VersionField14 = https://github.com/zonemaster60
