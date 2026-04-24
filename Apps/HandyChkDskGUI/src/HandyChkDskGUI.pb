@@ -46,14 +46,20 @@ Global ChkdskStop.i
 Global ChkdskRunning.i
 Global NewList ChkdskProcessList.i()
 Global NewList PendingOutputLines.s()
-Global OutputMutex.i = CreateMutex()
+Global StateMutex.i       = CreateMutex()
+Global OutputMutex.i      = CreateMutex()
 Global ProcessListMutex.i = CreateMutex()
 
-#APP_NAME   = "HandyChkDskGUI"
-#EMAIL_NAME = "zonemaster60@gmail.com"
+If StateMutex = 0 Or OutputMutex = 0 Or ProcessListMutex = 0
+  MessageRequester("Fatal Error", "Failed to create synchronization objects. The application cannot continue.", #PB_MessageRequester_Error)
+  End
+EndIf
 
-Global version.s = "v1.0.0.4"
-Global AppPath.s        = GetPathPart(ProgramFilename())
+#APP_NAME   = "HandyChkDskGUI"
+#APP_EMAIL  = "zonemaster60@gmail.com"
+#APP_VERSION = "v1.0.0.5"
+
+Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
 ; Prevent multiple instances (don't rely on window title text)
@@ -72,11 +78,81 @@ EndIf
 Declare KillOrphanProcesses()
 Declare FlushOutputQueue()
 Declare CleanupAndExit()
+Declare PopulateDrives()
+Declare.i IsChkdskRunning()
+Declare.i IsChkdskStopRequested()
+Declare SetChkdskRunning(state.i)
+Declare SetChkdskStopRequested(state.i)
+Declare UpdateSaveLogButtonState()
+Declare.i RunHiddenCommandWait(program$, arguments$, *exitCode.Integer)
+
+Procedure.i RunHiddenCommandWait(program$, arguments$, *exitCode.Integer)
+  Protected programID.i
+
+  If *exitCode
+    *exitCode\i = -1
+  EndIf
+
+  programID = RunProgram(program$, arguments$, "", #PB_Program_Open | #PB_Program_Wait | #PB_Program_Hide)
+  If programID = 0
+    ProcedureReturn #False
+  EndIf
+
+  If *exitCode
+    *exitCode\i = ProgramExitCode(programID)
+  EndIf
+
+  CloseProgram(programID)
+  ProcedureReturn #True
+EndProcedure
+
+Procedure UpdateSaveLogButtonState()
+  Protected hasText.i
+
+  If IsGadget(#Button_SaveLog) = 0
+    ProcedureReturn
+  EndIf
+
+  hasText = Bool(IsGadget(#Editor_Output) And GetGadgetText(#Editor_Output) <> "")
+  DisableGadget(#Button_SaveLog, Bool(hasText = #False Or IsChkdskRunning()))
+EndProcedure
+
+Procedure.i IsChkdskRunning()
+  Protected state.i
+
+  LockMutex(StateMutex)
+  state = Bool(ChkdskRunning)
+  UnlockMutex(StateMutex)
+
+  ProcedureReturn state
+EndProcedure
+
+Procedure.i IsChkdskStopRequested()
+  Protected state.i
+
+  LockMutex(StateMutex)
+  state = Bool(ChkdskStop)
+  UnlockMutex(StateMutex)
+
+  ProcedureReturn state
+EndProcedure
+
+Procedure SetChkdskRunning(state.i)
+  LockMutex(StateMutex)
+  ChkdskRunning = Bool(state)
+  UnlockMutex(StateMutex)
+EndProcedure
+
+Procedure SetChkdskStopRequested(state.i)
+  LockMutex(StateMutex)
+  ChkdskStop = Bool(state)
+  UnlockMutex(StateMutex)
+EndProcedure
 
 Procedure.i ConfirmExit()
   Protected prompt$ = "Do you want to exit now?"
 
-  If ChkdskRunning
+  If IsChkdskRunning()
     prompt$ = "CHKDSK is still running." + #CRLF$ + "Do you want to stop it and exit?"
   EndIf
 
@@ -84,14 +160,20 @@ Procedure.i ConfirmExit()
 EndProcedure
 
 Procedure CleanupApplication()
-  ChkdskStop = #True
+  Protected threadStopped.i
 
-  If ChkdskRunning
+  SetChkdskStopRequested(#True)
+
+  If IsChkdskRunning()
     If WaitThread(ChkdskThreadID, 1000) = 0
       KillOrphanProcesses()
+      threadStopped = Bool(WaitThread(ChkdskThreadID, 2000) <> 0)
+    Else
+      threadStopped = #True
     EndIf
   Else
     KillOrphanProcesses()
+    threadStopped = #True
   EndIf
 
   FlushOutputQueue()
@@ -105,6 +187,21 @@ Procedure CleanupApplication()
     hMutex = 0
   EndIf
 
+  If StateMutex And threadStopped
+    FreeMutex(StateMutex)
+    StateMutex = 0
+  EndIf
+
+  If OutputMutex And threadStopped
+    FreeMutex(OutputMutex)
+    OutputMutex = 0
+  EndIf
+
+  If ProcessListMutex And threadStopped
+    FreeMutex(ProcessListMutex)
+    ProcessListMutex = 0
+  EndIf
+
 EndProcedure
 
 Procedure CleanupAndExit()
@@ -112,6 +209,7 @@ Procedure CleanupAndExit()
   End
 EndProcedure
 
+; UI thread only. Background threads must use QueueOutputLine().
 Procedure AppendOutputLine(line$)
   ; Safe append to EditorGadget text using SendMessage for better performance and less flickering
   If IsGadget(#Editor_Output)
@@ -123,12 +221,14 @@ Procedure AppendOutputLine(line$)
 EndProcedure
 
 Procedure QueueOutputLine(line$)
-  If OutputMutex
-    LockMutex(OutputMutex)
-    AddElement(PendingOutputLines())
-    PendingOutputLines() = line$
-    UnlockMutex(OutputMutex)
+  If OutputMutex = 0
+    ProcedureReturn
   EndIf
+
+  LockMutex(OutputMutex)
+  AddElement(PendingOutputLines())
+  PendingOutputLines() = line$
+  UnlockMutex(OutputMutex)
 EndProcedure
 
 Procedure FlushOutputQueue()
@@ -149,16 +249,17 @@ Procedure FlushOutputQueue()
     Protected hGadget = GadgetID(#Editor_Output)
     SendMessage_(hGadget, #EM_SETSEL, -1, -1)
     SendMessage_(hGadget, #EM_REPLACESEL, 0, @outputChunk$)
+    UpdateSaveLogButtonState()
   EndIf
 EndProcedure
 
 Procedure.s BuildChkdskCommand(drive$, fixFlag, scanFlag, verboseFlag, forceFlag, badFlag, spotfixFlag)
   Protected cmd$ = "chkdsk " + drive$
-  If fixFlag       : cmd$ + " /f" : EndIf   ; Fix - reboot required
-  If scanFlag      : cmd$ + " /scan" : EndIf; online Scan
-  If verboseFlag   : cmd$ + " /v" : EndIf   ; Verbose output
-  If forceFlag     : cmd$ + " /x" : EndIf   ; Force unmount
-  If badFlag       : cmd$ + " /r" : EndIf   ; Check bad sectors
+  If fixFlag       : cmd$ + " /f" : EndIf    ; Fix - reboot required
+  If scanFlag      : cmd$ + " /scan" : EndIf ; Online Scan
+  If verboseFlag   : cmd$ + " /v" : EndIf    ; Verbose output
+  If forceFlag     : cmd$ + " /x" : EndIf    ; Force unmount
+  If badFlag       : cmd$ + " /r" : EndIf    ; Check bad sectors
   If spotfixFlag   : cmd$ + " /spotfix" : EndIf ; Spotfix
   ProcedureReturn cmd$
 EndProcedure
@@ -218,31 +319,42 @@ Procedure.s ValidateChkdskRequest(drive$, fixFlag, scanFlag, verboseFlag, forceF
 EndProcedure
 
 Procedure.i RequestCancelChkDsk()
-  If ChkdskRunning = #False
+  If IsChkdskRunning() = #False
     StatusBarText(#StatusBar, 0, "Nothing is running.")
     ProcedureReturn #False
   EndIf
 
-  ChkdskStop = #True
+  SetChkdskStopRequested(#True)
   DisableGadget(#Button_Cancel, #True)
   StatusBarText(#StatusBar, 0, "Cancelling CHKDSK...")
   ProcedureReturn #True
 EndProcedure
 
 Procedure.i ScheduleSystemDriveRepair(drive$)
-  Protected result.i
+  Protected exitCode.i
 
   drive$ = UCase(Trim(drive$))
-  result = RunProgram("cmd.exe", "/c fsutil dirty set " + drive$, "", #PB_Program_Wait | #PB_Program_Hide)
-  If result = 0
-    AppendOutputLine("Failed to mark " + drive$ + " dirty for reboot repair.")
+
+  If RunHiddenCommandWait("cmd.exe", "/c fsutil dirty set " + drive$, @exitCode) = #False
+    AppendOutputLine("Failed to launch fsutil for reboot repair scheduling.")
+    StatusBarText(#StatusBar, 0, "Failed to launch fsutil!")
+    ProcedureReturn #False
+  EndIf
+
+  If exitCode <> 0
+    AppendOutputLine("Failed to mark " + drive$ + " dirty for reboot repair. (exit code " + Str(exitCode) + ")")
     StatusBarText(#StatusBar, 0, "Failed to schedule reboot repair!")
     ProcedureReturn #False
   EndIf
 
-  result = RunProgram("shutdown.exe", "/r /t 15", "", #PB_Program_Wait | #PB_Program_Hide)
-  If result = 0
-    AppendOutputLine("Failed to schedule the reboot.")
+  If RunHiddenCommandWait("shutdown.exe", "/r /t 15", @exitCode) = #False
+    AppendOutputLine("Failed to launch shutdown.exe.")
+    StatusBarText(#StatusBar, 0, "Failed to launch shutdown!")
+    ProcedureReturn #False
+  EndIf
+
+  If exitCode <> 0
+    AppendOutputLine("Failed to schedule the reboot. (exit code " + Str(exitCode) + ")")
     StatusBarText(#StatusBar, 0, "Failed to schedule reboot!")
     ProcedureReturn #False
   EndIf
@@ -253,21 +365,25 @@ Procedure.i ScheduleSystemDriveRepair(drive$)
 EndProcedure
 
 Procedure SaveLogToFile(output$)
-  Protected logFile$ = #APP_NAME + "-" + FormatDate("[%yy-%mm-%dd]-[%hh:%ii:%ss]", Date()) + ".log"
+  Protected logFile$  = #APP_NAME + "-" + FormatDate("[%yy-%mm-%dd]-[%hh:%ii:%ss]", Date()) + ".log"
   Protected saveFile$ = SaveFileRequester("Save CHKDSK Log", logFile$, "Log Files (*.log)|*.log|Text Files (*.txt)|*.txt", 0)
-  
+  Protected fh.i
+
   If saveFile$
     If GetExtensionPart(saveFile$) = ""
       saveFile$ + ".log"
     EndIf
-    
-    If CreateFile(0, saveFile$)
-      WriteString(0, output$, #PB_UTF8)
-      CloseFile(0)
+
+    fh = CreateFile(#PB_Any, saveFile$)
+    If fh
+      WriteString(fh, output$, #PB_UTF8)
+      CloseFile(fh)
       StatusBarText(#StatusBar, 0, "Log file saved: " + GetFilePart(saveFile$))
     Else
       StatusBarText(#StatusBar, 0, "Failed to save log!")
     EndIf
+
+    UpdateSaveLogButtonState()
   EndIf
 EndProcedure
 
@@ -317,7 +433,7 @@ Procedure KillOrphanProcesses()
 EndProcedure
 
 ; -------------------------------
-; Drive enumeration (robust A–Z scan)
+; Drive enumeration (robust A-Z scan)
 ; -------------------------------
 
 Procedure PopulateDrives()
@@ -329,7 +445,7 @@ Procedure PopulateDrives()
   For i = 65 To 90
     root$ = Chr(i) + ":\"
     If FileSize(root$) <> -1
-      type = GetDriveType_(@root$)
+      type = GetDriveType_(root$)
       Select type
         Case #DRIVE_FIXED, #DRIVE_REMOVABLE, #DRIVE_CDROM, #DRIVE_REMOTE, #DRIVE_RAMDISK
           AddGadgetItem(#Combo_Drive, -1, Left(root$, 2)) ; "X:"
@@ -353,6 +469,10 @@ Procedure PopulateDrives()
     AddGadgetItem(#Combo_Drive, -1, "")
     SetGadgetState(#Combo_Drive, 0)
   EndIf
+
+  If IsStatusBar(#StatusBar)
+    StatusBarText(#StatusBar, 0, "Ready. " + Str(count) + " drive(s) available.")
+  EndIf
 EndProcedure
 
 ; -------------------------------
@@ -364,16 +484,16 @@ Procedure RunChkDskThread(*p.ChkdskParams)
   Protected processHandle.i
   Protected line$
   Protected cmd$
-  
+
   cmd$ = BuildChkdskCommand(*p\drive$, *p\fixFlag, *p\scanFlag, *p\verboseFlag, *p\forceFlag, *p\badFlag, *p\spotfixFlag)
-  
+
   programID = RunProgram("cmd.exe", "/c " + cmd$, "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Hide)
   If programID
     processHandle = ProgramID(programID)
     AddManagedProcess(processHandle)
-    
+
     While ProgramRunning(programID)
-      If ChkdskStop
+      If IsChkdskStopRequested()
         KillProgram(programID)
         Break
       EndIf
@@ -394,11 +514,11 @@ Procedure RunChkDskThread(*p.ChkdskParams)
         QueueOutputLine(line$)
       EndIf
     Wend
-    
+
     CloseProgram(programID)
     RemoveManagedProcess(processHandle)
     QueueOutputLine("")
-    If ChkdskStop
+    If IsChkdskStopRequested()
       QueueOutputLine("CHKDSK cancelled.")
     Else
       QueueOutputLine("CHKDSK completed.")
@@ -407,14 +527,13 @@ Procedure RunChkDskThread(*p.ChkdskParams)
     QueueOutputLine("Failed to start CHKDSK! Try running as administrator.")
   EndIf
 
-  ChkdskRunning = #False
-  PostEvent(#PB_Event_Gadget, #Window_Main, #Button_Run, #PB_EventType_FirstCustomValue) ; Signal completion
+  SetChkdskRunning(#False)
+  PostEvent(#PB_Event_Gadget, #Window_Main, #Button_Run, #PB_EventType_FirstCustomValue)
   FreeMemory(*p)
 EndProcedure
 
 Procedure RunChkDsk(drive$, fixFlag, scanFlag, verboseFlag, forceFlag, badFlag, spotfixFlag)
   Protected *p.ChkdskParams
-  Protected validationError$
 
   drive$ = UCase(Trim(drive$))
 
@@ -422,14 +541,7 @@ Procedure RunChkDsk(drive$, fixFlag, scanFlag, verboseFlag, forceFlag, badFlag, 
     fixFlag = #True
   EndIf
 
-  validationError$ = ValidateChkdskRequest(drive$, fixFlag, scanFlag, verboseFlag, forceFlag, badFlag, spotfixFlag)
-  If validationError$ <> ""
-    SetGadgetText(#Editor_Output, validationError$)
-    StatusBarText(#StatusBar, 0, "Cannot start CHKDSK.")
-    ProcedureReturn
-  EndIf
-
-  If ChkdskRunning
+  If IsChkdskRunning()
     StatusBarText(#StatusBar, 0, "Already running!")
     ProcedureReturn
   EndIf
@@ -441,12 +553,12 @@ Procedure RunChkDsk(drive$, fixFlag, scanFlag, verboseFlag, forceFlag, badFlag, 
     ProcedureReturn
   EndIf
 
-  *p\drive$ = drive$
-  *p\fixFlag = fixFlag
-  *p\scanFlag = scanFlag
+  *p\drive$      = drive$
+  *p\fixFlag     = fixFlag
+  *p\scanFlag    = scanFlag
   *p\verboseFlag = verboseFlag
-  *p\forceFlag = forceFlag
-  *p\badFlag = badFlag
+  *p\forceFlag   = forceFlag
+  *p\badFlag     = badFlag
   *p\spotfixFlag = spotfixFlag
 
   SetGadgetText(#Editor_Output, "")
@@ -455,12 +567,13 @@ Procedure RunChkDsk(drive$, fixFlag, scanFlag, verboseFlag, forceFlag, badFlag, 
     AppendOutputLine("Note: /r implies /f, so fixes are enabled automatically.")
   EndIf
   AppendOutputLine("")
-  
-  ChkdskRunning = #True
-  ChkdskStop = #False
+  UpdateSaveLogButtonState()
+
+  SetChkdskStopRequested(#False)
+  SetChkdskRunning(#True)
   ChkdskThreadID = CreateThread(@RunChkDskThread(), *p)
   If ChkdskThreadID = 0
-    ChkdskRunning = #False
+    SetChkdskRunning(#False)
     FreeMemory(*p)
     StatusBarText(#StatusBar, 0, "Failed to start worker thread!")
     AppendOutputLine("Failed to create the background worker thread.")
@@ -470,6 +583,7 @@ Procedure RunChkDsk(drive$, fixFlag, scanFlag, verboseFlag, forceFlag, badFlag, 
   StatusBarText(#StatusBar, 0, "Running CHKDSK on " + drive$ + "...")
   DisableGadget(#Button_Run, #True)
   DisableGadget(#Button_Cancel, #False)
+  DisableGadget(#Button_SaveLog, #True)
 EndProcedure
 
 ; -------------------------------
@@ -477,54 +591,47 @@ EndProcedure
 ; -------------------------------
 
 Procedure ResizeMain()
-  Protected leftMargin = 20
-  Protected topMargin = 20
-  Protected controlGap = 8
-  Protected controlHeight = 26
-  Protected buttonY = 60
-  Protected buttonWidth = 140
-  Protected editorTop = 108
-  Protected comboWidth = 96
-  Protected fixWidth = 82
-  Protected scanWidth = 102
-  Protected spotFixWidth = 126
-  Protected verboseWidth = 98
-  Protected forceWidth = 132
+  Protected leftMargin     = 20
+  Protected topMargin      = 20
+  Protected controlGap     = 8
+  Protected controlHeight  = 26
+  Protected buttonY        = 60
+  Protected buttonWidth    = 140
+  Protected editorTop      = 108
+  Protected comboWidth     = 96
+  Protected fixWidth       = 82
+  Protected scanWidth      = 102
+  Protected spotFixWidth   = 126
+  Protected verboseWidth   = 98
+  Protected forceWidth     = 132
   Protected badSectorWidth
   Protected x
   Protected winW = WindowWidth(#Window_Main)
   Protected winH = WindowHeight(#Window_Main)
 
   x = leftMargin
-  ResizeGadget(#Combo_Drive, x, topMargin, comboWidth, controlHeight)
-  x + comboWidth + controlGap
-  ResizeGadget(#Check_Fix, x, topMargin, fixWidth, controlHeight)
-  x + fixWidth + controlGap
-  ResizeGadget(#Check_Scan, x, topMargin, scanWidth, controlHeight)
-  x + scanWidth + controlGap
-  ResizeGadget(#Check_SpotFix, x, topMargin, spotFixWidth, controlHeight)
-  x + spotFixWidth + controlGap
-  ResizeGadget(#Check_Verbose, x, topMargin, verboseWidth, controlHeight)
-  x + verboseWidth + controlGap
-  ResizeGadget(#Check_ForceDismount, x, topMargin, forceWidth, controlHeight)
-  x + forceWidth + controlGap
+  ResizeGadget(#Combo_Drive,          x, topMargin, comboWidth,    controlHeight) : x + comboWidth    + controlGap
+  ResizeGadget(#Check_Fix,            x, topMargin, fixWidth,      controlHeight) : x + fixWidth      + controlGap
+  ResizeGadget(#Check_Scan,           x, topMargin, scanWidth,     controlHeight) : x + scanWidth     + controlGap
+  ResizeGadget(#Check_SpotFix,        x, topMargin, spotFixWidth,  controlHeight) : x + spotFixWidth  + controlGap
+  ResizeGadget(#Check_Verbose,        x, topMargin, verboseWidth,  controlHeight) : x + verboseWidth  + controlGap
+  ResizeGadget(#Check_ForceDismount,  x, topMargin, forceWidth,    controlHeight) : x + forceWidth    + controlGap
   badSectorWidth = winW - x - leftMargin
   If badSectorWidth < 140
     badSectorWidth = 140
   EndIf
   ResizeGadget(#Check_BadSectors, x, topMargin, badSectorWidth, controlHeight)
 
-  ResizeGadget(#Button_Run, leftMargin, buttonY, buttonWidth, 32)
+  ResizeGadget(#Button_Run,     leftMargin,       buttonY, buttonWidth, 32)
   ResizeGadget(#Button_SaveLog, leftMargin + 150, buttonY, buttonWidth, 32)
-  ResizeGadget(#Button_Cancel, leftMargin + 300, buttonY, buttonWidth, 32)
-  ResizeGadget(#Button_About, winW - 310, buttonY, buttonWidth, 32)
-  ResizeGadget(#Button_Exit, winW - 160, buttonY, buttonWidth, 32)
-  ResizeGadget(#Editor_Output, leftMargin, editorTop, winW - (leftMargin * 2), winH - editorTop - 42)
+  ResizeGadget(#Button_Cancel,  leftMargin + 300, buttonY, buttonWidth, 32)
+  ResizeGadget(#Button_About,   winW - 310,       buttonY, buttonWidth, 32)
+  ResizeGadget(#Button_Exit,    winW - 160,       buttonY, buttonWidth, 32)
+  ResizeGadget(#Editor_Output,  leftMargin, editorTop, winW - (leftMargin * 2), winH - editorTop - 42)
 EndProcedure
 
 Procedure OpenMainWindow()
-  KillOrphanProcesses()
-  If OpenWindow(#Window_Main, 0, 0, 880, 580, #APP_NAME + " - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget | #PB_Window_SizeGadget)
+  If OpenWindow(#Window_Main, 0, 0, 880, 580, #APP_NAME + " - " + #APP_VERSION, #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget | #PB_Window_SizeGadget)
     WindowBounds(#Window_Main, 780, 580, #PB_Ignore, #PB_Ignore)
     ComboBoxGadget(#Combo_Drive,           20,  20,  96, 26)
     CheckBoxGadget(#Check_Fix,            124,  20,  82, 26, "Fix (/f)")
@@ -543,21 +650,28 @@ Procedure OpenMainWindow()
     AddStatusBarField(760)
     StatusBarText(#StatusBar, 0, "Ready.")
     DisableGadget(#Button_Cancel, #True)
+    DisableGadget(#Button_SaveLog, #True)
     AddWindowTimer(#Window_Main, #Timer_OutputFlush, 150)
     PopulateDrives()
     ResizeMain()
-    
     BindEvent(#PB_Event_SizeWindow, @ResizeMain(), #Window_Main)
+  Else
+    MessageRequester("Fatal Error", "Failed to open the main window.", #PB_MessageRequester_Error)
+    CleanupAndExit()
   EndIf
 EndProcedure
 
 ; -------------------------------
-; Main
+; Main event loop
 ; -------------------------------
 
 Procedure HandleEvents()
-  Protected event = WaitWindowEvent()
-  
+  Protected event.i
+  Protected drive$, fixFlag.i, scanFlag.i, verboseFlag.i, forceFlag.i, badFlag.i, spotfixFlag.i
+  Protected systemDrive$, validationError$, currentText$
+
+  event = WaitWindowEvent()
+
   Select event
     Case #PB_Event_CloseWindow
       If ConfirmExit()
@@ -577,20 +691,19 @@ Procedure HandleEvents()
             FlushOutputQueue()
             DisableGadget(#Button_Run, #False)
             DisableGadget(#Button_Cancel, #True)
-            If ChkdskStop
+            UpdateSaveLogButtonState()
+            If IsChkdskStopRequested()
               StatusBarText(#StatusBar, 0, "Cancelled.")
             Else
               StatusBarText(#StatusBar, 0, "Completed.")
             EndIf
             ProcedureReturn event
           EndIf
-          
-          If ChkdskRunning
+
+          If IsChkdskRunning()
             StatusBarText(#StatusBar, 0, "Already running!")
             ProcedureReturn event
           EndIf
-
-          Define drive$, fixFlag.i, scanFlag.i, verboseFlag.i, forceFlag.i, badFlag.i, spotfixFlag.i, systemDrive$, validationError$
 
           drive$       = UCase(Trim(GetGadgetText(#Combo_Drive)))
           fixFlag      = GetGadgetState(#Check_Fix)
@@ -599,19 +712,23 @@ Procedure HandleEvents()
           forceFlag    = GetGadgetState(#Check_ForceDismount)
           badFlag      = GetGadgetState(#Check_BadSectors)
           spotfixFlag  = GetGadgetState(#Check_SpotFix)
+
+          If badFlag
+            fixFlag = #True
+          EndIf
+
           validationError$ = ValidateChkdskRequest(drive$, fixFlag, scanFlag, verboseFlag, forceFlag, badFlag, spotfixFlag)
-          
-          systemDrive$ = UCase(GetEnvironmentVariable("SystemDrive")) ; usually "C:"
+          systemDrive$     = UCase(GetEnvironmentVariable("SystemDrive"))
 
           If validationError$ <> ""
             SetGadgetText(#Editor_Output, validationError$)
             StatusBarText(#StatusBar, 0, "Cannot start CHKDSK.")
           Else
             If fixFlag And drive$ = systemDrive$
-              If MessageRequester("CHKDSK Warning", 
+              If MessageRequester("CHKDSK Warning",
                                   "CHKDSK /f requires exclusive access to " + drive$ + "." + #CRLF$ +
                                   "On the system drive this means scheduling a reboot." + #CRLF$ +
-                                  "Do you want to REBOOT now?", 
+                                  "Do you want to REBOOT now?",
                                   #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning) = #PB_MessageRequester_Yes
                 If ScheduleSystemDriveRepair(drive$)
                   CleanupAndExit()
@@ -629,33 +746,33 @@ Procedure HandleEvents()
 
         Case #Button_SaveLog
           FlushOutputQueue()
-          Define currentText$ = GetGadgetText(#Editor_Output)
+          currentText$ = GetGadgetText(#Editor_Output)
           If currentText$ <> ""
             SaveLogToFile(currentText$)
           Else
             StatusBarText(#StatusBar, 0, "Nothing to save!")
+            UpdateSaveLogButtonState()
           EndIf
-          
+
         Case #Button_About
-          MessageRequester("About", #APP_NAME + " - " + version + #CRLF$ +
+          MessageRequester("About", #APP_NAME + " - " + #APP_VERSION + #CRLF$ +
                                     "A GUI for CHKDSK for checking disk integrity" + #CRLF$ +
                                     "----------------------------------------" + #CRLF$ +
-                                    "Contact: zonemaster60@gmail.com" + #CRLF$ +
+                                    "Contact: " + #APP_EMAIL + #CRLF$ +
                                     "Website: https://github.com/zonemaster60", #PB_MessageRequester_Info)
-                                    
-          
+
         Case #Button_Exit
           If ConfirmExit()
             CleanupAndExit()
           EndIf
-          
+
       EndSelect
   EndSelect
   ProcedureReturn event
 EndProcedure
 
 ; -------------------------------
-; Main
+; Entry point
 ; -------------------------------
 
 OpenMainWindow()
@@ -663,10 +780,10 @@ OpenMainWindow()
 Repeat
   HandleEvents()
 ForEver
-; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 54
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 59
 ; FirstLine = 33
-; Folding = ----
+; Folding = -----
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -676,12 +793,12 @@ ForEver
 ; Executable = ..\HandyChkDskGUI.exe
 ; DisableDebugger
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,4
-; VersionField1 = 1,0,0,4
+; VersionField0 = 1,0,0,5
+; VersionField1 = 1,0,0,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyChkDskGUI
-; VersionField4 = 1.0.0.4
-; VersionField5 = 1.0.0.4
+; VersionField4 = 1.0.0.5
+; VersionField5 = 1.0.0.5
 ; VersionField6 = A GUI for Microsoft ChkDsk
 ; VersionField7 = HandyChkDskGUI
 ; VersionField8 = HandyChkDskGUI.exe

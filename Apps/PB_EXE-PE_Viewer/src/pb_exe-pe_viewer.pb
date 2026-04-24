@@ -67,7 +67,7 @@ Structure My_IMAGE_RESOURCE_DATA_ENTRY
   Reserved.l
 EndStructure
 
-#APP_NAME   = "EXE-PE_Viewer"
+#APP_NAME   = "PB_EXE-PE_Viewer"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 Global version.s = "v1.0.0.5"
 
@@ -102,6 +102,9 @@ Global ResourceStatus.s
 #MaxExportEntries     = 16384
 #MaxResourceEntries   = 4096
 
+#PE32_DataDirectoryOffset = 96
+#PE64_DataDirectoryOffset = 112
+
 SetCurrentDirectory(AppPath)
 
 ; Prevent multiple instances
@@ -126,7 +129,7 @@ Procedure.s MachineToString(machine.w)
     Case $014C : ProcedureReturn "Intel 386 (x86)"
     Case $0200 : ProcedureReturn "Intel Itanium"
     Case $8664 : ProcedureReturn "x64 (AMD64)"
-    Default    : ProcedureReturn "Unknown (" + Hex(machine, #PB_Unicode) + ")"
+    Default    : ProcedureReturn "Unknown (0x" + RSet(Hex(machine & $FFFF), 4, "0") + ")"
   EndSelect
 EndProcedure
 
@@ -134,7 +137,7 @@ Procedure.s OptionalMagicToString(magic.w)
   Select magic
     Case $10B  : ProcedureReturn "PE32 (32-bit)"
     Case $20B  : ProcedureReturn "PE32+ (64-bit)"
-    Default    : ProcedureReturn "Unknown (" + Hex(magic, #PB_Unicode) + ")"
+    Default    : ProcedureReturn "Unknown (0x" + RSet(Hex(magic & $FFFF), 4, "0") + ")"
   EndSelect
 EndProcedure
 
@@ -189,7 +192,7 @@ Procedure.s TimestampToString(timestamp.l)
     ProcedureReturn "N/A"
   EndIf
 
-  ProcedureReturn FormatDate("[%yy-%mm-%dd]-[%hh:%ii:%ss] ", value)
+  ProcedureReturn FormatDate("[%yyyy-%mm-%dd] [%hh:%ii:%ss]", value)
 EndProcedure
 
 Procedure.q UnsignedLong(value.l)
@@ -394,19 +397,37 @@ Procedure.s EscapeCsv(value.s)
   ProcedureReturn #DQUOTE$ + value + #DQUOTE$
 EndProcedure
 
-Procedure LoadDataDirectoriesFromHeader(*optionalHeader, headerSize.i, numDataDirs.i)
+Procedure LoadDataDirectoriesFromHeader(*optionalHeader, optionalMagic.w, headerSize.i, numDataDirs.i)
   Protected *dataDir.IMAGE_DATA_DIRECTORY
+  Protected dataDirOffset.i
   Protected i.i
 
-  If *optionalHeader = 0 Or headerSize < #MaxDataDirectories * SizeOf(IMAGE_DATA_DIRECTORY)
+  If *optionalHeader = 0
     ProcedureReturn
   EndIf
+
+  Select optionalMagic
+    Case $10B
+      dataDirOffset = #PE32_DataDirectoryOffset
+    Case $20B
+      dataDirOffset = #PE64_DataDirectoryOffset
+    Default
+      ProcedureReturn
+  EndSelect
 
   If numDataDirs > #MaxDataDirectories
     numDataDirs = #MaxDataDirectories
   EndIf
 
-  *dataDir = *optionalHeader + headerSize - (#MaxDataDirectories * SizeOf(IMAGE_DATA_DIRECTORY))
+  If numDataDirs <= 0
+    ProcedureReturn
+  EndIf
+
+  If headerSize < dataDirOffset + (numDataDirs * SizeOf(IMAGE_DATA_DIRECTORY))
+    ProcedureReturn
+  EndIf
+
+  *dataDir = *optionalHeader + dataDirOffset
 
   For i = 0 To numDataDirs - 1
     AddElement(DataDirs())
@@ -436,6 +457,15 @@ EndProcedure
 #View_Exports    = 4
 #View_Resources  = 5
 #View_Hex        = 6
+
+Procedure BeginListUpdate()
+  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #False, 0)
+EndProcedure
+
+Procedure EndListUpdate()
+  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #True, 0)
+  UpdateWindow_(GadgetID(#Gad_List))
+EndProcedure
 
 ;-----------------------------------------------------------
 ; Entropy calculation (Shannon Entropy)
@@ -518,9 +548,10 @@ Procedure SetStatus(msg.s)
 EndProcedure
 
 Procedure ShowListMessage(title.s, detail.s)
+  BeginListUpdate()
   ClearGadgetItems(#Gad_List)
   AddGadgetItem(#Gad_List, -1, title + Chr(10) + detail)
-  UpdateWindow_(GadgetID(#Gad_List))
+  EndListUpdate()
 EndProcedure
 
 Procedure AddCachedRow(List rows.s(), title.s, detail.s)
@@ -529,13 +560,12 @@ Procedure AddCachedRow(List rows.s(), title.s, detail.s)
 EndProcedure
 
 Procedure RenderCachedRows(List rows.s())
-  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #False, 0)
+  BeginListUpdate()
   ClearGadgetItems(#Gad_List)
   ForEach rows()
     AddGadgetItem(#Gad_List, -1, rows())
   Next
-  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #True, 0)
-  UpdateWindow_(GadgetID(#Gad_List))
+  EndListUpdate()
 EndProcedure
 
 Procedure InvalidateDerivedCaches()
@@ -743,7 +773,7 @@ Procedure AnalyzePEWarnings(fileSize.q, entryPointRVA.q, fileAlignment.q, sectio
 EndProcedure
 
 Procedure ShowHeaders()
-  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #False, 0)
+  BeginListUpdate()
   ClearGadgetItems(#Gad_List)
   ForEach LogLines()
     Protected line.s = LogLines()
@@ -752,20 +782,21 @@ Procedure ShowHeaders()
       AddGadgetItem(#Gad_List, -1, Left(line, pos-1) + Chr(10) + Mid(line, pos+1))
     EndIf
   Next
-  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #True, 0)
-  UpdateWindow_(GadgetID(#Gad_List))
+  EndListUpdate()
 EndProcedure
 
 Procedure ShowDataDirs()
-  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #False, 0)
+  BeginListUpdate()
   ClearGadgetItems(#Gad_List)
   Protected i = 0
   ForEach DataDirs()
     Protected name.s = DirectoryIndexToName(i)
-    Protected info.s = "RVA: 0x" + Hex(DataDirs()\VirtualAddress) + " | Size: " + Str(DataDirs()\Size)
+    Protected dirRva.q = UnsignedLong(DataDirs()\VirtualAddress)
+    Protected dirSize.q = UnsignedLong(DataDirs()\Size)
+    Protected info.s = "RVA: 0x" + Hex32(DataDirs()\VirtualAddress) + " | Size: " + Str(dirSize)
     
-    If DataDirs()\VirtualAddress > 0
-      Protected offset.q = RvaToOffset(DataDirs()\VirtualAddress)
+    If dirRva > 0
+      Protected offset.q = RvaToOffset(dirRva)
       If offset <> -1
         info + " (File Offset: 0x" + Hex(offset) + ")"
       Else
@@ -776,8 +807,7 @@ Procedure ShowDataDirs()
     AddGadgetItem(#Gad_List, -1, name + Chr(10) + info)
     i + 1
   Next
-  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #True, 0)
-  UpdateWindow_(GadgetID(#Gad_List))
+  EndListUpdate()
   SetStatus("Showing " + Str(ListSize(DataDirs())) + " data directories")
 EndProcedure
 
@@ -794,6 +824,8 @@ Procedure ExportData()
   Protected headerLine.s, csvLine.s, name.s
   Protected pos.i, i.i
   Protected isFirstJsonHeader.b = #True
+  Protected isFirstJsonWarning.b = #True
+  Protected isFirstJsonDir.b = #True
   Protected isFirstJsonSection.b = #True
   
   If ext = "json"
@@ -815,6 +847,34 @@ Procedure ExportData()
       WriteStringN(fileID, "")
     EndIf
     WriteStringN(fileID, "  ],")
+
+    WriteStringN(fileID, "  " + #DQUOTE$ + "warnings" + #DQUOTE$ + ": [")
+    ForEach WarningRows()
+      If Not isFirstJsonWarning
+        WriteStringN(fileID, ",")
+      EndIf
+      WriteString(fileID, "    " + #DQUOTE$ + EscapeJson(WarningRows()) + #DQUOTE$)
+      isFirstJsonWarning = #False
+    Next
+    If Not isFirstJsonWarning
+      WriteStringN(fileID, "")
+    EndIf
+    WriteStringN(fileID, "  ],")
+
+    WriteStringN(fileID, "  " + #DQUOTE$ + "data_directories" + #DQUOTE$ + ": [")
+    i = 0
+    ForEach DataDirs()
+      If Not isFirstJsonDir
+        WriteStringN(fileID, ",")
+      EndIf
+      WriteString(fileID, "    {" + #DQUOTE$ + "index" + #DQUOTE$ + ": " + Str(i) + ", " + #DQUOTE$ + "name" + #DQUOTE$ + ": " + #DQUOTE$ + EscapeJson(DirectoryIndexToName(i)) + #DQUOTE$ + ", " + #DQUOTE$ + "rva" + #DQUOTE$ + ": " + #DQUOTE$ + "0x" + Hex32(DataDirs()\VirtualAddress) + #DQUOTE$ + ", " + #DQUOTE$ + "size" + #DQUOTE$ + ": " + Str(UnsignedLong(DataDirs()\Size)) + "}")
+      isFirstJsonDir = #False
+      i + 1
+    Next
+    If Not isFirstJsonDir
+      WriteStringN(fileID, "")
+    EndIf
+    WriteStringN(fileID, "  ],")
     
     WriteStringN(fileID, "  " + #DQUOTE$ + "sections" + #DQUOTE$ + ": [")
     ForEach Sections()
@@ -822,7 +882,7 @@ Procedure ExportData()
       If Not isFirstJsonSection
         WriteStringN(fileID, ",")
       EndIf
-      WriteString(fileID, "    {" + #DQUOTE$ + "name" + #DQUOTE$ + ": " + #DQUOTE$ + EscapeJson(name) + #DQUOTE$ + ", " + #DQUOTE$ + "raw_size" + #DQUOTE$ + ": " + Str(Sections()\SizeOfRawData) + "}")
+      WriteString(fileID, "    {" + #DQUOTE$ + "name" + #DQUOTE$ + ": " + #DQUOTE$ + EscapeJson(name) + #DQUOTE$ + ", " + #DQUOTE$ + "virtual_address" + #DQUOTE$ + ": " + #DQUOTE$ + "0x" + Hex32(Sections()\VirtualAddress) + #DQUOTE$ + ", " + #DQUOTE$ + "virtual_size" + #DQUOTE$ + ": " + Str(UnsignedLong(Sections()\VirtualSize)) + ", " + #DQUOTE$ + "raw_size" + #DQUOTE$ + ": " + Str(UnsignedLong(Sections()\SizeOfRawData)) + ", " + #DQUOTE$ + "raw_ptr" + #DQUOTE$ + ": " + #DQUOTE$ + "0x" + Hex32(Sections()\PointerToRawData) + #DQUOTE$ + "}")
       isFirstJsonSection = #False
     Next
     If Not isFirstJsonSection
@@ -831,13 +891,28 @@ Procedure ExportData()
     WriteStringN(fileID, "  ]")
     WriteStringN(fileID, "}")
   Else ; CSV
-    WriteStringN(fileID, "Key,Value")
+    WriteStringN(fileID, "Category,Key,Value")
     ForEach LogLines()
       csvLine = LogLines()
       pos = FindString(csvLine, " ")
       If pos
-        WriteStringN(fileID, EscapeCsv(Left(csvLine, pos-1)) + "," + EscapeCsv(Mid(csvLine, pos+1)))
+        WriteStringN(fileID, EscapeCsv("Header") + "," + EscapeCsv(Left(csvLine, pos-1)) + "," + EscapeCsv(Mid(csvLine, pos+1)))
       EndIf
+    Next
+
+    ForEach WarningRows()
+      WriteStringN(fileID, EscapeCsv("Warning") + "," + EscapeCsv("Message") + "," + EscapeCsv(WarningRows()))
+    Next
+
+    i = 0
+    ForEach DataDirs()
+      WriteStringN(fileID, EscapeCsv("DataDirectory") + "," + EscapeCsv(DirectoryIndexToName(i)) + "," + EscapeCsv("RVA=0x" + Hex32(DataDirs()\VirtualAddress) + " Size=" + Str(UnsignedLong(DataDirs()\Size))))
+      i + 1
+    Next
+
+    ForEach Sections()
+      name = GetSectionName(@Sections())
+      WriteStringN(fileID, EscapeCsv("Section") + "," + EscapeCsv(name) + "," + EscapeCsv("VA=0x" + Hex32(Sections()\VirtualAddress) + " VS=" + Str(UnsignedLong(Sections()\VirtualSize)) + " RS=" + Str(UnsignedLong(Sections()\SizeOfRawData)) + " RP=0x" + Hex32(Sections()\PointerToRawData)))
     Next
   EndIf
   
@@ -893,8 +968,8 @@ Procedure.b ParsePEFile(file.s)
     ProcedureReturn #False
   EndIf
   
-  AddInfo("DOS_e_magic:", "MZ (0x" + Hex(dosHeader\e_magic) + ")")
-  AddInfo("DOS_e_lfanew:", "0x" + Hex(dosHeader\e_lfanew))
+  AddInfo("DOS_e_magic:", "MZ (0x" + RSet(Hex(dosHeader\e_magic & $FFFF), 4, "0") + ")")
+  AddInfo("DOS_e_lfanew:", "0x" + Hex32(dosHeader\e_lfanew))
   
   ; Check PE header offset
   If dosHeader\e_lfanew <= 0 Or Not IsDiskRangeValid(fileSize, dosHeader\e_lfanew, 4 + SizeOf(IMAGE_FILE_HEADER) + 2)
@@ -916,7 +991,7 @@ Procedure.b ParsePEFile(file.s)
     ProcedureReturn #False
   EndIf
   
-  AddInfo("PE_Signature:", "PE (0x" + Hex(peSignature) + ")")
+  AddInfo("PE_Signature:", "PE (0x" + Hex32(peSignature) + ")")
   
   ;--- Read file (COFF) header
   If Not ReadExact(fileID, @fileHeader, SizeOf(IMAGE_FILE_HEADER))
@@ -929,7 +1004,7 @@ Procedure.b ParsePEFile(file.s)
   AddInfo("NumberOfSections:", Str(fileHeader\NumberOfSections))
   AddInfo("TimeDateStamp:", FormatTimestampValue(fileHeader\TimeDateStamp))
   AddInfo("SizeOfOptionalHeader:", Str(fileHeader\SizeOfOptionalHeader))
-  AddInfo("Characteristics:", CharacteristicsToString(fileHeader\Characteristics) + " (0x" + Hex(fileHeader\Characteristics) + ")")
+  AddInfo("Characteristics:", CharacteristicsToString(fileHeader\Characteristics) + " (0x" + RSet(Hex(fileHeader\Characteristics & $FFFF), 4, "0") + ")")
 
   If fileHeader\NumberOfSections = 0 Or fileHeader\NumberOfSections > #MaxSectionHeaders
     CloseFile(fileID)
@@ -968,22 +1043,22 @@ Procedure.b ParsePEFile(file.s)
           SetStatus("Failed to read PE32 optional header!")
           ProcedureReturn #False
         EndIf
-        AddInfo("AddressOfEntryPoint:", "0x" + Hex(opt32\AddressOfEntryPoint))
+        AddInfo("AddressOfEntryPoint:", "0x" + Hex32(opt32\AddressOfEntryPoint))
         AddInfo("ImageBase:", "0x" + Hex(opt32\ImageBase))
-        AddInfo("SectionAlignment:", Str(opt32\SectionAlignment))
-        AddInfo("FileAlignment:", Str(opt32\FileAlignment))
-        AddInfo("SizeOfImage:", Str(opt32\SizeOfImage))
-        AddInfo("SizeOfHeaders:", Str(opt32\SizeOfHeaders))
-        AddInfo("Subsystem:", SubsystemToString(opt32\Subsystem) + " (0x" + Hex(opt32\Subsystem) + ")")
-        AddInfo("NumberOfRvaAndSizes:", Str(opt32\NumberOfRvaAndSizes))
+        AddInfo("SectionAlignment:", Str(UnsignedLong(opt32\SectionAlignment)))
+        AddInfo("FileAlignment:", Str(UnsignedLong(opt32\FileAlignment)))
+        AddInfo("SizeOfImage:", Str(UnsignedLong(opt32\SizeOfImage)))
+        AddInfo("SizeOfHeaders:", Str(UnsignedLong(opt32\SizeOfHeaders)))
+        AddInfo("Subsystem:", SubsystemToString(opt32\Subsystem) + " (0x" + RSet(Hex(opt32\Subsystem & $FFFF), 4, "0") + ")")
+        AddInfo("NumberOfRvaAndSizes:", Str(UnsignedLong(opt32\NumberOfRvaAndSizes)))
         entryPointRVA = UnsignedLong(opt32\AddressOfEntryPoint)
         sectionAlignment = UnsignedLong(opt32\SectionAlignment)
         fileAlignment = UnsignedLong(opt32\FileAlignment)
         sizeOfImage = UnsignedLong(opt32\SizeOfImage)
         sizeOfHeaders = UnsignedLong(opt32\SizeOfHeaders)
-        ImageHeadersSize = opt32\SizeOfHeaders
+        ImageHeadersSize = sizeOfHeaders
         numDataDirs = opt32\NumberOfRvaAndSizes
-        LoadDataDirectoriesFromHeader(@opt32, SizeOf(IMAGE_OPTIONAL_HEADER32), numDataDirs)
+        LoadDataDirectoriesFromHeader(@opt32, optionalMagic, SizeOf(IMAGE_OPTIONAL_HEADER32), numDataDirs)
       EndIf
         
     Case $20B  ; PE32+
@@ -998,22 +1073,22 @@ Procedure.b ParsePEFile(file.s)
           SetStatus("Failed to read PE32+ optional header!")
           ProcedureReturn #False
         EndIf
-        AddInfo("AddressOfEntryPoint:", "0x" + Hex(opt64\AddressOfEntryPoint))
+        AddInfo("AddressOfEntryPoint:", "0x" + Hex32(opt64\AddressOfEntryPoint))
         AddInfo("ImageBase:", "0x" + Hex(opt64\ImageBase))
-        AddInfo("SectionAlignment:", Str(opt64\SectionAlignment))
-        AddInfo("FileAlignment:", Str(opt64\FileAlignment))
-        AddInfo("SizeOfImage:", Str(opt64\SizeOfImage))
-        AddInfo("SizeOfHeaders:", Str(opt64\SizeOfHeaders))
-        AddInfo("Subsystem:", SubsystemToString(opt64\Subsystem) + " (0x" + Hex(opt64\Subsystem) + ")")
-        AddInfo("NumberOfRvaAndSizes:", Str(opt64\NumberOfRvaAndSizes))
+        AddInfo("SectionAlignment:", Str(UnsignedLong(opt64\SectionAlignment)))
+        AddInfo("FileAlignment:", Str(UnsignedLong(opt64\FileAlignment)))
+        AddInfo("SizeOfImage:", Str(UnsignedLong(opt64\SizeOfImage)))
+        AddInfo("SizeOfHeaders:", Str(UnsignedLong(opt64\SizeOfHeaders)))
+        AddInfo("Subsystem:", SubsystemToString(opt64\Subsystem) + " (0x" + RSet(Hex(opt64\Subsystem & $FFFF), 4, "0") + ")")
+        AddInfo("NumberOfRvaAndSizes:", Str(UnsignedLong(opt64\NumberOfRvaAndSizes)))
         entryPointRVA = UnsignedLong(opt64\AddressOfEntryPoint)
         sectionAlignment = UnsignedLong(opt64\SectionAlignment)
         fileAlignment = UnsignedLong(opt64\FileAlignment)
         sizeOfImage = UnsignedLong(opt64\SizeOfImage)
         sizeOfHeaders = UnsignedLong(opt64\SizeOfHeaders)
-        ImageHeadersSize = opt64\SizeOfHeaders
+        ImageHeadersSize = sizeOfHeaders
         numDataDirs = opt64\NumberOfRvaAndSizes
-        LoadDataDirectoriesFromHeader(@opt64, SizeOf(IMAGE_OPTIONAL_HEADER64), numDataDirs)
+        LoadDataDirectoriesFromHeader(@opt64, optionalMagic, SizeOf(IMAGE_OPTIONAL_HEADER64), numDataDirs)
       EndIf
       
     Default
@@ -1052,11 +1127,11 @@ Procedure.b ParsePEFile(file.s)
     
     AddElement(LogLines())
     LogLines() = "Section: " + secName + 
-                 " VA:0x" + Hex(Sections()\VirtualAddress) + 
-                 " VS:" + Str(Sections()\VirtualSize) + 
-                 " RS:" + Str(Sections()\SizeOfRawData) + 
-                 " RP:0x" + Hex(Sections()\PointerToRawData) + 
-                 " Chars:0x" + Hex(Sections()\Characteristics)
+                 " VA:0x" + Hex32(Sections()\VirtualAddress) + 
+                 " VS:" + Str(UnsignedLong(Sections()\VirtualSize)) + 
+                 " RS:" + Str(UnsignedLong(Sections()\SizeOfRawData)) + 
+                 " RP:0x" + Hex32(Sections()\PointerToRawData) + 
+                 " Chars:0x" + Hex32(Sections()\Characteristics)
   Next
   
   ;--- Load entire file into memory for hex viewer & entropy
@@ -1131,12 +1206,11 @@ Procedure ShowAbout()
 EndProcedure
 
 Procedure ShowSections()
-  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #False, 0)
+  BeginListUpdate()
   ClearGadgetItems(#Gad_List)
   
   If ListSize(Sections()) = 0
-    SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #True, 0)
-    UpdateWindow_(GadgetID(#Gad_List))
+    EndListUpdate()
     SetStatus("No sections available.")
     ProcedureReturn
   EndIf
@@ -1146,26 +1220,29 @@ Procedure ShowSections()
     
     ; Calculate Entropy
     Protected entropy.f = 0
-    If *FileBuffer And Sections()\PointerToRawData > 0 And Sections()\SizeOfRawData > 0
-      If Sections()\PointerToRawData + Sections()\SizeOfRawData <= FileBufferSize
-        entropy = CalculateEntropy(*FileBuffer + Sections()\PointerToRawData, Sections()\SizeOfRawData)
+    Protected rawPtr.q = UnsignedLong(Sections()\PointerToRawData)
+    Protected rawSize.q = UnsignedLong(Sections()\SizeOfRawData)
+    Protected virtAddr.q = UnsignedLong(Sections()\VirtualAddress)
+    Protected virtSize.q = UnsignedLong(Sections()\VirtualSize)
+    If *FileBuffer And rawPtr > 0 And rawSize > 0
+      If rawPtr + rawSize <= FileBufferSize
+        entropy = CalculateEntropy(*FileBuffer + rawPtr, rawSize)
       EndIf
     EndIf
     
     Protected entropyStr.s = StrF(entropy, 2)
     If entropy > 7.0 : entropyStr + " (Packed?)" : EndIf
     
-    Protected info.s = "VirtAddr: 0x" + Hex(Sections()\VirtualAddress) +
-                       " | VirtSize: " + Str(Sections()\VirtualSize) +
-                       " | RawSize: " + Str(Sections()\SizeOfRawData) +
-                       " | RawPtr: 0x" + Hex(Sections()\PointerToRawData) + #CRLF$ +
+    Protected info.s = "VirtAddr: 0x" + Hex32(Sections()\VirtualAddress) +
+                       " | VirtSize: " + Str(virtSize) +
+                       " | RawSize: " + Str(rawSize) +
+                       " | RawPtr: 0x" + Hex32(Sections()\PointerToRawData) + #CRLF$ +
                        "Entropy: " + entropyStr + " | Chars: " + SectionCharacteristicsToString(Sections()\Characteristics)
     
     AddGadgetItem(#Gad_List, -1, name + Chr(10) + info)
   Next
   
-  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #True, 0)
-  UpdateWindow_(GadgetID(#Gad_List))
+  EndListUpdate()
   SetStatus("Showing " + Str(ListSize(Sections())) + " sections")
 EndProcedure
 
@@ -1200,7 +1277,7 @@ Procedure ShowHexDump(startOffset.q = 0)
   
   SetStatus("Showing hex: 0x" + Hex(offset) + " to 0x" + Hex(endOffset) + " (Total: " + Str(size) + " bytes)")
   
-  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #False, 0) ; Disable redraw for speed
+  BeginListUpdate()
   
   While offset < endOffset
     hexPart = ""
@@ -1222,19 +1299,23 @@ Procedure ShowHexDump(startOffset.q = 0)
       EndIf
     Next
     
-    line = RSet(Hex(offset, #PB_Ascii), 8, "0") + ": " + hexPart + " | " + asciiPart
+    line = RSet(Hex(offset), 8, "0") + ": " + hexPart + " | " + asciiPart
     AddGadgetItem(#Gad_List, -1, line)
     
     offset + bytesPerLine
   Wend
   
-  SendMessage_(GadgetID(#Gad_List), #WM_SETREDRAW, #True, 0) ; Re-enable redraw
-  UpdateWindow_(GadgetID(#Gad_List))
+  EndListUpdate()
 EndProcedure
 
 Procedure GoToAddress(hexAddr.s)
   Protected addr.q
   Protected i, count, lineAddr.q
+
+  If *FileBuffer = 0 Or FileBufferSize <= 0
+    SetStatus("No file loaded for hex view.")
+    ProcedureReturn
+  EndIf
 
   If Not IsHexAddress(hexAddr)
     SetStatus("Enter a valid hexadecimal address.")
@@ -1307,8 +1388,8 @@ Procedure ShowImports()
   EndIf
   
   SelectElement(DataDirs(), 1) ; Import Table is index 1
-  Protected importRVA = DataDirs()\VirtualAddress
-  Protected importSize = DataDirs()\Size
+  Protected importRVA.q = UnsignedLong(DataDirs()\VirtualAddress)
+  Protected importSize.q = UnsignedLong(DataDirs()\Size)
   
   If importRVA = 0 Or importSize = 0
     AddCachedRow(ImportRows(), "No imports", "This file does not contain an import table")
@@ -1345,19 +1426,19 @@ Procedure ShowImports()
       Break
     EndIf
 
-    nameOffset = RvaToOffset(*importDesc\Name)
+    nameOffset = RvaToOffset(UnsignedLong(*importDesc\Name))
     If nameOffset <> -1 And nameOffset < FileBufferSize
       dllName = PeekAsciiZ(nameOffset)
       If dllName = ""
         dllName = "<Unnamed DLL>"
         invalidNameCount + 1
       EndIf
-      AddCachedRow(ImportRows(), dllName, "Descriptor Offset: 0x" + Hex(descriptorOffset) + " | Name RVA: 0x" + Hex(*importDesc\Name))
+      AddCachedRow(ImportRows(), dllName, "Descriptor Offset: 0x" + Hex(descriptorOffset) + " | Name RVA: 0x" + Hex32(*importDesc\Name))
       dllCount + 1
       
       ; OriginalFirstThunk (ILT) is preferred, fallback to FirstThunk (IAT)
-      Protected thunkRVA = *importDesc\OriginalFirstThunk
-      If thunkRVA = 0 : thunkRVA = *importDesc\FirstThunk : EndIf
+      Protected thunkRVA.q = UnsignedLong(*importDesc\OriginalFirstThunk)
+      If thunkRVA = 0 : thunkRVA = UnsignedLong(*importDesc\FirstThunk) : EndIf
 
       If thunkRVA > 0
         thunkOffset = RvaToOffset(thunkRVA)
@@ -1368,7 +1449,9 @@ Procedure ShowImports()
       If thunkOffset <> -1
         thunkTableOffset = thunkOffset
         thunkEntrySize = GetThunkEntrySize(is64)
-        While thunkOffset + thunkEntrySize <= importEndOffset And IsFileRangeValid(thunkOffset, thunkEntrySize)
+        ; Import thunks often live outside the import directory blob itself.
+        ; Walk until the terminating zero thunk or unreadable file data.
+        While IsFileRangeValid(thunkOffset, thunkEntrySize)
           thunkValue = ReadThunkValue(*FileBuffer + thunkOffset, is64)
           If thunkValue = 0
             Break
@@ -1419,7 +1502,7 @@ Procedure ShowImports()
       EndIf
     Else
       invalidNameCount + 1
-      AddCachedRow(ImportRows(), "<Invalid DLL Name RVA>", "Descriptor Offset: 0x" + Hex(descriptorOffset) + " | Name RVA: 0x" + Hex(*importDesc\Name))
+      AddCachedRow(ImportRows(), "<Invalid DLL Name RVA>", "Descriptor Offset: 0x" + Hex(descriptorOffset) + " | Name RVA: 0x" + Hex32(*importDesc\Name))
     EndIf
 
     If thunkLimitHit
@@ -1452,6 +1535,7 @@ Procedure ShowExports()
   Protected invalidExportOrdinalCount.i = 0
   Protected forwarderCount.i = 0
   Protected exportLimitHit.b = #False
+  Protected exportTableIssueCount.i = 0
   Protected exportName.s
   Protected exportNameOffset.q
 
@@ -1475,8 +1559,10 @@ Procedure ShowExports()
   EndIf
   
   SelectElement(DataDirs(), 0) ; Export Table is index 0
-  Protected exportRVA = DataDirs()\VirtualAddress
-  Protected exportSize = DataDirs()\Size
+  Protected exportRVA.q = UnsignedLong(DataDirs()\VirtualAddress)
+  Protected exportSize.q = UnsignedLong(DataDirs()\Size)
+  Protected declaredNames.q
+  Protected declaredFunctions.q
   
   If exportRVA = 0 Or exportSize = 0
     AddCachedRow(ExportRows(), "No exports", "This file does not contain an export table")
@@ -1507,33 +1593,51 @@ Procedure ShowExports()
   Protected *names.Long = 0
   Protected *ordinals.Word = 0
   Protected *functions.Long = 0
+  declaredNames = UnsignedLong(*exportDir\NumberOfNames)
+  declaredFunctions = UnsignedLong(*exportDir\NumberOfFunctions)
   
-  nameBytes = UnsignedLong(*exportDir\NumberOfNames) * 4
-  ordinalBytes = UnsignedLong(*exportDir\NumberOfNames) * 2
-  functionBytes = UnsignedLong(*exportDir\NumberOfFunctions) * 4
+  nameBytes = declaredNames * 4
+  ordinalBytes = declaredNames * 2
+  functionBytes = declaredFunctions * 4
   
-  If *exportDir\AddressOfNames > 0
-    nameOffset = RvaToOffset(*exportDir\AddressOfNames)
+  If declaredNames > #MaxExportEntries
+    exportLimitHit = #True
+  EndIf
+  
+  If UnsignedLong(*exportDir\AddressOfNames) > 0
+    nameOffset = RvaToOffset(UnsignedLong(*exportDir\AddressOfNames))
     If nameOffset <> -1 And IsFileRangeValid(nameOffset, nameBytes)
       *names = *FileBuffer + nameOffset
+    ElseIf declaredNames > 0
+      exportTableIssueCount + 1
     EndIf
+  ElseIf declaredNames > 0
+    exportTableIssueCount + 1
   EndIf
   
-  If *exportDir\AddressOfNameOrdinals > 0
-    ordOffset = RvaToOffset(*exportDir\AddressOfNameOrdinals)
+  If UnsignedLong(*exportDir\AddressOfNameOrdinals) > 0
+    ordOffset = RvaToOffset(UnsignedLong(*exportDir\AddressOfNameOrdinals))
     If ordOffset <> -1 And IsFileRangeValid(ordOffset, ordinalBytes)
       *ordinals = *FileBuffer + ordOffset
+    ElseIf declaredNames > 0
+      exportTableIssueCount + 1
     EndIf
+  ElseIf declaredNames > 0
+    exportTableIssueCount + 1
   EndIf
   
-  If *exportDir\AddressOfFunctions > 0
-    funcOffset = RvaToOffset(*exportDir\AddressOfFunctions)
+  If declaredFunctions > 0 And UnsignedLong(*exportDir\AddressOfFunctions) > 0
+    funcOffset = RvaToOffset(UnsignedLong(*exportDir\AddressOfFunctions))
     If funcOffset <> -1 And IsFileRangeValid(funcOffset, functionBytes)
       *functions = *FileBuffer + funcOffset
+    Else
+      exportTableIssueCount + 1
     EndIf
+  ElseIf declaredFunctions > 0
+    exportTableIssueCount + 1
   EndIf
   
-  exportNameOffset = RvaToOffset(*exportDir\Name)
+  exportNameOffset = RvaToOffset(UnsignedLong(*exportDir\Name))
   If exportNameOffset <> -1 And IsFileRangeValid(exportNameOffset, 1)
     exportName = PeekAsciiZ(exportNameOffset)
   Else
@@ -1543,21 +1647,21 @@ Procedure ShowExports()
   AddCachedRow(ExportRows(), "Export Directory", "Name: " + exportName + " | RVA: 0x" + Hex(exportRVA) + " | File Offset: 0x" + Hex(offset))
   
   If *names And *ordinals
-    For i = 0 To *exportDir\NumberOfNames - 1
+    For i = 0 To declaredNames - 1
       If exportNamesShown >= #MaxExportEntries
         exportLimitHit = #True
         Break
       EndIf
 
-      Protected nRVA = PeekL(*names + (i * 4))
-      Protected nOffset.q = RvaToOffset(nRVA)
+      Protected nRVA.l = PeekL(*names + (i * 4))
+      Protected nOffset.q = RvaToOffset(UnsignedLong(nRVA))
       If nOffset <> -1 And IsFileRangeValid(nOffset, 1)
         Protected expName.s = PeekAsciiZ(nOffset)
-        Protected ordinal = PeekW(*ordinals + (i * 2))
-        Protected funcRVA = 0
+        Protected ordinal.i = PeekW(*ordinals + (i * 2)) & $FFFF
+        Protected funcRVA.q = 0
         Protected exportDetail.s
-        If *functions And ordinal >= 0 And ordinal < *exportDir\NumberOfFunctions
-          funcRVA = PeekL(*functions + (ordinal * 4))
+        If *functions And ordinal < declaredFunctions
+          funcRVA = UnsignedLong(PeekL(*functions + (ordinal * 4)))
         Else
           invalidExportOrdinalCount + 1
         EndIf
@@ -1566,7 +1670,7 @@ Procedure ShowExports()
           invalidExportNameCount + 1
         EndIf
 
-        exportDetail = "Ordinal: " + Str(ordinal + *exportDir\Base)
+        exportDetail = "Ordinal: " + Str(ordinal + UnsignedLong(*exportDir\Base))
         If funcRVA >= exportRVA And funcRVA < exportRVA + exportSize
           Protected forwarderOffset.q = RvaToOffset(funcRVA)
           Protected forwarderName.s = "<Invalid Forwarder>"
@@ -1588,21 +1692,26 @@ Procedure ShowExports()
         invalidExportNameCount + 1
       EndIf
     Next
+  ElseIf declaredFunctions > 0
+    AddCachedRow(ExportRows(), "Ordinal-only exports", "Named export tables are missing or unreadable; ordinal exports may still exist")
   Else
     AddCachedRow(ExportRows(), "Unnamed exports", "Export table exists but has no readable named export list")
   EndIf
 
-  If *exportDir\NumberOfNames > *exportDir\NumberOfFunctions
+  If declaredNames > declaredFunctions
     AddCachedRow(ExportRows(), "Warning", "Export table declares more names than functions")
   EndIf
+  If exportTableIssueCount > 0
+    AddCachedRow(ExportRows(), "Warning", "One or more export address/name tables are missing or unreadable")
+  EndIf
 
-  AddCachedRow(ExportRows(), "Summary", "Named exports shown: " + Str(exportNamesShown) + " | Declared names: " + Str(*exportDir\NumberOfNames) + " | Functions: " + Str(*exportDir\NumberOfFunctions) + " | Forwarders: " + Str(forwarderCount) + " | Name issues: " + Str(invalidExportNameCount) + " | Ordinal issues: " + Str(invalidExportOrdinalCount))
+  AddCachedRow(ExportRows(), "Summary", "Named exports shown: " + Str(exportNamesShown) + " | Declared names: " + Str(declaredNames) + " | Functions: " + Str(declaredFunctions) + " | Forwarders: " + Str(forwarderCount) + " | Name issues: " + Str(invalidExportNameCount) + " | Ordinal issues: " + Str(invalidExportOrdinalCount) + " | Table issues: " + Str(exportTableIssueCount))
   If exportLimitHit
     AddCachedRow(ExportRows(), "Notice", "Export display was capped to keep the UI responsive")
   EndIf
 
   ExportCacheReady = #True
-  ExportStatus = "Exports: " + Str(exportNamesShown) + " shown, " + Str(*exportDir\NumberOfNames) + " declared"
+  ExportStatus = "Exports: " + Str(exportNamesShown) + " shown, " + Str(declaredNames) + " declared"
   RenderCachedRows(ExportRows())
   SetStatus(ExportStatus)
 EndProcedure
@@ -1736,6 +1845,8 @@ Procedure ShowResources()
   Protected resourceCount.i = 0
   Protected namedTypeCount.i = 0
   Protected namedEntryCount.i = 0
+  Protected invalidResourceDirCount.i = 0
+  Protected invalidResourceDataCount.i = 0
 
   If ResourceCacheReady
     RenderCachedRows(ResourceRows())
@@ -1757,8 +1868,8 @@ Procedure ShowResources()
   EndIf
   
   SelectElement(DataDirs(), 2) ; Resource Table is index 2
-  Protected resRVA = DataDirs()\VirtualAddress
-  Protected resSize = DataDirs()\Size
+  Protected resRVA.q = UnsignedLong(DataDirs()\VirtualAddress)
+  Protected resSize.q = UnsignedLong(DataDirs()\Size)
   
   If resRVA = 0 Or resSize = 0
     AddCachedRow(ResourceRows(), "No resources", "This file does not contain a resource table")
@@ -1843,24 +1954,32 @@ Procedure ShowResources()
 
                   If IsResourceRelativeOffsetValid(offset, resSize, dataEntryRel, SizeOf(My_IMAGE_RESOURCE_DATA_ENTRY))
                     Protected *dataEntry.My_IMAGE_RESOURCE_DATA_ENTRY = *FileBuffer + dataEntryOffset
-                    Protected dataFileOffset.q = RvaToOffset(*dataEntry\OffsetToData)
-                    Protected detail.s = "Name: " + resourceName + " | Lang: " + langName + " | RVA: 0x" + Hex(*dataEntry\OffsetToData)
+                    Protected dataRva.q = UnsignedLong(*dataEntry\OffsetToData)
+                    Protected dataFileOffset.q = RvaToOffset(dataRva)
+                    Protected detail.s = "Name: " + resourceName + " | Lang: " + langName + " | RVA: 0x" + Hex32(*dataEntry\OffsetToData)
                     If dataFileOffset <> -1
                       detail + " | File Offset: 0x" + Hex(dataFileOffset)
                     Else
                       detail + " | File Offset: N/A"
+                      invalidResourceDataCount + 1
                     EndIf
-                    detail + " | Size: " + Str(*dataEntry\Size)
+                    detail + " | Size: " + Str(UnsignedLong(*dataEntry\Size))
                     AddCachedRow(ResourceRows(), typeName, detail)
                     resourceCount + 1
+                  Else
+                    invalidResourceDataCount + 1
                   EndIf
                 EndIf
                 *langEntry + SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY)
               Next
+            Else
+              invalidResourceDirCount + 1
             EndIf
           EndIf
           *nameEntry + SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY)
         Next
+      Else
+        invalidResourceDirCount + 1
       EndIf
     EndIf
     *typeEntry + SizeOf(My_IMAGE_RESOURCE_DIRECTORY_ENTRY)
@@ -1869,7 +1988,7 @@ Procedure ShowResources()
   If resourceCount = 0
     AddCachedRow(ResourceRows(), "No resources", "No readable resource data entries were found")
   Else
-    AddCachedRow(ResourceRows(), "Summary", "Readable resource entries: " + Str(resourceCount) + " | Named types: " + Str(namedTypeCount) + " | Named entries: " + Str(namedEntryCount))
+    AddCachedRow(ResourceRows(), "Summary", "Readable resource entries: " + Str(resourceCount) + " | Named types: " + Str(namedTypeCount) + " | Named entries: " + Str(namedEntryCount) + " | Dir issues: " + Str(invalidResourceDirCount) + " | Data issues: " + Str(invalidResourceDataCount))
   EndIf
 
   ResourceCacheReady = #True
@@ -2064,7 +2183,7 @@ Repeat
       Exit()
   EndSelect
 ForEver
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 71
 ; FirstLine = 51
 ; Folding = -----------
@@ -2073,18 +2192,18 @@ ForEver
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = exe-pe_viewer.ico
-; Executable = ..\EXE-PE_Viewer.exe
+; UseIcon = pb_exe-pe_viewer.ico
+; Executable = ..\PB_EXE-PE_Viewer.exe
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,0,5
 ; VersionField1 = 1,0,0,5
 ; VersionField2 = ZoneSoft
-; VersionField3 = EXE/PE-Viewer
+; VersionField3 = PB_EXE-PE_Viewer
 ; VersionField4 = 1.0.0.5
 ; VersionField5 = 1.0.0.5
 ; VersionField6 = View PE/EXE/DLL files and log info
-; VersionField7 = EXE/PE-Viewer
-; VersionField8 = EXE/PE-Viewer.exe
+; VersionField7 = PB_EXE-PE_Viewer
+; VersionField8 = PB_EXE-PE_Viewer.exe
 ; VersionField9 = David Scouten
 ; VersionField13 = zonemaster60@gmail.com
 ; VersionField14 = https://github.com/zonemaster60
