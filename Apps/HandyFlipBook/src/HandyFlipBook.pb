@@ -3,7 +3,7 @@
 #APP_NAME = "HandyFlipBook"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
-Global version.s = "v1.0.0.9"
+Global version.s = "v1.0.1.0"
 Global AppPath.s        = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -33,6 +33,7 @@ DeclareModule FlipBook
    
    Declare New(canvasID, x, y, width, height, backgroundColor)
    Declare AddPage(*book.FlipBook, makeImage, color, borderColor, borderWidth.d)
+   Declare Clear(*book.FlipBook)
    Declare Free(*book.FlipBook)
    Declare DrawBook(*book.FlipBook, x, y, doAnimation = #True)
    Declare HandleEvent(*book.FlipBook, event)
@@ -66,17 +67,32 @@ Module FlipBook
       ProcedureReturn *book
    EndProcedure
    
-   Procedure Free(*book.FlipBook)
-      Protected i
-      If *book
-         For i = 0 To *book\nrPages
-            If IsImage(*book\page(i))
-               FreeImage(*book\page(i))
-            EndIf
-         Next
-         FreeStructure(*book)
-      EndIf
-   EndProcedure
+    Procedure Free(*book.FlipBook)
+       If *book
+          Clear(*book)
+          FreeStructure(*book)
+       EndIf
+    EndProcedure
+
+    Procedure Clear(*book.FlipBook)
+       Protected i.i
+
+       If *book = 0
+          ProcedureReturn
+       EndIf
+
+       For i = 0 To ArraySize(*book\page())
+          If IsImage(*book\page(i))
+             FreeImage(*book\page(i))
+          EndIf
+       Next
+
+       ReDim *book\page(0)
+       *book\nrPages = 0
+       *book\currentPage = 0
+       *book\cornerX = 0
+       *book\cornerY = 0
+    EndProcedure
    
    Procedure AddPage(*book.FlipBook, makeImage, color, borderColor, borderWidth.d)
       If *book
@@ -156,7 +172,46 @@ Module FlipBook
          DrawVectorImage(ImageID(*book\page(pageNr)))
       EndIf
    EndProcedure
-   
+
+   Procedure DrawStaticPageWithHighlight(*book.FlipBook, pageNr.i, x.d, y.d, width.d, height.d, highlightDirection.i)
+      If pageNr < 0 Or pageNr > ArraySize(*book\page())
+         ProcedureReturn
+      EndIf
+
+      DrawPage(*book, pageNr, x, y)
+      SaveVectorState()
+      AddPathBox(x, y, width, height)
+      ClipPath()
+      DrawHighlight(x, y, x, y + height,
+                    x + width, y, x + width, y + height,
+                    highlightDirection)
+      RestoreVectorState()
+   EndProcedure
+
+   Procedure DrawLeftStaticPage(*book.FlipBook)
+      Protected pageNr.i
+
+      If *book\currentPage <= 0 Or *book\currentPage > *book\nrPages + 1
+         ProcedureReturn
+      EndIf
+
+      If *book\currentPage > *book\nrPages
+         pageNr = *book\nrPages
+      Else
+         pageNr = *book\currentPage - 1
+      EndIf
+
+      DrawStaticPageWithHighlight(*book, pageNr, -*book\width * 1.5, -*book\height * 0.5, *book\width, *book\height, -1)
+   EndProcedure
+
+   Procedure DrawRightStaticPage(*book.FlipBook)
+      If (*book\currentPage + 1) < 0 Or (*book\currentPage + 1) > *book\nrPages
+         ProcedureReturn
+      EndIf
+
+      DrawStaticPageWithHighlight(*book, *book\currentPage, -*book\width * 0.5, -*book\height * 0.5, *book\width, *book\height, 1)
+   EndProcedure
+    
    Procedure DrawBook(*book.FlipBook, x, y, doAnimation = #True)
       Protected nextPageNr
       Protected.d nx, ny, di
@@ -179,31 +234,8 @@ Module FlipBook
          x = Clamp(x, -*book\width * 0.5 - 1 , *book\width * 1.5 + 1)
       EndIf     
       
-      ; draw left page if this is not the first page
-      If *book\currentPage > 0 And *book\currentPage <= *book\nrPages + 1
-         If *book\currentPage > *book\nrPages
-            DrawPage(*book, *book\nrPages, -*book\width * 1.5, -*book\height * 0.5)
-         Else
-            DrawPage(*book, *book\currentPage - 1, -*book\width * 1.5, -*book\height * 0.5)
-         EndIf
-         SaveVectorState()
-         AddPathBox(-*book\width * 1.5, -*book\height * 0.5, *book\width, *book\height)
-         ClipPath()
-         DrawHighlight(-*book\width * 1.5, -*book\height * 0.5, -*book\width * 1.5, *book\height * 0.5,
-                       -*book\width * 0.5, -*book\height * 0.5, -*book\width * 0.5, *book\height * 0.5, -1)
-         RestoreVectorState()
-      EndIf
-      
-      ; draw right page if this is not the last page
-      If (*book\currentPage + 1) >= 0 And (*book\currentPage + 1) <= *book\nrPages
-         DrawPage(*book, *book\currentPage, -*book\width * 0.5, -*book\height * 0.5)
-         SaveVectorState()
-         AddPathBox(-*book\width * 0.5, -*book\height * 0.5, *book\width, *book\height)
-         ClipPath()
-         DrawHighlight(-*book\width * 0.5, -*book\height * 0.5, -*book\width * 0.5, *book\height * 0.5,
-                       *book\width * 0.5, -*book\height * 0.5, *book\width * 0.5, *book\height * 0.5,  1)
-         RestoreVectorState()
-      EndIf    
+      DrawLeftStaticPage(*book)
+      DrawRightStaticPage(*book)
       
       If doAnimation
          ; calculate mirror axis
@@ -498,6 +530,58 @@ Procedure.i IsSafeArchiveEntry(entryName.s)
   ProcedureReturn #True
 EndProcedure
 
+Procedure.s NormalizeArchivePath(basePath.s, relativePath.s)
+  Protected normalizedBase.s = ReplaceString(basePath, "/", "\\")
+  Protected normalizedRelative.s = ReplaceString(relativePath, "/", "\\")
+  Protected combinedPath.s
+  Protected part.s
+  Protected i.i
+  Protected partCount.i
+  NewList pathParts.s()
+
+  If normalizedRelative = ""
+    ProcedureReturn ""
+  EndIf
+
+  If Left(normalizedRelative, 1) = "\\" Or FindString(normalizedRelative, ":", 1)
+    ProcedureReturn ""
+  EndIf
+
+  combinedPath = normalizedBase + normalizedRelative
+  partCount = CountString(combinedPath, "\\") + 1
+
+  For i = 1 To partCount
+    part = StringField(combinedPath, i, "\\")
+    Select part
+      Case "", "."
+        Continue
+      Case ".."
+        If ListSize(pathParts()) = 0
+          ProcedureReturn ""
+        EndIf
+        LastElement(pathParts())
+        DeleteElement(pathParts())
+      Default
+        AddElement(pathParts())
+        pathParts() = part
+    EndSelect
+  Next
+
+  If ListSize(pathParts()) = 0
+    ProcedureReturn ""
+  EndIf
+
+  combinedPath = ""
+  ForEach pathParts()
+    If combinedPath <> ""
+      combinedPath + "\\"
+    EndIf
+    combinedPath + pathParts()
+  Next
+
+  ProcedureReturn combinedPath
+EndProcedure
+
 Procedure.s ToFileUrl(fileName.s)
   Protected url.s = ReplaceString(fileName, "\\", "/")
 
@@ -542,8 +626,12 @@ Procedure.s ExtractEpubStartDocument(epubFile.s)
   Protected targetDirectory.s
   Protected fallbackDocument.s
   Protected rootFile.s
+  Protected normalizedRootFile.s
   Protected opfFile.s
   Protected startDocument.s
+  Protected opfDirectory.s
+  Protected manifestItemPath.s
+  Protected relativeStartDocument.s
   Protected xml.i
   Protected manifestNode.i
   Protected spineNode.i
@@ -601,39 +689,54 @@ Procedure.s ExtractEpubStartDocument(epubFile.s)
   EndIf
 
   If rootFile <> ""
-    opfFile = tempDirectory + rootFile
-    xml = LoadXML(#PB_Any, opfFile)
-    If xml
-      manifestNode = FindFirstNodeByName(MainXMLNode(xml), "manifest")
-      If manifestNode
-        childNode = ChildXMLNode(manifestNode)
-        While childNode
-          If LCase(GetXMLNodeName(childNode)) = "item"
-            manifestItems(GetXMLAttribute(childNode, "id")) = ReplaceString(GetXMLAttribute(childNode, "href"), "/", "\\")
+    normalizedRootFile = ReplaceString(rootFile, "/", "\\")
+    If IsSafeArchiveEntry(normalizedRootFile)
+      opfFile = tempDirectory + normalizedRootFile
+      If FileSize(opfFile) >= 0
+        xml = LoadXML(#PB_Any, opfFile)
+        If xml
+          manifestNode = FindFirstNodeByName(MainXMLNode(xml), "manifest")
+          If manifestNode
+            childNode = ChildXMLNode(manifestNode)
+            While childNode
+              If LCase(GetXMLNodeName(childNode)) = "item"
+                manifestItemPath = NormalizeArchivePath(GetPathPart(normalizedRootFile), GetXMLAttribute(childNode, "href"))
+                If manifestItemPath <> ""
+                  manifestItems(GetXMLAttribute(childNode, "id")) = manifestItemPath
+                EndIf
+              EndIf
+              childNode = NextXMLNode(childNode)
+            Wend
           EndIf
-          childNode = NextXMLNode(childNode)
-        Wend
-      EndIf
 
-      spineNode = FindFirstNodeByName(MainXMLNode(xml), "spine")
-      If spineNode
-        childNode = ChildXMLNode(spineNode)
-        While childNode
-          If LCase(GetXMLNodeName(childNode)) = "itemref" And LCase(GetXMLAttribute(childNode, "linear")) <> "no"
-            idRef = GetXMLAttribute(childNode, "idref")
-            If FindMapElement(manifestItems(), idRef)
-              startDocument = GetPathPart(opfFile) + manifestItems()
-              Break
-            EndIf
+          spineNode = FindFirstNodeByName(MainXMLNode(xml), "spine")
+          If spineNode
+            opfDirectory = GetPathPart(normalizedRootFile)
+            childNode = ChildXMLNode(spineNode)
+            While childNode
+              If LCase(GetXMLNodeName(childNode)) = "itemref" And LCase(GetXMLAttribute(childNode, "linear")) <> "no"
+                idRef = GetXMLAttribute(childNode, "idref")
+                If FindMapElement(manifestItems(), idRef)
+                  relativeStartDocument = manifestItems()
+                  If IsSafeArchiveEntry(relativeStartDocument)
+                    startDocument = tempDirectory + relativeStartDocument
+                    If FileSize(startDocument) < 0
+                      startDocument = ""
+                    EndIf
+                  EndIf
+                  Break
+                EndIf
+              EndIf
+              childNode = NextXMLNode(childNode)
+            Wend
           EndIf
-          childNode = NextXMLNode(childNode)
-        Wend
+          FreeXML(xml)
+        EndIf
       EndIf
-      FreeXML(xml)
     EndIf
   EndIf
 
-  If startDocument = ""
+  If startDocument = "" And fallbackDocument <> "" And FileSize(fallbackDocument) >= 0
     startDocument = fallbackDocument
   EndIf
 
@@ -719,11 +822,58 @@ Procedure.i AddCoverPage(*book.FlipBook, displayName.s, footerText.s)
   ProcedureReturn pageNr
 EndProcedure
 
+Procedure.s GetWrappedTextChunk(text.s, maxWidth.d, *consumed.Integer)
+  Protected i.i
+  Protected lastBreak.i
+  Protected chunk.s
+
+  If text = ""
+    *consumed\i = 0
+    ProcedureReturn ""
+  EndIf
+
+  If VectorTextWidth(text) <= maxWidth
+    *consumed\i = Len(text)
+    ProcedureReturn text
+  EndIf
+
+  For i = 1 To Len(text)
+    chunk = Left(text, i)
+    If VectorTextWidth(chunk) > maxWidth
+      Break
+    EndIf
+
+    Select Mid(text, i, 1)
+      Case " ", "-", "/", "\\"
+        lastBreak = i
+    EndSelect
+  Next
+
+  If lastBreak > 0
+    *consumed\i = lastBreak
+    ProcedureReturn RTrim(Left(text, lastBreak))
+  EndIf
+
+  *consumed\i = i - 1
+  If *consumed\i < 1
+    *consumed\i = 1
+  EndIf
+  ProcedureReturn Left(text, *consumed\i)
+EndProcedure
+
 Procedure.i AddTextDocumentPages(*book.FlipBook, fileName.s, displayName.s)
   Protected fileID.i
   Protected pageNr.i
   Protected y.d
   Protected lineText.s
+  Protected pendingLine.s
+  Protected pendingReady.i
+  Protected pendingBlank.i
+  Protected lineHeight.d
+  Protected maxTextWidth.d
+  Protected maxTextY.d
+  Protected chunk.s
+  Protected consumed.Integer
 
   fileID = ReadFile(#PB_Any, fileName)
   If fileID = 0
@@ -731,24 +881,53 @@ Procedure.i AddTextDocumentPages(*book.FlipBook, fileName.s, displayName.s)
     ProcedureReturn #False
   EndIf
 
+  Clear(*book)
   AddCoverPage(*book, displayName, "Text document viewer")
   AddPage(*book, #True, ColorPageBackground, ColorPageBorder, 4)
 
-  While Eof(fileID) = 0
+  While Eof(fileID) = 0 Or pendingReady
     pageNr = AddPage(*book, #True, ColorPageBackground, ColorPageBorder, 4)
     If StartVectorDrawing(ImageVectorOutput(*book\page(pageNr)))
       VectorSourceColor(ColorText)
       VectorFont(FontID(0), DesktopScaledY(10))
       y = 28
+      lineHeight = VectorTextHeight("Ag") + 3
+      maxTextWidth = *book\width - 56
+      maxTextY = *book\height - 70
       AddPathBox(24, 22, *book\width - 48, *book\height - 58)
       ClipPath()
 
       Repeat
-        lineText = ReplaceString(ReadString(fileID), Chr(9), "    ")
-        MovePathCursor(28, y)
-        DrawVectorText(lineText)
-        y + VectorTextHeight("Ag") + 3
-      Until y > *book\height - 70 Or Eof(fileID)
+        If pendingReady = 0
+          If Eof(fileID)
+            Break
+          EndIf
+
+          lineText = ReplaceString(ReadString(fileID), Chr(9), "    ")
+          pendingLine = lineText
+          pendingBlank = Bool(pendingLine = "")
+          pendingReady = #True
+        EndIf
+
+        If y > maxTextY
+          Break
+        EndIf
+
+        If pendingBlank
+          y + lineHeight
+          pendingReady = #False
+        Else
+          chunk = GetWrappedTextChunk(pendingLine, maxTextWidth, @consumed)
+          MovePathCursor(28, y)
+          DrawVectorText(chunk)
+          y + lineHeight
+
+          pendingLine = LTrim(Mid(pendingLine, consumed\i + 1))
+          If pendingLine = ""
+            pendingReady = #False
+          EndIf
+        EndIf
+      Until y > maxTextY Or (Eof(fileID) And pendingReady = 0)
 
       MovePathCursor(0, *book\height - 32)
       DrawVectorParagraph("Page " + Str(*book\nrPages - 2), *book\width, 24, #PB_VectorParagraph_Center)
@@ -762,10 +941,6 @@ Procedure.i AddTextDocumentPages(*book.FlipBook, fileName.s, displayName.s)
     AddPage(*book, #True, ColorPageBackground, ColorPageBorder, 4)
   EndIf
   AddCoverPage(*book, displayName, "Changes by: " + #EMAIL_NAME)
-
-  *book\currentPage = 0
-  *book\cornerX = 0
-  *book\cornerY = 0
 
   ProcedureReturn #True
 EndProcedure
@@ -799,23 +974,31 @@ Procedure.i LoadDocument(*book.FlipBook, fileName.s, displayName.s)
   ProcedureReturn #False
 EndProcedure
 
+Declare Shutdown(*book.FlipBook = 0)
+
 Procedure.i ConfirmExit(*book.FlipBook)
   Protected req.i
 
   req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
   If req = #PB_MessageRequester_Yes
-    If *book
-      Free(*book)
-    EndIf
-    CleanupTempDirectory()
-    If hMutex
-      CloseHandle_(hMutex)
-      hMutex = 0
-    EndIf
+    Shutdown(*book)
     ProcedureReturn #True
   EndIf
 
   ProcedureReturn #False
+EndProcedure
+
+Procedure Shutdown(*book.FlipBook = 0)
+  If *book
+    Free(*book)
+  EndIf
+
+  CleanupTempDirectory()
+
+  If hMutex
+    CloseHandle_(hMutex)
+    hMutex = 0
+  EndIf
 EndProcedure
 
 CompilerIf #PB_Compiler_IsMainFile
@@ -829,10 +1012,7 @@ CompilerIf #PB_Compiler_IsMainFile
   filename2 = GetFilePart(filename)
 
   If filename = ""
-    If hMutex
-      CloseHandle_(hMutex)
-      hMutex = 0
-    EndIf
+    Shutdown()
     End
   EndIf
 
@@ -855,14 +1035,7 @@ CompilerIf #PB_Compiler_IsMainFile
     EndIf
 
     If *book = 0 Or LoadDocument(*book, filename, filename2) = 0
-      If *book
-        Free(*book)
-      EndIf
-      CleanupTempDirectory()
-      If hMutex
-        CloseHandle_(hMutex)
-        hMutex = 0
-      EndIf
+      Shutdown(*book)
       End
     EndIf
 
@@ -881,13 +1054,15 @@ CompilerIf #PB_Compiler_IsMainFile
           quit = ConfirmExit(*book)
       EndSelect
     Until quit
+  Else
+    Shutdown()
   EndIf
 
 CompilerEndIf
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 5
-; Folding = -----
+; Folding = ------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -896,12 +1071,12 @@ CompilerEndIf
 ; UseIcon = HandyFlipBook.ico
 ; Executable = ..\HandyFlipBook.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,9
-; VersionField1 = 1,0,0,9
+; VersionField0 = 1,0,1,0
+; VersionField1 = 1,0,1,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyFlipBook
-; VersionField4 = 1.0.0.9
-; VersionField5 = 1.0.0.9
+; VersionField4 = 1.0.1.0
+; VersionField5 = 1.0.1.0
 ; VersionField6 = Handy Flip Book for viewing text, PDF, and EPUB files
 ; VersionField7 = HandyFlipBook
 ; VersionField8 = HandyFlipBook.exe
