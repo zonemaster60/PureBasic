@@ -5,6 +5,37 @@ Procedure.s DbEscape(text.s)
   ProcedureReturn ReplaceString(text, "'", "''")
 EndProcedure
 
+Procedure.i ExecDb(sql.s)
+  If IndexDbId = 0
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn Bool(DatabaseUpdate(IndexDbId, sql))
+EndProcedure
+
+Procedure.i ExecDbLocked(sql.s)
+  Protected ok.i
+
+  If IndexDbId = 0 Or DbMutex = 0
+    ProcedureReturn #False
+  EndIf
+
+  LockMutex(DbMutex)
+  ok = ExecDb(sql)
+  UnlockMutex(DbMutex)
+  ProcedureReturn ok
+EndProcedure
+
+Procedure.q GetIndexedCountCached()
+  ProcedureReturn IndexTotalFiles
+EndProcedure
+
+Procedure SetIndexedCount(count.q)
+  IndexTotalFiles = count
+  CachedIndexedCount = count
+  CachedIndexedCountAtMS = ElapsedMilliseconds()
+EndProcedure
+
 Procedure.i DatabaseColumnExists(tableName.s, columnName.s)
   Protected found.i
 
@@ -71,12 +102,11 @@ Procedure.q GetIndexedCountFast()
   If cnt < 0
     cnt = GetIndexedCountFromDbSlow()
     If IndexDbId And DbMutex
-      LockMutex(DbMutex)
-      DatabaseUpdate(IndexDbId, "INSERT OR REPLACE INTO meta(key,value) VALUES('indexed_count','" + Str(cnt) + "');")
-      UnlockMutex(DbMutex)
+      ExecDbLocked("INSERT OR REPLACE INTO meta(key,value) VALUES('indexed_count','" + Str(cnt) + "');")
     EndIf
   EndIf
 
+  IndexTotalFiles = cnt
   CachedIndexedCount = cnt
   CachedIndexedCountAtMS = now
   ProcedureReturn cnt
@@ -123,18 +153,11 @@ Procedure.b RebuildIndexDatabase()
     ProcedureReturn #False
   EndIf
 
-  LockMutex(DbMutex)
-  DatabaseUpdate(IndexDbId, "DELETE FROM files;")
-  DatabaseUpdate(IndexDbId, "DELETE FROM meta WHERE key='last_scan_id';")
-  UnlockMutex(DbMutex)
+  ExecDbLocked("DELETE FROM files;")
+  ExecDbLocked("DELETE FROM meta WHERE key='last_scan_id';")
+  ExecDbLocked("INSERT OR REPLACE INTO meta(key,value) VALUES('indexed_count','0');")
 
-  LockMutex(DbMutex)
-  DatabaseUpdate(IndexDbId, "INSERT OR REPLACE INTO meta(key,value) VALUES('indexed_count','0');")
-  UnlockMutex(DbMutex)
-
-  IndexTotalFiles = 0
-  CachedIndexedCount = 0
-  CachedIndexedCountAtMS = ElapsedMilliseconds()
+  SetIndexedCount(0)
   ProcedureReturn #True
 EndProcedure
 
@@ -144,21 +167,18 @@ Procedure FinalizeCompletedScan()
   EndIf
 
   LockMutex(DbMutex)
-  DatabaseUpdate(IndexDbId, "BEGIN TRANSACTION;")
-  DatabaseUpdate(IndexDbId, "DELETE FROM files WHERE scan_id <> " + Str(CurrentScanId) + ";")
+  ExecDb("BEGIN TRANSACTION;")
+  ExecDb("DELETE FROM files WHERE scan_id <> " + Str(CurrentScanId) + ";")
   If DatabaseQuery(IndexDbId, "SELECT COUNT(*) FROM files;")
     If NextDatabaseRow(IndexDbId)
-      IndexTotalFiles = GetDatabaseQuad(IndexDbId, 0)
+      SetIndexedCount(GetDatabaseQuad(IndexDbId, 0))
     EndIf
     FinishDatabaseQuery(IndexDbId)
   EndIf
-  DatabaseUpdate(IndexDbId, "INSERT OR REPLACE INTO meta(key,value) VALUES('indexed_count','" + Str(IndexTotalFiles) + "');")
-  DatabaseUpdate(IndexDbId, "INSERT OR REPLACE INTO meta(key,value) VALUES('last_scan_id','" + Str(CurrentScanId) + "');")
-  DatabaseUpdate(IndexDbId, "COMMIT;")
+  ExecDb("INSERT OR REPLACE INTO meta(key,value) VALUES('indexed_count','" + Str(GetIndexedCountCached()) + "');")
+  ExecDb("INSERT OR REPLACE INTO meta(key,value) VALUES('last_scan_id','" + Str(CurrentScanId) + "');")
+  ExecDb("COMMIT;")
   UnlockMutex(DbMutex)
-
-  CachedIndexedCount = IndexTotalFiles
-  CachedIndexedCountAtMS = ElapsedMilliseconds()
 EndProcedure
 
 Procedure.s ResolveDbPath(dbPath.s)
@@ -196,7 +216,7 @@ Procedure InitDatabase()
   Protected f.i
 
   dbPath = ResolveDbPath(IndexDbPath)
-  LogLine("RebuildIndexDatabase dbPath=" + dbPath)
+  LogLine("InitDatabase dbPath=" + dbPath)
   folder = GetPathPart(dbPath)
   If folder <> "" And FileSize(folder) <> -2
     EnsureDirectoryTree(folder)
@@ -222,22 +242,22 @@ Procedure InitDatabase()
   EndIf
 
   LockMutex(DbMutex)
-  DatabaseUpdate(IndexDbId, "PRAGMA journal_mode=WAL;")
-  DatabaseUpdate(IndexDbId, "PRAGMA synchronous=NORMAL;")
-  DatabaseUpdate(IndexDbId, "PRAGMA temp_store=MEMORY;")
-  DatabaseUpdate(IndexDbId, "PRAGMA mmap_size=268435456;")
-  DatabaseUpdate(IndexDbId, "PRAGMA cache_size=-200000;")
-  DatabaseUpdate(IndexDbId, "CREATE TABLE IF NOT EXISTS files(path TEXT PRIMARY KEY, name TEXT, dir TEXT, size INTEGER, mtime INTEGER, is_dir INTEGER NOT NULL DEFAULT 0, scan_id INTEGER NOT NULL DEFAULT 0);")
+  ExecDb("PRAGMA journal_mode=WAL;")
+  ExecDb("PRAGMA synchronous=NORMAL;")
+  ExecDb("PRAGMA temp_store=MEMORY;")
+  ExecDb("PRAGMA mmap_size=268435456;")
+  ExecDb("PRAGMA cache_size=-200000;")
+  ExecDb("CREATE TABLE IF NOT EXISTS files(path TEXT PRIMARY KEY, name TEXT, dir TEXT, size INTEGER, mtime INTEGER, is_dir INTEGER NOT NULL DEFAULT 0, scan_id INTEGER NOT NULL DEFAULT 0);")
   If DatabaseColumnExists("files", "is_dir") = 0
-    DatabaseUpdate(IndexDbId, "ALTER TABLE files ADD COLUMN is_dir INTEGER NOT NULL DEFAULT 0;")
+    ExecDb("ALTER TABLE files ADD COLUMN is_dir INTEGER NOT NULL DEFAULT 0;")
   EndIf
   If DatabaseColumnExists("files", "scan_id") = 0
-    DatabaseUpdate(IndexDbId, "ALTER TABLE files ADD COLUMN scan_id INTEGER NOT NULL DEFAULT 0;")
+    ExecDb("ALTER TABLE files ADD COLUMN scan_id INTEGER NOT NULL DEFAULT 0;")
   EndIf
-  DatabaseUpdate(IndexDbId, "CREATE INDEX IF NOT EXISTS idx_files_name ON files(name);")
-  DatabaseUpdate(IndexDbId, "CREATE INDEX IF NOT EXISTS idx_files_dir ON files(dir);")
-  DatabaseUpdate(IndexDbId, "CREATE INDEX IF NOT EXISTS idx_files_is_dir ON files(is_dir);")
-  DatabaseUpdate(IndexDbId, "CREATE INDEX IF NOT EXISTS idx_files_scan_id ON files(scan_id);")
-  DatabaseUpdate(IndexDbId, "CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);")
+  ExecDb("CREATE INDEX IF NOT EXISTS idx_files_name ON files(name);")
+  ExecDb("CREATE INDEX IF NOT EXISTS idx_files_dir ON files(dir);")
+  ExecDb("CREATE INDEX IF NOT EXISTS idx_files_is_dir ON files(is_dir);")
+  ExecDb("CREATE INDEX IF NOT EXISTS idx_files_scan_id ON files(scan_id);")
+  ExecDb("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);")
   UnlockMutex(DbMutex)
 EndProcedure

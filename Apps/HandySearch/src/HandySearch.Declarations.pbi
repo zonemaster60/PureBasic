@@ -2,7 +2,7 @@
 
 #APP_NAME   = "HandySearch"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-Global version.s = "v1.0.1.6"
+Global version.s = "v1.0.1.7"
 
 ; Crash logging (best-effort)
 Declare InitCrashLogging()
@@ -80,6 +80,10 @@ Declare.s GetConfigPath()
 Declare.s ResolveDbPath(dbPath.s)
 Declare InitDatabase()
 Declare.q GetIndexedCountFast()
+Declare.i ExecDb(sql.s)
+Declare.i ExecDbLocked(sql.s)
+Declare.q GetIndexedCountCached()
+Declare SetIndexedCount(count.q)
 Declare FlushIndexBatchToDb(List batch.IndexRecord())
 Declare FinalizeCompletedScan()
 Declare.b RebuildIndexDatabase()
@@ -96,7 +100,7 @@ Declare EnqueueResult(path.s)
 Declare EnqueueResultsBatch(List batch.s())
 Declare.i PendingResultsCount()
 Declare DbWriterThreadProc(dummy.i)
-Declare SearchThreadProc(*params.SearchParams)
+Declare IndexThreadProc(*params.SearchParams)
 
 ; Actions/settings
 Declare.b ConfirmExit()
@@ -112,6 +116,9 @@ Declare OpenDbFolder(showError.i)
 Declare ShowDiagnostics()
 Declare StopIndexingAndWait()
 Declare StartIndexing(rebuild.i)
+Declare SetIndexingActive(active.i)
+Declare SetIndexingPaused(paused.i)
+Declare RequestIndexStop()
 
 ; UI shell/events
 Declare SyncUiState()
@@ -133,14 +140,6 @@ Declare MainLoop()
 #Menu_TrayPopup = 2
 #Gadget_SearchBar = 1
 #Gadget_ResultsList = 2
-#Gadget_StartButton = 3
-#Gadget_StopButton = 4
-#Gadget_FolderPath = 5
-#Gadget_BrowseButton = 6
-#Gadget_AboutButton = 7
-#Gadget_ExitButton = 8
-#Gadget_ConfigButton = 9
-#Gadget_WebButton = 10
 #Timer_PumpResults = 1
 #StatusBar_Main = 0
 
@@ -179,9 +178,8 @@ Declare MainLoop()
 #Open_ShowError = 1
 #Open_Silent = 0
 
-Global SearchThread.i
-Global StopSearch.i
-Global SearchActive.i ; legacy
+Global IndexThread.i
+Global StopIndexingRequested.i
 Global ResultMutex.i
 Global ProgressMutex.i
 Global ExcludeMutex.i
@@ -211,7 +209,6 @@ Global LiveMatchFullPath.i = 1
 ; Stats
 Global FilesScanned.q
 Global DirsScanned.q
-Global MatchesFound.q
 Global IndexTotalFiles.q
 Global CurrentFolder.s
 
@@ -273,3 +270,9 @@ Global NewMap ExcludeFileNames.i()
 Global NewMap ExcludePathPrefixes.i()
 
 Global hMutex.i
+
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 4
+; Folding = -
+; EnableXP
+; DPIAware

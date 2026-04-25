@@ -63,6 +63,8 @@ EndProcedure
 Procedure WriteDefaultExcludesIni(filePath.s)
   Protected f.i
 
+  EnsureParentDirectoryForFile(filePath)
+
   f = CreateFile(#PB_Any, filePath)
   If f = 0
     ProcedureReturn

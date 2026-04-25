@@ -177,6 +177,10 @@ Procedure RefreshResultsFromDb(query.s)
     ProcedureReturn
   EndIf
 
+  If DbMutex = 0
+    ProcedureReturn
+  EndIf
+
   ClearGadgetItems(#Gadget_ResultsList)
 
   ignoreCase = 1
@@ -232,7 +236,7 @@ Procedure RefreshResultsFromDb(query.s)
       UnlockMutex(DbMutex)
 
       FreeRegularExpression(regexID)
-      StatusBarText(#StatusBar_Main, 1, "Showing: " + Str(shown) + "  (regex)  Indexed: " + Str(IndexTotalFiles))
+      StatusBarText(#StatusBar_Main, 1, "Showing: " + Str(shown) + "  (regex)  Indexed: " + Str(GetIndexedCountCached()))
       ProcedureReturn
     EndIf
   EndIf
@@ -257,5 +261,5 @@ Procedure RefreshResultsFromDb(query.s)
   EndIf
   UnlockMutex(DbMutex)
 
-  StatusBarText(#StatusBar_Main, 1, "Showing: " + Str(shown) + "  Indexed: " + Str(IndexTotalFiles))
+  StatusBarText(#StatusBar_Main, 1, "Showing: " + Str(shown) + "  Indexed: " + Str(GetIndexedCountCached()))
 EndProcedure

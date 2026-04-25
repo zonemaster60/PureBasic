@@ -8,7 +8,7 @@ EnableExplicit
 #APP_NAME   = "HandyMEMScan"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
-Global version.s = "v1.0.0.4"
+Global version.s = "v1.0.0.5"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -16,6 +16,7 @@ SetCurrentDirectory(AppPath)
 Global hMutex.i
 Global MemoryViewFont.i
 Global ProcessInfoFont.i
+Global ProcessHandle.i
 hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
 If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
   MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
@@ -102,11 +103,18 @@ Global SelectedProcess.l = -1
   Declare UpdateResultsUI()
   Declare UpdateCheatListUI()
   Declare.q ParseHex(Text.s)
+  Declare.i IsValidIntegerInput(Text.s)
+  Declare.i IsValidHexInput(Text.s)
+  Declare.i IsValidFloatInput(Text.s)
+  Declare.s TryParseAddress(Text.s, *Address)
+  Declare.s TryParseTypedInteger(Text.s, ValueType.l, HexMode.i, *Value)
+  Declare.s TryParseFloatingValue(Text.s, *Value)
   Declare.i ValueSizeFromType(ValueType.l)
   Declare.s FormatValueFromBits(Bits.q, ValueType.l)
   Declare AddScanTypeItem(Gadget.i, Label.s, ValueType.l)
   Declare.l GetSelectedScanValueType()
   Declare SetScanTypeSelection(ValueType.l)
+  Declare.i WriteTextMemoryValue(hProcess.i, Address.i, ValueText.s, ValueType.l, *BytesWritten)
   Declare.i IsTextValueType(ValueType.l)
   Declare.i IsIntegerValueType(ValueType.l)
   Declare.i IsExecutableProtection(Protection.i)
@@ -141,6 +149,11 @@ Global SelectedProcess.l = -1
   EndProcedure
 
 Procedure ShowModuleWindow()
+  If Not ProcessHandle Or SelectedProcess <= 0
+    MessageRequester("Error", "Attach to a process before viewing modules.", #PB_MessageRequester_Error)
+    ProcedureReturn
+  EndIf
+
   RefreshModuleList()
   If IsWindow(#ModulesWindow)
     CloseWindow(#ModulesWindow)
@@ -330,6 +343,160 @@ Procedure.d ParseDouble(Text.s)
   ProcedureReturn ValD(s)
 EndProcedure
 
+Procedure.i IsValidIntegerInput(Text.s)
+  Protected s.s = Trim(Text)
+  Protected isHex.i
+  Protected i.i
+  Protected ch.s
+
+  If s = ""
+    ProcedureReturn #False
+  EndIf
+
+  If Left(s, 1) = "+" Or Left(s, 1) = "-"
+    s = Mid(s, 2)
+  EndIf
+
+  If s = ""
+    ProcedureReturn #False
+  EndIf
+
+  If Left(s, 2) = "0x" Or Left(s, 2) = "0X"
+    s = Mid(s, 3)
+    isHex = #True
+  ElseIf Left(s, 1) = "$"
+    s = Mid(s, 2)
+    isHex = #True
+  EndIf
+
+  If s = ""
+    ProcedureReturn #False
+  EndIf
+
+  For i = 1 To Len(s)
+    ch = Mid(s, i, 1)
+    If isHex
+      If FindString("0123456789ABCDEFabcdef", ch, 1) = 0
+        ProcedureReturn #False
+      EndIf
+    ElseIf ch < "0" Or ch > "9"
+      ProcedureReturn #False
+    EndIf
+  Next
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure.i IsValidHexInput(Text.s)
+  Protected s.s = ReplaceString(Trim(Text), " ", "")
+  Protected i.i
+  Protected ch.s
+
+  If Left(s, 2) = "0x" Or Left(s, 2) = "0X"
+    s = Mid(s, 3)
+  ElseIf Left(s, 1) = "$"
+    s = Mid(s, 2)
+  EndIf
+
+  If s = ""
+    ProcedureReturn #False
+  EndIf
+
+  For i = 1 To Len(s)
+    ch = Mid(s, i, 1)
+    If FindString("0123456789ABCDEFabcdef", ch, 1) = 0
+      ProcedureReturn #False
+    EndIf
+  Next
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure.i IsValidFloatInput(Text.s)
+  Protected s.s = Trim(Text)
+  Protected i.i
+  Protected ch.s
+  Protected hasDigit.i
+  Protected hasExponent.i
+  Protected hasDecimalPoint.i
+  Protected allowSign.i = #True
+  Protected requireDigitAfterExponent.i
+
+  If s = ""
+    ProcedureReturn #False
+  EndIf
+
+  For i = 1 To Len(s)
+    ch = Mid(s, i, 1)
+
+    If FindString("0123456789", ch, 1)
+      hasDigit = #True
+      allowSign = #False
+      If requireDigitAfterExponent
+        requireDigitAfterExponent = #False
+      EndIf
+    ElseIf ch = "." And Not hasDecimalPoint And Not hasExponent
+      hasDecimalPoint = #True
+      allowSign = #False
+    ElseIf (ch = "e" Or ch = "E") And hasDigit And Not hasExponent
+      hasExponent = #True
+      allowSign = #True
+      requireDigitAfterExponent = #True
+    ElseIf (ch = "+" Or ch = "-") And allowSign
+      allowSign = #False
+    Else
+      ProcedureReturn #False
+    EndIf
+  Next
+
+  ProcedureReturn Bool(hasDigit And Not requireDigitAfterExponent)
+EndProcedure
+
+Procedure.s TryParseAddress(Text.s, *Address)
+  If Not IsValidIntegerInput(Text)
+    ProcedureReturn "Please enter a valid address."
+  EndIf
+
+  PokeI(*Address, ParseNumber(Text))
+  ProcedureReturn ""
+EndProcedure
+
+Procedure.s TryParseTypedInteger(Text.s, ValueType.l, HexMode.i, *Value)
+  Protected parsedNumber.q
+
+  If HexMode
+    If Not IsValidHexInput(Text)
+      ProcedureReturn "Enter a valid hexadecimal value."
+    EndIf
+    parsedNumber = ParseHex(Text)
+  Else
+    If Not IsValidIntegerInput(Text)
+      ProcedureReturn "Enter a valid integer value."
+    EndIf
+    parsedNumber = ParseNumber(Text)
+
+    If valueType = #ValType_Byte And (parsedNumber < -128 Or parsedNumber > 255)
+      ProcedureReturn "Byte range is -128..255"
+    ElseIf valueType = #ValType_Word And (parsedNumber < -32768 Or parsedNumber > 65535)
+      ProcedureReturn "Word range is -32768..65535"
+    ElseIf valueType = #ValType_Long And (parsedNumber < -2147483648 Or parsedNumber > 4294967295)
+      ProcedureReturn "Long range is -2147483648..4294967295"
+    EndIf
+  EndIf
+
+  PokeQ(*Value, NormalizeIntegerSearch(parsedNumber, ValueType))
+  ProcedureReturn ""
+EndProcedure
+
+Procedure.s TryParseFloatingValue(Text.s, *Value)
+  If Not IsValidFloatInput(Text)
+    ProcedureReturn "Enter a valid floating-point value."
+  EndIf
+
+  PokeD(*Value, ParseDouble(Text))
+  ProcedureReturn ""
+EndProcedure
+
 Procedure.i ValueSizeFromType(ValueType.l)
   Select ValueType
     Case #ValType_Byte   : ProcedureReturn 1
@@ -496,7 +663,6 @@ Global NewList ScanResults.ScanResult()
 Global NewList CheatList.CheatEntry()
 Global NewList MemoryRegions.MemoryRegion()
 Global ProcessCount.l
-Global ProcessHandle.i
 Global PreviousScanInitialized.i
 Global ScanSessionValueType.l
 Global MaxDisplayResults.i = 5000
@@ -588,6 +754,7 @@ Declare HandleFreezeTimer() ; New: Periodically re-write frozen values
 Declare AddScanTypeItem(Gadget.i, Label.s, ValueType.l)
 Declare.l GetSelectedScanValueType()
 Declare SetScanTypeSelection(ValueType.l)
+Declare.i TryGetScanResultByIndex(Index.i, *Result.ScanResult)
 
 ; Helper: Parse hexadecimal string (e.g., "90 90 90" or "0x1234")
 Procedure.q ParseHex(Text.s)
@@ -620,6 +787,63 @@ Procedure SetScanTypeSelection(ValueType.l)
       Break
     EndIf
   Next
+EndProcedure
+
+Procedure.i TryGetScanResultByIndex(Index.i, *Result.ScanResult)
+  Protected found.i = #False
+
+  LockMutex(ScanMutex)
+  If Index >= 0 And SelectElement(ScanResults(), Index)
+    *Result\Address = ScanResults()\Address
+    *Result\ValueBits = ScanResults()\ValueBits
+    *Result\ValueType = ScanResults()\ValueType
+    *Result\DisplayValue = ScanResults()\DisplayValue
+    found = #True
+  EndIf
+  UnlockMutex(ScanMutex)
+
+  ProcedureReturn found
+EndProcedure
+
+Procedure.i WriteTextMemoryValue(hProcess.i, Address.i, ValueText.s, ValueType.l, *BytesWritten)
+  Protected textLen.i
+  Protected *textBuffer
+  Protected i.i
+
+  Select ValueType
+    Case #ValType_String
+      textLen = Len(ValueText)
+      If textLen > 0
+        ProcedureReturn WriteProcessMemory_(hProcess, Address, @ValueText, textLen, *BytesWritten)
+      EndIf
+
+    Case #ValType_Unicode
+      textLen = Len(ValueText) * SizeOf(Character)
+      If textLen > 0
+        ProcedureReturn WriteProcessMemory_(hProcess, Address, @ValueText, textLen, *BytesWritten)
+      EndIf
+
+    Case #ValType_AOB
+      ValueText = NormalizeAOBPattern(ValueText)
+      If Not IsValidAOBPattern(ValueText) Or AOBPatternHasWildcard(ValueText)
+        ProcedureReturn #False
+      EndIf
+
+      textLen = CountString(ValueText, " ") + 1
+      If textLen > 0
+        *textBuffer = AllocateMemory(textLen)
+        If *textBuffer
+          For i = 0 To textLen - 1
+            PokeA(*textBuffer + i, Val("$" + StringField(ValueText, i + 1, " ")) & $FF)
+          Next
+          i = WriteProcessMemory_(hProcess, Address, *textBuffer, textLen, *BytesWritten)
+          FreeMemory(*textBuffer)
+          ProcedureReturn i
+        EndIf
+      EndIf
+  EndSelect
+
+  ProcedureReturn #False
 EndProcedure
 
 Procedure UpdateCheatListUI()
@@ -673,42 +897,24 @@ Procedure CleanupAndQuit()
     CloseHandle_(hMutex)
     hMutex = 0
   EndIf
+  If ScanMutex
+    FreeMutex(ScanMutex)
+    ScanMutex = 0
+  EndIf
+  If CheatMutex
+    FreeMutex(CheatMutex)
+    CheatMutex = 0
+  EndIf
 EndProcedure
 
 Procedure HandleFreezeTimer()
   Protected BytesWritten.i
-  Protected textLen.i
-  Protected *textBuffer
   LockMutex(CheatMutex)
   If ProcessHandle
     ForEach CheatList()
       If CheatList()\Enabled
         If IsTextValueType(CheatList()\ValueType)
-          Select CheatList()\ValueType
-            Case #ValType_String
-              textLen = Len(CheatList()\DisplayValue)
-              If textLen > 0
-                WriteProcessMemory_(ProcessHandle, CheatList()\Address, @CheatList()\DisplayValue, textLen, @BytesWritten)
-              EndIf
-            Case #ValType_Unicode
-              textLen = Len(CheatList()\DisplayValue) * SizeOf(Character)
-              If textLen > 0
-                WriteProcessMemory_(ProcessHandle, CheatList()\Address, @CheatList()\DisplayValue, textLen, @BytesWritten)
-              EndIf
-            Case #ValType_AOB
-              textLen = CountString(CheatList()\DisplayValue, " ") + 1
-              If textLen > 0
-                *textBuffer = AllocateMemory(textLen)
-                If *textBuffer
-                  Protected i.i
-                  For i = 0 To textLen - 1
-                    PokeA(*textBuffer + i, Val("$" + StringField(CheatList()\DisplayValue, i + 1, " ")) & $FF)
-                  Next
-                  WriteProcessMemory_(ProcessHandle, CheatList()\Address, *textBuffer, textLen, @BytesWritten)
-                  FreeMemory(*textBuffer)
-                EndIf
-              EndIf
-          EndSelect
+          WriteTextMemoryValue(ProcessHandle, CheatList()\Address, CheatList()\DisplayValue, CheatList()\ValueType, @BytesWritten)
         Else
           WriteProcessMemory_(ProcessHandle, CheatList()\Address, @CheatList()\ValueBits, ValueSizeFromType(CheatList()\ValueType), @BytesWritten)
         EndIf
@@ -1084,7 +1290,7 @@ Procedure ScanMemory()
   Protected mode.l = GetGadgetState(#ScanModeCombo)
   Protected valueType.l = GetSelectedScanValueType()
   Protected searchNumberText.s
-  Protected parsedNumber.q
+  Protected parseError.s
   
   If IsThread(ScanThread)
     MessageRequester("Info", "Scan is already running!", #PB_MessageRequester_Info)
@@ -1117,6 +1323,11 @@ Procedure ScanMemory()
     ProcedureReturn
   EndIf
 
+  If IsTextValueType(valueType) And mode = #ScanMode_Unknown
+    MessageRequester("Error", "Unknown scans are not supported for String, Unicode, or AOB types. Start with an Exact scan instead.", #PB_MessageRequester_Error)
+    ProcedureReturn
+  EndIf
+
   CurrentScanParams\Mode = mode
   CurrentScanParams\ValueType = valueType
   CurrentScanParams\Aligned = GetGadgetState(#AlignedCheck)
@@ -1141,24 +1352,22 @@ Procedure ScanMemory()
         MessageRequester("Error", "Enter an AOB pattern like '8B 45 ?? 50'.", #PB_MessageRequester_Error)
         ProcedureReturn
       EndIf
-    ElseIf GetGadgetState(#HexCheck) = #PB_Checkbox_Checked
-      CurrentScanParams\SearchInt = ParseHex(searchNumberText)
-      CurrentScanParams\SearchInt = NormalizeIntegerSearch(CurrentScanParams\SearchInt, valueType)
     ElseIf valueType = #ValType_Float Or valueType = #ValType_Double
-      CurrentScanParams\SearchFloat = ParseDouble(searchNumberText)
+      parseError = TryParseFloatingValue(searchNumberText, @CurrentScanParams\SearchFloat)
+      If parseError <> ""
+        MessageRequester("Error", parseError, #PB_MessageRequester_Error)
+        ProcedureReturn
+      EndIf
+    ElseIf GetGadgetState(#HexCheck) = #PB_Checkbox_Checked
+      parseError = TryParseTypedInteger(searchNumberText, valueType, #True, @CurrentScanParams\SearchInt)
+      If parseError <> ""
+        MessageRequester("Error", parseError, #PB_MessageRequester_Error)
+        ProcedureReturn
+      EndIf
     Else
-      parsedNumber = ParseNumber(searchNumberText)
-      CurrentScanParams\SearchInt = parsedNumber
-      CurrentScanParams\SearchInt = NormalizeIntegerSearch(CurrentScanParams\SearchInt, valueType)
-
-      If valueType = #ValType_Byte And (parsedNumber < -128 Or parsedNumber > 255)
-        MessageRequester("Error", "Byte range is -128..255", #PB_MessageRequester_Error)
-        ProcedureReturn
-      ElseIf valueType = #ValType_Word And (parsedNumber < -32768 Or parsedNumber > 65535)
-        MessageRequester("Error", "Word range is -32768..65535", #PB_MessageRequester_Error)
-        ProcedureReturn
-      ElseIf valueType = #ValType_Long And (parsedNumber < -2147483648 Or parsedNumber > 4294967295)
-        MessageRequester("Error", "Long range is -2147483648..4294967295", #PB_MessageRequester_Error)
+      parseError = TryParseTypedInteger(searchNumberText, valueType, #False, @CurrentScanParams\SearchInt)
+      If parseError <> ""
+        MessageRequester("Error", parseError, #PB_MessageRequester_Error)
         ProcedureReturn
       EndIf
     EndIf
@@ -1238,7 +1447,11 @@ Protected Selection.l, *Process.PROCESSENTRY32
     ; Close previous handle if exists
     If ProcessHandle
       CloseHandle_(ProcessHandle)
+      ProcessHandle = 0
     EndIf
+    SelectedProcess = -1
+    ClearList(MemoryRegions())
+    ResetScan()
     
     ; Open process with required access rights
     accessMask = #PROCESS_QUERY_INFORMATION | #PROCESS_QUERY_LIMITED_INFORMATION | #PROCESS_VM_READ | #PROCESS_VM_WRITE | #PROCESS_VM_OPERATION
@@ -1333,6 +1546,10 @@ Procedure UpdateMaxResults()
     v = 5000
   EndIf
   MaxDisplayResults = v
+  SetGadgetText(#MaxResultsText, Str(MaxDisplayResults))
+  If Not IsThread(ScanThread)
+    UpdateResultsUI()
+  EndIf
 EndProcedure
 
 Procedure TogglePauseScan()
@@ -1355,12 +1572,11 @@ EndProcedure
 Procedure WriteMemoryValue()
   Protected Address.i, BytesWritten.i
   Protected Value.q
+  Protected FloatValue.d
   Protected AddressText.s, ValueText.s
+  Protected parseError.s
   Protected WriteSize.i
   Protected valueType.l = GetSelectedScanValueType()
-  Protected textBytes.i
-  Protected *aobBuffer
-  Protected i.i
   
   If Not ProcessHandle
     MessageRequester("Error", "No process attached!", #PB_MessageRequester_Error)
@@ -1374,42 +1590,17 @@ Procedure WriteMemoryValue()
     MessageRequester("Error", "Please enter both address and value!", #PB_MessageRequester_Error)
     ProcedureReturn
   EndIf
-  
-  Address = ParseNumber(AddressText)
-  Value = NormalizeIntegerSearch(ParseNumber(ValueText), valueType)
-  
-  ; Determine write size based on scan type
-  Select valueType
-    Case #ValType_Byte: WriteSize = 1
-    Case #ValType_Word: WriteSize = 2
-    Case #ValType_Long, #ValType_Float: WriteSize = 4
-    Case #ValType_Quad, #ValType_Double: WriteSize = 8
-    Default: WriteSize = 4
-  EndSelect
 
-  ; NOTE: Float/Double/String/AOB writes use ValueText directly.
-  If valueType = #ValType_Float
-    Protected f.f = ParseDouble(ValueText)
-    If WriteProcessMemory_(ProcessHandle, Address, @f, WriteSize, @BytesWritten)
-      StatusBarText(#StatusBar, 0, "Successfully wrote value " + StrF(f) + " to address " + FormatAddress(Address))
-      ProcedureReturn
-    EndIf
-  ElseIf valueType = #ValType_Double
-    Protected d.d = ParseDouble(ValueText)
-    If WriteProcessMemory_(ProcessHandle, Address, @d, WriteSize, @BytesWritten)
-      StatusBarText(#StatusBar, 0, "Successfully wrote value " + StrD(d) + " to address " + FormatAddress(Address))
-      ProcedureReturn
-    EndIf
-  ElseIf valueType = #ValType_String
-    textBytes = Len(ValueText)
-    If WriteProcessMemory_(ProcessHandle, Address, @ValueText, textBytes, @BytesWritten)
-      StatusBarText(#StatusBar, 0, "Successfully wrote string to address " + FormatAddress(Address))
-      ProcedureReturn
-    EndIf
-  ElseIf valueType = #ValType_Unicode
-    textBytes = Len(ValueText) * SizeOf(Character)
-    If WriteProcessMemory_(ProcessHandle, Address, @ValueText, textBytes, @BytesWritten)
-      StatusBarText(#StatusBar, 0, "Successfully wrote Unicode string to address " + FormatAddress(Address))
+  parseError = TryParseAddress(AddressText, @Address)
+  If parseError <> ""
+    MessageRequester("Error", parseError, #PB_MessageRequester_Error)
+    ProcedureReturn
+  EndIf
+
+  If valueType = #ValType_Float Or valueType = #ValType_Double
+    parseError = TryParseFloatingValue(ValueText, @FloatValue)
+    If parseError <> ""
+      MessageRequester("Error", parseError, #PB_MessageRequester_Error)
       ProcedureReturn
     EndIf
   ElseIf valueType = #ValType_AOB
@@ -1422,21 +1613,51 @@ Procedure WriteMemoryValue()
       MessageRequester("Error", "AOB writes require concrete bytes; wildcards are only supported for scans.", #PB_MessageRequester_Error)
       ProcedureReturn
     EndIf
-    textBytes = CountString(ValueText, " ") + 1
-    *aobBuffer = AllocateMemory(textBytes)
-    If *aobBuffer = 0
-      MessageRequester("Error", "Failed to allocate memory for AOB write.", #PB_MessageRequester_Error)
+  ElseIf Not IsTextValueType(valueType)
+    parseError = TryParseTypedInteger(ValueText, valueType, #False, @Value)
+    If parseError <> ""
+      MessageRequester("Error", parseError, #PB_MessageRequester_Error)
       ProcedureReturn
     EndIf
-    For i = 0 To textBytes - 1
-      PokeA(*aobBuffer + i, Val("$" + StringField(ValueText, i + 1, " ")) & $FF)
-    Next
-    If WriteProcessMemory_(ProcessHandle, Address, *aobBuffer, textBytes, @BytesWritten)
-      FreeMemory(*aobBuffer)
+  EndIf
+  
+  ; Determine write size based on scan type
+  Select valueType
+    Case #ValType_Byte: WriteSize = 1
+    Case #ValType_Word: WriteSize = 2
+    Case #ValType_Long, #ValType_Float: WriteSize = 4
+    Case #ValType_Quad, #ValType_Double: WriteSize = 8
+    Default: WriteSize = 4
+  EndSelect
+
+  ; NOTE: Float/Double/String/AOB writes use ValueText directly.
+  If valueType = #ValType_Float
+    Protected f.f = FloatValue
+    If WriteProcessMemory_(ProcessHandle, Address, @f, WriteSize, @BytesWritten)
+      StatusBarText(#StatusBar, 0, "Successfully wrote value " + StrF(f) + " to address " + FormatAddress(Address))
+      ProcedureReturn
+    EndIf
+  ElseIf valueType = #ValType_Double
+    Protected d.d = FloatValue
+    If WriteProcessMemory_(ProcessHandle, Address, @d, WriteSize, @BytesWritten)
+      StatusBarText(#StatusBar, 0, "Successfully wrote value " + StrD(d) + " to address " + FormatAddress(Address))
+      ProcedureReturn
+    EndIf
+  ElseIf valueType = #ValType_String
+    If WriteTextMemoryValue(ProcessHandle, Address, ValueText, valueType, @BytesWritten)
+      StatusBarText(#StatusBar, 0, "Successfully wrote string to address " + FormatAddress(Address))
+      ProcedureReturn
+    EndIf
+  ElseIf valueType = #ValType_Unicode
+    If WriteTextMemoryValue(ProcessHandle, Address, ValueText, valueType, @BytesWritten)
+      StatusBarText(#StatusBar, 0, "Successfully wrote Unicode string to address " + FormatAddress(Address))
+      ProcedureReturn
+    EndIf
+  ElseIf valueType = #ValType_AOB
+    If WriteTextMemoryValue(ProcessHandle, Address, ValueText, valueType, @BytesWritten)
       StatusBarText(#StatusBar, 0, "Successfully wrote AOB to address " + FormatAddress(Address))
       ProcedureReturn
     EndIf
-    FreeMemory(*aobBuffer)
   EndIf
 
   If WriteProcessMemory_(ProcessHandle, Address, @Value, WriteSize, @BytesWritten)
@@ -1451,6 +1672,7 @@ Procedure ViewMemoryAtAddress()
   Protected Address.i, ViewSize.i = 256, *ViewBuffer, ViewBytesRead.i
   Protected HexDisplay.s, AsciiDisplay.s, i.i, ByteVal.a
   Protected AddressStr.s
+  Protected parseError.s
   
   If Not ProcessHandle
     MessageRequester("Error", "No process attached!", #PB_MessageRequester_Error)
@@ -1462,8 +1684,12 @@ Procedure ViewMemoryAtAddress()
     MessageRequester("Error", "Please enter an address first!", #PB_MessageRequester_Error)
     ProcedureReturn
   EndIf
-  
-  Address = ParseNumber(AddressStr)
+
+  parseError = TryParseAddress(AddressStr, @Address)
+  If parseError <> ""
+    MessageRequester("Error", parseError, #PB_MessageRequester_Error)
+    ProcedureReturn
+  EndIf
   
   *ViewBuffer = AllocateMemory(ViewSize)
   If *ViewBuffer
@@ -1863,6 +2089,7 @@ AddWindowTimer(#MainWindow, #FreezeTimerID, FreezeInterval)
 ; Main event loop
 Define Event.i
 Define Selection.l
+Define SelectedResult.ScanResult
 Repeat
   Event = WaitWindowEvent()
   
@@ -1929,6 +2156,9 @@ Repeat
         Case #ResetScanButton
           ResetScan()
 
+        Case #ApplyMaxResultsButton
+          UpdateMaxResults()
+
         Case #PauseScanButton
           TogglePauseScan()
 
@@ -1938,19 +2168,17 @@ Repeat
         Case #AddCheatButton
           Selection = GetGadgetState(#ResultsList)
           If Selection >= 0
-            LockMutex(ScanMutex)
-            If SelectElement(ScanResults(), Selection)
+            If TryGetScanResultByIndex(Selection, @SelectedResult)
               LockMutex(CheatMutex)
               AddElement(CheatList())
-              CheatList()\Address = ScanResults()\Address
-              CheatList()\ValueBits = ScanResults()\ValueBits
-              CheatList()\ValueType = ScanResults()\ValueType
-              CheatList()\DisplayValue = ScanResults()\DisplayValue
+              CheatList()\Address = SelectedResult\Address
+              CheatList()\ValueBits = SelectedResult\ValueBits
+              CheatList()\ValueType = SelectedResult\ValueType
+              CheatList()\DisplayValue = SelectedResult\DisplayValue
               CheatList()\Enabled = #True
               CheatList()\Description = "Cheat " + Str(ListSize(CheatList()))
               UnlockMutex(CheatMutex)
             EndIf
-            UnlockMutex(ScanMutex)
             UpdateCheatListUI()
           EndIf
 
@@ -1998,30 +2226,32 @@ Repeat
         Case #ResultsList
           If EventType() = #PB_EventType_LeftDoubleClick
               Selection = GetGadgetState(#ResultsList)
-              If Selection >= 0 And SelectElement(ScanResults(), Selection)
-               ; Auto-fill address and value fields when double-clicking a result
-               SetGadgetText(#AddressText, FormatAddress(ScanResults()\Address))
+              If Selection >= 0
+                If TryGetScanResultByIndex(Selection, @SelectedResult)
+                  ; Auto-fill address and value fields when double-clicking a result
+                  SetGadgetText(#AddressText, FormatAddress(SelectedResult\Address))
 
-               ; Select the last used value type for this address
-               SetScanTypeSelection(ScanResults()\ValueType)
+                  ; Select the last used value type for this address
+                  SetScanTypeSelection(SelectedResult\ValueType)
 
-               ; Fill value in correct format
-               If IsTextValueType(ScanResults()\ValueType)
-                 SetGadgetText(#ValueText, ScanResults()\DisplayValue)
-               Else
-                 SetGadgetText(#ValueText, FormatValueFromBits(ScanResults()\ValueBits, ScanResults()\ValueType))
-               EndIf
-             EndIf
-           EndIf
+                  ; Fill value in correct format
+                  If IsTextValueType(SelectedResult\ValueType)
+                    SetGadgetText(#ValueText, SelectedResult\DisplayValue)
+                  Else
+                    SetGadgetText(#ValueText, FormatValueFromBits(SelectedResult\ValueBits, SelectedResult\ValueType))
+                  EndIf
+                EndIf
+              EndIf
+            EndIf
       EndSelect
   EndSelect
 Until AppExitRequested
 
 ; Cleanup
 CleanupAndQuit()
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 10
-; Folding = ---------
+; Folding = ----------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -2031,12 +2261,12 @@ CleanupAndQuit()
 ; UseIcon = HandyMEMScan.ico
 ; Executable = ..\HandyMEMScan.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,4
-; VersionField1 = 1,0,0,4
+; VersionField0 = 1,0,0,5
+; VersionField1 = 1,0,0,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyMEMScan
-; VersionField4 = 1.0.0.4
-; VersionField5 = 1.0.0.4
+; VersionField4 = 1.0.0.5
+; VersionField5 = 1.0.0.5
 ; VersionField6 = Memory scanner similar to cheat engine
 ; VersionField7 = HandyMEMScan
 ; VersionField8 = HandyMEMScan.exe

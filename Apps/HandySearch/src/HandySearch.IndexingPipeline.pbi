@@ -27,7 +27,6 @@ Procedure AddProgressFiles(scannedFiles.q, matches.q)
 
   LockMutex(ProgressMutex)
   FilesScanned + scannedFiles
-  MatchesFound + matches
   UnlockMutex(ProgressMutex)
 EndProcedure
 
@@ -141,7 +140,7 @@ Procedure IndexDirectoryWorker(dir.s, List batch.IndexRecord())
   Protected parentDir.s
   Protected canonical.s
 
-  If WorkStop Or StopSearch
+  If WorkStop Or StopIndexingRequested
     ProcedureReturn
   EndIf
 
@@ -180,7 +179,7 @@ Procedure IndexDirectoryWorker(dir.s, List batch.IndexRecord())
   Repeat
     dirID = ExamineDirectory(#PB_Any, dir, "*")
     If dirID = 0
-      If retryCount < 2 And (WorkStop = 0 And StopSearch = 0)
+      If retryCount < 2 And (WorkStop = 0 And StopIndexingRequested = 0)
         LogLine("Retrying directory access: " + dir)
         Delay(50)
         retryCount + 1
@@ -194,7 +193,7 @@ Procedure IndexDirectoryWorker(dir.s, List batch.IndexRecord())
   Until #True
 
   While NextDirectoryEntry(dirID)
-    If WorkStop Or StopSearch : Break : EndIf
+    If WorkStop Or StopIndexingRequested : Break : EndIf
 
     entryName = DirectoryEntryName(dirID)
     If entryName = "." Or entryName = ".."
@@ -297,7 +296,7 @@ Procedure FlushIndexBatchToDb(List batch.IndexRecord())
   EndIf
 
   LockMutex(DbMutex)
-  DatabaseUpdate(IndexDbId, "BEGIN TRANSACTION;")
+  ExecDb("BEGIN TRANSACTION;")
 
   cnt = 0
   values = ""
@@ -314,7 +313,7 @@ Procedure FlushIndexBatchToDb(List batch.IndexRecord())
 
     If cnt >= 500
       sql = "INSERT OR REPLACE INTO files(path,name,dir,size,mtime,is_dir,scan_id) VALUES" + values + ";"
-      DatabaseUpdate(IndexDbId, sql)
+      ExecDb(sql)
       values = ""
       cnt = 0
     EndIf
@@ -322,11 +321,12 @@ Procedure FlushIndexBatchToDb(List batch.IndexRecord())
 
   If values <> ""
     sql = "INSERT OR REPLACE INTO files(path,name,dir,size,mtime,is_dir,scan_id) VALUES" + values + ";"
-    DatabaseUpdate(IndexDbId, sql)
+    ExecDb(sql)
   EndIf
 
-  DatabaseUpdate(IndexDbId, "INSERT OR REPLACE INTO meta(key,value) VALUES('indexed_count','" + Str(IndexTotalFiles) + "');")
-  DatabaseUpdate(IndexDbId, "COMMIT;")
+  SetIndexedCount(IndexTotalFiles)
+  ExecDb("INSERT OR REPLACE INTO meta(key,value) VALUES('indexed_count','" + Str(GetIndexedCountCached()) + "');")
+  ExecDb("COMMIT;")
   UnlockMutex(DbMutex)
 
   EnqueueResultsBatch(pathsForUi())
@@ -352,7 +352,7 @@ Procedure WorkerThreadProc(*params.WorkerParams)
   Protected dir.s
   Protected NewList batch.IndexRecord()
 
-  While WorkStop = 0 And StopSearch = 0
+  While WorkStop = 0 And StopIndexingRequested = 0
     If IndexingPaused And IndexPauseEvent
       WaitForSingleObject_(IndexPauseEvent, 200)
       Continue
@@ -373,7 +373,7 @@ Procedure WorkerThreadProc(*params.WorkerParams)
       Continue
     EndIf
 
-    If WorkStop Or StopSearch
+    If WorkStop Or StopIndexingRequested
       Break
     EndIf
 
@@ -457,32 +457,32 @@ Procedure StartIndexingAllFixedDrives()
   ClearMap(VisitedFolders())
   UnlockMutex(VisitedFoldersMutex)
 
-  StopSearch = 0
+  StopIndexingRequested = 0
   WorkStop = 0
-  IndexTotalFiles = 0
+  SetIndexedCount(0)
   CurrentScanId = Date()
   WorkerCount = -1
 
   DbWriterStop = 0
   If DbWriterQueueMutex = 0 : DbWriterQueueMutex = CreateMutex() : EndIf
   If DbWriterQueueSem = 0 : DbWriterQueueSem = CreateSemaphore_(0, 0, 2147483647, 0) : EndIf
+  LockMutex(DbWriterQueueMutex)
+  ClearList(DbWriterQueue())
+  UnlockMutex(DbWriterQueueMutex)
   If IsThread(DbWriterThread) = 0
     DbWriterThread = CreateThread(@DbWriterThreadProc(), 0)
   EndIf
 
   If IndexPauseEvent = 0
     IndexPauseEvent = CreateEvent_(0, 1, 1, 0)
-  Else
-    SetEvent_(IndexPauseEvent)
   EndIf
-  IndexingPaused = 0
+  SetIndexingPaused(#False)
 
   If ProgressMutex
     LockMutex(ProgressMutex)
     CurrentFolder = ""
     FilesScanned = 0
     DirsScanned = 0
-    MatchesFound = 0
     UnlockMutex(ProgressMutex)
   EndIf
 
@@ -530,7 +530,7 @@ Procedure StartIndexingAllFixedDrives()
     EndIf
   EndIf
 
-  IndexingActive = 1
+  SetIndexingActive(#True)
 
   ReDim WorkerThreads(WorkerCount - 1)
   *wparams = AllocateStructure(WorkerParams)
@@ -565,7 +565,7 @@ Procedure StartIndexingAllFixedDrives()
     DbWriterThread = 0
   EndIf
 
-  If StopSearch = 0 And WorkStop = 0
+  If StopIndexingRequested = 0 And WorkStop = 0
     FinalizeCompletedScan()
   EndIf
 
@@ -575,12 +575,10 @@ Procedure StartIndexingAllFixedDrives()
     UnlockMutex(ResultMutex)
   EndIf
 
-  IndexingActive = 0
-  RequestUiStateSync()
+  SetIndexingActive(#False)
 EndProcedure
 
-Procedure SearchThreadProc(*params.SearchParams)
-  ; Legacy entrypoint name: now runs indexing.
+Procedure IndexThreadProc(*params.SearchParams)
   StartIndexingAllFixedDrives()
   If *params
     FreeStructure(*params)

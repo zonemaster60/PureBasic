@@ -69,11 +69,14 @@ Procedure WebSearch(showError.i)
 EndProcedure
 
 Procedure OpenPath(path.s, showError.i)
+  Protected pathType.i
+
   If path = ""
     ProcedureReturn
   EndIf
 
-  If FileSize(path) < 0
+  pathType = FileSize(path)
+  If pathType = -1
     If showError
       MessageRequester(#APP_NAME, "Path Not found:" + #CRLF$ + path, #PB_MessageRequester_Error)
     EndIf
@@ -366,8 +369,15 @@ EndProcedure
 
 Procedure OpenContainingFolder(filePath.s, showError.i)
   Protected args.s
+  Protected pathType.i
 
   If filePath = ""
+    ProcedureReturn
+  EndIf
+
+  pathType = FileSize(filePath)
+  If pathType = -2
+    OpenPath(filePath, showError)
     ProcedureReturn
   EndIf
 
@@ -383,7 +393,7 @@ Procedure OpenDbFolder(showError.i)
   Protected args.s
 
   dbPath = ResolveDbPath(IndexDbPath)
-  LogLine("RebuildIndexDatabase dbPath=" + dbPath)
+  LogLine("OpenDbFolder dbPath=" + dbPath)
   folder = GetPathPart(dbPath)
   If folder = ""
     folder = AppPath
@@ -418,7 +428,7 @@ Procedure ShowDiagnostics()
   Protected hasWindows.i
 
   dbPath = ResolveDbPath(IndexDbPath)
-  LogLine("RebuildIndexDatabase dbPath=" + dbPath)
+  LogLine("ShowDiagnostics dbPath=" + dbPath)
   iniPath = GetConfigPath()
   crashLogPath = CrashLogPath
   If crashLogPath = ""
@@ -461,24 +471,10 @@ Procedure ShowDiagnostics()
 EndProcedure
 
 Procedure StopIndexingAndWait()
-  Protected releaseCount.i
-
-  If SearchThread
-    StopSearch = 1
-    WorkStop = 1
-    If IndexPauseEvent : SetEvent_(IndexPauseEvent) : EndIf
-    IndexingPaused = 0
-
-    releaseCount = WorkerCount
-    If releaseCount < 1
-      releaseCount = 64
-    EndIf
-    If DirQueueSem
-      ReleaseSemaphore_(DirQueueSem, releaseCount, 0)
-    EndIf
-
-    WaitThread(SearchThread)
-    SearchThread = 0
+  If IndexThread
+    RequestIndexStop()
+    WaitThread(IndexThread)
+    IndexThread = 0
   EndIf
 EndProcedure
 
@@ -495,7 +491,7 @@ Procedure StartIndexing(rebuild.i)
 
   If rebuild
     If RebuildIndexDatabase() = #False
-      IndexingActive = 0
+      SetIndexingActive(#False)
       UpdateControlStates()
       ProcedureReturn
     EndIf
@@ -504,7 +500,7 @@ Procedure StartIndexing(rebuild.i)
     QueryNextAtMS = ElapsedMilliseconds()
   EndIf
 
-  StopSearch = 0
+  StopIndexingRequested = 0
   WorkStop = 0
 
   *params = AllocateStructure(SearchParams)
@@ -512,12 +508,13 @@ Procedure StartIndexing(rebuild.i)
     ProcedureReturn
   EndIf
 
-  IndexingActive = 1
+  SetIndexingActive(#True)
+  SetIndexingPaused(#False)
   UpdateControlStates()
 
-  SearchThread = CreateThread(@SearchThreadProc(), *params)
-  If SearchThread = 0
-    IndexingActive = 0
+  IndexThread = CreateThread(@IndexThreadProc(), *params)
+  If IndexThread = 0
+    SetIndexingActive(#False)
     UpdateControlStates()
     MessageRequester(#APP_NAME, "Failed to create index thread." + #CRLF$ +
                                 "This EXE must be compiled with threading enabled.", #PB_MessageRequester_Error)

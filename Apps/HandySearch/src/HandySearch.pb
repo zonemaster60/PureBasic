@@ -105,9 +105,8 @@ If IndexPauseEvent : CloseHandle_(IndexPauseEvent) : EndIf
 If TrayIconHandle : DestroyIcon_(TrayIconHandle) : TrayIconHandle = 0 : EndIf
 If hMutex : CloseHandle_(hMutex) : EndIf
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 6
-; Folding = ----------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -115,12 +114,12 @@ If hMutex : CloseHandle_(hMutex) : EndIf
 ; UseIcon = HandySearch.ico
 ; Executable = ..\HandySearch.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,6
-; VersionField1 = 1,0,1,6
+; VersionField0 = 1,0,1,7
+; VersionField1 = 1,0,1,7
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandySearch
-; VersionField4 = 1.0.1.6
-; VersionField5 = 1.0.1.6
+; VersionField4 = 1.0.1.7
+; VersionField5 = 1.0.1.7
 ; VersionField6 = Everything-like search tool for desktop and web
 ; VersionField7 = HandySearch
 ; VersionField8 = HandySearch.exe

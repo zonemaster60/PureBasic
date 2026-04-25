@@ -2,6 +2,7 @@
 
 Procedure PumpPendingResults(maxItems.i)
   Protected folder.s, files.q, dirs.q
+  Protected indexed.q
   Protected now.i = ElapsedMilliseconds()
   Protected pulled.i
   Protected path.s
@@ -121,19 +122,20 @@ Procedure PumpPendingResults(maxItems.i)
     files = FilesScanned
     dirs = DirsScanned
     UnlockMutex(ProgressMutex)
+    indexed = GetIndexedCountCached()
 
     If IndexingActive And IndexingPaused = 0
       StatusBarText(#StatusBar_Main, 0, "Indexing: " + folder)
-      StatusBarText(#StatusBar_Main, 1, "Dirs: " + Str(dirs) + "  Files: " + Str(files) + "  Indexed: " + Str(IndexTotalFiles))
+      StatusBarText(#StatusBar_Main, 1, "Dirs: " + Str(dirs) + "  Files: " + Str(files) + "  Indexed: " + Str(indexed))
     ElseIf IndexingActive And IndexingPaused
       StatusBarText(#StatusBar_Main, 0, "Indexing: PAUSED")
-      StatusBarText(#StatusBar_Main, 1, "Indexed: " + Str(IndexTotalFiles))
+      StatusBarText(#StatusBar_Main, 1, "Indexed: " + Str(indexed))
     Else
       StatusBarText(#StatusBar_Main, 0, "Ready")
       If LiveMatcherMode = 2 Or LiveMatcherMode = 1
-        StatusBarText(#StatusBar_Main, 1, "Showing: " + Str(CountGadgetItems(#Gadget_ResultsList)) + "  (regex)  Indexed: " + Str(IndexTotalFiles))
+        StatusBarText(#StatusBar_Main, 1, "Showing: " + Str(CountGadgetItems(#Gadget_ResultsList)) + "  (regex)  Indexed: " + Str(indexed))
       Else
-        StatusBarText(#StatusBar_Main, 1, "Showing: " + Str(CountGadgetItems(#Gadget_ResultsList)) + "  Indexed: " + Str(IndexTotalFiles))
+        StatusBarText(#StatusBar_Main, 1, "Showing: " + Str(CountGadgetItems(#Gadget_ResultsList)) + "  Indexed: " + Str(indexed))
       EndIf
     EndIf
   EndIf
@@ -208,24 +210,16 @@ Procedure MainLoop()
           Case #Menu_Index_PauseResume, #Menu_Tray_PauseResume
             If IndexingActive
               If IndexingPaused
-                IndexingPaused = 0
-                If IndexPauseEvent : SetEvent_(IndexPauseEvent) : EndIf
+                SetIndexingPaused(#False)
               Else
-                IndexingPaused = 1
-                If IndexPauseEvent : ResetEvent_(IndexPauseEvent) : EndIf
+                SetIndexingPaused(#True)
               EndIf
               SyncUiState()
             EndIf
 
           Case #Menu_Index_Stop
-            StopSearch = 1
-            WorkStop = 1
-            If IndexPauseEvent : SetEvent_(IndexPauseEvent) : EndIf
-            IndexingPaused = 0
+            RequestIndexStop()
             SyncUiState()
-            If DirQueueSem And WorkerCount > 0
-              ReleaseSemaphore_(DirQueueSem, WorkerCount, 0)
-            EndIf
 
           Case #Menu_View_Compact
             SetCompactMode(1 - Bool(AppCompactMode))

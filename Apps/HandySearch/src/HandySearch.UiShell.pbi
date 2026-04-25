@@ -1,5 +1,41 @@
 ; GUI construction, layout, and shared UI shell state
 
+Procedure SetIndexingActive(active.i)
+  IndexingActive = Bool(active)
+  RequestUiStateSync()
+EndProcedure
+
+Procedure SetIndexingPaused(paused.i)
+  IndexingPaused = Bool(paused)
+
+  If IndexPauseEvent
+    If IndexingPaused
+      ResetEvent_(IndexPauseEvent)
+    Else
+      SetEvent_(IndexPauseEvent)
+    EndIf
+  EndIf
+
+  RequestUiStateSync()
+EndProcedure
+
+Procedure RequestIndexStop()
+  Protected releaseCount.i
+
+  StopIndexingRequested = 1
+  WorkStop = 1
+  SetIndexingPaused(#False)
+
+  releaseCount = WorkerCount
+  If releaseCount < 1
+    releaseCount = 64
+  EndIf
+
+  If DirQueueSem
+    ReleaseSemaphore_(DirQueueSem, releaseCount, 0)
+  EndIf
+EndProcedure
+
 Procedure SyncUiState()
   Protected pauseText.s = "Pause"
 
@@ -190,28 +226,8 @@ Procedure InitGUI()
   MenuItem(#Menu_Help_About, "About")
 
   StringGadget(#Gadget_SearchBar, 10, 10, 780, 25, "*.*")
-  ListViewGadget(#Gadget_ResultsList, 10, 40, 780, 510)
-
-  If IsGadget(#Gadget_ResultsList) : FreeGadget(#Gadget_ResultsList) : EndIf
   ListIconGadget(#Gadget_ResultsList, 10, 40, 780, 510, "Path", 1000, #PB_ListIcon_FullRowSelect | #PB_ListIcon_AlwaysShowSelection)
   SendMessage_(GadgetID(#Gadget_ResultsList), #LVM_SETCOLUMNWIDTH, 0, #LVSCW_AUTOSIZE_USEHEADER)
-
-  StringGadget(#Gadget_FolderPath, 0, 0, 0, 0, "")
-  ButtonGadget(#Gadget_BrowseButton, 0, 0, 0, 0, "")
-  ButtonGadget(#Gadget_AboutButton, 0, 0, 0, 0, "")
-  ButtonGadget(#Gadget_ExitButton, 0, 0, 0, 0, "")
-  ButtonGadget(#Gadget_StartButton, 0, 0, 0, 0, "")
-  ButtonGadget(#Gadget_StopButton, 0, 0, 0, 0, "")
-  ButtonGadget(#Gadget_ConfigButton, 0, 0, 0, 0, "")
-  ButtonGadget(#Gadget_WebButton, 0, 0, 0, 0, "")
-  HideGadget(#Gadget_FolderPath, 1)
-  HideGadget(#Gadget_BrowseButton, 1)
-  HideGadget(#Gadget_AboutButton, 1)
-  HideGadget(#Gadget_ExitButton, 1)
-  HideGadget(#Gadget_StartButton, 1)
-  HideGadget(#Gadget_StopButton, 1)
-  HideGadget(#Gadget_ConfigButton, 1)
-  HideGadget(#Gadget_WebButton, 1)
 
   CreatePopupMenu(#Menu_ResultsPopup)
   MenuItem(#Menu_OpenFile, "Open")
