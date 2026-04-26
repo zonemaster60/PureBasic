@@ -16,7 +16,7 @@ EnableExplicit
 #APP_NAME        = "PB_DNSJumper"
 #EMAIL_NAME      = "zonemaster60@gmail.com"
 #WORKER_EXIT_WAIT_MS           = 10000
-Global version.s = "v1.0.0.6"
+Global version.s = "v1.0.0.7"
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 If AppPath = "" : AppPath = GetCurrentDirectory() : EndIf
@@ -1075,6 +1075,7 @@ Procedure.b StartBenchmarkRun()
   gWorkerRunning = 1
   gWorkerDone = 0
   gWorkerCancelled = 0
+  gQueueApplied = #False
   gCurrentRunAuto = gAutoRunPending
   gAutoRunPending = #False
   gWorkerStepsDone = 0
@@ -1125,6 +1126,12 @@ EndProcedure
 
 Procedure.b AutoApplyBestProvider(adapter.s)
   If adapter = ""
+    LogLine("Auto-apply skipped: no adapter selected")
+    ProcedureReturn #False
+  EndIf
+
+  If FirstResultProviderName() = ""
+    LogLine("Auto-apply skipped: no benchmark result available")
     ProcedureReturn #False
   EndIf
 
@@ -1583,7 +1590,6 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
       Define running = gWorkerRunning
       Define done = gWorkerDone
       Define wasCancelled = gWorkerCancelled
-      Define currentRunAuto = gCurrentRunAuto
       Define stepsDone = gWorkerStepsDone
       Define totalSteps = gWorkerTotalSteps
       UnlockMutex(gMutex)
@@ -1609,8 +1615,8 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
       If done And running = 0
         FinishBenchmarkRun(wasCancelled)
 
-        ; If this was an automatic benchmark (timer), apply the best DNS now
-        If currentRunAuto = #True And gQueueApplied = #False And wasCancelled = #False
+        ; Apply the current best DNS after any successful benchmark run.
+        If gQueueApplied = #False And wasCancelled = #False
           gQueueApplied = #True
           Define adapter.s = GetGadgetText(#G_AdapterCombo)
           AutoApplyBestProvider(adapter)
@@ -1626,8 +1632,7 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
     End
 EndIf
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 652
-; FirstLine = 612
+; CursorPosition = 18
 ; Folding = ----------
 ; Optimizer
 ; EnableThread
@@ -1637,12 +1642,12 @@ EndIf
 ; UseIcon = PB_DNSJumper.ico
 ; Executable = ..\PB_DNSJumper.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,6
-; VersionField1 = 1,0,0,6
+; VersionField0 = 1,0,0,7
+; VersionField1 = 1,0,0,7
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_DNSJumper
-; VersionField4 = 1.0.0.6
-; VersionField5 = 1.0.0.6
+; VersionField4 = 1.0.0.7
+; VersionField5 = 1.0.0.7
 ; VersionField6 = An automatic DNS changer similar to DNSJumper
 ; VersionField7 = PB_DNSJumper
 ; VersionField8 = PB_DNSJumper.exe
