@@ -1121,7 +1121,7 @@ EndProcedure
 Procedure.l RunHandyFreeMemInternal(showUi.i)
   If showUi
     QueueTrayBusyState(#True)
-    QueueTrayTooltip("Clearing RAM...")
+    QueueTrayTooltip("Freeing memory...")
   EndIf
 
   ; Try to enable privileges that make these calls effective
@@ -1150,7 +1150,7 @@ Procedure.l RunHandyFreeMemInternal(showUi.i)
   If showUi
     QueueTrayBusyState(#False)
     If availAfter > availBefore
-      QueueTrayTooltipOverride("Cleared ~" + Str((availAfter - availBefore) / 1024 / 1024) + " MB", 5000)
+      QueueTrayTooltipOverride("Freed ~" + Str((availAfter - availBefore) / 1024 / 1024) + " MB", 5000)
     Else
       QueueTrayTooltip("No change (try Run as Admin)")
     EndIf
@@ -1570,8 +1570,8 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 1530
-; FirstLine = 1518
+; CursorPosition = 1152
+; FirstLine = 1026
 ; Folding = ----------
 ; Optimizer
 ; EnableThread
