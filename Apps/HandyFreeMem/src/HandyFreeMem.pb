@@ -46,7 +46,7 @@ Global gTooltipOverrideText.s = ""
 
 ; Logging toggle
 Global loggingEnabled   = #True
-Global version.s = "v1.0.1.7"
+Global version.s = "v1.0.1.8"
 
 ; Memory threshold (auto-clean when available RAM <= threshold)
 Global gMemThresholdEnabled.i = #False
@@ -54,7 +54,6 @@ Global gMemThresholdAvailMB.i = 1024
 Global gMemThresholdWasBelow.i = #False
 
 ; Logging paths + rotation
-#LOG_FILE        = "ClearRam.log"
 Global gLogPath.s = ""
 Global gLogRotateEnabled.i = #True
 Global gLogRotateMaxBytes.q = 1024 * 1024 ; 1 MiB
@@ -80,8 +79,9 @@ Global gPendingTooltipText.s = ""
 Global gPendingTooltipHoldMs.q = 0
 
 ; Paths / config
-#INI_FILE        = "ClearRam.ini"
-#APP_NAME        = "ClearRam"
+#APP_NAME        = "HandyFreeMem"
+#INI_FILE        = #APP_NAME + ".ini"
+#LOG_FILE        = #APP_NAME + ".log"
 #EMAIL_NAME      = "zonemaster60@gmail.com"
 
 Declare.i GetTotalPhysMB()
@@ -456,7 +456,7 @@ EndProcedure
 ; ---------------------------------------------------------
 
 Procedure.s StartupTaskName()
-  ProcedureReturn "ClearRam"
+  ProcedureReturn "HandyFreeMem"
 EndProcedure
 
 Procedure.s StartupTaskUserId()
@@ -481,7 +481,7 @@ Procedure RemoveLegacyStartupRegistryEntry()
 EndProcedure
 
 Declare.i IsInStartup()
-Declare RunClearRam_Thread(*unused)
+Declare RunHandyFreeMem_Thread(*unused)
 
 ; ---------------------------------------------------------
 ; Task Scheduler helpers (logging + elevation)
@@ -994,12 +994,12 @@ EndEnumeration
 
 Global gRunInProgress.i = #False
 
-Procedure.b QueueRunClearRam()
+Procedure.b QueueRunHandyFreeMem()
   Protected queued.b = #False
 
   LockMutex(gRunStateMutex)
   If quitProgram = #False And gRunInProgress = #False And gWorkerThread = 0
-    gWorkerThread = CreateThread(@RunClearRam_Thread(), 0)
+    gWorkerThread = CreateThread(@RunHandyFreeMem_Thread(), 0)
     queued = Bool(gWorkerThread <> 0)
   EndIf
   UnlockMutex(gRunStateMutex)
@@ -1118,7 +1118,7 @@ Procedure.b NtPurgeMemoryList(command.l)
   ProcedureReturn #True
 EndProcedure
 
-Procedure.l RunClearRamInternal(showUi.i)
+Procedure.l RunHandyFreeMemInternal(showUi.i)
   If showUi
     QueueTrayBusyState(#True)
     QueueTrayTooltip("Clearing RAM...")
@@ -1150,7 +1150,7 @@ Procedure.l RunClearRamInternal(showUi.i)
   If showUi
     QueueTrayBusyState(#False)
     If availAfter > availBefore
-      QueueTrayTooltipOverride("CLEARED ~" + Str((availAfter - availBefore) / 1024 / 1024) + " MB", 5000)
+      QueueTrayTooltipOverride("Cleared ~" + Str((availAfter - availBefore) / 1024 / 1024) + " MB", 5000)
     Else
       QueueTrayTooltip("No change (try Run as Admin)")
     EndIf
@@ -1164,7 +1164,7 @@ Procedure.l RunClearRamInternal(showUi.i)
   ProcedureReturn gLastNtStatus
 EndProcedure
 
-Procedure RunClearRam()
+Procedure RunHandyFreeMem()
   LockMutex(gRunStateMutex)
   If quitProgram Or gRunInProgress
     UnlockMutex(gRunStateMutex)
@@ -1174,7 +1174,7 @@ Procedure RunClearRam()
   gRunInProgress = #True
   UnlockMutex(gRunStateMutex)
 
-  Protected status.l = RunClearRamInternal(#True)
+  Protected status.l = RunHandyFreeMemInternal(#True)
   If status = $C0000061 ; STATUS_PRIVILEGE_NOT_HELD
     LogMessage("Not enough privilege; requesting elevation")
     QueueTrayTooltip("Requesting admin...")
@@ -1194,8 +1194,8 @@ Procedure ElevateAndClearOnce()
   ShellExecute_(0, "runas", exe$, params$, AppPath, 1)
 EndProcedure
 
-Procedure RunClearRam_Thread(*unused)
-  RunClearRam()
+Procedure RunHandyFreeMem_Thread(*unused)
+  RunHandyFreeMem()
 
   LockMutex(gRunStateMutex)
   gWorkerThread = 0
@@ -1218,11 +1218,11 @@ Procedure TimerThread(*unused)
 
     If ShouldTriggerThresholdClear()
       LogMessage("Memory threshold reached (avail <= " + Str(gMemThresholdAvailMB) + "MB), triggering clean")
-      QueueRunClearRam()
+      QueueRunHandyFreeMem()
     EndIf
 
     If ElapsedMilliseconds() >= g_TimerNextRun
-      QueueRunClearRam()
+      QueueRunHandyFreeMem()
       g_TimerNextRun = ElapsedMilliseconds() + IntervalMS
     EndIf
   Wend
@@ -1395,7 +1395,7 @@ gMemThresholdWasBelow = Bool(gMemThresholdEnabled And GetAvailPhysMB() <= gMemTh
 If gSingleRunMode
   ; Elevated helper mode: clear once then exit.
   LogMessage("--clearonce: running one purge")
-  RunClearRamInternal(#False)
+  RunHandyFreeMemInternal(#False)
   ShutdownAndExit()
 EndIf
 
@@ -1420,7 +1420,7 @@ LogMessage(#APP_NAME + " starting up...")
 
 
 ; load the icons
-Global IconLibraryPath.s = AppPath + "files\ClearRam.icl"
+Global IconLibraryPath.s = AppPath + "files\HandyFreeMem.icl"
 
 If LoadTrayIconsFromLibrary(IconLibraryPath) = 0
   MessageRequester("Error", "Failed to load tray icons from: " + IconLibraryPath, #PB_MessageRequester_Error)
@@ -1470,7 +1470,7 @@ gTimerThread = CreateThread(@TimerThread(), 0)
 g_TimerNextRun = ElapsedMilliseconds() + IntervalMS
 
 ; run initially
-QueueRunClearRam()
+QueueRunHandyFreeMem()
 
 ; ---------------------------------------------------------
 ; Main event loop
@@ -1502,13 +1502,13 @@ Repeat
 
           ; Tray icon tooltips are length-limited (often ~64 chars).
           ; Keep it compact + single-line so it doesn't truncate.
-          text = "AVL:" + Str(availMB) + "MB USG:" + Str(usedPct) + "% "
+          text = "Avl:" + Str(availMB) + "MB Usg:" + Str(usedPct) + "% "
           If gMemThresholdEnabled
-            text = text + "TRG<=" + Str(gMemThresholdAvailMB) + "MB "
+            text = text + "Trg<=" + Str(gMemThresholdAvailMB) + "MB "
           Else
-            text = text + "TRG:OFF "
+            text = text + "Trg:Off "
           EndIf
-          text = text + "NXT:" + FormatCountdown(remaining)
+          text = text + "Nxt:" + FormatCountdown(remaining)
 
           SysTrayIconToolTip(#TRAY_ICON, text)
         EndIf
@@ -1519,7 +1519,7 @@ Repeat
         DisplayPopupMenu(#TRAY_MENU, WindowID(0))
       EndIf
       If EventType() = #PB_EventType_LeftClick
-         QueueRunClearRam()
+         QueueRunHandyFreeMem()
       EndIf
       
     Case #PB_Event_Menu
@@ -1528,7 +1528,7 @@ Repeat
       Select menuID
 
         Case #MENU_RUNNOW
-          QueueRunClearRam()
+          QueueRunHandyFreeMem()
             
         Case #MENU_STARTUP
           If startupEnabled
@@ -1570,27 +1570,27 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 1152
-; FirstLine = 1131
+; CursorPosition = 1530
+; FirstLine = 1518
 ; Folding = ----------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = ClearRam.ico
-; Executable = ..\ClearRam.exe
+; UseIcon = HandyFreeMem.ico
+; Executable = ..\HandyFreeMem.exe
 ; DisableDebugger
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,7
-; VersionField1 = 1,0,1,7
+; VersionField0 = 1,0,1,8
+; VersionField1 = 1,0,1,8
 ; VersionField2 = ZoneSoft
-; VersionField3 = ClearRam
-; VersionField4 = 1.0.1.7
-; VersionField5 = 1.0.1.7
-; VersionField6 = Clears RAM using native Windows APIs
-; VersionField7 = ClearRam
-; VersionField8 = ClearRam.exe
+; VersionField3 = HandyFreeMem
+; VersionField4 = 1.0.1.8
+; VersionField5 = 1.0.1.8
+; VersionField6 = Frees memory using native Windows APIs
+; VersionField7 = HandyFreeMem
+; VersionField8 = HandyFreeMem.exe
 ; VersionField9 = David Scouten
 ; VersionField13 = zonemaster60@gmail.com
 ; VersionField14 = https://github.com/zonemaster60
