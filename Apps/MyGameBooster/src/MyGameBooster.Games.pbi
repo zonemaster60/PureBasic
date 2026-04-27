@@ -409,37 +409,38 @@ Procedure LoadGames()
       g\LaunchMode = ReadPreferenceInteger("launchMode", 0)
       g\SteamAppId  = ReadPreferenceInteger("steamAppId", 0)
       g\SteamExe    = ReadPreferenceString("steamExe", "")
-        g\SteamGameArgs   = ReadPreferenceString("steamGameArgs", "")
-        g\SteamDetectTimeoutMs = ReadPreferenceInteger("steamTimeoutMs", 60000)
-       g\GameRoot    = ReadPreferenceString("gameRoot", "")
-       g\Preset      = ReadPreferenceInteger("preset", #PRESET_BALANCED)
-       g\PowerMode   = ReadPreferenceInteger("powerMode", #POWERMODE_HIGH)
-       g\OptimizeBackground = ReadPreferenceInteger("optimizeBackground", 1)
-       g\Notes = ReadPreferenceString("notes", "")
-       g\Tags = ReadPreferenceString("tags", "")
-       g\LaunchCount = ReadPreferenceInteger("launchCount", 0)
-       g\LastPlayed  = ReadPreferenceQuad("lastPlayed", 0)
-       g\LastDurationSec = ReadPreferenceInteger("lastDurationSec", 0)
-        If g\LaunchMode < #LAUNCHMODE_EXE Or g\LaunchMode > #LAUNCHMODE_STEAM
-          g\LaunchMode = #LAUNCHMODE_EXE
-        EndIf
-        If g\LaunchMode = #LAUNCHMODE_EXE
-          g\SteamAppId = 0
-          g\SteamExe = ""
-          g\SteamGameArgs = ""
-          g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(60000)
-          g\GameRoot = ""
-        ElseIf g\LaunchMode = #LAUNCHMODE_STEAM
-          g\GameRoot = ""
-          g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(g\SteamDetectTimeoutMs)
-        EndIf
-       If g\Preset < #PRESET_SAFE Or g\Preset > #PRESET_AGGRESSIVE
-         g\Preset = #PRESET_BALANCED
-       EndIf
-       If g\PowerMode < #POWERMODE_KEEP Or g\PowerMode > #POWERMODE_ULTIMATE
-         g\PowerMode = #POWERMODE_HIGH
-       EndIf
-       g\OptimizeBackground = Bool(g\OptimizeBackground)
+      g\SteamGameArgs = ReadPreferenceString("steamGameArgs", "")
+      g\SteamDetectTimeoutMs = ReadPreferenceInteger("steamTimeoutMs", 60000)
+      g\GameRoot = ReadPreferenceString("gameRoot", "")
+      g\Preset = ReadPreferenceInteger("preset", #PRESET_BALANCED)
+      g\PowerMode = ReadPreferenceInteger("powerMode", #POWERMODE_HIGH)
+      g\OptimizeBackground = ReadPreferenceInteger("optimizeBackground", 1)
+      g\Notes = ReadPreferenceString("notes", "")
+      g\Tags = ReadPreferenceString("tags", "")
+      g\LaunchCount = ReadPreferenceInteger("launchCount", 0)
+      g\LastPlayed = ReadPreferenceQuad("lastPlayed", 0)
+      g\LastDurationSec = ReadPreferenceInteger("lastDurationSec", 0)
+
+      If g\LaunchMode < #LAUNCHMODE_EXE Or g\LaunchMode > #LAUNCHMODE_STEAM
+        g\LaunchMode = #LAUNCHMODE_EXE
+      EndIf
+      If g\LaunchMode = #LAUNCHMODE_EXE
+        g\SteamAppId = 0
+        g\SteamExe = ""
+        g\SteamGameArgs = ""
+        g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(60000)
+        g\GameRoot = ""
+      ElseIf g\LaunchMode = #LAUNCHMODE_STEAM
+        g\GameRoot = ""
+        g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(g\SteamDetectTimeoutMs)
+      EndIf
+      If g\Preset < #PRESET_SAFE Or g\Preset > #PRESET_AGGRESSIVE
+        g\Preset = #PRESET_BALANCED
+      EndIf
+      If g\PowerMode < #POWERMODE_KEEP Or g\PowerMode > #POWERMODE_ULTIMATE
+        g\PowerMode = #POWERMODE_HIGH
+      EndIf
+      g\OptimizeBackground = Bool(g\OptimizeBackground)
       If g\Name <> "" And g\ExePath <> ""
         AddElement(Games())
         Games() = g
@@ -472,20 +473,20 @@ Procedure SaveGames()
       WritePreferenceInteger("launchMode", Games()\LaunchMode)
       WritePreferenceInteger("steamAppId", Games()\SteamAppId)
       WritePreferenceString("steamExe", CollapseBackslashes(Games()\SteamExe))
-       WritePreferenceString("steamGameArgs", Games()\SteamGameArgs)
-        WritePreferenceInteger("steamTimeoutMs", Games()\SteamDetectTimeoutMs)
-       WritePreferenceString("gameRoot", CollapseBackslashes(Games()\GameRoot))
-       WritePreferenceInteger("preset", Games()\Preset)
-       WritePreferenceInteger("powerMode", Games()\PowerMode)
-       WritePreferenceInteger("optimizeBackground", Games()\OptimizeBackground)
-       WritePreferenceString("notes", Games()\Notes)
-       WritePreferenceString("tags", Games()\Tags)
-       WritePreferenceInteger("launchCount", Games()\LaunchCount)
-       WritePreferenceQuad("lastPlayed", Games()\LastPlayed)
-       WritePreferenceInteger("lastDurationSec", Games()\LastDurationSec)
-       i + 1
-     Next
-     ClosePreferences()
+      WritePreferenceString("steamGameArgs", Games()\SteamGameArgs)
+      WritePreferenceInteger("steamTimeoutMs", Games()\SteamDetectTimeoutMs)
+      WritePreferenceString("gameRoot", CollapseBackslashes(Games()\GameRoot))
+      WritePreferenceInteger("preset", Games()\Preset)
+      WritePreferenceInteger("powerMode", Games()\PowerMode)
+      WritePreferenceInteger("optimizeBackground", Games()\OptimizeBackground)
+      WritePreferenceString("notes", Games()\Notes)
+      WritePreferenceString("tags", Games()\Tags)
+      WritePreferenceInteger("launchCount", Games()\LaunchCount)
+      WritePreferenceQuad("lastPlayed", Games()\LastPlayed)
+      WritePreferenceInteger("lastDurationSec", Games()\LastDurationSec)
+      i + 1
+    Next
+    ClosePreferences()
   EndIf
 EndProcedure
 

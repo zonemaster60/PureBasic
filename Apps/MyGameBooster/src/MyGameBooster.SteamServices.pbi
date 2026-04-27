@@ -26,6 +26,95 @@ Procedure.s RegReadString(root.i, subKey.s, valueName.s)
   ProcedureReturn out
 EndProcedure
 
+Procedure.s RegReadDword(root.i, subKey.s, valueName.s)
+  Protected hKey.i, type.l, cb.l = SizeOf(Long), value.l
+
+  If RegOpenKeyEx_(root, subKey, 0, #KEY_READ, @hKey)
+    ProcedureReturn #REG_VALUE_MISSING
+  EndIf
+  If RegQueryValueEx_(hKey, valueName, 0, @type, @value, @cb) Or type <> #REG_DWORD
+    RegCloseKey_(hKey)
+    ProcedureReturn #REG_VALUE_MISSING
+  EndIf
+  RegCloseKey_(hKey)
+  ProcedureReturn Str(value)
+EndProcedure
+
+Procedure.i RegWriteDword(root.i, subKey.s, valueName.s, value.l)
+  Protected hKey.i, disposition.l
+
+  If RegCreateKeyEx_(root, subKey, 0, 0, 0, #KEY_WRITE, 0, @hKey, @disposition)
+    ProcedureReturn 0
+  EndIf
+  If RegSetValueEx_(hKey, valueName, 0, #REG_DWORD, @value, SizeOf(Long))
+    RegCloseKey_(hKey)
+    ProcedureReturn 0
+  EndIf
+  RegCloseKey_(hKey)
+  ProcedureReturn 1
+EndProcedure
+
+Procedure.i RegDeleteValueSafe(root.i, subKey.s, valueName.s)
+  Protected hKey.i
+
+  If RegOpenKeyEx_(root, subKey, 0, #KEY_WRITE, @hKey)
+    ProcedureReturn 0
+  EndIf
+  RegDeleteValue_(hKey, valueName)
+  RegCloseKey_(hKey)
+  ProcedureReturn 1
+EndProcedure
+
+Procedure.i DisableGameCaptureForSession(*ctx.BoostSessionContext)
+  Protected changed.i
+  Protected captureKey.s = "Software\\Microsoft\\Windows\\CurrentVersion\\GameDVR"
+  Protected gameBarKey.s = "System\\GameConfigStore"
+
+  *ctx\PrevAppCaptureEnabled = RegReadDword(#HKEY_CURRENT_USER, captureKey, "AppCaptureEnabled")
+  *ctx\PrevGameDvrEnabled = RegReadDword(#HKEY_CURRENT_USER, gameBarKey, "GameDVR_Enabled")
+
+  If *ctx\PrevAppCaptureEnabled <> "0"
+    If RegWriteDword(#HKEY_CURRENT_USER, captureKey, "AppCaptureEnabled", 0)
+      changed = 1
+    EndIf
+  EndIf
+  If *ctx\PrevGameDvrEnabled <> "0"
+    If RegWriteDword(#HKEY_CURRENT_USER, gameBarKey, "GameDVR_Enabled", 0)
+      changed = 1
+    EndIf
+  EndIf
+
+  *ctx\DidSwitchGameCapture = changed
+  If changed
+    LogLine("Game capture disabled for boost session")
+  EndIf
+  ProcedureReturn changed
+EndProcedure
+
+Procedure RestoreGameCaptureAfterSession(*ctx.BoostSessionContext)
+  Protected captureKey.s = "Software\\Microsoft\\Windows\\CurrentVersion\\GameDVR"
+  Protected gameBarKey.s = "System\\GameConfigStore"
+
+  If *ctx\DidSwitchGameCapture = 0
+    ProcedureReturn
+  EndIf
+
+  If *ctx\PrevAppCaptureEnabled = #REG_VALUE_MISSING
+    RegDeleteValueSafe(#HKEY_CURRENT_USER, captureKey, "AppCaptureEnabled")
+  Else
+    RegWriteDword(#HKEY_CURRENT_USER, captureKey, "AppCaptureEnabled", Val(*ctx\PrevAppCaptureEnabled))
+  EndIf
+
+  If *ctx\PrevGameDvrEnabled = #REG_VALUE_MISSING
+    RegDeleteValueSafe(#HKEY_CURRENT_USER, gameBarKey, "GameDVR_Enabled")
+  Else
+    RegWriteDword(#HKEY_CURRENT_USER, gameBarKey, "GameDVR_Enabled", Val(*ctx\PrevGameDvrEnabled))
+  EndIf
+
+  LogLine("Game capture settings restored after boost session")
+  *ctx\DidSwitchGameCapture = 0
+EndProcedure
+
 Procedure.s FindSteamExe()
   Protected p.s
   p = RegReadString(#HKEY_CURRENT_USER, "Software\\Valve\\Steam", "SteamExe")

@@ -71,7 +71,7 @@ EndIf
 
 Global FontUI.i, FontTitle.i, FontSmall.i
 Global MainStatusBar.i
-Global version.s = "v1.0.1.3"
+Global version.s = "v1.0.1.4"
 Global BrowseExePath.s, BeforeCount.i, LaunchUiPulse.i
 Global LaunchStartedAt.q
 Global FilterQuery.s, SortMode.i, LibraryView.i
@@ -109,6 +109,15 @@ EndProcedure
 CompilerIf Defined(PROCESS_QUERY_LIMITED_INFORMATION, #PB_Constant) = 0
   #PROCESS_QUERY_LIMITED_INFORMATION = $1000
 CompilerEndIf
+CompilerIf Defined(PROCESS_QUERY_INFORMATION, #PB_Constant) = 0
+  #PROCESS_QUERY_INFORMATION = $0400
+CompilerEndIf
+CompilerIf Defined(PROCESS_SET_INFORMATION, #PB_Constant) = 0
+  #PROCESS_SET_INFORMATION = $0200
+CompilerEndIf
+CompilerIf Defined(SYNCHRONIZE, #PB_Constant) = 0
+  #SYNCHRONIZE = $00100000
+CompilerEndIf
 
 #WAIT_OBJECT_0 = 0
 
@@ -118,8 +127,12 @@ CompilerEndIf
 #HKEY_CURRENT_USER  = $80000001
 #HKEY_LOCAL_MACHINE = $80000002
 #KEY_READ           = $20019
+#KEY_WRITE          = $20006
 #REG_SZ             = 1
 #REG_EXPAND_SZ      = 2
+#REG_DWORD          = 4
+
+#REG_VALUE_MISSING  = "__MISSING__"
 
 #POWERMODE_KEEP     = 0
 #POWERMODE_HIGH     = 1
@@ -215,6 +228,9 @@ Structure BoostSessionContext
   AppliedPowerGuid.s
   DidSwitchPower.i
   StoppedServices.s
+  DidSwitchGameCapture.i
+  PrevAppCaptureEnabled.s
+  PrevGameDvrEnabled.s
 EndStructure
 
 Structure ServiceInfo
@@ -366,10 +382,10 @@ LoadGames()
 InitFonts()
 RunApplication()
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 73
 ; FirstLine = 42
-; Folding = -
+; Folding = --
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -379,12 +395,12 @@ RunApplication()
 ; UseIcon = MyGameBooster.ico
 ; Executable = ..\MyGameBooster.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,3
-; VersionField1 = 1,0,1,3
+; VersionField0 = 1,0,1,4
+; VersionField1 = 1,0,1,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = MyGameBooster
-; VersionField4 = 1.0.1.3
-; VersionField5 = 1.0.1.3
+; VersionField4 = 1.0.1.4
+; VersionField5 = 1.0.1.4
 ; VersionField6 = A Game Booster for boosting your games
 ; VersionField7 = MyGameBooster
 ; VersionField8 = MyGameBooster.exe

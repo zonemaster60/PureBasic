@@ -45,6 +45,7 @@ Procedure.s HelpText()
   t + "- Can keep the current power plan or switch to High performance / Ultimate Performance per game, then restore your previous plan." + #CRLF$
   t + "- Optionally stops selected services during gameplay, then starts them again when you exit." + #CRLF$
   t + "- Can temporarily lower safe background process priority while a boosted game runs." + #CRLF$
+  t + "- Temporarily disables Windows Game DVR/App Capture during a boost session, then restores your previous values." + #CRLF$
   t + "- Logs actions to files\\Logs\\" + #APP_NAME + ".log and can restore after a crash." + #CRLF$ + #CRLF$
   t + "What it does NOT do" + #CRLF$
   t + "- It does not permanently change Windows settings." + #CRLF$
@@ -667,16 +668,19 @@ Procedure.i OpenOrCreatePreferences(filePath.s)
   ProcedureReturn 0
 EndProcedure
 
-Procedure SaveSession(prevPowerGuid.s, didSwitchPower.i, stoppedServices.s)
+Procedure SaveSession(prevPowerGuid.s, didSwitchPower.i, stoppedServices.s, didSwitchGameCapture.i = 0, prevAppCaptureEnabled.s = "", prevGameDvrEnabled.s = "")
   If OpenOrCreatePreferences(SessionIni)
     PreferenceGroup("session")
     WritePreferenceInteger("didSwitchPower", didSwitchPower)
     WritePreferenceString("prevPowerGuid", prevPowerGuid)
     WritePreferenceInteger("didStopServices", Bool(stoppedServices <> ""))
     WritePreferenceString("stoppedServices", stoppedServices)
+    WritePreferenceInteger("didSwitchGameCapture", didSwitchGameCapture)
+    WritePreferenceString("prevAppCaptureEnabled", prevAppCaptureEnabled)
+    WritePreferenceString("prevGameDvrEnabled", prevGameDvrEnabled)
     WritePreferenceInteger("cleanExit", 0)
     ClosePreferences()
-    LogLine("Session saved; powerSwitched=" + Str(didSwitchPower) + " servicesStopped=" + Str(Bool(stoppedServices <> "")))
+    LogLine("Session saved; powerSwitched=" + Str(didSwitchPower) + " servicesStopped=" + Str(Bool(stoppedServices <> "")) + " gameCaptureSwitched=" + Str(didSwitchGameCapture))
   EndIf
 EndProcedure
 
@@ -694,6 +698,8 @@ Procedure RestoreIfDirtySession()
   Protected prevPowerGuid.s
   Protected didStopServices.i
   Protected stoppedServices.s
+  Protected didSwitchGameCapture.i
+  Protected ctx.BoostSessionContext
 
   If FileSize(SessionIni) <= 0 : ProcedureReturn : EndIf
 
@@ -703,6 +709,10 @@ Procedure RestoreIfDirtySession()
     prevPowerGuid  = ReadPreferenceString("prevPowerGuid", "")
     didStopServices = ReadPreferenceInteger("didStopServices", 0)
     stoppedServices = ReadPreferenceString("stoppedServices", "")
+    didSwitchGameCapture = ReadPreferenceInteger("didSwitchGameCapture", 0)
+    ctx\DidSwitchGameCapture = didSwitchGameCapture
+    ctx\PrevAppCaptureEnabled = ReadPreferenceString("prevAppCaptureEnabled", "")
+    ctx\PrevGameDvrEnabled = ReadPreferenceString("prevGameDvrEnabled", "")
     cleanExit = ReadPreferenceInteger("cleanExit", 1)
     ClosePreferences()
   EndIf
@@ -716,6 +726,9 @@ Procedure RestoreIfDirtySession()
     If didSwitchPower And prevPowerGuid <> ""
       LogLine("Restoring power plan: " + prevPowerGuid)
       SetActivePowerGuid(prevPowerGuid)
+    EndIf
+    If didSwitchGameCapture
+      RestoreGameCaptureAfterSession(@ctx)
     EndIf
     MarkSessionClean()
   EndIf
@@ -743,6 +756,14 @@ Procedure PrepareBoostSession(*g.GameEntry, *ctx.BoostSessionContext)
   *ctx\AppliedPowerGuid = ""
   *ctx\DidSwitchPower = 0
   *ctx\StoppedServices = ""
+  *ctx\DidSwitchGameCapture = 0
+  *ctx\PrevAppCaptureEnabled = ""
+  *ctx\PrevGameDvrEnabled = ""
+
+  DisableGameCaptureForSession(*ctx)
+  If *ctx\DidSwitchGameCapture
+    SaveSession(*ctx\PrevPowerGuid, *ctx\DidSwitchPower, *ctx\StoppedServices, *ctx\DidSwitchGameCapture, *ctx\PrevAppCaptureEnabled, *ctx\PrevGameDvrEnabled)
+  EndIf
 
   If *ctx\PrevPowerGuid <> "" And *g\PowerMode <> #POWERMODE_KEEP
     resolvedMode = ResolvePowerMode(*g\PowerMode, *ctx\PrevPowerGuid)
@@ -750,12 +771,12 @@ Procedure PrepareBoostSession(*g.GameEntry, *ctx.BoostSessionContext)
       Case 1
         *ctx\DidSwitchPower = 1
         *ctx\AppliedPowerGuid = #POWER_GUID_HIGH
-        SaveSession(*ctx\PrevPowerGuid, 1, "")
+        SaveSession(*ctx\PrevPowerGuid, 1, "", *ctx\DidSwitchGameCapture, *ctx\PrevAppCaptureEnabled, *ctx\PrevGameDvrEnabled)
         LogLine("Power plan -> High performance; prev=" + *ctx\PrevPowerGuid)
       Case 2
         *ctx\DidSwitchPower = 1
         *ctx\AppliedPowerGuid = #POWER_GUID_ULTIMATE
-        SaveSession(*ctx\PrevPowerGuid, 1, "")
+        SaveSession(*ctx\PrevPowerGuid, 1, "", *ctx\DidSwitchGameCapture, *ctx\PrevAppCaptureEnabled, *ctx\PrevGameDvrEnabled)
         LogLine("Power plan -> Ultimate Performance; prev=" + *ctx\PrevPowerGuid)
       Default
         LogLine("Power plan unchanged; requested=" + FormatPowerModeLabel(*g\PowerMode))
@@ -766,14 +787,19 @@ Procedure PrepareBoostSession(*g.GameEntry, *ctx.BoostSessionContext)
     LogLine("Stopping services (configured): " + *g\Services)
     *ctx\StoppedServices = StopServicesCsvAndLog(*g\Services, *g\Name)
     LogLine("Stopped services (effective): " + *ctx\StoppedServices)
-    If *ctx\StoppedServices <> "" Or *ctx\DidSwitchPower
-      SaveSession(*ctx\PrevPowerGuid, *ctx\DidSwitchPower, *ctx\StoppedServices)
+    If *ctx\StoppedServices <> "" Or *ctx\DidSwitchPower Or *ctx\DidSwitchGameCapture
+      SaveSession(*ctx\PrevPowerGuid, *ctx\DidSwitchPower, *ctx\StoppedServices, *ctx\DidSwitchGameCapture, *ctx\PrevAppCaptureEnabled, *ctx\PrevGameDvrEnabled)
     EndIf
   EndIf
 EndProcedure
 
 Procedure CleanupBoostSession(*ctx.BoostSessionContext)
+  Protected didSwitchGameCapture.i = *ctx\DidSwitchGameCapture
   CleanupAfterLaunch(*ctx\PrevPowerGuid, *ctx\DidSwitchPower, *ctx\StoppedServices)
+  RestoreGameCaptureAfterSession(*ctx)
+  If didSwitchGameCapture
+    MarkSessionClean()
+  EndIf
 EndProcedure
 
 Procedure ApplyProcessBoost(hProcess.i, *g.GameEntry)

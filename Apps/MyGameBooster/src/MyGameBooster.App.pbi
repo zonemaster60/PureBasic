@@ -27,6 +27,9 @@ Procedure ResetLaunchState()
   LaunchCtx\AppliedPowerGuid = ""
   LaunchCtx\DidSwitchPower = 0
   LaunchCtx\StoppedServices = ""
+  LaunchCtx\DidSwitchGameCapture = 0
+  LaunchCtx\PrevAppCaptureEnabled = ""
+  LaunchCtx\PrevGameDvrEnabled = ""
   LaunchProcess = 0
   LaunchDetectDeadline = 0
   LaunchOrigPriority = 0
@@ -985,7 +988,6 @@ Procedure BeginExeLaunch(*g.GameEntry)
       HideToTrayForLaunch()
       LogLine("Launched via shell shortcut for compatibility: " + GetFilePart(LaunchGame\ExePath))
     Else
-      CleanupBoostSession(@LaunchCtx)
       FinishLaunch(0, "Failed to start launcher:" + #LF$ + GetFilePart(LaunchGame\ExePath))
     EndIf
     ProcedureReturn
@@ -1157,18 +1159,19 @@ Procedure PollLaunchState()
           LogLine("Launcher detect timeout reached for: " + LaunchGame\Name)
           SetLaunchUiState(0, "Launcher handoff finished: " + LaunchGame\Name)
         EndIf
-          CleanupBoostSession(@LaunchCtx)
-          If LaunchStartRecorded
-            LogLine("Launch handoff completed without a trackable process handle")
-          EndIf
-          If AppQuitting
-            RemoveLaunchTrayIcon()
-          ElseIf LaunchTrayHidden
-            RestoreFromTrayAfterLaunch()
-          EndIf
-          ResetLaunchState()
-          UpdateSelectionUI()
+        RestoreBackgroundProcesses()
+        CleanupBoostSession(@LaunchCtx)
+        If LaunchStartRecorded
+          LogLine("Launch handoff completed without a trackable process handle")
         EndIf
+        If AppQuitting
+          RemoveLaunchTrayIcon()
+        ElseIf LaunchTrayHidden
+          RestoreFromTrayAfterLaunch()
+        EndIf
+        ResetLaunchState()
+        UpdateSelectionUI()
+      EndIf
 
     Case 2
       If LaunchProcess = 0
@@ -1351,6 +1354,7 @@ Procedure ShowDiagnostics()
   EndIf
 
     Repeat
+      diagnosticTooltip = ""
       mem\dwLength = SizeOf(OC_MEMORYSTATUSEX)
       info = #APP_NAME + " Diagnostics" + #CRLF$ + #CRLF$
       info + "Data folder: " + DataDir + #CRLF$
