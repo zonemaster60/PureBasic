@@ -229,6 +229,10 @@ Procedure MainLoop()
 
           Case #GadgetSettingsSave
             DownloadPath$ = TrimTrailingSlash(GetGadgetText(#GadgetSettingsDownload))
+            If SharePath$ = ""
+              SharePath$ = DownloadPath$
+            EndIf
+            SetGadgetText(#GadgetSharePath, SharePath$)
             SetGadgetText(#GadgetDownloadPath, DownloadPath$)
             SetGadgetText(#GadgetPort, GetGadgetText(#GadgetSettingsPort))
             SaveSettings()
@@ -309,7 +313,9 @@ Procedure InitDefaults()
   If IsUsableTransferDirectory(DownloadPath$) = 0
     DownloadPath$ = TrimTrailingSlash(GetHomeDirectory() + "Downloads\LANShareDownloads")
   EndIf
-  SharePath$ = DownloadPath$
+  If SharePath$ = "" Or IsUsableTransferDirectory(SharePath$) = 0
+    SharePath$ = DownloadPath$
+  EndIf
   If IsUsableTransferDirectory(DownloadPath$) = 0
     MessageRequester(#APP_NAME, "PB_LanShare could not create the default download folder. Please check your permissions.")
   EndIf

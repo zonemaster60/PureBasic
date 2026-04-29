@@ -16,7 +16,7 @@ EnableExplicit
 #RememberedPeerMaxAge = 1209600
 #SkipDownloadCancelTag = "<skip-cancel>"
 
-Global version.s = "v1.0.0.7"
+Global version.s = "v1.0.0.8"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -579,7 +579,7 @@ Procedure.s MakeUniqueFilePath(TargetPath$)
     EndIf
   Next
 
-  ProcedureReturn Directory$ + Stem$ + "_" + FormatDate("[%yyyy-%mm-%dd]-[%hh:%ii:%ss]", Date())
+  ProcedureReturn Directory$ + Stem$ + "_" + FormatDate("[%yyyy-%mm-%dd]-[%hh-%ii-%ss]", Date())
 EndProcedure
 
 Procedure OverwriteMode()
@@ -1028,7 +1028,7 @@ XIncludeFile "includes\PBLS_Runtime.pbi"
 InitDefaults()
 OpenMainWindow()
 CreateTraySupport()
-SetGadgetText(#GadgetSharePath, DownloadPath$)
+SetGadgetText(#GadgetSharePath, SharePath$)
 SetGadgetText(#GadgetDownloadPath, DownloadPath$)
 ApplyLoadedSettingsToUI()
 ShowFirstRunHelp()
@@ -1062,7 +1062,7 @@ If hMutex
   hMutex = 0
 EndIf
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 18
 ; FirstLine = 5
 ; Folding = ------
@@ -1075,12 +1075,12 @@ EndIf
 ; UseIcon = PB_LanShare.ico
 ; Executable = ..\PB_LanShare.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,7
-; VersionField1 = 1,0,0,7
+; VersionField0 = 1,0,0,8
+; VersionField1 = 1,0,0,8
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_LanShare
-; VersionField4 = 1.0.0.7
-; VersionField5 = 1.0.0.7
+; VersionField4 = 1.0.0.8
+; VersionField5 = 1.0.0.8
 ; VersionField6 = A LAN file sharing / file transfer app.
 ; VersionField7 = PB_LanShare
 ; VersionField8 = PB_LanShare.exe

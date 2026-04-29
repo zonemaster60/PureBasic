@@ -119,10 +119,18 @@ Procedure StartServer()
     ProcedureReturn
   EndIf
 
+  SharePath$ = TrimTrailingSlash(GetGadgetText(#GadgetSharePath))
   DownloadPath$ = TrimTrailingSlash(GetGadgetText(#GadgetDownloadPath))
-  SharePath$ = DownloadPath$
+  If SharePath$ = ""
+    SharePath$ = DownloadPath$
+  EndIf
   If IsUsableTransferDirectory(DownloadPath$) = 0
     MessageRequester(#APP_NAME, "Choose a valid absolute download folder before starting the server.")
+    ProcedureReturn
+  EndIf
+
+  If IsUsableTransferDirectory(SharePath$) = 0
+    MessageRequester(#APP_NAME, "Choose a valid absolute share folder before starting the server.")
     ProcedureReturn
   EndIf
 
