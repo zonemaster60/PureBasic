@@ -3,7 +3,7 @@
 ;
 
 IncludeFile "HandyMPlayer_Inc.pb"
-Global version.s = "v1.0.4.1"
+Global version.s = "v1.0.4.2"
 
 EnableExplicit
 
@@ -622,6 +622,16 @@ Procedure Main()
         ElseIf EventGadget() = #Gadget_LibraryTree And EventType() = #PB_EventType_LeftDoubleClick
           PlaySelectedLibraryItem()
         ElseIf EventGadget() = #Gadget_LibraryTree And EventType() = #PB_EventType_RightClick
+          Protected treePoint.WinPOINT
+          Protected treeHit.TVHITTESTINFO
+          If GetCursorPos_(@treePoint)
+            ScreenToClient_(GadgetID(#Gadget_LibraryTree), @treePoint)
+            treeHit\pt\x = treePoint\x
+            treeHit\pt\y = treePoint\y
+            If SendMessage_(GadgetID(#Gadget_LibraryTree), #TVM_HITTEST, 0, @treeHit)
+              SendMessage_(GadgetID(#Gadget_LibraryTree), #TVM_SELECTITEM, #TVGN_CARET, treeHit\hItem)
+            EndIf
+          EndIf
           DisplayPopupMenu(1, WindowID(#Window_Main))
         ElseIf EventWindow() = #Window_Playlist And EventGadget() = #Gadget_Playlist And EventType() = #PB_EventType_LeftDoubleClick
           PlaySelectedPlaylistItem()
@@ -753,12 +763,12 @@ End
 ; Executable = ..\HandyMPlayer.exe
 ; Debugger = IDE
 ; IncludeVersionInfo
-; VersionField0 = 1,0,4,1
-; VersionField1 = 1,0,4,1
+; VersionField0 = 1,0,4,2
+; VersionField1 = 1,0,4,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyMPlayer
-; VersionField4 = 1.0.4.1
-; VersionField5 = 1.0.4.1
+; VersionField4 = 1.0.4.2
+; VersionField5 = 1.0.4.2
 ; VersionField6 = A Handy Compact Audio/Video Player
 ; VersionField7 = HandyMPlayer
 ; VersionField8 = HandyMPlayer.exe

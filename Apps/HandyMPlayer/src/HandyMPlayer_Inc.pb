@@ -185,10 +185,19 @@ EndStructure
 #HWND_TOP = 0
 #HWND_BOTTOM = 1
 #SWP_NOACTIVATE = $0010
+#TVM_HITTEST = #TV_FIRST + 17
+#TVM_SELECTITEM = #TV_FIRST + 11
+#TVGN_CARET = $0009
 
 Structure WinPOINT
   x.l
   y.l
+EndStructure
+
+Structure TVHITTESTINFO
+  pt.WinPOINT
+  flags.l
+  hItem.i
 EndStructure
 
 Structure WinRECT
