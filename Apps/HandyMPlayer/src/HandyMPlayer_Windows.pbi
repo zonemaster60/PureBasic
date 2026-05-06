@@ -192,6 +192,8 @@ EndProcedure
 Procedure UpdatePlaylistWindowLayout()
   Protected winW.i
   Protected winH.i
+  Protected totalMS.q
+  Protected titleText.s
 
   If IsWindow(#Window_Playlist) = 0
     ProcedureReturn
@@ -199,6 +201,13 @@ Procedure UpdatePlaylistWindowLayout()
 
   winW = WindowWidth(#Window_Playlist, #PB_Window_InnerCoordinate)
   winH = WindowHeight(#Window_Playlist, #PB_Window_InnerCoordinate)
+  totalMS = GetCurrentMediaLengthMS()
+
+  titleText = "Playlist"
+  If totalMS > 0
+    titleText + " (" + FormatTime(totalMS / 1000) + ")"
+  EndIf
+  SetGadgetText(#Gadget_PlaylistTitle, titleText)
 
   ResizeGadget(#Gadget_PlaylistTitle, 10, 10, winW - 20, 18)
   ResizeGadget(#Gadget_PlaylistProgress, 10, 32, winW - 20, #ProgressBarHeight + 6)

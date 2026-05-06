@@ -3,7 +3,7 @@
 ;
 
 IncludeFile "HandyMPlayer_Inc.pb"
-Global version.s = "v1.0.4.2"
+Global version.s = "v1.0.4.3"
 
 EnableExplicit
 
@@ -540,7 +540,10 @@ Procedure Main()
             ResizeGadget(#Gadget_VideoStop, 130, 10, 55, 24)
           EndIf
           If IsGadget(#Gadget_VideoProgress)
-            ResizeGadget(#Gadget_VideoProgress, 195, 10, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate) - 205, #ProgressBarHeight + 6)
+            ResizeGadget(#Gadget_VideoProgress, 195, 10, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate) - 315, #ProgressBarHeight + 6)
+          EndIf
+          If IsGadget(#Gadget_VideoTime)
+            ResizeGadget(#Gadget_VideoTime, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate) - 110, 10, 100, 24)
           EndIf
           If IsGadget(#Gadget_VideoHost)
             ResizeGadget(#Gadget_VideoHost, 0, 40, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate) - 40)
@@ -659,24 +662,25 @@ Procedure Main()
 
             If State\movieState = #MovieState_Playing And now - State\lastProgressUpdate >= 250
               If State\movieHasVideo
-                If st > 0
-                  If State\movieLengthFrames > 0 And st > State\movieLengthFrames
+                totalSec = GetCurrentMediaLengthMS() / 1000
+                If State\audioStartMS > 0
+                  elapsedMS = now - State\audioStartMS
+                Else
+                  elapsedMS = 0
+                EndIf
+                If totalSec > 0 And elapsedMS > totalSec * 1000
+                  elapsedMS = totalSec * 1000
+                EndIf
+                If State\movieLengthFrames > 0 And st > 0
+                  If st > State\movieLengthFrames
                     st = State\movieLengthFrames
                   EndIf
-                  If State\movieLengthFrames > 0
-                    SetProgressPosition((st * #ProgressScaleMax) / State\movieLengthFrames)
-                  EndIf
-
-                  ; Optional: show human time if FPS is known
-                  If State\movieFPS_x1000 > 0
-                    curSec = (st * 1000) / State\movieFPS_x1000
-                    totalSec = 0
-                    If State\movieLengthFrames > 0
-                      totalSec = (State\movieLengthFrames * 1000) / State\movieFPS_x1000
-                    EndIf
-                    StatusBarText(0, 0, State\fileName + "  " + FormatTime(curSec) + "/" + FormatTime(totalSec), #PB_StatusBar_Center)
-                  EndIf
+                  SetProgressPosition((st * #ProgressScaleMax) / State\movieLengthFrames)
+                ElseIf totalSec > 0
+                  SetProgressPosition((elapsedMS * #ProgressScaleMax) / (totalSec * 1000))
                 EndIf
+                StatusBarText(0, 0, State\fileName + "  " + FormatTime(elapsedMS / 1000) + "/" + FormatTime(totalSec), #PB_StatusBar_Center)
+                UpdateDetachedVideoTimeLabel(elapsedMS)
               Else
                   ; Audio-only progress: prefer MovieStatus + a seekable unit.
                   ; When MovieLength() is 0, we fall back to milliseconds.
@@ -733,6 +737,11 @@ Procedure Main()
                       st = State\movieLengthFrames
                     EndIf
                     SetProgressPosition((st * #ProgressScaleMax) / State\movieLengthFrames)
+                    If State\movieHasVideo And State\audioStartMS > 0
+                      UpdateDetachedVideoTimeLabel(ElapsedMilliseconds() - State\audioStartMS)
+                    ElseIf State\movieFPS_x1000 > 0
+                      UpdateDetachedVideoTimeLabel((st * 1000) / State\movieFPS_x1000)
+                    EndIf
                   EndIf
               EndSelect
 
@@ -763,12 +772,12 @@ End
 ; Executable = ..\HandyMPlayer.exe
 ; Debugger = IDE
 ; IncludeVersionInfo
-; VersionField0 = 1,0,4,2
-; VersionField1 = 1,0,4,2
+; VersionField0 = 1,0,4,3
+; VersionField1 = 1,0,4,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyMPlayer
-; VersionField4 = 1.0.4.2
-; VersionField5 = 1.0.4.2
+; VersionField4 = 1.0.4.3
+; VersionField5 = 1.0.4.3
 ; VersionField6 = A Handy Compact Audio/Video Player
 ; VersionField7 = HandyMPlayer
 ; VersionField8 = HandyMPlayer.exe

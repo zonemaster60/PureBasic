@@ -121,6 +121,8 @@ Procedure StartLoadedPlayback()
     Else
       PlayMovie(0, WindowID(#Window_Video))
     EndIf
+    State\audioStartMS = ElapsedMilliseconds()
+    State\audioPausedElapsedMS = 0
   Else
     PlayMovie(0, WindowID(#Window_Main))
     State\audioStartMS = ElapsedMilliseconds()
@@ -174,6 +176,49 @@ Procedure SetProgressPosition(position.q)
   EndIf
 EndProcedure
 
+Procedure.q GetCurrentMediaLengthMS()
+  Protected totalMS.q = 0
+
+  If State\movieLoaded = 0
+    ProcedureReturn 0
+  EndIf
+
+  If State\movieHasVideo
+    totalMS = MovieLengthMS(0)
+    If totalMS <= 0 And State\movieFPS_x1000 > 0 And State\movieLengthFrames > 0
+      totalMS = (State\movieLengthFrames * 1000000) / State\movieFPS_x1000
+    EndIf
+  Else
+    totalMS = State\audioTotalMS
+    If totalMS <= 0 And State\audioTotalFrames > 0
+      totalMS = State\audioTotalFrames
+    EndIf
+  EndIf
+
+  ProcedureReturn totalMS
+EndProcedure
+
+Procedure UpdateDetachedVideoTimeLabel(elapsedMS.q = -1)
+  Protected totalMS.q = GetCurrentMediaLengthMS()
+  Protected labelText.s
+
+  If IsGadget(#Gadget_VideoTime) = 0
+    ProcedureReturn
+  EndIf
+
+  If elapsedMS < 0
+    elapsedMS = 0
+  EndIf
+
+  If totalMS > 0
+    labelText = FormatTime(elapsedMS / 1000) + "/" + FormatTime(totalMS / 1000)
+  Else
+    labelText = FormatTime(elapsedMS / 1000)
+  EndIf
+
+  SetGadgetText(#Gadget_VideoTime, labelText)
+EndProcedure
+
 Procedure ResetPlaybackState(clearMediaInfo.i = #True)
   State\movieLoaded = 0
   State\movieState = #MovieState_Ready
@@ -209,6 +254,8 @@ Procedure ResetPlaybackState(clearMediaInfo.i = #True)
   EndIf
 
   SetProgressPosition(0)
+  UpdateDetachedVideoTimeLabel(0)
+  UpdatePlaylistWindowLayout()
 
   If IsWindow(#Window_Video)
     HideWindow(#Window_Video, 1)
@@ -240,6 +287,9 @@ Procedure CloseCurrentMedia()
   If IsGadget(#Gadget_Progress)
     GadgetToolTip(#Gadget_Progress, "No media loaded")
   EndIf
+
+  UpdateDetachedVideoTimeLabel(0)
+  UpdatePlaylistWindowLayout()
 EndProcedure
 
 Procedure UpdatePlaybackStatus(prefix.s)
@@ -286,7 +336,7 @@ Procedure PausePlayback()
     State\movieState = #MovieState_Paused
     UpdatePlaybackStatus("Paused")
 
-    If State\movieHasVideo = 0 And State\audioStartMS > 0
+    If State\audioStartMS > 0
       State\audioPausedElapsedMS = ElapsedMilliseconds() - State\audioStartMS
     EndIf
   EndIf
@@ -304,6 +354,7 @@ Procedure StopPlayback()
 
     If State\movieHasVideo
       UpdateLayout()
+      UpdateDetachedVideoTimeLabel(0)
     Else
       UpdateAudioTimeStatus(0)
     EndIf
@@ -321,9 +372,7 @@ Procedure TogglePlayback()
 
     Case #MovieState_Paused
       ResumeMovie(0)
-      If State\movieHasVideo = 0
-        State\audioStartMS = ElapsedMilliseconds() - State\audioPausedElapsedMS
-      EndIf
+      State\audioStartMS = ElapsedMilliseconds() - State\audioPausedElapsedMS
       State\movieState = #MovieState_Playing
       ApplyAudioSettings()
       UpdatePlaybackStatus("Playing")
@@ -495,6 +544,7 @@ Procedure EnsureVideoHostWindow()
     ButtonGadget(#Gadget_VideoPause, 70, 10, 55, 24, "Pause")
     ButtonGadget(#Gadget_VideoStop, 130, 10, 55, 24, "Stop")
     TrackBarGadget(#Gadget_VideoProgress, 195, 10, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate) - 205, #ProgressBarHeight + 6, 0, #ProgressScaleMax)
+    StringGadget(#Gadget_VideoTime, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate) - 110, 10, 100, 24, "00:00/00:00", #PB_String_ReadOnly | #PB_String_BorderLess)
     BindGadgetEvent(#Gadget_VideoProgress, @ProgressBarSeekForGadget())
     BindGadgetEvent(#Gadget_VideoProgress, @ProgressBarClickToSeekForGadget(), #PB_EventType_LeftClick)
     CanvasGadget(#Gadget_VideoHost, 0, 40, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate) - 40)
@@ -513,7 +563,11 @@ Procedure ShowVideoWindow()
     HideWindow(#Window_Video, 0)
     SetActiveWindow(#Window_Video)
     If IsGadget(#Gadget_VideoProgress)
-      ResizeGadget(#Gadget_VideoProgress, 195, 10, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate) - 205, #ProgressBarHeight + 6)
+      ResizeGadget(#Gadget_VideoProgress, 195, 10, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate) - 315, #ProgressBarHeight + 6)
+    EndIf
+    If IsGadget(#Gadget_VideoTime)
+      ResizeGadget(#Gadget_VideoTime, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate) - 110, 10, 100, 24)
+      UpdateDetachedVideoTimeLabel(0)
     EndIf
     If IsGadget(#Gadget_VideoHost)
       ResizeGadget(#Gadget_VideoHost, 0, 40, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate) - 40)
@@ -558,6 +612,11 @@ Procedure UpdateSeekPositionFromGadget(gadget.i)
     If State\movieLengthFrames > 0
       seekTarget = (State\movieLengthFrames * seekTarget) / pbMax
       MovieSeek(0, seekTarget)
+      If GetCurrentMediaLengthMS() > 0
+        State\audioPausedElapsedMS = (GetCurrentMediaLengthMS() * seekTarget) / State\movieLengthFrames
+        State\audioStartMS = ElapsedMilliseconds() - State\audioPausedElapsedMS
+        UpdateDetachedVideoTimeLabel(State\audioPausedElapsedMS)
+      EndIf
     EndIf
   Else
     If State\audioTotalFrames > 0
@@ -882,6 +941,7 @@ Procedure LoadFile(path.s)
       ResizeMainForVideo(State\targetW, State\targetH)
       StatusBarText(0, 0, "Video '" + State\fileName + "' loaded.", #PB_StatusBar_Center)
       GadgetToolTip(#Gadget_Progress, "Video '" + State\fileName + "' loaded.")
+      UpdateDetachedVideoTimeLabel(0)
     Else
       StatusBarText(0, 0, "Audio '" + GetTrackDisplayName() + "' loaded.", #PB_StatusBar_Center)
       GadgetToolTip(#Gadget_Progress, "Audio '" + GetTrackDisplayName() + "' loaded.")
@@ -890,8 +950,10 @@ Procedure LoadFile(path.s)
     UpdateMetadataPanel()
     HighlightNowPlaying()
     UpdateLayout()
+    UpdatePlaylistWindowLayout()
   Else
     UpdateLayout()
+    UpdatePlaylistWindowLayout()
     UpdatePlaybackStatus("Can't load the file '" + GetFilePart(path) + "'")
   EndIf
 EndProcedure

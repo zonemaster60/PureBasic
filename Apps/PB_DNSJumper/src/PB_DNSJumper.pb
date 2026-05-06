@@ -16,7 +16,7 @@ EnableExplicit
 #APP_NAME        = "PB_DNSJumper"
 #EMAIL_NAME      = "zonemaster60@gmail.com"
 #WORKER_EXIT_WAIT_MS           = 10000
-Global version.s = "v1.0.0.7"
+Global version.s = "v1.0.0.8"
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 If AppPath = "" : AppPath = GetCurrentDirectory() : EndIf
@@ -24,6 +24,11 @@ SetCurrentDirectory(AppPath)
 
 Global LogPath.s
 Global LogMutex.i
+Global SettingsPath.s
+
+Procedure.s ResolveSettingsPath()
+  ProcedureReturn AppPath + #APP_NAME + ".ini"
+EndProcedure
 
 Procedure.s EnsureLogFolder(baseFolder.s)
   Protected folder.s = baseFolder
@@ -156,6 +161,8 @@ Enumeration Gadgets
   #G_TimeoutSpin
   #G_AutoStartSpin
   #G_TrayRescanCombo
+  #G_StartToTrayCheck
+  #G_AutoApplyCheck
   #G_Start
   #G_Stop
   #G_Apply
@@ -653,6 +660,77 @@ Global gTrayIconReady.b = #False
 Global gAutoStartDelaySec.l = 90
 Global gTrayRescanHours.l = 4
 Global gLastTrayRescanTick.q = ElapsedMilliseconds()
+Global gAutoApplyAfterBenchmark.b = #True
+Global gPreferredAdapter.s = ""
+
+Procedure.i TrayRescanSelectionFromHours(hours.l)
+  Select hours
+    Case 2
+      ProcedureReturn 0
+    Case 4
+      ProcedureReturn 1
+    Case 8
+      ProcedureReturn 2
+    Case 12
+      ProcedureReturn 3
+  EndSelect
+
+  ProcedureReturn 1
+EndProcedure
+
+Procedure LoadSettings()
+  If SettingsPath = ""
+    SettingsPath = ResolveSettingsPath()
+  EndIf
+
+  If OpenPreferences(SettingsPath)
+    PreferenceGroup("General")
+    gTries = ReadPreferenceLong("Tries", gTries)
+    gTimeoutMs = ReadPreferenceLong("TimeoutMs", gTimeoutMs)
+    gAutoStartDelaySec = ReadPreferenceLong("AutoStartDelaySec", gAutoStartDelaySec)
+    gTrayRescanHours = ReadPreferenceLong("TrayRescanHours", gTrayRescanHours)
+    gStartToTray = ReadPreferenceLong("StartToTray", gStartToTray)
+    gAutoApplyAfterBenchmark = ReadPreferenceLong("AutoApplyAfterBenchmark", gAutoApplyAfterBenchmark)
+    gPreferredAdapter = ReadPreferenceString("PreferredAdapter", gPreferredAdapter)
+    ClosePreferences()
+  EndIf
+
+  If gTries < 1 : gTries = 1 : EndIf
+  If gTries > 10 : gTries = 10 : EndIf
+  If gTimeoutMs < 100 : gTimeoutMs = 100 : EndIf
+  If gTimeoutMs > 5000 : gTimeoutMs = 5000 : EndIf
+  If gAutoStartDelaySec < 0 : gAutoStartDelaySec = 0 : EndIf
+  If gAutoStartDelaySec > 3600 : gAutoStartDelaySec = 3600 : EndIf
+
+  Select gTrayRescanHours
+    Case 2, 4, 8, 12
+    Default
+      gTrayRescanHours = 4
+  EndSelect
+
+  gStartToTray = Bool(gStartToTray)
+  gAutoApplyAfterBenchmark = Bool(gAutoApplyAfterBenchmark)
+EndProcedure
+
+Procedure SaveSettings()
+  If SettingsPath = ""
+    SettingsPath = ResolveSettingsPath()
+  EndIf
+
+  If CreatePreferences(SettingsPath)
+    PreferenceGroup("General")
+    WritePreferenceLong("Tries", gTries)
+    WritePreferenceLong("TimeoutMs", gTimeoutMs)
+    WritePreferenceLong("AutoStartDelaySec", gAutoStartDelaySec)
+    WritePreferenceLong("TrayRescanHours", gTrayRescanHours)
+    WritePreferenceLong("StartToTray", gStartToTray)
+    WritePreferenceLong("AutoApplyAfterBenchmark", gAutoApplyAfterBenchmark)
+    WritePreferenceString("PreferredAdapter", gPreferredAdapter)
+    ClosePreferences()
+  Else
+    LogLine("Failed to save settings: " + SettingsPath)
+  EndIf
+EndProcedure
 
 Procedure AddProvider(name.s, ip1.s, ip2.s)
   AddElement(Providers())
@@ -1015,6 +1093,16 @@ Procedure.l TrayRescanHours()
   ProcedureReturn 0
 EndProcedure
 
+Procedure SyncSettingsFromUi()
+  gTries = GetGadgetState(#G_TriesSpin)
+  gTimeoutMs = GetGadgetState(#G_TimeoutSpin)
+  gAutoStartDelaySec = GetGadgetState(#G_AutoStartSpin)
+  gTrayRescanHours = TrayRescanHours()
+  gStartToTray = Bool(GetGadgetState(#G_StartToTrayCheck))
+  gAutoApplyAfterBenchmark = Bool(GetGadgetState(#G_AutoApplyCheck))
+  gPreferredAdapter = GetGadgetText(#G_AdapterCombo)
+EndProcedure
+
 Procedure.s FirstResultProviderName()
   Protected providerName.s = ""
 
@@ -1296,7 +1384,21 @@ Procedure LoadAdapters(combo.i)
     EndIf
   EndIf
   If CountGadgetItems(combo) > 0
-    SetGadgetState(combo, 0)
+    Protected selectedIndex = -1
+    If gPreferredAdapter <> ""
+      For i = 0 To CountGadgetItems(combo) - 1
+        If GetGadgetItemText(combo, i) = gPreferredAdapter
+          selectedIndex = i
+          Break
+        EndIf
+      Next
+    EndIf
+
+    If selectedIndex >= 0
+      SetGadgetState(combo, selectedIndex)
+    Else
+      SetGadgetState(combo, 0)
+    EndIf
   EndIf
 EndProcedure
 
@@ -1352,6 +1454,10 @@ If gLoadedProviders = 0
   AddProvider("Level3",        "4.2.2.1",         "4.2.2.2")
 EndIf
 
+SettingsPath = ResolveSettingsPath()
+LoadSettings()
+LogLine("Settings: " + SettingsPath)
+
 LogLine("Provider source: " + gProvidersFile)
 LogLine("Provider count: " + Str(ListSize(Providers())))
 
@@ -1374,23 +1480,28 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
   SpinGadget(#G_AutoStartSpin, 815, 10, 55, 26, 0, 3600, #PB_Spin_Numeric)
   SetGadgetState(#G_AutoStartSpin, gAutoStartDelaySec)
 
-  TextGadget(#PB_Any, 665, 70, 85, 20, "Rescan:")
-  ComboBoxGadget(#G_TrayRescanCombo, 713, 66, 70, 26)
+  TextGadget(#PB_Any, 560, 70, 85, 20, "Rescan:")
+  ComboBoxGadget(#G_TrayRescanCombo, 608, 66, 70, 26)
   AddGadgetItem(#G_TrayRescanCombo, -1, "2h")
   AddGadgetItem(#G_TrayRescanCombo, -1, "4h")
   AddGadgetItem(#G_TrayRescanCombo, -1, "8h")
   AddGadgetItem(#G_TrayRescanCombo, -1, "12h")
-  SetGadgetState(#G_TrayRescanCombo, 1)
+  SetGadgetState(#G_TrayRescanCombo, TrayRescanSelectionFromHours(gTrayRescanHours))
+
+  CheckBoxGadget(#G_StartToTrayCheck, 690, 68, 95, 22, "Start in tray")
+  SetGadgetState(#G_StartToTrayCheck, gStartToTray)
+  CheckBoxGadget(#G_AutoApplyCheck, 790, 68, 120, 22, "Auto-apply best")
+  SetGadgetState(#G_AutoApplyCheck, gAutoApplyAfterBenchmark)
 
   ButtonGadget(#G_Start, 14, 66, 60, 26, "Test")
   ButtonGadget(#G_Stop, 79, 66, 60, 26, "Stop")
 
   ProgressBarGadget(#G_Progress, 14, 44, 891, 18, 0, 100)
-  TextGadget(#G_BestLabel, 150, 70, 500, 22, "Best: (none)")
-  ButtonGadget(#G_Apply, 790, 66, 75, 26, "Apply Best")
-  ButtonGadget(#G_Exit, 870, 66, 40, 26, "Exit")
+  TextGadget(#G_BestLabel, 150, 70, 395, 22, "Best: (none)")
+  ButtonGadget(#G_Apply, 790, 96, 75, 26, "Apply Best")
+  ButtonGadget(#G_Exit, 870, 96, 40, 26, "Exit")
 
-  ListIconGadget(#G_List, 14, 102, 891, 395, "Rank", 55, #PB_ListIcon_GridLines | #PB_ListIcon_FullRowSelect)
+  ListIconGadget(#G_List, 14, 130, 891, 367, "Rank", 55, #PB_ListIcon_GridLines | #PB_ListIcon_FullRowSelect)
   AddGadgetColumn(#G_List, 1, "Provider", 150)
   AddGadgetColumn(#G_List, 2, "Server", 155)
   AddGadgetColumn(#G_List, 3, "Success", 90)
@@ -1432,18 +1543,19 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
   DisableGadget(#G_Stop, #True)
   
   ; Handle command line parameters (e.g., from startup shortcut)
+  Define startToTrayNow.b = gStartToTray
   Define cmdIdx.l = 1
   While cmdIdx <= CountProgramParameters()
     If UCase(ProgramParameter(cmdIdx-1)) = "/TRAY"
-      gStartToTray = #True
+      startToTrayNow = #True
     EndIf
     cmdIdx + 1
   Wend
 
-  If gStartToTray And gTrayIconReady
+  If startToTrayNow And gTrayIconReady
     ShowMainWindow(#False)
   Else
-    If gStartToTray And gTrayIconReady = #False
+    If startToTrayNow And gTrayIconReady = #False
       LogLine("/TRAY requested but tray icon is unavailable; showing main window instead")
     EndIf
     ShowMainWindow(#True)
@@ -1557,11 +1669,15 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
           EndIf
 
         Case #G_ReloadAdapters
+          SyncSettingsFromUi()
+          SaveSettings()
           LoadAdapters(#G_AdapterCombo)
           LogLine("Adapters reloaded; count=" + Str(CountGadgetItems(#G_AdapterCombo)))
           SetGadgetText(#G_Status, "Adapters reloaded.")
 
         Case #G_Start
+          SyncSettingsFromUi()
+          SaveSettings()
           StartBenchmarkRun()
 
         Case #G_Stop
@@ -1574,6 +1690,8 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
           ; Note: Re-enabling happens in the timer event when gWorkerRunning becomes 0
 
         Case #G_Apply
+          SyncSettingsFromUi()
+          SaveSettings()
           Define adapter.s = GetGadgetText(#G_AdapterCombo)
           If adapter = ""
             MessageRequester("Apply Best", "Select an adapter first.")
@@ -1581,6 +1699,10 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
             Define bestName.s = FirstResultProviderName()
             ApplyBestWithFeedback(adapter, bestName, "Apply Best")
           EndIf
+
+        Case #G_TriesSpin, #G_TimeoutSpin, #G_AutoStartSpin, #G_TrayRescanCombo, #G_StartToTrayCheck, #G_AutoApplyCheck, #G_AdapterCombo
+          SyncSettingsFromUi()
+          SaveSettings()
       EndSelect
     EndIf
 
@@ -1615,8 +1737,8 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
       If done And running = 0
         FinishBenchmarkRun(wasCancelled)
 
-        ; Apply the current best DNS after any successful benchmark run.
-        If gQueueApplied = #False And wasCancelled = #False
+        ; Apply the current best DNS after any successful benchmark run when enabled.
+        If gAutoApplyAfterBenchmark And gQueueApplied = #False And wasCancelled = #False
           gQueueApplied = #True
           Define adapter.s = GetGadgetText(#G_AdapterCombo)
           AutoApplyBestProvider(adapter)
@@ -1625,6 +1747,8 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
     EndIf
 
   Until quitApp = #True
+    SyncSettingsFromUi()
+    SaveSettings()
     RequestWorkerStop()
     WaitForWorkerStop(#WORKER_EXIT_WAIT_MS)
     CloseHandle_(hMutex)
@@ -1633,7 +1757,7 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
 EndIf
 ; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 18
-; Folding = ----------
+; Folding = -----------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1642,12 +1766,12 @@ EndIf
 ; UseIcon = PB_DNSJumper.ico
 ; Executable = ..\PB_DNSJumper.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,7
-; VersionField1 = 1,0,0,7
+; VersionField0 = 1,0,0,8
+; VersionField1 = 1,0,0,8
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_DNSJumper
-; VersionField4 = 1.0.0.7
-; VersionField5 = 1.0.0.7
+; VersionField4 = 1.0.0.8
+; VersionField5 = 1.0.0.8
 ; VersionField6 = An automatic DNS changer similar to DNSJumper
 ; VersionField7 = PB_DNSJumper
 ; VersionField8 = PB_DNSJumper.exe
