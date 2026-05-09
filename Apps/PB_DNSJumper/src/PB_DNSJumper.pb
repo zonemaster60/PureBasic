@@ -16,7 +16,7 @@ EnableExplicit
 #APP_NAME        = "PB_DNSJumper"
 #EMAIL_NAME      = "zonemaster60@gmail.com"
 #WORKER_EXIT_WAIT_MS           = 10000
-Global version.s = "v1.0.0.8"
+Global version.s = "v1.0.0.9"
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 If AppPath = "" : AppPath = GetCurrentDirectory() : EndIf
@@ -27,8 +27,16 @@ Global LogMutex.i
 Global SettingsPath.s
 
 Procedure.s ResolveSettingsPath()
-  ProcedureReturn AppPath + #APP_NAME + ".ini"
+  Protected settingsFolder.s = AppPath + "files\"
+
+  If FileSize(settingsFolder) <> -2
+    CreateDirectory(settingsFolder)
+  EndIf
+
+  ProcedureReturn settingsFolder + #APP_NAME + ".ini"
 EndProcedure
+
+Declare SaveSettings()
 
 Procedure.s EnsureLogFolder(baseFolder.s)
   Protected folder.s = baseFolder
@@ -137,6 +145,20 @@ Procedure OpenLog(showError.i = #True)
   EndIf
 EndProcedure
 
+Procedure OpenSettings(showError.i = #True)
+  If SettingsPath = ""
+    SettingsPath = ResolveSettingsPath()
+  EndIf
+
+  If FileSize(SettingsPath) < 0
+    SaveSettings()
+  EndIf
+
+  If RunProgram(SettingsPath, "", "", #PB_Program_Open) = 0 And showError
+    MessageRequester("Settings", "Could not open settings file:" + #CRLF$ + SettingsPath, #PB_MessageRequester_Error)
+  EndIf
+EndProcedure
+
 InitLogging()
 
 Enumeration SysTray
@@ -146,6 +168,7 @@ EndEnumeration
 Enumeration MenuItems
   #Tray_Show
   #Tray_OpenLog
+  #Tray_About
   #Tray_StartTest
   #Tray_ApplyBest
   #Tray_RunAtStartup
@@ -170,11 +193,19 @@ Enumeration Gadgets
   #G_BestLabel
   #G_List
   #G_Status
+  #G_About
   #G_Exit
+  #G_AboutText
+  #G_AboutGitHub
+  #G_AboutCopy
+  #G_AboutSettings
+  #G_AboutLog
+  #G_AboutClose
 EndEnumeration
 
 Enumeration Windows
   #WinMain
+  #WinAbout
 EndEnumeration
 
 ; Prevent multiple instances (don't rely on window title text)
@@ -999,7 +1030,7 @@ Procedure RefreshListIcon(listGadget.i, bestLabelGadget.i)
     SetGadgetText(bestLabelGadget, "Best: " + Results()\provider + "  [" + p1 + ", " + p2 + "]")
     SysTrayIconToolTip(#SysTray, #APP_NAME + " - Best: " + Results()\provider + " (" + FmtMS(Results()\median) + "ms)")
   Else
-    SetGadgetText(bestLabelGadget, "Best: (none)")
+    SetGadgetText(bestLabelGadget, "Best provider: (none)")
     SysTrayIconToolTip(#SysTray, #APP_NAME)
   EndIf
 EndProcedure
@@ -1070,6 +1101,62 @@ EndProcedure
 
 Procedure.b ConfirmExit()
   ProcedureReturn Bool(MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info) = #PB_MessageRequester_Yes)
+EndProcedure
+
+Procedure AboutApp()
+  Protected sourceLabel.s
+  Protected autoApplyLabel.s = "Off"
+  Protected adapterLabel.s = "(none)"
+  Protected aboutText.s
+
+  If gProvidersFromFile
+    sourceLabel = gProvidersFile
+  Else
+    sourceLabel = "Built-in defaults"
+  EndIf
+
+  If gAutoApplyAfterBenchmark
+    autoApplyLabel = "On"
+  EndIf
+
+  If gPreferredAdapter <> ""
+    adapterLabel = gPreferredAdapter
+  EndIf
+
+  aboutText = #APP_NAME + " " + version + #CRLF$ +
+              "Automatic DNS benchmark and switcher for Windows." + #CRLF$ + #CRLF$ +
+              "Application" + #CRLF$ +
+              "-----------" + #CRLF$ +
+              "Loaded providers : " + Str(ListSize(Providers())) + #CRLF$ +
+              "Provider source  : " + sourceLabel + #CRLF$ +
+              "Settings file    : " + SettingsPath + #CRLF$ +
+              "Log file         : " + LogPath + #CRLF$ + #CRLF$ +
+              "Current Settings" + #CRLF$ +
+              "----------------" + #CRLF$ +
+              "Auto-start delay : " + Str(gAutoStartDelaySec) + "s" + #CRLF$ +
+              "Tray rescan      : " + Str(gTrayRescanHours) + "h" + #CRLF$ +
+              "Auto-apply best  : " + autoApplyLabel + #CRLF$ +
+              "Preferred adapter: " + adapterLabel + #CRLF$ + #CRLF$ +
+              "Author  : David Scouten" + #CRLF$ +
+              "Contact : " + #EMAIL_NAME + #CRLF$ +
+              "GitHub  : https://github.com/zonemaster60"
+
+  If IsWindow(#WinAbout) = 0
+    If OpenWindow(#WinAbout, 0, 0, 590, 400, "About " + #APP_NAME, #PB_Window_SystemMenu | #PB_Window_ScreenCentered, WindowID(#WinMain))
+      EditorGadget(#G_AboutText, 14, 14, 562, 314, #PB_Editor_ReadOnly)
+      ButtonGadget(#G_AboutGitHub, 14, 346, 90, 30, "GitHub")
+      ButtonGadget(#G_AboutCopy, 109, 346, 90, 30, "Copy")
+      ButtonGadget(#G_AboutSettings, 204, 346, 90, 30, "Settings")
+      ButtonGadget(#G_AboutLog, 299, 346, 90, 30, "Open Log")
+      ButtonGadget(#G_AboutClose, 486, 346, 90, 30, "Close")
+    EndIf
+  EndIf
+
+  If IsWindow(#WinAbout)
+    SetGadgetText(#G_AboutText, aboutText)
+    HideWindow(#WinAbout, #False)
+    SetActiveWindow(#WinAbout)
+  EndIf
 EndProcedure
 
 Procedure.b MainWindowVisible()
@@ -1150,7 +1237,7 @@ Procedure.b StartBenchmarkRun()
   LogLine("Benchmark started")
   ClearList(Results())
   PopulateProviderList(#G_List)
-  SetGadgetText(#G_BestLabel, "Best: (running...)")
+  SetGadgetText(#G_BestLabel, "Best provider: (running...)")
   SetGadgetText(#G_Status, "Testing DNS servers...")
 
   gTries = GetGadgetState(#G_TriesSpin)
@@ -1277,6 +1364,7 @@ Procedure UpdateTrayMenu()
   If CreatePopupMenu(0)
     MenuItem(#Tray_Show, "Show / Hide GUI")
     MenuItem(#Tray_OpenLog, "Open Log (Logs folder)")
+    MenuItem(#Tray_About, "About")
     MenuBar()
     
     MenuItem(#Tray_RunAtStartup, "Run at Startup")
@@ -1464,52 +1552,53 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
   If OpenWindow(#WinMain, 0, 0, 920, 560, #APP_NAME + " - " + version, #PB_Window_SystemMenu | #PB_Window_ScreenCentered |
                                                                                          #PB_Window_MinimizeGadget | #PB_Window_Invisible)
 
-  TextGadget(#PB_Any, 14, 14, 70, 20, "Adapter:")
-  ComboBoxGadget(#G_AdapterCombo, 80, 10, 280, 26)
-  ButtonGadget(#G_ReloadAdapters, 370, 10, 90, 26, "Reload")
+  TextGadget(#PB_Any, 14, 14, 55, 20, "Adapter:")
+  ComboBoxGadget(#G_AdapterCombo, 72, 10, 235, 26)
+  ButtonGadget(#G_ReloadAdapters, 315, 10, 80, 26, "Reload")
 
-  TextGadget(#PB_Any, 480, 14, 40, 20, "Tries:")
-  SpinGadget(#G_TriesSpin, 525, 10, 60, 26, 1, 10, #PB_Spin_Numeric)
+  TextGadget(#PB_Any, 410, 14, 40, 20, "Tries:")
+  SpinGadget(#G_TriesSpin, 450, 10, 55, 26, 1, 10, #PB_Spin_Numeric)
   SetGadgetState(#G_TriesSpin, gTries)
 
-  TextGadget(#PB_Any, 595, 14, 88, 20, "Timeout ms:")
-  SpinGadget(#G_TimeoutSpin, 680, 10, 70, 26, 100, 5000, #PB_Spin_Numeric)
+  TextGadget(#PB_Any, 520, 14, 78, 20, "Timeout ms:")
+  SpinGadget(#G_TimeoutSpin, 598, 10, 65, 26, 100, 5000, #PB_Spin_Numeric)
   SetGadgetState(#G_TimeoutSpin, gTimeoutMs)
 
-  TextGadget(#PB_Any, 760, 14, 68, 20, "Auto s:")
-  SpinGadget(#G_AutoStartSpin, 815, 10, 55, 26, 0, 3600, #PB_Spin_Numeric)
+  TextGadget(#PB_Any, 678, 14, 52, 20, "Auto:")
+  SpinGadget(#G_AutoStartSpin, 730, 10, 55, 26, 0, 3600, #PB_Spin_Numeric)
   SetGadgetState(#G_AutoStartSpin, gAutoStartDelaySec)
 
-  TextGadget(#PB_Any, 560, 70, 85, 20, "Rescan:")
-  ComboBoxGadget(#G_TrayRescanCombo, 608, 66, 70, 26)
+  TextGadget(#PB_Any, 792, 14, 52, 20, "Rescan:")
+  ComboBoxGadget(#G_TrayRescanCombo, 842, 10, 64, 26)
   AddGadgetItem(#G_TrayRescanCombo, -1, "2h")
   AddGadgetItem(#G_TrayRescanCombo, -1, "4h")
   AddGadgetItem(#G_TrayRescanCombo, -1, "8h")
   AddGadgetItem(#G_TrayRescanCombo, -1, "12h")
   SetGadgetState(#G_TrayRescanCombo, TrayRescanSelectionFromHours(gTrayRescanHours))
 
-  CheckBoxGadget(#G_StartToTrayCheck, 690, 68, 95, 22, "Start in tray")
+  CheckBoxGadget(#G_StartToTrayCheck, 14, 68, 110, 22, "Start in tray")
   SetGadgetState(#G_StartToTrayCheck, gStartToTray)
-  CheckBoxGadget(#G_AutoApplyCheck, 790, 68, 120, 22, "Auto-apply best")
+  CheckBoxGadget(#G_AutoApplyCheck, 130, 68, 145, 22, "Auto-apply best DNS")
   SetGadgetState(#G_AutoApplyCheck, gAutoApplyAfterBenchmark)
 
-  ButtonGadget(#G_Start, 14, 66, 60, 26, "Test")
-  ButtonGadget(#G_Stop, 79, 66, 60, 26, "Stop")
+  ButtonGadget(#G_Start, 560, 66, 60, 26, "Test")
+  ButtonGadget(#G_Stop, 625, 66, 60, 26, "Stop")
+  ButtonGadget(#G_About, 690, 66, 70, 26, "About")
+  ButtonGadget(#G_Apply, 765, 66, 90, 26, "Apply Best")
+  ButtonGadget(#G_Exit, 860, 66, 45, 26, "Exit")
 
   ProgressBarGadget(#G_Progress, 14, 44, 891, 18, 0, 100)
-  TextGadget(#G_BestLabel, 150, 70, 395, 22, "Best: (none)")
-  ButtonGadget(#G_Apply, 790, 96, 75, 26, "Apply Best")
-  ButtonGadget(#G_Exit, 870, 96, 40, 26, "Exit")
+  TextGadget(#G_BestLabel, 14, 98, 891, 22, "Best provider: (none)")
 
-  ListIconGadget(#G_List, 14, 130, 891, 367, "Rank", 55, #PB_ListIcon_GridLines | #PB_ListIcon_FullRowSelect)
-  AddGadgetColumn(#G_List, 1, "Provider", 150)
-  AddGadgetColumn(#G_List, 2, "Server", 155)
+  ListIconGadget(#G_List, 14, 126, 891, 371, "Rank", 52, #PB_ListIcon_GridLines | #PB_ListIcon_FullRowSelect)
+  AddGadgetColumn(#G_List, 1, "Provider", 180)
+  AddGadgetColumn(#G_List, 2, "Servers", 185)
   AddGadgetColumn(#G_List, 3, "Success", 90)
-  AddGadgetColumn(#G_List, 4, "Median (ms)", 100)
-  AddGadgetColumn(#G_List, 5, "P90 (ms)", 90)
-  AddGadgetColumn(#G_List, 6, "Best (ms)", 90)
+  AddGadgetColumn(#G_List, 4, "Median (ms)", 105)
+  AddGadgetColumn(#G_List, 5, "P90 (ms)", 95)
+  AddGadgetColumn(#G_List, 6, "Best (ms)", 95)
 
-  TextGadget(#G_Status, 14, 510, 891, 20, "Ready. Log: " + LogPath)
+  TextGadget(#G_Status, 14, 510, 891, 20, "Ready. Settings: " + SettingsPath)
 
   LoadAdapters(#G_AdapterCombo)
   LogLine("Adapters loaded: " + Str(CountGadgetItems(#G_AdapterCombo)))
@@ -1615,6 +1704,9 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
 
         Case #Tray_OpenLog
           OpenLog()
+
+        Case #Tray_About
+          AboutApp()
           
         Case #Tray_ApplyBest
           PostEvent(#PB_Event_Gadget, #WinMain, #G_Apply)
@@ -1657,7 +1749,11 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
     EndIf
 
     If ev = #PB_Event_CloseWindow
-      ShowMainWindow(#False)
+      If EventWindow() = #WinAbout
+        HideWindow(#WinAbout, #True)
+      Else
+        ShowMainWindow(#False)
+      EndIf
     EndIf
 
     If ev = #PB_Event_Gadget
@@ -1698,6 +1794,26 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
           Else
             Define bestName.s = FirstResultProviderName()
             ApplyBestWithFeedback(adapter, bestName, "Apply Best")
+          EndIf
+
+        Case #G_About
+          AboutApp()
+
+        Case #G_AboutGitHub
+          RunProgram("https://github.com/zonemaster60", "", "")
+
+        Case #G_AboutCopy
+          SetClipboardText(GetGadgetText(#G_AboutText))
+
+        Case #G_AboutSettings
+          OpenSettings()
+
+        Case #G_AboutLog
+          OpenLog()
+
+        Case #G_AboutClose
+          If IsWindow(#WinAbout)
+            HideWindow(#WinAbout, #True)
           EndIf
 
         Case #G_TriesSpin, #G_TimeoutSpin, #G_AutoStartSpin, #G_TrayRescanCombo, #G_StartToTrayCheck, #G_AutoApplyCheck, #G_AdapterCombo
@@ -1757,7 +1873,7 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
 EndIf
 ; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 18
-; Folding = -----------
+; Folding = ------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1766,12 +1882,12 @@ EndIf
 ; UseIcon = PB_DNSJumper.ico
 ; Executable = ..\PB_DNSJumper.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,8
-; VersionField1 = 1,0,0,8
+; VersionField0 = 1,0,0,9
+; VersionField1 = 1,0,0,9
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_DNSJumper
-; VersionField4 = 1.0.0.8
-; VersionField5 = 1.0.0.8
+; VersionField4 = 1.0.0.9
+; VersionField5 = 1.0.0.9
 ; VersionField6 = An automatic DNS changer similar to DNSJumper
 ; VersionField7 = PB_DNSJumper
 ; VersionField8 = PB_DNSJumper.exe
