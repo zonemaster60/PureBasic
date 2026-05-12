@@ -67,7 +67,7 @@ LogInfo("Main", "Registry Manager shutting down")
 ; No need for manual cleanup here anymore as Exit() handles it
 Exit()
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 10
 ; FirstLine = 4
 ; Optimizer
@@ -78,12 +78,12 @@ Exit()
 ; UseIcon = PB_RegistryManager.ico
 ; Executable = ..\PB_RegistryManager.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,7
-; VersionField1 = 1,0,1,7
+; VersionField0 = 1,0,1,8
+; VersionField1 = 1,0,1,8
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_RegistryManager
-; VersionField4 = 1.0.1.7
-; VersionField5 = 1.0.1.7
+; VersionField4 = 1.0.1.8
+; VersionField5 = 1.0.1.8
 ; VersionField6 = A full featured Registry Manager built with PureBasic
 ; VersionField7 = PB_RegistryManager
 ; VersionField8 = PB_RegistryManager.exe

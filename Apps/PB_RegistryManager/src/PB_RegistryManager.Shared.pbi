@@ -21,7 +21,7 @@ EndImport
 ;- Core Types
 
 #APP_NAME = "PB_RegistryManager"
-Global AppVersion.s = "v1.0.1.7"
+Global AppVersion.s = "v1.0.1.8"
 
 Structure RegKeyInfo
   Name.s
@@ -246,6 +246,7 @@ Global LoadValuesMutex.i = 0
 #WINDOW_SNAPSHOT = 2
 #WINDOW_CLEANER = 3
 #WINDOW_SEARCH = 4
+#WINDOW_DISK_CLEANER = 5
 
 #GADGET_SPLITTER = 0
 #GADGET_TREE = 1
@@ -307,6 +308,7 @@ Global LoadValuesMutex.i = 0
 #MENU_TOOLS_CLEANER = 20
 #MENU_TOOLS_BACKUP = 21
 #MENU_TOOLS_RESTORE = 22
+#MENU_TOOLS_DISK_CLEANER = 23
   #MENU_TOOLS_MONITOR = 24
 #MENU_TOOLS_SNAPSHOT = 25
 #MENU_TOOLS_HEX_EXTERNAL = 26
@@ -390,6 +392,7 @@ Declare HandleSnapshotWindowGadget(gadgetID.i)
 Declare HandleSearchWindowGadget(gadgetID.i)
 Declare.s EscapePowerShellLiteral(text.s)
 Declare.i StartBackupProcess(fileName.s, reason.s, isAuto.i, mode.s = "full", rootKey.i = 0, keyPath.s = "")
+Declare OpenDiskCleaner()
 
 ;- Logging, App Lifecycle, and Shared Helpers
 
@@ -1473,7 +1476,7 @@ Procedure HandleCustomEvent(eventID.i)
   EndSelect
 EndProcedure
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 23
 ; FirstLine = 9
 ; Folding = ------

@@ -445,6 +445,492 @@ EndProcedure
 
 
 
+;- Disk Cleaner
+
+Structure DiskCleanerRule
+  Id.s
+  Label.s
+  BasePath.s
+  Pattern.s
+  Recursive.i
+  MinAgeDays.i
+  AggressiveOnly.i
+EndStructure
+
+Structure DiskCleanerResult
+  RuleLabel.s
+  FilePath.s
+  Size.q
+  IsDirectory.i
+  Selected.i
+EndStructure
+
+Global NewList DiskCleanerRules.DiskCleanerRule()
+Global NewList DiskCleanerResults.DiskCleanerResult()
+
+Procedure.s FormatBytes(size.q)
+  Protected value.d = size
+  Protected suffix.s = " B"
+
+  If value >= 1024
+    value / 1024
+    suffix = " KB"
+  EndIf
+  If value >= 1024
+    value / 1024
+    suffix = " MB"
+  EndIf
+  If value >= 1024
+    value / 1024
+    suffix = " GB"
+  EndIf
+
+  If suffix = " B"
+    ProcedureReturn Str(size) + suffix
+  EndIf
+
+  ProcedureReturn StrD(value, 2) + suffix
+EndProcedure
+
+Procedure.q GetDirectorySize(path.s)
+  Protected total.q = 0
+  Protected dir.i = ExamineDirectory(#PB_Any, path, "*")
+  Protected childPath.s
+
+  If dir
+    While NextDirectoryEntry(dir)
+      If DirectoryEntryName(dir) = "." Or DirectoryEntryName(dir) = ".."
+        Continue
+      EndIf
+
+      childPath = path
+      If Right(childPath, 1) <> "\"
+        childPath + "\"
+      EndIf
+      childPath + DirectoryEntryName(dir)
+
+      If DirectoryEntryType(dir) = #PB_DirectoryEntry_File
+        total + DirectoryEntrySize(dir)
+      ElseIf DirectoryEntryType(dir) = #PB_DirectoryEntry_Directory
+        total + GetDirectorySize(childPath)
+      EndIf
+    Wend
+    FinishDirectory(dir)
+  EndIf
+
+  ProcedureReturn total
+EndProcedure
+
+Procedure.q GetPathAgeDays(path.s)
+  Protected modified.i = GetFileDate(path, #PB_Date_Modified)
+  If modified <= 0
+    ProcedureReturn 999999
+  EndIf
+  ProcedureReturn (Date() - modified) / 86400
+EndProcedure
+
+Procedure AddDiskCleanerRule(id.s, label.s, basePath.s, pattern.s = "*", recursive.i = #True, minAgeDays.i = 0, aggressiveOnly.i = #False)
+  If basePath = ""
+    ProcedureReturn
+  EndIf
+
+  AddElement(DiskCleanerRules())
+  DiskCleanerRules()\Id = id
+  DiskCleanerRules()\Label = label
+  DiskCleanerRules()\BasePath = basePath
+  DiskCleanerRules()\Pattern = pattern
+  DiskCleanerRules()\Recursive = recursive
+  DiskCleanerRules()\MinAgeDays = minAgeDays
+  DiskCleanerRules()\AggressiveOnly = aggressiveOnly
+EndProcedure
+
+Procedure AddDiskCleanerProfileRules(idPrefix.s, labelPrefix.s, profilesPath.s, relativePath.s, pattern.s = "*", recursive.i = #True, minAgeDays.i = 1, aggressiveOnly.i = #False)
+  Protected dir.i
+  Protected profileName.s
+  Protected targetPath.s
+
+  If FileSize(profilesPath) <> -2
+    ProcedureReturn
+  EndIf
+
+  dir = ExamineDirectory(#PB_Any, profilesPath, "*")
+  If dir = 0
+    ProcedureReturn
+  EndIf
+
+  While NextDirectoryEntry(dir)
+    If DirectoryEntryType(dir) = #PB_DirectoryEntry_Directory
+      profileName = DirectoryEntryName(dir)
+      If profileName <> "." And profileName <> ".."
+        targetPath = profilesPath
+        If Right(targetPath, 1) <> "\"
+          targetPath + "\"
+        EndIf
+        targetPath + profileName
+        If relativePath <> ""
+          targetPath + "\" + relativePath
+        EndIf
+        AddDiskCleanerRule(idPrefix + "-" + profileName, labelPrefix + " (" + profileName + ")", targetPath, pattern, recursive, minAgeDays, aggressiveOnly)
+      EndIf
+    EndIf
+  Wend
+
+  FinishDirectory(dir)
+EndProcedure
+
+Procedure AddDiskCleanerResult(ruleLabel.s, filePath.s, size.q, isDirectory.i)
+  AddElement(DiskCleanerResults())
+  DiskCleanerResults()\RuleLabel = ruleLabel
+  DiskCleanerResults()\FilePath = filePath
+  DiskCleanerResults()\Size = size
+  DiskCleanerResults()\IsDirectory = isDirectory
+  DiskCleanerResults()\Selected = #True
+EndProcedure
+
+Procedure ScanDiskCleanerPath(ruleLabel.s, basePath.s, pattern.s, recursive.i, minAgeDays.i)
+  Protected dir.i = ExamineDirectory(#PB_Any, basePath, pattern)
+  Protected entryPath.s
+  Protected ageDays.q
+
+  If FileSize(basePath) <> -2 Or dir = 0
+    ProcedureReturn
+  EndIf
+
+  While NextDirectoryEntry(dir)
+    If DirectoryEntryName(dir) = "." Or DirectoryEntryName(dir) = ".."
+      Continue
+    EndIf
+
+    entryPath = basePath
+    If Right(entryPath, 1) <> "\"
+      entryPath + "\"
+    EndIf
+    entryPath + DirectoryEntryName(dir)
+
+    If DirectoryEntryType(dir) = #PB_DirectoryEntry_File
+      ageDays = GetPathAgeDays(entryPath)
+      If ageDays >= minAgeDays
+        AddDiskCleanerResult(ruleLabel, entryPath, DirectoryEntrySize(dir), #False)
+      EndIf
+    ElseIf recursive And DirectoryEntryType(dir) = #PB_DirectoryEntry_Directory
+      ScanDiskCleanerPath(ruleLabel, entryPath, pattern, recursive, minAgeDays)
+    EndIf
+  Wend
+
+  FinishDirectory(dir)
+EndProcedure
+
+Procedure InitDiskCleanerRules(profileMode.i)
+  Protected localAppData.s = GetEnvironmentVariable("LOCALAPPDATA")
+  Protected roamingAppData.s = GetEnvironmentVariable("APPDATA")
+  Protected windowsDir.s = GetEnvironmentVariable("WINDIR")
+  Protected programData.s = GetEnvironmentVariable("PROGRAMDATA")
+  Protected userTemp.s = GetTemporaryDirectory()
+  Protected userHome.s = GetHomeDirectory()
+  Protected programFilesX86.s = GetEnvironmentVariable("ProgramFiles(x86)")
+
+  ClearList(DiskCleanerRules())
+
+  AddDiskCleanerRule("win-temp", "Windows Temp", windowsDir + "\Temp", "*", #True, 1)
+  AddDiskCleanerRule("user-temp", "User Temp", userTemp, "*", #True, 1)
+  AddDiskCleanerRule("crash-dumps", "Crash Dumps", localAppData + "\CrashDumps", "*.dmp", #True, 1)
+  AddDiskCleanerRule("wer-user", "Windows Error Reports (User)", localAppData + "\Microsoft\Windows\WER", "*", #True, 1)
+  AddDiskCleanerRule("wer-system", "Windows Error Reports (System)", programData + "\Microsoft\Windows\WER", "*", #True, 1)
+  AddDiskCleanerProfileRules("chrome-cache", "Google Chrome Cache", localAppData + "\Google\Chrome\User Data", "Cache", "*", #True, 1)
+  AddDiskCleanerProfileRules("chrome-code", "Google Chrome Code Cache", localAppData + "\Google\Chrome\User Data", "Code Cache", "*", #True, 1)
+  AddDiskCleanerProfileRules("edge-cache", "Microsoft Edge Cache", localAppData + "\Microsoft\Edge\User Data", "Cache", "*", #True, 1)
+  AddDiskCleanerProfileRules("edge-code", "Microsoft Edge Code Cache", localAppData + "\Microsoft\Edge\User Data", "Code Cache", "*", #True, 1)
+  AddDiskCleanerProfileRules("firefox-cache", "Firefox Cache", localAppData + "\Mozilla\Firefox\Profiles", "cache2\entries", "*", #True, 1)
+  AddDiskCleanerRule("discord-cache", "Discord Cache", roamingAppData + "\discord\Cache", "*", #True, 1)
+  AddDiskCleanerRule("discord-code", "Discord Code Cache", roamingAppData + "\discord\Code Cache", "*", #True, 1)
+  AddDiskCleanerRule("teams-logs", "Microsoft Teams Logs", roamingAppData + "\Microsoft\Teams", "*.log", #True, 3)
+  AddDiskCleanerRule("steam-logs", "Steam Logs", programFilesX86 + "\Steam\logs", "*.log", #True, 7)
+  AddDiskCleanerRule("steam-dumps", "Steam Dumps", programFilesX86 + "\Steam\dumps", "*.dmp", #True, 1)
+  AddDiskCleanerRule("pb-logs", "PureBasic Logs", userHome + "Documents\PureBasic", "*.log", #True, 7)
+  AddDiskCleanerRule("pb-dumps", "PureBasic Dumps", userHome + "Documents\PureBasic", "*.dmp", #True, 1)
+  AddDiskCleanerRule("adobe-logs", "Adobe Logs", localAppData + "\Adobe", "*.log", #True, 7)
+  AddDiskCleanerRule("7zip-temp", "7-Zip Temp", userTemp, "7z*.tmp", #True, 1)
+  AddDiskCleanerRule("office-cache", "Microsoft Office Cache", localAppData + "\Microsoft\Office\16.0\OfficeFileCache", "*", #True, 7)
+  AddDiskCleanerRule("powershell-history", "PowerShell Transcripts", userHome + "Documents\PowerShell_transcript", "*.txt", #True, 30)
+
+  If profileMode
+    AddDiskCleanerProfileRules("chrome-gpu", "Google Chrome GPU Cache", localAppData + "\Google\Chrome\User Data", "GPUCache", "*", #True, 1, #True)
+    AddDiskCleanerProfileRules("edge-gpu", "Microsoft Edge GPU Cache", localAppData + "\Microsoft\Edge\User Data", "GPUCache", "*", #True, 1, #True)
+    AddDiskCleanerRule("nvidia-dx", "NVIDIA DX Cache", localAppData + "\NVIDIA\DXCache", "*", #True, 2, #True)
+    AddDiskCleanerRule("nvidia-gl", "NVIDIA GL Cache", localAppData + "\NVIDIA\GLCache", "*", #True, 2, #True)
+    AddDiskCleanerRule("unity-logs", "Unity Logs", localAppData + "\Unity", "*.log", #True, 7, #True)
+    AddDiskCleanerRule("obs-logs", "OBS Logs", roamingAppData + "\obs-studio\logs", "*.txt", #True, 7, #True)
+    AddDiskCleanerRule("obs-crashes", "OBS Crashes", roamingAppData + "\obs-studio\crashes", "*", #True, 1, #True)
+    AddDiskCleanerRule("blender-temp", "Blender Temp", localAppData + "\Temp\Blender", "*", #True, 1, #True)
+    AddDiskCleanerRule("vs-code-logs", "VS Code Logs", roamingAppData + "\Code\logs", "*", #True, 3, #True)
+    AddDiskCleanerRule("vlc-art", "VLC Art Cache", roamingAppData + "\vlc\art", "*", #True, 7, #True)
+    AddDiskCleanerRule("epic-logs", "Epic Games Launcher Logs", localAppData + "\EpicGamesLauncher\Saved\Logs", "*.log", #True, 7, #True)
+    AddDiskCleanerRule("epic-webcache", "Epic Games Web Cache", localAppData + "\EpicGamesLauncher\Saved\webcache", "*", #True, 3, #True)
+    AddDiskCleanerRule("battle-net-cache", "Battle.net Cache", programData + "\Battle.net\Cache", "*", #True, 3, #True)
+    AddDiskCleanerRule("java-cache", "Java Deployment Cache", localAppData + "Low\Sun\Java\Deployment\cache", "*", #True, 7, #True)
+  EndIf
+EndProcedure
+
+Procedure RefreshDiskCleanerRuleList(ruleList.i, profileMode.i)
+  If Not IsGadget(ruleList)
+    ProcedureReturn
+  EndIf
+
+  InitDiskCleanerRules(profileMode)
+  ClearGadgetItems(ruleList)
+  ForEach DiskCleanerRules()
+    AddGadgetItem(ruleList, -1, DiskCleanerRules()\Label + Chr(10) + DiskCleanerRules()\BasePath, 0, #PB_ListIcon_Checked)
+  Next
+EndProcedure
+
+Procedure RefreshDiskCleanerResults(listGadget.i, statusGadget.i)
+  Protected totalCount.i = 0
+  Protected totalSize.q = 0
+  Protected itemState.i
+
+  ClearGadgetItems(listGadget)
+  ForEach DiskCleanerResults()
+    If DiskCleanerResults()\Selected
+      totalCount + 1
+      totalSize + DiskCleanerResults()\Size
+      itemState = #PB_ListIcon_Checked
+    Else
+      itemState = 0
+    EndIf
+    AddGadgetItem(listGadget, -1, DiskCleanerResults()\RuleLabel + Chr(10) + DiskCleanerResults()\FilePath + Chr(10) + FormatBytes(DiskCleanerResults()\Size), 0, itemState)
+  Next
+
+  SetGadgetText(statusGadget, Str(totalCount) + " item(s), " + FormatBytes(totalSize) + " recoverable")
+EndProcedure
+
+Procedure ScanDiskCleaner(listGadget.i, statusGadget.i, ruleList.i, profileMode.i)
+  Protected categoryIndex.i = 0
+
+  ClearList(DiskCleanerResults())
+  InitDiskCleanerRules(profileMode)
+
+  ForEach DiskCleanerRules()
+    If GetGadgetItemState(ruleList, categoryIndex) & #PB_ListIcon_Checked
+      ScanDiskCleanerPath(DiskCleanerRules()\Label, DiskCleanerRules()\BasePath, DiskCleanerRules()\Pattern, DiskCleanerRules()\Recursive, DiskCleanerRules()\MinAgeDays)
+    EndIf
+    categoryIndex + 1
+  Next
+
+  RefreshDiskCleanerResults(listGadget, statusGadget)
+EndProcedure
+
+Procedure SyncDiskCleanerSelection(listGadget.i)
+  Protected itemIndex.i = 0
+
+  ForEach DiskCleanerResults()
+    DiskCleanerResults()\Selected = Bool(GetGadgetItemState(listGadget, itemIndex) & #PB_ListIcon_Checked)
+    itemIndex + 1
+  Next
+EndProcedure
+
+Procedure SetDiskCleanerSelection(listGadget.i, mode.i)
+  Protected itemIndex.i = 0
+  Protected currentChecked.i
+
+  ForEach DiskCleanerResults()
+    Select mode
+      Case 0
+        DiskCleanerResults()\Selected = #False
+      Case 1
+        DiskCleanerResults()\Selected = #True
+      Default
+        currentChecked = Bool(GetGadgetItemState(listGadget, itemIndex) & #PB_ListIcon_Checked)
+        DiskCleanerResults()\Selected = 1 - currentChecked
+    EndSelect
+    itemIndex + 1
+  Next
+EndProcedure
+
+Procedure.s GetDiskCleanerCategorySummary()
+  Protected summary.s = ""
+  NewMap countByCategory.i()
+  NewMap sizeByCategory.q()
+
+  ForEach DiskCleanerResults()
+    If DiskCleanerResults()\Selected
+      countByCategory(DiskCleanerResults()\RuleLabel) + 1
+      sizeByCategory(DiskCleanerResults()\RuleLabel) + DiskCleanerResults()\Size
+    EndIf
+  Next
+
+  ForEach countByCategory()
+    If summary <> ""
+      summary + #CRLF$
+    EndIf
+    summary + MapKey(countByCategory()) + ": " + Str(countByCategory()) + " item(s), " + FormatBytes(sizeByCategory(MapKey(countByCategory())))
+  Next
+
+  If summary = ""
+    summary = "No selected items."
+  EndIf
+
+  ProcedureReturn summary
+EndProcedure
+
+Procedure CleanDiskCleanerResults()
+  Protected cleanedCount.i = 0
+  Protected cleanedSize.q = 0
+
+  ForEach DiskCleanerResults()
+    If Not DiskCleanerResults()\Selected
+      Continue
+    EndIf
+
+    If DiskCleanerResults()\IsDirectory
+      If DeleteDirectory(DiskCleanerResults()\FilePath, "*", #PB_FileSystem_Recursive | #PB_FileSystem_Force)
+        cleanedCount + 1
+        cleanedSize + DiskCleanerResults()\Size
+      EndIf
+    Else
+      If DeleteFile(DiskCleanerResults()\FilePath, #PB_FileSystem_Force)
+        cleanedCount + 1
+        cleanedSize + DiskCleanerResults()\Size
+      EndIf
+    EndIf
+  Next
+
+  MessageRequester("Disk Cleaner", "Removed " + Str(cleanedCount) + " item(s) and freed " + FormatBytes(cleanedSize) + ".", #PB_MessageRequester_Info)
+EndProcedure
+
+Procedure OpenDiskCleaner()
+  Protected window.i
+  Protected ruleList.i
+  Protected list.i
+  Protected btnScan.i
+  Protected btnClean.i
+  Protected btnClose.i
+  Protected btnSelectAll.i
+  Protected btnSelectNone.i
+  Protected btnInvert.i
+  Protected btnSummary.i
+  Protected optSafe.i
+  Protected optAggressive.i
+  Protected statusText.i
+  Protected categoryIndex.i
+  Protected ev.i
+
+  If IsWindow(#WINDOW_DISK_CLEANER)
+    StickyWindow(#WINDOW_DISK_CLEANER, #True)
+    ProcedureReturn
+  EndIf
+
+  InitDiskCleanerRules(#False)
+
+  window = OpenWindow(#WINDOW_DISK_CLEANER, 0, 0, 860, 620, "Disk Cleaner", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered, WindowID(#WINDOW_MAIN))
+  If window = 0
+    MessageRequester("Error", "Cannot open disk cleaner window!", #PB_MessageRequester_Error)
+    ProcedureReturn
+  EndIf
+
+  StickyWindow(#WINDOW_DISK_CLEANER, #True)
+  TextGadget(#PB_Any, 10, 10, 820, 20, "CCleaner-style disk cleanup using explicit app rules. Review the list before deleting.")
+  optSafe = OptionGadget(#PB_Any, 10, 35, 90, 20, "Safe")
+  optAggressive = OptionGadget(#PB_Any, 110, 35, 110, 20, "Aggressive")
+  SetGadgetState(optSafe, #True)
+
+  ruleList = ListIconGadget(#PB_Any, 10, 65, 840, 165, "Rule", 260, #PB_ListIcon_FullRowSelect | #PB_ListIcon_GridLines | #PB_ListIcon_CheckBoxes)
+  AddGadgetColumn(ruleList, 1, "Path", 560)
+  SetWindowTheme(GadgetID(ruleList), "Explorer", 0)
+  RefreshDiskCleanerRuleList(ruleList, #False)
+
+  list = ListIconGadget(#PB_Any, 10, 250, 840, 300, "Category", 220, #PB_ListIcon_FullRowSelect | #PB_ListIcon_GridLines | #PB_ListIcon_CheckBoxes)
+  AddGadgetColumn(list, 1, "Path", 500)
+  AddGadgetColumn(list, 2, "Size", 100)
+  SetWindowTheme(GadgetID(list), "Explorer", 0)
+
+  statusText = TextGadget(#PB_Any, 10, 565, 550, 20, "Ready to scan.")
+  btnSelectAll = ButtonGadget(#PB_Any, 10, 585, 80, 25, "All")
+  btnSelectNone = ButtonGadget(#PB_Any, 100, 585, 80, 25, "None")
+  btnInvert = ButtonGadget(#PB_Any, 190, 585, 80, 25, "Invert")
+  btnSummary = ButtonGadget(#PB_Any, 280, 585, 90, 25, "Summary")
+  btnScan = ButtonGadget(#PB_Any, 570, 555, 90, 30, "Scan")
+  btnClean = ButtonGadget(#PB_Any, 670, 555, 90, 30, "Clean")
+  btnClose = ButtonGadget(#PB_Any, 770, 555, 80, 30, "Close")
+  DisableGadget(btnClean, #True)
+
+  Repeat
+    ev = WaitWindowEvent()
+
+    Select ev
+      Case #PB_Event_CloseWindow
+        If EventWindow() = #WINDOW_DISK_CLEANER
+          Break
+        EndIf
+
+      Case #PB_Event_SizeWindow
+        If EventWindow() = #WINDOW_DISK_CLEANER
+          ResizeGadget(ruleList, 10, 65, WindowWidth(#WINDOW_DISK_CLEANER) - 20, 165)
+          ResizeGadget(list, 10, 250, WindowWidth(#WINDOW_DISK_CLEANER) - 20, WindowHeight(#WINDOW_DISK_CLEANER) - 320)
+          ResizeGadget(statusText, 10, WindowHeight(#WINDOW_DISK_CLEANER) - 55, WindowWidth(#WINDOW_DISK_CLEANER) - 300, 20)
+          ResizeGadget(btnSelectAll, 10, WindowHeight(#WINDOW_DISK_CLEANER) - 30, 80, 25)
+          ResizeGadget(btnSelectNone, 100, WindowHeight(#WINDOW_DISK_CLEANER) - 30, 80, 25)
+          ResizeGadget(btnInvert, 190, WindowHeight(#WINDOW_DISK_CLEANER) - 30, 80, 25)
+          ResizeGadget(btnSummary, 280, WindowHeight(#WINDOW_DISK_CLEANER) - 30, 90, 25)
+          ResizeGadget(btnScan, WindowWidth(#WINDOW_DISK_CLEANER) - 285, WindowHeight(#WINDOW_DISK_CLEANER) - 55, 90, 30)
+          ResizeGadget(btnClean, WindowWidth(#WINDOW_DISK_CLEANER) - 185, WindowHeight(#WINDOW_DISK_CLEANER) - 55, 90, 30)
+          ResizeGadget(btnClose, WindowWidth(#WINDOW_DISK_CLEANER) - 85, WindowHeight(#WINDOW_DISK_CLEANER) - 55, 75, 30)
+        EndIf
+
+      Case #PB_Event_Gadget
+        If EventWindow() = #WINDOW_DISK_CLEANER
+          Select EventGadget()
+            Case btnScan
+              UpdateStatusBar("Scanning disk cleaner rules...")
+              ScanDiskCleaner(list, statusText, ruleList, GetGadgetState(optAggressive))
+              DisableGadget(btnClean, Bool(ListSize(DiskCleanerResults()) = 0))
+              UpdateStatusBar("Disk cleaner scan complete.")
+
+            Case btnClean
+              SyncDiskCleanerSelection(list)
+              If ListSize(DiskCleanerResults()) = 0
+                MessageRequester("Disk Cleaner", "Nothing to clean. Run a scan first.", #PB_MessageRequester_Info)
+              ElseIf MessageRequester("Confirm Cleanup", "Delete all listed files?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning) = #PB_MessageRequester_Yes
+                CleanDiskCleanerResults()
+                ClearList(DiskCleanerResults())
+                RefreshDiskCleanerResults(list, statusText)
+                DisableGadget(btnClean, #True)
+                UpdateStatusBar("Disk cleaner cleanup complete.")
+              EndIf
+
+            Case optSafe, optAggressive
+              RefreshDiskCleanerRuleList(ruleList, GetGadgetState(optAggressive))
+              ClearList(DiskCleanerResults())
+              RefreshDiskCleanerResults(list, statusText)
+              DisableGadget(btnClean, #True)
+
+            Case btnSelectAll
+              SetDiskCleanerSelection(list, 1)
+              RefreshDiskCleanerResults(list, statusText)
+
+            Case btnSelectNone
+              SetDiskCleanerSelection(list, 0)
+              RefreshDiskCleanerResults(list, statusText)
+
+            Case btnInvert
+              SetDiskCleanerSelection(list, 2)
+              RefreshDiskCleanerResults(list, statusText)
+
+            Case btnSummary
+              SyncDiskCleanerSelection(list)
+              RefreshDiskCleanerResults(list, statusText)
+              MessageRequester("Disk Cleaner Summary", GetDiskCleanerCategorySummary(), #PB_MessageRequester_Info)
+
+            Case btnClose
+              Break
+          EndSelect
+        EndIf
+    EndSelect
+  ForEver
+
+  CloseWindow(#WINDOW_DISK_CLEANER)
+EndProcedure
+
+
 ;- Registry Monitor
 
 Procedure AddMonitorEvent(rootKey.s, keyPath.s, changeType.s, details.s = "")

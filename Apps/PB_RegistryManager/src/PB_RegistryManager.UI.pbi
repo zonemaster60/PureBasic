@@ -33,6 +33,7 @@ Procedure CreateGUI()
       
       MenuTitle("Tools")
       MenuItem(#MENU_TOOLS_CLEANER, "Registry Cleaner...")
+      MenuItem(#MENU_TOOLS_DISK_CLEANER, "Disk Cleaner...")
       MenuItem(#MENU_TOOLS_BACKUP, "Backup Registry...")
       MenuItem(#MENU_TOOLS_RESTORE, "Restore Registry...")
       MenuBar()
@@ -624,6 +625,9 @@ Procedure HandleToolsMenu(menuID.i)
     Case #MENU_TOOLS_CLEANER
       CleanRegistry()
 
+    Case #MENU_TOOLS_DISK_CLEANER
+      OpenDiskCleaner()
+
     Case #MENU_TOOLS_BACKUP
       Define backupMode.i = MessageRequester("Backup Mode", "Choose backup mode:" + #CRLF$ + #CRLF$ + "Yes = Full registry backup (separate per-hive files)" + #CRLF$ + "No = Current selected key only" + #CRLF$ + #CRLF$ + "Cancel = Abort", #PB_MessageRequester_YesNoCancel | #PB_MessageRequester_Info)
       If backupMode = #PB_MessageRequester_Yes
@@ -778,7 +782,7 @@ Procedure HandleMenuEvent(menuID.i)
     Case #MENU_EDIT_NEW_KEY, #MENU_EDIT_NEW_VALUE, #MENU_EDIT_DELETE, #MENU_EDIT_COPY_PATH, #MENU_EDIT_PERMISSIONS, #MENU_EDIT_RENAME
       HandleEditMenu(menuID)
 
-    Case #MENU_TOOLS_CLEANER, #MENU_TOOLS_BACKUP, #MENU_TOOLS_RESTORE, #MENU_TOOLS_MONITOR, #MENU_TOOLS_SNAPSHOT, #MENU_TOOLS_HEX_EXTERNAL
+    Case #MENU_TOOLS_CLEANER, #MENU_TOOLS_DISK_CLEANER, #MENU_TOOLS_BACKUP, #MENU_TOOLS_RESTORE, #MENU_TOOLS_MONITOR, #MENU_TOOLS_SNAPSHOT, #MENU_TOOLS_HEX_EXTERNAL
       HandleToolsMenu(menuID)
 
     Case #MENU_VIEW_64BIT, #MENU_VIEW_REFRESH
