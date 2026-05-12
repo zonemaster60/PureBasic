@@ -142,10 +142,6 @@ Procedure.s FindExternalStubPath()
   ProcedureReturn ""
 EndProcedure
 
-Procedure.s NormalizePath(p.s)
-  ProcedureReturn ReplaceString(p, "\\", "/")
-EndProcedure
-
 Procedure.i ReadAllBytes(file.s, *outSize.Quad)
   Protected h = ReadFile(#PB_Any, file)
   If h = 0 : Die("Failed to open: " + file) : EndIf
@@ -174,6 +170,12 @@ Procedure.i ParseInputExe(*mem, size.q, *hdr.PbPkHeader)
   Protected *nt.PBP_IMAGE_NT_HEADERS64 = *mem + *dos\e_lfanew
   If *nt\Signature <> $4550 : Die("Not PE") : EndIf
   If *nt\OptionalHeader\Magic <> $20B : Die("Not PE32+ (x64)") : EndIf
+  If *nt\FileHeader\SizeOfOptionalHeader < SizeOf(PBP_IMAGE_OPTIONAL_HEADER64)
+    Die("Invalid optional header size")
+  EndIf
+  If *dos\e_lfanew + SizeOf(Long) + SizeOf(PBP_IMAGE_FILE_HEADER) + *nt\FileHeader\SizeOfOptionalHeader > size
+    Die("Optional header extends past input size")
+  EndIf
   If *nt\OptionalHeader\SizeOfHeaders > size
     Die("Headers extend past input size")
   EndIf
@@ -382,15 +384,31 @@ EndProcedure
 
 Procedure.i WritePacked(output.s, *stub, stubSize.q, *packed, packedSize.q, *hdr.PbPkHeader)
   If FileSize(output) > 0
-    DeleteFile(output)
+    If DeleteFile(output) = 0
+      Die("Failed to replace existing output: " + output)
+    EndIf
   EndIf
 
   Protected h = CreateFile(#PB_Any, output)
   If h = 0 : Die("Failed to create: " + output) : EndIf
 
-  WriteData(h, *stub, stubSize)
-  WriteData(h, *packed, packedSize)
-  WriteData(h, *hdr, SizeOf(PbPkHeader))
+  If WriteData(h, *stub, stubSize) <> stubSize
+    CloseFile(h)
+    DeleteFile(output)
+    Die("Failed writing stub to: " + output)
+  EndIf
+
+  If WriteData(h, *packed, packedSize) <> packedSize
+    CloseFile(h)
+    DeleteFile(output)
+    Die("Failed writing payload to: " + output)
+  EndIf
+
+  If WriteData(h, *hdr, SizeOf(PbPkHeader)) <> SizeOf(PbPkHeader)
+    CloseFile(h)
+    DeleteFile(output)
+    Die("Failed writing header to: " + output)
+  EndIf
 
   CloseFile(h)
   ProcedureReturn 1
@@ -482,9 +500,24 @@ Procedure.i AnalyzeExe(file.s)
     FreeMemory(*mem)
     Die("Not PE32+ (x64)")
   EndIf
+  If *nt\FileHeader\SizeOfOptionalHeader < SizeOf(PBP_IMAGE_OPTIONAL_HEADER64)
+    FreeMemory(*mem)
+    Die("Invalid optional header size")
+  EndIf
+  If *dos\e_lfanew + SizeOf(Long) + SizeOf(PBP_IMAGE_FILE_HEADER) + *nt\FileHeader\SizeOfOptionalHeader > size
+    FreeMemory(*mem)
+    Die("Optional header extends past input size")
+  EndIf
   If *nt\OptionalHeader\SizeOfHeaders > size
     FreeMemory(*mem)
     Die("Headers extend past input size")
+  EndIf
+
+  Protected sectionTableSize.q = *nt\FileHeader\NumberOfSections * SizeOf(PBP_IMAGE_SECTION_HEADER)
+  Protected sectionTableEnd.q = *dos\e_lfanew + SizeOf(Long) + SizeOf(PBP_IMAGE_FILE_HEADER) + *nt\FileHeader\SizeOfOptionalHeader + sectionTableSize
+  If sectionTableEnd > size
+    FreeMemory(*mem)
+    Die("Section table extends past input size")
   EndIf
 
   PrintN("File: " + file)
@@ -594,11 +627,11 @@ Procedure.i CmdTest(file.s)
   Protected *orig = AllocateMemory(*hdr\originalSize)
   If *orig = 0 : FreeMemory(*mem) : Die("OOM") : EndIf
 
-   If UncompressMemory(*mem + payloadPos, *hdr\packedSize, *orig, *hdr\originalSize, #PB_PackerPlugin_Lzma) = 0
-     FreeMemory(*orig)
-     FreeMemory(*mem)
-     Die("Uncompress failed")
-   EndIf
+  If UncompressMemory(*mem + payloadPos, *hdr\packedSize, *orig, *hdr\originalSize, #PB_PackerPlugin_Lzma) = 0
+    FreeMemory(*orig)
+    FreeMemory(*mem)
+    Die("Uncompress failed")
+  EndIf
 
   PrintN("OK: header + unpack")
   FreeMemory(*orig)
@@ -624,7 +657,7 @@ Procedure Main()
   Protected upxArgs.s = "-9 --lzma"
 
   ; No args: show help and exit.
-  If ProgramParameter() = ""
+  If CountProgramParameters() = 0
     PrintHelp()
     If consoleCreated : Input() : EndIf
     End 0
@@ -771,8 +804,8 @@ Procedure Main()
   Protected *packed = AllocateMemory(maxPacked)
   If *packed = 0 : Die("OOM packed") : EndIf
 
-   Protected packedSize.q = CompressMemory(*inMem, inSize, *packed, maxPacked, #PB_PackerPlugin_Lzma)
-   If packedSize = 0 : Die("CompressMemory failed") : EndIf
+  Protected packedSize.q = CompressMemory(*inMem, inSize, *packed, maxPacked, #PB_PackerPlugin_Lzma)
+  If packedSize = 0 : Die("CompressMemory failed") : EndIf
 
   hdr\packedSize = packedSize
 
@@ -839,7 +872,7 @@ EndDataSection
 Main()
 
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 209
 ; Folding = ----
 ; Optimizer
@@ -851,12 +884,12 @@ Main()
 ; Executable = pb_pack.exe
 ; DisableDebugger
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,0
-; VersionField1 = 1,0,0,0
+; VersionField0 = 1,0,0,1
+; VersionField1 = 1,0,0,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_Pack
-; VersionField4 = 1.0.0.0
-; VersionField5 = 1.0.0.0
+; VersionField4 = 1.0.0.1
+; VersionField5 = 1.0.0.1
 ; VersionField6 = A exe/dll packer with UPX compatibility
 ; VersionField7 = PB_Pack
 ; VersionField8 = PB_Pack.exe

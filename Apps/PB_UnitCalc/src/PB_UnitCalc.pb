@@ -7,7 +7,7 @@ EnableExplicit
 #SYSTEM_ENGLISH = 0
 #SYSTEM_METRIC = 1
 
-Global version.s = "v1.0.0.2"
+Global version.s = "v1.0.0.3"
 Global AppPath.s = GetPathPart(ProgramFilename())
 If AppPath = "" : AppPath = GetCurrentDirectory() : EndIf
 SetCurrentDirectory(AppPath)
@@ -17,8 +17,8 @@ SetCurrentDirectory(AppPath)
 Structure ConversionUnit
   Name.s
   Units.s  ; Pipe-separated list of recognized units
-  Factor.f ; Factor to base unit (m, kg, L, C, etc)
-  Offset.f ; Offset for temperature-style conversions
+  Factor.d ; Factor to base unit (m, kg, L, C, etc)
+  Offset.d ; Offset for temperature-style conversions
 EndStructure
 
 Structure ConversionGroup
@@ -37,7 +37,7 @@ EndStructure
 
 Structure ConversionResult
   Success.i
-  Value.f
+  Value.d
   SourceName.s
   TargetName.s
   ErrorMessage.s
@@ -62,7 +62,7 @@ Procedure AddGroup(GroupName.s, BaseUnit.s)
   ConversionGroups()\BaseUnit = BaseUnit
 EndProcedure
 
-Procedure AddUnit(List TargetList.ConversionUnit(), Name.s, Units.s, Factor.f, Offset.f = 0.0)
+Procedure AddUnit(List TargetList.ConversionUnit(), Name.s, Units.s, Factor.d, Offset.d = 0.0)
   AddElement(TargetList())
   TargetList()\Name = Name
   TargetList()\Units = Units
@@ -335,8 +335,8 @@ Procedure.s BuildUnitLabel(name.s, units.s)
   ProcedureReturn name + " [" + alias + "]"
 EndProcedure
 
-Procedure.s FormatNumericValue(value.f, decimals.i = 6)
-  Protected text.s = StrF(value, decimals)
+Procedure.s FormatNumericValue(value.d, decimals.i = 6)
+  Protected text.s = StrD(value, decimals)
 
   While FindString(text, ".", 1) > 0 And Right(text, 1) = "0"
     text = Left(text, Len(text) - 1)
@@ -349,8 +349,8 @@ Procedure.s FormatNumericValue(value.f, decimals.i = 6)
   ProcedureReturn text
 EndProcedure
 
-Procedure.s FormatGroupValue(groupIdx.i, value.f)
-  Protected absValue.f = Abs(value)
+Procedure.s FormatGroupValue(groupIdx.i, value.d)
+  Protected absValue.d = Abs(value)
   Protected decimals.i = 4
 
   If SelectElement(ConversionGroups(), groupIdx)
@@ -445,7 +445,7 @@ Procedure.i UnitMatches(unit.s, expectedUnits.s)
   ProcedureReturn #False
 EndProcedure
 
-Procedure.f GetInputValue(prompt.s)
+Procedure.d GetInputValue(prompt.s)
   Protected inputText.s
   Protected validationError.s
 
@@ -459,7 +459,7 @@ Procedure.f GetInputValue(prompt.s)
       Continue
     EndIf
 
-    ProcedureReturn ValF(NormalizeNumberString(inputText))
+    ProcedureReturn ValD(NormalizeNumberString(inputText))
   ForEver
 EndProcedure
 
@@ -557,12 +557,12 @@ EndProcedure
 
 ; --- Conversion Logic ---
 
-Procedure.i ConvertValue(inputVal.f, groupIdx.i, sourceSystem.i, sourceIdx.i, targetSystem.i, targetIdx.i, *result.ConversionResult)
-  Protected baseVal.f
-  Protected sourceFactor.f
-  Protected sourceOffset.f
-  Protected targetFactor.f
-  Protected targetOffset.f
+Procedure.i ConvertValue(inputVal.d, groupIdx.i, sourceSystem.i, sourceIdx.i, targetSystem.i, targetIdx.i, *result.ConversionResult)
+  Protected baseVal.d
+  Protected sourceFactor.d
+  Protected sourceOffset.d
+  Protected targetFactor.d
+  Protected targetOffset.d
 
   If *result
     *result\Success = #False
@@ -676,12 +676,12 @@ Procedure.i FindUnit(unit.s, *match.UnitChoice)
   ProcedureReturn #False
 EndProcedure
 
-Procedure.s FormatConversionLine(inputVal.f, *result.ConversionResult)
+Procedure.s FormatConversionLine(groupIdx.i, inputVal.d, *result.ConversionResult)
   If *result = 0 Or *result\Success = #False
     ProcedureReturn ""
   EndIf
 
-  ProcedureReturn FormatGroupValue(ListIndex(ConversionGroups()), inputVal) + " " + *result\SourceName + " -> " + FormatGroupValue(ListIndex(ConversionGroups()), *result\Value) + " " + *result\TargetName
+  ProcedureReturn FormatGroupValue(groupIdx, inputVal) + " " + *result\SourceName + " -> " + FormatGroupValue(groupIdx, *result\Value) + " " + *result\TargetName
 EndProcedure
 
 Procedure DoSmartConversion(*actionResult.ActionResult)
@@ -694,7 +694,7 @@ Procedure DoSmartConversion(*actionResult.ActionResult)
   Protected targetCount.i
   Protected targetSelection.i
   Protected targetIdx.i
-  Protected value.f
+  Protected value.d
   Protected result.ConversionResult
 
   PrintN("Smart conversion (Enter value with unit, e.g., '10 in' or '25 C'):")
@@ -741,13 +741,13 @@ Procedure DoSmartConversion(*actionResult.ActionResult)
     ProcedureReturn
   EndIf
 
-  value = ValF(valueText)
+  value = ValD(valueText)
   If ConvertValue(value, match\GroupIdx, match\System, match\UnitIdx, targetSystem, targetIdx, @result) = #False
     SetActionResult(*actionResult, #False, result\ErrorMessage)
     ProcedureReturn
   EndIf
 
-  SetActionResult(*actionResult, #True, FormatConversionLine(value, @result))
+  SetActionResult(*actionResult, #True, FormatConversionLine(match\GroupIdx, value, @result))
 EndProcedure
 
 Procedure RunGuidedConversion(groupIdx.i, sourceSystem.i, *actionResult.ActionResult)
@@ -758,7 +758,7 @@ Procedure RunGuidedConversion(groupIdx.i, sourceSystem.i, *actionResult.ActionRe
   Protected targetSelection.i
   Protected sourceIdx.i
   Protected targetIdx.i
-  Protected inputVal.f
+  Protected inputVal.d
   Protected result.ConversionResult
 
   If sourceCount = 0 Or targetCount = 0
@@ -804,7 +804,22 @@ Procedure RunGuidedConversion(groupIdx.i, sourceSystem.i, *actionResult.ActionRe
     ProcedureReturn
   EndIf
 
-  SetActionResult(*actionResult, #True, FormatConversionLine(inputVal, @result))
+  SetActionResult(*actionResult, #True, FormatConversionLine(groupIdx, inputVal, @result))
+EndProcedure
+
+Procedure ShowActionResult(*actionResult.ActionResult)
+  If *actionResult = 0 Or *actionResult\Message = ""
+    ProcedureReturn
+  EndIf
+
+  PrintN("")
+  If *actionResult\Success
+    PrintN("Result: " + *actionResult\Message)
+    RecordHistory(*actionResult\Message)
+  Else
+    PrintN(*actionResult\Message)
+  EndIf
+  PauseForEnter()
 EndProcedure
 
 Procedure ShowHistory()
@@ -824,9 +839,9 @@ Procedure DisplayMenu()
   Protected itemNumber.i = 1
 
   ClearConsole()
-  PrintN("=== " + #APP_NAME + " ===")
+  PrintN("== " + #APP_NAME + " - " + version + " ==")
   PrintN("Mode: " + GetModeLabel(mode))
-  PrintN("---------------------------")
+  PrintN("----------------------------")
 
   ForEach ConversionGroups()
     PrintN("  " + Str(itemNumber) + ". " + ConversionGroups()\GroupName)
@@ -836,7 +851,7 @@ Procedure DisplayMenu()
   PrintN("")
   PrintN("Pick a group, then choose From, To, and Value.")
   PrintN("M. Toggle Mode | S. Smart Conv | H. History | 0. Exit")
-  PrintN("---------------------------")
+  PrintN("----------------------------")
 EndProcedure
 
 EnableGraphicalConsole(1)
@@ -844,7 +859,7 @@ If OpenConsole() = 0
   MessageRequester(#APP_NAME, "Unable to open the console window.")
   End 1
 EndIf
-ConsoleTitle(#APP_NAME)
+ConsoleTitle(#APP_NAME + " - " + version)
 
 While done = #False
   DisplayMenu()
@@ -858,16 +873,7 @@ While done = #False
     mode = GetTargetSystem(mode)
   ElseIf choice = "s"
     DoSmartConversion(@actionResult)
-    If actionResult\Message <> ""
-      PrintN("")
-      If actionResult\Success
-        PrintN("Result: " + actionResult\Message)
-        RecordHistory(actionResult\Message)
-      Else
-        PrintN(actionResult\Message)
-      EndIf
-      PauseForEnter()
-    EndIf
+    ShowActionResult(@actionResult)
   ElseIf choice = "h"
     ShowHistory()
     PauseForEnter()
@@ -881,16 +887,7 @@ While done = #False
       PauseForEnter()
     Else
       RunGuidedConversion(choiceVal - 1, mode, @actionResult)
-      If actionResult\Message <> ""
-        PrintN("")
-        If actionResult\Success
-          PrintN("Result: " + actionResult\Message)
-          RecordHistory(actionResult\Message)
-        Else
-          PrintN(actionResult\Message)
-        EndIf
-        PauseForEnter()
-      EndIf
+      ShowActionResult(@actionResult)
     EndIf
   Else
     PrintN("")
@@ -902,8 +899,9 @@ Wend
 CloseConsole()
 End
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 5
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 861
+; FirstLine = 824
 ; Folding = -------
 ; Optimizer
 ; EnableThread
@@ -912,12 +910,12 @@ End
 ; UseIcon = PB_UnitCalc.ico
 ; Executable = ..\PB_UnitCalc.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSSoft
 ; VersionField3 = UnitCalc
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = A unit of measurements calculator
 ; VersionField7 = UnitCalc
 ; VersionField8 = UnitCalc.exe
