@@ -60,7 +60,7 @@ Declare OpenSelectedFile(FileName$)
 Declare UpdateRecentFilesMenu()
 
 Procedure OpenDlg1(x = 0, y = 0, width = 568, height = 372)
-  OpenWindow(#Dlg1, x, y, width, height, "HandyTXTPad", #PB_Window_SystemMenu | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget | #PB_Window_SizeGadget | #PB_Window_ScreenCentered | #PB_Window_WindowCentered | #PB_Window_SystemMenu | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget | #PB_Window_SizeGadget | #PB_Window_ScreenCentered | #PB_Window_WindowCentered)
+  OpenWindow(#Dlg1, x, y, width, height, "HandyTXTPad", #PB_Window_SystemMenu | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget | #PB_Window_SizeGadget | #PB_Window_ScreenCentered | #PB_Window_WindowCentered)
   CreateMenu(0, WindowID(#Dlg1))
   MenuTitle("File")
   MenuItem(#mnuNew, "New")

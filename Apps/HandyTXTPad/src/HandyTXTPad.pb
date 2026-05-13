@@ -8,14 +8,28 @@ EnableExplicit
 #PREFS_FILE             = "HandyTXTPad.ini"
 #MAX_RECENT_FILES       = 5
 
+#WM_COPYDATA            = $004A
+#APP_COPYDATA_FILE      = 1
+
 Global AppPath.s        = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
+
+Declare.i SendFileToExistingInstance(FileName.s)
+
+Global gsStartupFile.s
+If CountProgramParameters() > 0
+  gsStartupFile = ProgramParameter(0)
+EndIf
 
 ; Prevent multiple instances (don't rely on window title text)
 Global hMutex.i
 hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
 If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
-  MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  If gsStartupFile <> ""
+    SendFileToExistingInstance(gsStartupFile)
+  Else
+    MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
+  EndIf
   CloseHandle_(hMutex)
   End
 EndIf
@@ -27,10 +41,15 @@ Global Dim gRecentFiles.s(#MAX_RECENT_FILES - 1)
 Global gShouldExit.i
 Global gIsDirty.i
 Global gIsUpdatingEditor.i
+Global gIsPdfDocument.i
 XIncludeFile(#APP_NAME + ".pbf")
 XIncludeFile(#APP_NAME + ".pbi")
 
+RegisterExplorerContextMenus()
+
 OpenDlg1()
+SetProp_(WindowID(#Dlg1), #APP_NAME + "_hwnd", 1)
+SetWindowCallback(@WindowCallback(), #Dlg1)
 EnableGadgetDrop(#Editor1, #PB_Drop_Files, #PB_Drag_Copy)
 EnableWindowDrop(#Dlg1, #PB_Drop_Files, #PB_Drag_Copy)
 AddKeyboardShortcut(#Dlg1, #PB_Shortcut_Control | #PB_Shortcut_N, #mnuNew)
@@ -47,6 +66,9 @@ LoadRecentFiles()
 SetMainTitle()
 UpdateStatusBar()
 UpdateRecentFilesMenu()
+If gsStartupFile <> ""
+  OpenSelectedFile(gsStartupFile)
+EndIf
 
 Define event.i
 Repeat         ;main message loop
@@ -68,7 +90,7 @@ If hMutex
   CloseHandle_(hMutex)
 EndIf
 End
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 5
 ; Optimizer
 ; EnableThread
@@ -78,12 +100,12 @@ End
 ; UseIcon = HandyTXTPad.ico
 ; Executable = ..\HandyTXTPad.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,9
-; VersionField1 = 1,0,0,9
+; VersionField0 = 1,0,1,0
+; VersionField1 = 1,0,1,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyTXTPad
-; VersionField4 = 1.0.0.9
-; VersionField5 = 1.0.0.9
+; VersionField4 = 1.0.1.0
+; VersionField5 = 1.0.1.0
 ; VersionField6 = A Handy Little Full-Featured Text Pad app
 ; VersionField7 = HandyTXTPad
 ; VersionField8 = HandyTXTPad.exe
