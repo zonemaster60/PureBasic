@@ -3,14 +3,14 @@
 #APP_NAME = "HandyFlipBook"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
-Global version.s = "v1.0.1.0"
+Global version.s = "v1.0.1.1"
 Global AppPath.s        = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
 ; Prevent multiple instances (don't rely on window title text)
 Global hMutex.i
 hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
-If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
+If hMutex And GetLastError_() = 183 And CountProgramParameters() = 0 ; ERROR_ALREADY_EXISTS
   MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
   CloseHandle_(hMutex)
   End
@@ -437,6 +437,69 @@ Global ColorText.i             = RGBA(34, 30, 26, 255)
 Global CurrentViewMode.i = #ViewMode_FlipBook
 Global CurrentTempDirectory.s
 Global WebViewerAvailable.i
+
+Declare Shutdown(*book.FlipBook = 0)
+
+Procedure.s QuoteCommandPart(value.s)
+  ProcedureReturn Chr(34) + ReplaceString(value, Chr(34), Chr(34) + Chr(34)) + Chr(34)
+EndProcedure
+
+Procedure.i WriteRegistryString(rootKey.i, subKey.s, valueName.s, value.s)
+  Protected keyHandle.i
+  Protected disposition.i
+  Protected result.i
+
+  result = RegCreateKeyEx_(rootKey, subKey, 0, "", 0, $20006, 0, @keyHandle, @disposition)
+  If result <> 0
+    ProcedureReturn #False
+  EndIf
+
+  result = RegSetValueEx_(keyHandle, valueName, 0, #REG_SZ, @value, StringByteLength(value) + SizeOf(Character))
+  RegCloseKey_(keyHandle)
+
+  ProcedureReturn Bool(result = 0)
+EndProcedure
+
+Procedure.i RegisterExplorerOpenCommand()
+  Protected command.s = QuoteCommandPart(ProgramFilename()) + " " + QuoteCommandPart("%1")
+  Protected ok.i = #True
+
+  If WriteRegistryString($80000001, "Software\Classes\SystemFileAssociations\.txt\shell\HandyFlipBook", "", "Open with " + #APP_NAME) = 0 : ok = #False : EndIf
+  If WriteRegistryString($80000001, "Software\Classes\SystemFileAssociations\.txt\shell\HandyFlipBook", "Icon", ProgramFilename()) = 0 : ok = #False : EndIf
+  If WriteRegistryString($80000001, "Software\Classes\SystemFileAssociations\.txt\shell\HandyFlipBook\command", "", command) = 0 : ok = #False : EndIf
+
+  If WriteRegistryString($80000001, "Software\Classes\SystemFileAssociations\.pdf\shell\HandyFlipBook", "", "Open with " + #APP_NAME) = 0 : ok = #False : EndIf
+  If WriteRegistryString($80000001, "Software\Classes\SystemFileAssociations\.pdf\shell\HandyFlipBook", "Icon", ProgramFilename()) = 0 : ok = #False : EndIf
+  If WriteRegistryString($80000001, "Software\Classes\SystemFileAssociations\.pdf\shell\HandyFlipBook\command", "", command) = 0 : ok = #False : EndIf
+
+  SHChangeNotify_($08000000, 0, 0, 0)
+  ProcedureReturn ok
+EndProcedure
+
+Procedure.s GetStartupDocument()
+  If CountProgramParameters() > 0
+    Select LCase(ProgramParameter(0))
+      Case "/register", "--register", "/install", "--install"
+        If RegisterExplorerOpenCommand()
+          MessageRequester("Info", "Windows Explorer entries for .txt and .pdf files were registered.", #PB_MessageRequester_Info)
+        Else
+          MessageRequester("Error", "Unable to register Windows Explorer entries for .txt and .pdf files.", #PB_MessageRequester_Error)
+        EndIf
+        Shutdown()
+        End
+
+      Default
+        If FileSize(ProgramParameter(0)) >= 0
+          ProcedureReturn ProgramParameter(0)
+        EndIf
+        MessageRequester("Error", "The selected file could not be found:" + #CRLF$ + ProgramParameter(0), #PB_MessageRequester_Error)
+        Shutdown()
+        End
+    EndSelect
+  EndIf
+
+  ProcedureReturn OpenFileRequester("Open a document", "", "Supported Documents|*.txt;*.log;*.cfg;*.ini;*.json;*.xml;*.md;*.csv;*.bat;*.cmd;*.pb;*.pbi;*.fb2;*.html;*.htm;*.xhtml;*.pdf;*.epub|Text Documents|*.txt;*.log;*.cfg;*.ini;*.json;*.xml;*.md;*.csv;*.bat;*.cmd;*.pb;*.pbi;*.fb2|Web Documents|*.html;*.htm;*.xhtml|PDF Files|*.pdf|EPUB Files|*.epub|All Files|*.*", 0)
+EndProcedure
 
 Procedure CleanupTempDirectory()
   If CurrentTempDirectory <> "" And FileSize(CurrentTempDirectory) = -2
@@ -883,7 +946,6 @@ Procedure.i AddTextDocumentPages(*book.FlipBook, fileName.s, displayName.s)
 
   Clear(*book)
   AddCoverPage(*book, displayName, "Text document viewer")
-  AddPage(*book, #True, ColorPageBackground, ColorPageBorder, 4)
 
   While Eof(fileID) = 0 Or pendingReady
     pageNr = AddPage(*book, #True, ColorPageBackground, ColorPageBorder, 4)
@@ -930,7 +992,7 @@ Procedure.i AddTextDocumentPages(*book.FlipBook, fileName.s, displayName.s)
       Until y > maxTextY Or (Eof(fileID) And pendingReady = 0)
 
       MovePathCursor(0, *book\height - 32)
-      DrawVectorParagraph("Page " + Str(*book\nrPages - 2), *book\width, 24, #PB_VectorParagraph_Center)
+      DrawVectorParagraph("Page " + Str(*book\nrPages - 1), *book\width, 24, #PB_VectorParagraph_Center)
       StopVectorDrawing()
     EndIf
   Wend
@@ -974,8 +1036,6 @@ Procedure.i LoadDocument(*book.FlipBook, fileName.s, displayName.s)
   ProcedureReturn #False
 EndProcedure
 
-Declare Shutdown(*book.FlipBook = 0)
-
 Procedure.i ConfirmExit(*book.FlipBook)
   Protected req.i
 
@@ -1008,7 +1068,8 @@ CompilerIf #PB_Compiler_IsMainFile
   Define quit.i
   Define *book.FlipBook
 
-  filename = OpenFileRequester("Open a document", "", "Supported Documents|*.txt;*.log;*.cfg;*.ini;*.json;*.xml;*.md;*.csv;*.bat;*.cmd;*.pb;*.pbi;*.fb2;*.html;*.htm;*.xhtml;*.pdf;*.epub|Text Documents|*.txt;*.log;*.cfg;*.ini;*.json;*.xml;*.md;*.csv;*.bat;*.cmd;*.pb;*.pbi;*.fb2|Web Documents|*.html;*.htm;*.xhtml|PDF Files|*.pdf|EPUB Files|*.epub|All Files|*.*", 0)
+  RegisterExplorerOpenCommand()
+  filename = GetStartupDocument()
   filename2 = GetFilePart(filename)
 
   If filename = ""
@@ -1062,7 +1123,7 @@ CompilerEndIf
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 5
-; Folding = ------
+; Folding = -------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1071,12 +1132,12 @@ CompilerEndIf
 ; UseIcon = HandyFlipBook.ico
 ; Executable = ..\HandyFlipBook.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,0
-; VersionField1 = 1,0,1,0
+; VersionField0 = 1,0,1,1
+; VersionField1 = 1,0,1,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyFlipBook
-; VersionField4 = 1.0.1.0
-; VersionField5 = 1.0.1.0
+; VersionField4 = 1.0.1.1
+; VersionField5 = 1.0.1.1
 ; VersionField6 = Handy Flip Book for viewing text, PDF, and EPUB files
 ; VersionField7 = HandyFlipBook
 ; VersionField8 = HandyFlipBook.exe
