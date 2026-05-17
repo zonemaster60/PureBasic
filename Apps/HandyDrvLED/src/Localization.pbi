@@ -20,9 +20,14 @@ Structure AppStrings
   Capacity.s
   Used.s
   Free.s
+  AvailableToUser.s
+  UsedPercent.s
   VolumeName.s
   VolumeID.s
   FileSystem.s
+  DriveType.s
+  MaxNameLength.s
+  FileSystemFlags.s
   Drive.s
   Open.s
   Info.s
@@ -33,6 +38,8 @@ Structure AppStrings
   Network.s
   CdRom.s
   RamDisk.s
+  Unknown.s
+  Unavailable.s
   NoDrivesMatch.s
   DriveInfoError.s
   StartupEnable.s
@@ -137,9 +144,14 @@ Procedure LoadLanguage(lang.s = "EN")
       Lng\Capacity = "Capacity"
       Lng\Used = "Used"
       Lng\Free = "Free"
+      Lng\AvailableToUser = "Available to User"
+      Lng\UsedPercent = "Used %"
       Lng\VolumeName = "VolumeName"
-      Lng\VolumeID = "VolumeID"
+      Lng\VolumeID = "Volume ID"
       Lng\FileSystem = "FileSystem"
+      Lng\DriveType = "Drive Type"
+      Lng\MaxNameLength = "Max Name Length"
+      Lng\FileSystemFlags = "File System Flags"
       Lng\Drive = "Drive"
       Lng\Open = "Open"
       Lng\Info = "Info"
@@ -150,6 +162,8 @@ Procedure LoadLanguage(lang.s = "EN")
       Lng\Network = "Network"
       Lng\CdRom = "CD-ROM"
       Lng\RamDisk = "RAM Disk"
+      Lng\Unknown = "Unknown"
+      Lng\Unavailable = "Unavailable"
       Lng\NoDrivesMatch = "No drives match the current filters."
       Lng\DriveInfoError = "Could not retrieve info for "
       Lng\StartupEnable = "Enable Run at Startup"

@@ -266,7 +266,6 @@ End
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 89
-; FirstLine = 58
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -276,12 +275,12 @@ End
 ; UseIcon = HandyDrvLED.ico
 ; Executable = ..\HandyDrvLED.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,7
-; VersionField1 = 1,0,3,7
+; VersionField0 = 1,0,3,8
+; VersionField1 = 1,0,3,8
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyDrvLED
-; VersionField4 = 1.0.3.7
-; VersionField5 = 1.0.3.7
+; VersionField4 = 1.0.3.8
+; VersionField5 = 1.0.3.8
 ; VersionField6 = A handy drive monitor - with tons of features
 ; VersionField7 = HandyDrvLED
 ; VersionField8 = HandyDrvLED.exe

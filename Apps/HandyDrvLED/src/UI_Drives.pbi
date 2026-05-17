@@ -1,5 +1,26 @@
 ; HandyDrvLED UI Drives Window (DPI Aware)
 
+Procedure.s DriveTypeText(driveType.l)
+  Select driveType
+    Case #DRIVE_FIXED
+      ProcedureReturn Lng\Fixed
+    Case #DRIVE_REMOVABLE
+      ProcedureReturn Lng\Removable
+    Case #DRIVE_REMOTE
+      ProcedureReturn Lng\Network
+    Case #DRIVE_CDROM
+      ProcedureReturn Lng\CdRom
+    Case #DRIVE_RAMDISK
+      ProcedureReturn Lng\RamDisk
+  EndSelect
+
+  ProcedureReturn Lng\Unknown
+EndProcedure
+
+Procedure.s DriveInfoLine(label.s, value.s)
+  ProcedureReturn label + ": " + value + #CRLF$
+EndProcedure
+
 Procedure UpdateDrivesList()
   Protected i.i, drives.s, mask.l, type.l
   Protected itemCount.i
@@ -36,21 +57,62 @@ EndProcedure
 Procedure ShowDriveInfo(root.s)
   Protected free.q, total.q, freeUser.q
   Protected fsName.s = Space(256), volName.s = Space(256)
+  Protected fsDisplay.s, volDisplay.s
   Protected serial.l, maxLen.l, flags.l
+  Protected driveType.l
+  Protected haveSpaceInfo.i
+  Protected haveVolumeInfo.i
+  Protected usedBytes.q
+  Protected usedPct.d
   Protected info.s
   
   ClearGadgetItems(#Gadget_Drives_Editor)
-  
-  If GetDiskFreeSpaceEx_(root, @freeUser, @total, @free)
-    info = Lng\Drive + ": " + root + #CRLF$
-    If GetVolumeInformation_(root, @volName, 256, @serial, @maxLen, @flags, @fsName, 256)
-      info + Lng\VolumeName + ": " + Trim(volName) + #CRLF$
-      info + Lng\FileSystem + ": " + Trim(fsName) + #CRLF$
+
+  driveType = GetDriveType_(root)
+  haveSpaceInfo = Bool(GetDiskFreeSpaceEx_(root, @freeUser, @total, @free))
+  haveVolumeInfo = Bool(GetVolumeInformation_(root, @volName, 256, @serial, @maxLen, @flags, @fsName, 256))
+
+  If haveSpaceInfo Or haveVolumeInfo Or driveType <> 0
+    info + DriveInfoLine(Lng\Drive, root)
+    info + DriveInfoLine(Lng\DriveType, DriveTypeText(driveType))
+
+    If haveVolumeInfo
+      volDisplay = PeekS(@volName)
+      fsDisplay = PeekS(@fsName)
+      If volDisplay = "" : volDisplay = Lng\Unavailable : EndIf
+      If fsDisplay = "" : fsDisplay = Lng\Unavailable : EndIf
+
+      info + DriveInfoLine(Lng\VolumeName, volDisplay)
+      info + DriveInfoLine(Lng\VolumeID, "$" + RSet(Hex(serial & $FFFFFFFF), 8, "0"))
+      info + DriveInfoLine(Lng\FileSystem, fsDisplay)
+      info + DriveInfoLine(Lng\MaxNameLength, Str(maxLen))
+      info + DriveInfoLine(Lng\FileSystemFlags, "$" + RSet(Hex(flags & $FFFFFFFF), 8, "0"))
+    Else
+      info + DriveInfoLine(Lng\VolumeName, Lng\Unavailable)
+      info + DriveInfoLine(Lng\VolumeID, Lng\Unavailable)
+      info + DriveInfoLine(Lng\FileSystem, Lng\Unavailable)
+      info + DriveInfoLine(Lng\MaxNameLength, Lng\Unavailable)
+      info + DriveInfoLine(Lng\FileSystemFlags, Lng\Unavailable)
     EndIf
-    info + Lng\Capacity + ": " + StrD(total / (1024*1024*1024.0), 2) + " GB" + #CRLF$
-    info + Lng\Free + ": " + StrD(free / (1024*1024*1024.0), 2) + " GB" + #CRLF$
-    info + Lng\Used + ": " + StrD((total - free) / (1024*1024*1024.0), 2) + " GB" + #CRLF$
-    
+
+    If haveSpaceInfo
+      usedBytes = total - free
+      If total > 0
+        usedPct = (usedBytes * 100.0) / total
+      EndIf
+
+      info + DriveInfoLine(Lng\Capacity, StrD(total / (1024 * 1024 * 1024.0), 2) + " GB")
+      info + DriveInfoLine(Lng\Free, StrD(free / (1024 * 1024 * 1024.0), 2) + " GB")
+      info + DriveInfoLine(Lng\AvailableToUser, StrD(freeUser / (1024 * 1024 * 1024.0), 2) + " GB")
+      info + DriveInfoLine(Lng\Used, StrD(usedBytes / (1024 * 1024 * 1024.0), 2) + " GB")
+      info + DriveInfoLine(Lng\UsedPercent, StrD(usedPct, 2) + "%")
+    Else
+      info + DriveInfoLine(Lng\Capacity, Lng\Unavailable)
+      info + DriveInfoLine(Lng\Free, Lng\Unavailable)
+      info + DriveInfoLine(Lng\AvailableToUser, Lng\Unavailable)
+      info + DriveInfoLine(Lng\Used, Lng\Unavailable)
+    EndIf
+
     SetGadgetText(#Gadget_Drives_Editor, info)
   Else
     SetGadgetText(#Gadget_Drives_Editor, Lng\DriveInfoError + root)
