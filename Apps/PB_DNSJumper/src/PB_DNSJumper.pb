@@ -16,7 +16,7 @@ EnableExplicit
 #APP_NAME        = "PB_DNSJumper"
 #EMAIL_NAME      = "zonemaster60@gmail.com"
 #WORKER_EXIT_WAIT_MS           = 10000
-Global version.s = "v1.0.0.9"
+Global version.s = "v1.0.1.0"
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 If AppPath = "" : AppPath = GetCurrentDirectory() : EndIf
@@ -1028,7 +1028,7 @@ Procedure RefreshListIcon(listGadget.i, bestLabelGadget.i)
     Next
     UnlockMutex(gMutex)
     SetGadgetText(bestLabelGadget, "Best: " + Results()\provider + "  [" + p1 + ", " + p2 + "]")
-    SysTrayIconToolTip(#SysTray, #APP_NAME + " - Best: " + Results()\provider + " (" + FmtMS(Results()\median) + "ms)")
+    SysTrayIconToolTip(#SysTray, "Best: " + Results()\provider + " (" + FmtMS(Results()\median) + "ms)")
   Else
     SetGadgetText(bestLabelGadget, "Best provider: (none)")
     SysTrayIconToolTip(#SysTray, #APP_NAME)
@@ -1123,7 +1123,7 @@ Procedure AboutApp()
     adapterLabel = gPreferredAdapter
   EndIf
 
-  aboutText = #APP_NAME + " " + version + #CRLF$ +
+  aboutText = #APP_NAME + " - " + version + #CRLF$ +
               "Automatic DNS benchmark and switcher for Windows." + #CRLF$ + #CRLF$ +
               "Application" + #CRLF$ +
               "-----------" + #CRLF$ +
@@ -1285,11 +1285,11 @@ Procedure FinishBenchmarkRun(wasCancelled.i)
   If wasCancelled
     SetGadgetText(#G_Status, "Stopped.")
     LogLine("Benchmark stopped")
-    SysTrayIconToolTip(#SysTray, #APP_NAME + " - Benchmark Stopped")
+    SysTrayIconToolTip(#SysTray, "Benchmark Stopped")
   Else
     SetGadgetText(#G_Status, "Done. (Apply requires Administrator)")
     LogLine("Benchmark completed")
-    SysTrayIconToolTip(#SysTray, #APP_NAME + " - Benchmark Complete")
+    SysTrayIconToolTip(#SysTray, "Benchmark Complete")
   EndIf
 
   LockMutex(gMutex)
@@ -1313,7 +1313,9 @@ Procedure.b AutoApplyBestProvider(adapter.s)
   SetGadgetText(#G_Status, "Auto-Applying best DNS...")
   If ApplyBest(adapter)
     SetGadgetText(#G_Status, "Auto-Apply complete.")
-    SysTrayIconToolTip(#SysTray, #APP_NAME + " - Auto-Apply Complete")
+    SysTrayIconToolTip(#SysTray, "Auto-Apply Complete")
+    Delay(2500)
+    SysTrayIconToolTip(#SysTray, #APP_NAME)
     LogLine("Auto-apply completed")
     ProcedureReturn #True
   EndIf
@@ -1844,7 +1846,7 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
         Define pct = Int((stepsDone * 100.0) / totalSteps)
         SetGadgetState(#G_Progress, pct)
         If running
-          SysTrayIconToolTip(#SysTray, #APP_NAME + " - Testing... " + Str(pct) + "%")
+          SysTrayIconToolTip(#SysTray, "DNS testing... " + Str(pct) + "%")
         EndIf
       Else
         SetGadgetState(#G_Progress, 0)
@@ -1872,7 +1874,8 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
     End
 EndIf
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 18
+; CursorPosition = 1316
+; FirstLine = 1284
 ; Folding = ------------
 ; Optimizer
 ; EnableThread
@@ -1882,12 +1885,12 @@ EndIf
 ; UseIcon = PB_DNSJumper.ico
 ; Executable = ..\PB_DNSJumper.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,9
-; VersionField1 = 1,0,0,9
+; VersionField0 = 1,0,1,0
+; VersionField1 = 1,0,1,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_DNSJumper
-; VersionField4 = 1.0.0.9
-; VersionField5 = 1.0.0.9
+; VersionField4 = 1.0.1.0
+; VersionField5 = 1.0.1.0
 ; VersionField6 = An automatic DNS changer similar to DNSJumper
 ; VersionField7 = PB_DNSJumper
 ; VersionField8 = PB_DNSJumper.exe
