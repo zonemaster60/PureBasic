@@ -1314,9 +1314,9 @@ Procedure.b AutoApplyBestProvider(adapter.s)
   If ApplyBest(adapter)
     SetGadgetText(#G_Status, "Auto-Apply complete.")
     SysTrayIconToolTip(#SysTray, "Auto-Apply Complete")
-    Delay(2500)
-    SysTrayIconToolTip(#SysTray, #APP_NAME)
     LogLine("Auto-apply completed")
+    Delay(2500)
+    SysTrayIconToolTip(#SysTray, #APP_NAME + " - Done.")
     ProcedureReturn #True
   EndIf
 
@@ -1874,7 +1874,7 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
     End
 EndIf
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 1316
+; CursorPosition = 1318
 ; FirstLine = 1284
 ; Folding = ------------
 ; Optimizer
