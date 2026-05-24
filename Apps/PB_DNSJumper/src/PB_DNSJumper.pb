@@ -1846,7 +1846,7 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
         Define pct = Int((stepsDone * 100.0) / totalSteps)
         SetGadgetState(#G_Progress, pct)
         If running
-          SysTrayIconToolTip(#SysTray, "DNS testing... " + Str(pct) + "%")
+          SysTrayIconToolTip(#SysTray, "DNS Benchmark Testing... " + Str(pct) + "%")
         EndIf
       Else
         SetGadgetState(#G_Progress, 0)
@@ -1874,8 +1874,8 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
     End
 EndIf
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 1318
-; FirstLine = 1284
+; CursorPosition = 1848
+; FirstLine = 1189
 ; Folding = ------------
 ; Optimizer
 ; EnableThread
