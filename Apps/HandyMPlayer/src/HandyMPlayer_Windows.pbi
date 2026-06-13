@@ -119,8 +119,13 @@ Procedure.s GetHelpText()
   helpText + "- The progress bar can be clicked or dragged to seek." + #CRLF$
   helpText + "- Left / Right arrow keys move to previous / next queued-or-playlist track." + #CRLF$ + #CRLF$
   helpText + "View Windows" + #CRLF$
-  helpText + "- Use the View menu to toggle Playlist, Lyrics, Artwork, and Video windows." + #CRLF$
+  helpText + "- Use the View menu to toggle Playlist, Lyrics, Artwork, Video, and YouTube Browser windows." + #CRLF$
   helpText + "- Video opens in its own separate window when a video file is played." + #CRLF$ + #CRLF$
+  helpText + "YouTube Browser" + #CRLF$
+  helpText + "- Open View > YouTube Browser to browse, search, and play YouTube videos." + #CRLF$
+  helpText + "- Enter a URL or search text, then press Enter or Go." + #CRLF$
+  helpText + "- Back, Next, Reload, and Home navigate the browser history and YouTube home." + #CRLF$
+  helpText + "- Play, Pause, and Stop control the current HTML5 video when the embedded browser allows page scripting." + #CRLF$ + #CRLF$
   helpText + "Library Tree" + #CRLF$
   helpText + "- The Library tree shows folders and supported media files from the loaded root folder." + #CRLF$
   helpText + "- The search box filters the visible library entries." + #CRLF$
@@ -282,6 +287,134 @@ Procedure TogglePlaylistWindow()
     HideWindow(#Window_Playlist, 1)
   Else
     ShowPlaylistWindow()
+  EndIf
+EndProcedure
+
+Procedure.s BrowserBuildUrl(value.s)
+  Protected address.s = Trim(value)
+
+  If address = ""
+    ProcedureReturn #BrowserHomeUrl
+  EndIf
+
+  If FindString(LCase(address), "http://") = 1 Or FindString(LCase(address), "https://") = 1 Or FindString(LCase(address), "file://") = 1
+    ProcedureReturn address
+  EndIf
+
+  If FindString(address, ".") > 0 And FindString(address, " ") = 0
+    ProcedureReturn "https://" + address
+  EndIf
+
+  ProcedureReturn "https://www.youtube.com/results?search_query=" + UrlEncodeUTF8(address)
+EndProcedure
+
+Procedure BrowserNavigate()
+  If IsGadget(#Gadget_BrowserWeb) = 0 Or IsGadget(#Gadget_BrowserAddress) = 0
+    ProcedureReturn
+  EndIf
+
+  SetGadgetText(#Gadget_BrowserWeb, BrowserBuildUrl(GetGadgetText(#Gadget_BrowserAddress)))
+EndProcedure
+
+Procedure BrowserRunScript(script.s)
+  If IsGadget(#Gadget_BrowserWeb) = 0
+    ProcedureReturn
+  EndIf
+
+  SetGadgetText(#Gadget_BrowserWeb, "javascript:" + script)
+EndProcedure
+
+Procedure BrowserPlay()
+  BrowserRunScript("(function(){var v=document.querySelector('video');if(v){v.play();}else{var b=document.querySelector('.ytp-play-button');if(b&&b.getAttribute('title')!='Pause'){b.click();}}})();")
+EndProcedure
+
+Procedure BrowserPause()
+  BrowserRunScript("(function(){var v=document.querySelector('video');if(v){v.pause();}else{var b=document.querySelector('.ytp-play-button');if(b&&b.getAttribute('title')!='Play'){b.click();}}})();")
+EndProcedure
+
+Procedure BrowserStop()
+  BrowserRunScript("(function(){var v=document.querySelector('video');if(v){v.pause();try{v.currentTime=0;}catch(e){}}})();")
+EndProcedure
+
+Procedure UpdateBrowserWindowLayout()
+  Protected winW.i
+  Protected winH.i
+  Protected topH.i = 72
+  Protected buttonY.i = 10
+  Protected mediaY.i = 42
+
+  If IsWindow(#Window_Browser) = 0
+    ProcedureReturn
+  EndIf
+
+  winW = WindowWidth(#Window_Browser, #PB_Window_InnerCoordinate)
+  winH = WindowHeight(#Window_Browser, #PB_Window_InnerCoordinate)
+
+  If IsGadget(#Gadget_BrowserBack)
+    ResizeGadget(#Gadget_BrowserBack, 10, buttonY, 50, 24)
+  EndIf
+  If IsGadget(#Gadget_BrowserForward)
+    ResizeGadget(#Gadget_BrowserForward, 65, buttonY, 50, 24)
+  EndIf
+  If IsGadget(#Gadget_BrowserReload)
+    ResizeGadget(#Gadget_BrowserReload, 120, buttonY, 60, 24)
+  EndIf
+  If IsGadget(#Gadget_BrowserHome)
+    ResizeGadget(#Gadget_BrowserHome, 185, buttonY, 55, 24)
+  EndIf
+  If IsGadget(#Gadget_BrowserAddress)
+    ResizeGadget(#Gadget_BrowserAddress, 250, buttonY, winW - 320, 24)
+  EndIf
+  If IsGadget(#Gadget_BrowserGo)
+    ResizeGadget(#Gadget_BrowserGo, winW - 60, buttonY, 50, 24)
+  EndIf
+  If IsGadget(#Gadget_BrowserPlay)
+    ResizeGadget(#Gadget_BrowserPlay, 10, mediaY, 55, 24)
+  EndIf
+  If IsGadget(#Gadget_BrowserPause)
+    ResizeGadget(#Gadget_BrowserPause, 70, mediaY, 55, 24)
+  EndIf
+  If IsGadget(#Gadget_BrowserStop)
+    ResizeGadget(#Gadget_BrowserStop, 130, mediaY, 55, 24)
+  EndIf
+  If IsGadget(#Gadget_BrowserWeb)
+    ResizeGadget(#Gadget_BrowserWeb, 0, topH, winW, winH - topH)
+  EndIf
+EndProcedure
+
+Procedure ShowBrowserWindow()
+  If IsWindow(#Window_Browser) = 0
+    If OpenWindow(#Window_Browser, #PB_Ignore, #PB_Ignore, #BrowserWindowWidth, #BrowserWindowHeight, "YouTube Browser", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered, WindowID(#Window_Main))
+      ButtonGadget(#Gadget_BrowserBack, 10, 10, 50, 24, "Back")
+      ButtonGadget(#Gadget_BrowserForward, 65, 10, 50, 24, "Next")
+      ButtonGadget(#Gadget_BrowserReload, 120, 10, 60, 24, "Reload")
+      ButtonGadget(#Gadget_BrowserHome, 185, 10, 55, 24, "Home")
+      StringGadget(#Gadget_BrowserAddress, 250, 10, 720, 24, #BrowserHomeUrl)
+      ButtonGadget(#Gadget_BrowserGo, 980, 10, 50, 24, "Go")
+      ButtonGadget(#Gadget_BrowserPlay, 10, 42, 55, 24, "Play")
+      ButtonGadget(#Gadget_BrowserPause, 70, 42, 55, 24, "Pause")
+      ButtonGadget(#Gadget_BrowserStop, 130, 42, 55, 24, "Stop")
+      WebGadget(#Gadget_BrowserWeb, 0, 72, WindowWidth(#Window_Browser, #PB_Window_InnerCoordinate), WindowHeight(#Window_Browser, #PB_Window_InnerCoordinate) - 72, #BrowserHomeUrl, #PB_Web_Edge)
+      GadgetToolTip(#Gadget_BrowserAddress, "Enter a URL or YouTube search text, then press Enter or Go")
+      GadgetToolTip(#Gadget_BrowserPlay, "Play the current YouTube/video page")
+      GadgetToolTip(#Gadget_BrowserPause, "Pause the current YouTube/video page")
+      GadgetToolTip(#Gadget_BrowserStop, "Pause and rewind the current YouTube/video page")
+      AddKeyboardShortcut(#Window_Browser, #PB_Shortcut_Return, #Command_BrowserNavigate)
+      UpdateBrowserWindowLayout()
+    EndIf
+  EndIf
+
+  If IsWindow(#Window_Browser)
+    HideWindow(#Window_Browser, 0)
+    SetActiveWindow(#Window_Browser)
+  EndIf
+EndProcedure
+
+Procedure ToggleBrowserWindow()
+  If IsWindow(#Window_Browser) And IsWindowVisible_(WindowID(#Window_Browser))
+    HideWindow(#Window_Browser, 1)
+  Else
+    ShowBrowserWindow()
   EndIf
 EndProcedure
 

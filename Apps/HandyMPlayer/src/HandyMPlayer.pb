@@ -3,7 +3,7 @@
 ;
 
 IncludeFile "HandyMPlayer_Inc.pb"
-Global version.s = "v1.0.4.3"
+Global version.s = "v1.0.4.4"
 
 EnableExplicit
 
@@ -36,7 +36,7 @@ Procedure UpdateHighlightedMenuItem(command.i)
          #Command_SizeX15, #Command_SizeX2, #Command_SizeX3, #Command_SizeStepDown, #Command_SizeStepUp, #Command_VolumeFull,
          #Command_Volume75, #Command_VolumeHalf, #Command_Volume25, #Command_VolumeMute, #Command_VolumeUp, #Command_VolumeDown,
          #Command_BalanceCenter, #Command_BalanceSlightLeft, #Command_BalanceLeft, #Command_BalanceSlightRight, #Command_BalanceRight,
-         #Command_ShowPlaylist, #Command_ShowLyrics, #Command_ShowArtwork, #Command_ShowVideo, #Command_Help, #Command_About
+         #Command_ShowPlaylist, #Command_ShowLyrics, #Command_ShowArtwork, #Command_ShowVideo, #Command_ShowBrowser, #Command_Help, #Command_About
         If LastHighlightedMenuCommand >= 0
           SetMenuItemState(0, LastHighlightedMenuCommand, #False)
         EndIf
@@ -166,6 +166,7 @@ Procedure Main()
       MenuItem(#Command_ShowLyrics, "Lyrics")
       MenuItem(#Command_ShowArtwork, "Artwork")
       MenuItem(#Command_ShowVideo, "Video")
+      MenuItem(#Command_ShowBrowser, "YouTube Browser")
       MenuTitle("Help")
       MenuItem(#Command_Help, "Help")
       MenuItem(#Command_About, "About")
@@ -249,7 +250,12 @@ Procedure Main()
     Select WaitWindowEvent(15)
 
       Case #PB_Event_Menu
-        If EventWindow() = #Window_Main
+        If EventWindow() = #Window_Browser
+          Select EventMenu()
+            Case #Command_BrowserNavigate
+              BrowserNavigate()
+          EndSelect
+        ElseIf EventWindow() = #Window_Main
           currentMenuCommand = EventMenu()
           UpdateHighlightedMenuItem(currentMenuCommand)
           Select currentMenuCommand
@@ -417,9 +423,12 @@ Procedure Main()
             Case #Command_ShowArtwork
                ToggleArtworkPreviewWindow()
 
-            Case #Command_ShowVideo
-               ToggleVideoWindow()
-              
+             Case #Command_ShowVideo
+                ToggleVideoWindow()
+
+             Case #Command_ShowBrowser
+                ToggleBrowserWindow()
+               
           ; ------------------ Size ---------------------
  
             Case #Command_SizeHalf
@@ -518,6 +527,8 @@ Procedure Main()
           HideWindow(#Window_Playlist, 1)
         ElseIf EventWindow() = #Window_Video
           HideWindow(#Window_Video, 1)
+        ElseIf EventWindow() = #Window_Browser
+          HideWindow(#Window_Browser, 1)
         EndIf
         
       Case #PB_Event_SizeWindow
@@ -553,6 +564,8 @@ Procedure Main()
           ResizeGadget(#Gadget_HelpEditor, 0, 0, WindowWidth(#Window_Help, #PB_Window_InnerCoordinate), WindowHeight(#Window_Help, #PB_Window_InnerCoordinate))
         ElseIf EventWindow() = #Window_Playlist
           UpdatePlaylistWindowLayout()
+        ElseIf EventWindow() = #Window_Browser
+          UpdateBrowserWindowLayout()
         EndIf
 
       Case #PB_Event_Gadget
@@ -613,6 +626,25 @@ Procedure Main()
           PausePlayback()
         ElseIf EventWindow() = #Window_Video And EventGadget() = #Gadget_VideoStop
           StopPlayback()
+        ElseIf EventWindow() = #Window_Browser And EventGadget() = #Gadget_BrowserBack
+          SetGadgetState(#Gadget_BrowserWeb, #PB_Web_Back)
+        ElseIf EventWindow() = #Window_Browser And EventGadget() = #Gadget_BrowserForward
+          SetGadgetState(#Gadget_BrowserWeb, #PB_Web_Forward)
+        ElseIf EventWindow() = #Window_Browser And EventGadget() = #Gadget_BrowserReload
+          SetGadgetState(#Gadget_BrowserWeb, #PB_Web_Refresh)
+        ElseIf EventWindow() = #Window_Browser And EventGadget() = #Gadget_BrowserHome
+          SetGadgetText(#Gadget_BrowserAddress, #BrowserHomeUrl)
+          SetGadgetText(#Gadget_BrowserWeb, #BrowserHomeUrl)
+        ElseIf EventWindow() = #Window_Browser And EventGadget() = #Gadget_BrowserGo
+          BrowserNavigate()
+        ElseIf EventWindow() = #Window_Browser And EventGadget() = #Gadget_BrowserPlay
+          BrowserPlay()
+        ElseIf EventWindow() = #Window_Browser And EventGadget() = #Gadget_BrowserPause
+          BrowserPause()
+        ElseIf EventWindow() = #Window_Browser And EventGadget() = #Gadget_BrowserStop
+          BrowserStop()
+        ElseIf EventWindow() = #Window_Browser And EventGadget() = #Gadget_BrowserWeb And EventType() = #PB_EventType_DownloadEnd
+          SetGadgetText(#Gadget_BrowserAddress, GetGadgetText(#Gadget_BrowserWeb))
         ElseIf EventGadget() = #Gadget_SidebarSplitter And EventType() = #PB_EventType_LeftButtonDown
           State\draggingSidebar = #True
         ElseIf EventGadget() = #Gadget_LibrarySearch And EventType() = #PB_EventType_Change
@@ -772,12 +804,12 @@ End
 ; Executable = ..\HandyMPlayer.exe
 ; Debugger = IDE
 ; IncludeVersionInfo
-; VersionField0 = 1,0,4,3
-; VersionField1 = 1,0,4,3
+; VersionField0 = 1,0,4,4
+; VersionField1 = 1,0,4,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyMPlayer
-; VersionField4 = 1.0.4.3
-; VersionField5 = 1.0.4.3
+; VersionField4 = 1.0.4.4
+; VersionField5 = 1.0.4.4
 ; VersionField6 = A Handy Compact Audio/Video Player
 ; VersionField7 = HandyMPlayer
 ; VersionField8 = HandyMPlayer.exe

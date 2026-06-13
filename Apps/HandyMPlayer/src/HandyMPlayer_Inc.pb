@@ -13,6 +13,7 @@
 #Window_ArtworkPreview = 3
 #Window_Help = 4
 #Window_Playlist = 5
+#Window_Browser = 6
 
 #Gadget_Progress = 0
 #Gadget_Artwork = 1
@@ -58,6 +59,16 @@
 #Gadget_VideoHost = 41
 #Gadget_VideoProgress = 42
 #Gadget_VideoTime = 43
+#Gadget_BrowserBack = 44
+#Gadget_BrowserForward = 45
+#Gadget_BrowserReload = 46
+#Gadget_BrowserHome = 47
+#Gadget_BrowserAddress = 48
+#Gadget_BrowserGo = 49
+#Gadget_BrowserPlay = 50
+#Gadget_BrowserPause = 51
+#Gadget_BrowserStop = 52
+#Gadget_BrowserWeb = 53
 
 Enumeration
   #MovieState_Ready
@@ -114,6 +125,8 @@ Enumeration
   #Command_ShowLyrics
   #Command_ShowArtwork
   #Command_ShowVideo
+  #Command_ShowBrowser
+  #Command_BrowserNavigate
   #Command_About
 EndEnumeration
 
@@ -139,6 +152,9 @@ EndEnumeration
 #HelpWindowHeight = 700
 #PlaylistWindowWidth = 420
 #PlaylistWindowHeight = 520
+#BrowserWindowWidth = 1100
+#BrowserWindowHeight = 760
+#BrowserHomeUrl = "https://www.youtube.com/"
 
 #DownloadFolder = "downloads\"
 #AlbumArtFolder = #DownloadFolder + "album-art\"
