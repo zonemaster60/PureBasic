@@ -49,6 +49,11 @@ Structure PlayerState
   repeatPlay.i
   targetW.i
   targetH.i
+  themePreset.i
+  themeWindowColor.i
+  themePanelColor.i
+  themeTextColor.i
+  themeAccentColor.i
 EndStructure
 
 Global State.PlayerState
@@ -133,6 +138,11 @@ Declare TogglePlaylistWindow()
 Declare ToggleVideoWindow()
 Declare ShowBrowserWindow()
 Declare ToggleBrowserWindow()
+Declare ShowThemeWindow()
+Declare ToggleThemeWindow()
+Declare UpdateThemeWindowLayout()
+Declare ApplyThemePreset(preset.i)
+Declare PickThemeColor(colorKind.i)
 Declare UpdateBrowserWindowLayout()
 Declare BrowserNavigate()
 Declare BrowserPlay()
@@ -185,6 +195,12 @@ Declare UpdateSeekPositionFromGadget(gadget.i)
 Declare ProgressBarSeekForGadget()
 Declare ProgressBarClickToSeekForGadget()
 Declare UpdateNowPlayingLabel()
+Declare.i SystemColor(index.i)
+Declare ApplyWindowTheme(window.i)
+Declare ApplyGadgetTheme(gadget.i, useWindowBackground.i = #False)
+Declare ApplyProgressTheme(gadget.i)
+Declare ApplyThemeToOpenWindows()
+Declare InitializeThemeDefaults()
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 3

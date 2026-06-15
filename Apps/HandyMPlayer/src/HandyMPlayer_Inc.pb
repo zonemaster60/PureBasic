@@ -14,6 +14,7 @@
 #Window_Help = 4
 #Window_Playlist = 5
 #Window_Browser = 6
+#Window_Theme = 7
 
 #Gadget_Progress = 0
 #Gadget_Artwork = 1
@@ -69,6 +70,18 @@
 #Gadget_BrowserPause = 51
 #Gadget_BrowserStop = 52
 #Gadget_BrowserWeb = 53
+#Gadget_ThemeTitle = 54
+#Gadget_ThemeSystem = 55
+#Gadget_ThemeLight = 56
+#Gadget_ThemeDark = 57
+#Gadget_ThemeBlue = 58
+#Gadget_ThemeForest = 59
+#Gadget_ThemeWindowColor = 60
+#Gadget_ThemePanelColor = 61
+#Gadget_ThemeTextColor = 62
+#Gadget_ThemeAccentColor = 63
+#Gadget_ThemePreview = 64
+#Gadget_ThemeClose = 65
 
 Enumeration
   #MovieState_Ready
@@ -126,8 +139,18 @@ Enumeration
   #Command_ShowArtwork
   #Command_ShowVideo
   #Command_ShowBrowser
+  #Command_ShowTheme
   #Command_BrowserNavigate
   #Command_About
+EndEnumeration
+
+Enumeration
+  #Theme_System
+  #Theme_Light
+  #Theme_Dark
+  #Theme_Blue
+  #Theme_Forest
+  #Theme_Custom
 EndEnumeration
 
 #LayoutPadding = 5
@@ -154,6 +177,8 @@ EndEnumeration
 #PlaylistWindowHeight = 520
 #BrowserWindowWidth = 1100
 #BrowserWindowHeight = 760
+#ThemeWindowWidth = 460
+#ThemeWindowHeight = 260
 #BrowserHomeUrl = "https://www.youtube.com/"
 
 #DownloadFolder = "downloads\"
@@ -205,6 +230,11 @@ EndStructure
 #TVM_HITTEST = #TV_FIRST + 17
 #TVM_SELECTITEM = #TV_FIRST + 11
 #TVGN_CARET = $0009
+#COLOR_WINDOW = 5
+#COLOR_WINDOWTEXT = 8
+#COLOR_BTNFACE = 15
+#COLOR_BTNTEXT = 18
+#COLOR_HIGHLIGHT = 13
 
 Structure WinPOINT
   x.l

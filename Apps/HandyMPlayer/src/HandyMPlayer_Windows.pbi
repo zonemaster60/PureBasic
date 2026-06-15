@@ -34,6 +34,7 @@ Procedure ShowArtworkPreview()
 
   If IsWindow(#Window_ArtworkPreview) = 0
     If OpenWindow(#Window_ArtworkPreview, #PB_Ignore, #PB_Ignore, #ArtworkPreviewWindowWidth, #ArtworkPreviewWindowHeight, "Artwork", #PB_Window_SizeGadget | #PB_Window_SystemMenu | #PB_Window_ScreenCentered, WindowID(#Window_Main))
+      ApplyWindowTheme(#Window_ArtworkPreview)
       ScrollAreaGadget(#Gadget_ArtworkScroll, 0, 0, WindowWidth(#Window_ArtworkPreview), WindowHeight(#Window_ArtworkPreview), 400, 400, 16)
       ImageGadget(#Gadget_ArtworkPreviewImage, 0, 0, 400, 400, 0)
       CloseGadgetList()
@@ -82,7 +83,9 @@ Procedure ShowLyricsWindow()
 
   If IsWindow(#Window_Lyrics) = 0
     If OpenWindow(#Window_Lyrics, #PB_Ignore, #PB_Ignore, #LyricsWindowWidth, #LyricsWindowHeight, "Lyrics", #PB_Window_SizeGadget | #PB_Window_SystemMenu | #PB_Window_ScreenCentered, WindowID(#Window_Main))
+      ApplyWindowTheme(#Window_Lyrics)
       EditorGadget(#Gadget_LyricsEditor, 0, 0, WindowWidth(#Window_Lyrics), WindowHeight(#Window_Lyrics), #PB_Editor_ReadOnly | #PB_Editor_WordWrap)
+      ApplyGadgetTheme(#Gadget_LyricsEditor)
     EndIf
   EndIf
 
@@ -119,13 +122,23 @@ Procedure.s GetHelpText()
   helpText + "- The progress bar can be clicked or dragged to seek." + #CRLF$
   helpText + "- Left / Right arrow keys move to previous / next queued-or-playlist track." + #CRLF$ + #CRLF$
   helpText + "View Windows" + #CRLF$
-  helpText + "- Use the View menu to toggle Playlist, Lyrics, Artwork, Video, and YouTube Browser windows." + #CRLF$
+  helpText + "- Use the View menu to toggle Playlist, Lyrics, Artwork, Video, Browser, and Theme Settings windows." + #CRLF$
   helpText + "- Video opens in its own separate window when a video file is played." + #CRLF$ + #CRLF$
-  helpText + "YouTube Browser" + #CRLF$
-  helpText + "- Open View > YouTube Browser to browse, search, and play YouTube videos." + #CRLF$
+  helpText + "Browser" + #CRLF$
+  helpText + "- Open View > Browser to browse, search, and play YouTube videos." + #CRLF$
   helpText + "- Enter a URL or search text, then press Enter or Go." + #CRLF$
   helpText + "- Back, Next, Reload, and Home navigate the browser history and YouTube home." + #CRLF$
   helpText + "- Play, Pause, and Stop control the current HTML5 video when the embedded browser allows page scripting." + #CRLF$ + #CRLF$
+  helpText + "Theme Settings" + #CRLF$
+  helpText + "- Open View > Theme Settings to change application colors." + #CRLF$
+  helpText + "- System, Light, Dark, Blue, and Forest apply built-in color presets." + #CRLF$
+  helpText + "- Window, Panel, Text, and Accent buttons open color pickers for a custom theme." + #CRLF$
+  helpText + "- Theme changes apply immediately to open windows and are saved in files\\HandyMPlayer.ini." + #CRLF$
+  helpText + "- Native Windows controls such as buttons may keep their system styling, but windows, text panels, lists, editors, and progress accents use the selected colors." + #CRLF$ + #CRLF$
+  helpText + "Reusable Theme Code" + #CRLF$
+  helpText + "- The reusable theme helper is saved as src\\HandyTheme_Reusable.pbi." + #CRLF$
+  helpText + "- A minimal copy-and-run example is saved as src\\HandyTheme_Example.pb." + #CRLF$
+  helpText + "- Include HandyTheme_Reusable.pbi in another PureBasic project to reuse the preset, custom color, and preference helper procedures." + #CRLF$ + #CRLF$
   helpText + "Library Tree" + #CRLF$
   helpText + "- The Library tree shows folders and supported media files from the loaded root folder." + #CRLF$
   helpText + "- The search box filters the visible library entries." + #CRLF$
@@ -174,8 +187,10 @@ EndProcedure
 Procedure ShowHelpWindow()
   If IsWindow(#Window_Help) = 0
     If OpenWindow(#Window_Help, #PB_Ignore, #PB_Ignore, #HelpWindowWidth, #HelpWindowHeight, "Help", #PB_Window_SystemMenu | #PB_Window_ScreenCentered, WindowID(#Window_Main))
+      ApplyWindowTheme(#Window_Help)
       EditorGadget(#Gadget_HelpEditor, 0, 0, WindowWidth(#Window_Help), WindowHeight(#Window_Help), #PB_Editor_ReadOnly | #PB_Editor_WordWrap)
       SetGadgetText(#Gadget_HelpEditor, GetHelpText())
+      ApplyGadgetTheme(#Gadget_HelpEditor)
     EndIf
   EndIf
 
@@ -242,6 +257,7 @@ EndProcedure
 Procedure ShowPlaylistWindow()
   If IsWindow(#Window_Playlist) = 0
     If OpenWindow(#Window_Playlist, #PB_Ignore, #PB_Ignore, #PlaylistWindowWidth, #PlaylistWindowHeight, "Playlist", #PB_Window_SystemMenu | #PB_Window_ScreenCentered, WindowID(#Window_Main))
+      ApplyWindowTheme(#Window_Playlist)
       TextGadget(#Gadget_PlaylistTitle, 10, 10, 200, 18, "Playlist")
       TrackBarGadget(#Gadget_PlaylistProgress, 10, 32, 390, #ProgressBarHeight + 6, 0, #ProgressScaleMax)
       TextGadget(#Gadget_PlaylistNowPlaying, 10, 56, 390, 18, "Now Playing: nothing loaded")
@@ -265,6 +281,12 @@ Procedure ShowPlaylistWindow()
       ButtonGadget(#Gadget_QueueUp, 10, 466, 50, 24, "Up")
       ButtonGadget(#Gadget_QueueDown, 65, 466, 50, 24, "Down")
       ButtonGadget(#Gadget_QueueRemove, 120, 466, 75, 24, "Remove")
+      ApplyGadgetTheme(#Gadget_PlaylistTitle, #True)
+      ApplyGadgetTheme(#Gadget_PlaylistNowPlaying, #True)
+      ApplyGadgetTheme(#Gadget_PlaylistTabs)
+      ApplyGadgetTheme(#Gadget_Playlist)
+      ApplyGadgetTheme(#Gadget_QueueTitle, #True)
+      ApplyGadgetTheme(#Gadget_QueueList)
       BindGadgetEvent(#Gadget_PlaylistProgress, @ProgressBarSeekForGadget())
       BindGadgetEvent(#Gadget_PlaylistProgress, @ProgressBarClickToSeekForGadget(), #PB_EventType_LeftClick)
       RefreshPlaylistSelector()
@@ -384,7 +406,8 @@ EndProcedure
 
 Procedure ShowBrowserWindow()
   If IsWindow(#Window_Browser) = 0
-    If OpenWindow(#Window_Browser, #PB_Ignore, #PB_Ignore, #BrowserWindowWidth, #BrowserWindowHeight, "YouTube Browser", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered, WindowID(#Window_Main))
+    If OpenWindow(#Window_Browser, #PB_Ignore, #PB_Ignore, #BrowserWindowWidth, #BrowserWindowHeight, "Browser", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered, WindowID(#Window_Main))
+      ApplyWindowTheme(#Window_Browser)
       ButtonGadget(#Gadget_BrowserBack, 10, 10, 50, 24, "Back")
       ButtonGadget(#Gadget_BrowserForward, 65, 10, 50, 24, "Next")
       ButtonGadget(#Gadget_BrowserReload, 120, 10, 60, 24, "Reload")
@@ -395,6 +418,7 @@ Procedure ShowBrowserWindow()
       ButtonGadget(#Gadget_BrowserPause, 70, 42, 55, 24, "Pause")
       ButtonGadget(#Gadget_BrowserStop, 130, 42, 55, 24, "Stop")
       WebGadget(#Gadget_BrowserWeb, 0, 72, WindowWidth(#Window_Browser, #PB_Window_InnerCoordinate), WindowHeight(#Window_Browser, #PB_Window_InnerCoordinate) - 72, #BrowserHomeUrl, #PB_Web_Edge)
+      ApplyGadgetTheme(#Gadget_BrowserAddress)
       GadgetToolTip(#Gadget_BrowserAddress, "Enter a URL or YouTube search text, then press Enter or Go")
       GadgetToolTip(#Gadget_BrowserPlay, "Play the current YouTube/video page")
       GadgetToolTip(#Gadget_BrowserPause, "Pause the current YouTube/video page")
@@ -418,10 +442,154 @@ Procedure ToggleBrowserWindow()
   EndIf
 EndProcedure
 
+Procedure UpdateThemePreviewText()
+  If IsGadget(#Gadget_ThemePreview)
+    SetGadgetText(#Gadget_ThemePreview, "Theme preview" + #CRLF$ + "Window, panel, text, and accent colors update open windows immediately.")
+    ApplyGadgetTheme(#Gadget_ThemePreview)
+  EndIf
+EndProcedure
+
+Procedure ApplyThemePreset(preset.i)
+  State\themePreset = preset
+
+  Select preset
+    Case #Theme_Light
+      State\themeWindowColor = RGB(245, 247, 250)
+      State\themePanelColor = RGB(255, 255, 255)
+      State\themeTextColor = RGB(32, 35, 39)
+      State\themeAccentColor = RGB(0, 120, 215)
+
+    Case #Theme_Dark
+      State\themeWindowColor = RGB(32, 32, 36)
+      State\themePanelColor = RGB(45, 45, 50)
+      State\themeTextColor = RGB(235, 235, 235)
+      State\themeAccentColor = RGB(86, 156, 214)
+
+    Case #Theme_Blue
+      State\themeWindowColor = RGB(225, 238, 252)
+      State\themePanelColor = RGB(244, 249, 255)
+      State\themeTextColor = RGB(21, 45, 75)
+      State\themeAccentColor = RGB(0, 99, 177)
+
+    Case #Theme_Forest
+      State\themeWindowColor = RGB(226, 238, 225)
+      State\themePanelColor = RGB(246, 250, 245)
+      State\themeTextColor = RGB(31, 57, 35)
+      State\themeAccentColor = RGB(47, 125, 64)
+
+    Default
+      State\themePreset = #Theme_System
+      State\themeWindowColor = SystemColor(#COLOR_BTNFACE)
+      State\themePanelColor = SystemColor(#COLOR_WINDOW)
+      State\themeTextColor = SystemColor(#COLOR_WINDOWTEXT)
+      State\themeAccentColor = SystemColor(#COLOR_HIGHLIGHT)
+  EndSelect
+
+  ApplyThemeToOpenWindows()
+  UpdateThemePreviewText()
+EndProcedure
+
+Procedure PickThemeColor(colorKind.i)
+  Protected currentColor.i
+  Protected pickedColor.i
+
+  Select colorKind
+    Case 0
+      currentColor = State\themeWindowColor
+    Case 1
+      currentColor = State\themePanelColor
+    Case 2
+      currentColor = State\themeTextColor
+    Default
+      currentColor = State\themeAccentColor
+  EndSelect
+
+  pickedColor = ColorRequester(currentColor)
+  If pickedColor = -1
+    ProcedureReturn
+  EndIf
+
+  State\themePreset = #Theme_Custom
+  Select colorKind
+    Case 0
+      State\themeWindowColor = pickedColor
+    Case 1
+      State\themePanelColor = pickedColor
+    Case 2
+      State\themeTextColor = pickedColor
+    Default
+      State\themeAccentColor = pickedColor
+  EndSelect
+
+  ApplyThemeToOpenWindows()
+  UpdateThemePreviewText()
+EndProcedure
+
+Procedure UpdateThemeWindowLayout()
+  Protected winW.i
+  Protected winH.i
+
+  If IsWindow(#Window_Theme) = 0
+    ProcedureReturn
+  EndIf
+
+  winW = WindowWidth(#Window_Theme, #PB_Window_InnerCoordinate)
+  winH = WindowHeight(#Window_Theme, #PB_Window_InnerCoordinate)
+
+  ResizeGadget(#Gadget_ThemeTitle, 10, 10, winW - 20, 20)
+  ResizeGadget(#Gadget_ThemeSystem, 10, 40, 80, 28)
+  ResizeGadget(#Gadget_ThemeLight, 95, 40, 80, 28)
+  ResizeGadget(#Gadget_ThemeDark, 180, 40, 80, 28)
+  ResizeGadget(#Gadget_ThemeBlue, 265, 40, 80, 28)
+  ResizeGadget(#Gadget_ThemeForest, 350, 40, 90, 28)
+  ResizeGadget(#Gadget_ThemeWindowColor, 10, 82, 105, 28)
+  ResizeGadget(#Gadget_ThemePanelColor, 120, 82, 105, 28)
+  ResizeGadget(#Gadget_ThemeTextColor, 230, 82, 105, 28)
+  ResizeGadget(#Gadget_ThemeAccentColor, 340, 82, 105, 28)
+  ResizeGadget(#Gadget_ThemePreview, 10, 125, winW - 20, winH - 170)
+  ResizeGadget(#Gadget_ThemeClose, winW - 100, winH - 35, 90, 26)
+EndProcedure
+
+Procedure ShowThemeWindow()
+  If IsWindow(#Window_Theme) = 0
+    If OpenWindow(#Window_Theme, #PB_Ignore, #PB_Ignore, #ThemeWindowWidth, #ThemeWindowHeight, "Theme Settings", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered, WindowID(#Window_Main))
+      ApplyWindowTheme(#Window_Theme)
+      TextGadget(#Gadget_ThemeTitle, 10, 10, 420, 20, "Choose a preset or customize colors:")
+      ButtonGadget(#Gadget_ThemeSystem, 10, 40, 80, 28, "System")
+      ButtonGadget(#Gadget_ThemeLight, 95, 40, 80, 28, "Light")
+      ButtonGadget(#Gadget_ThemeDark, 180, 40, 80, 28, "Dark")
+      ButtonGadget(#Gadget_ThemeBlue, 265, 40, 80, 28, "Blue")
+      ButtonGadget(#Gadget_ThemeForest, 350, 40, 90, 28, "Forest")
+      ButtonGadget(#Gadget_ThemeWindowColor, 10, 82, 105, 28, "Window")
+      ButtonGadget(#Gadget_ThemePanelColor, 120, 82, 105, 28, "Panel")
+      ButtonGadget(#Gadget_ThemeTextColor, 230, 82, 105, 28, "Text")
+      ButtonGadget(#Gadget_ThemeAccentColor, 340, 82, 105, 28, "Accent")
+      EditorGadget(#Gadget_ThemePreview, 10, 125, 430, 90, #PB_Editor_ReadOnly | #PB_Editor_WordWrap)
+      ButtonGadget(#Gadget_ThemeClose, 350, 225, 90, 26, "Close")
+      UpdateThemePreviewText()
+      ApplyThemeToOpenWindows()
+      UpdateThemeWindowLayout()
+    EndIf
+  EndIf
+
+  If IsWindow(#Window_Theme)
+    HideWindow(#Window_Theme, 0)
+    SetActiveWindow(#Window_Theme)
+  EndIf
+EndProcedure
+
+Procedure ToggleThemeWindow()
+  If IsWindow(#Window_Theme) And IsWindowVisible_(WindowID(#Window_Theme))
+    HideWindow(#Window_Theme, 1)
+  Else
+    ShowThemeWindow()
+  EndIf
+EndProcedure
+
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 37
-; FirstLine = 15
-; Folding = ---
+; CursorPosition = 386
+; FirstLine = 346
+; Folding = ----
 ; EnableXP
 ; DPIAware
 ; Executable = ..\HandyMPlayer.exe

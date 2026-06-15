@@ -406,6 +406,11 @@ Procedure SaveSettings()
     WritePreferenceString("LibraryRoot", LibraryRootPath)
     WritePreferenceString("LastPlaylist", LastPlaylistPath)
     WritePreferenceString("CurrentPlaylist", CurrentPlaylistName)
+    WritePreferenceInteger("ThemePreset", State\themePreset)
+    WritePreferenceInteger("ThemeWindowColor", State\themeWindowColor)
+    WritePreferenceInteger("ThemePanelColor", State\themePanelColor)
+    WritePreferenceInteger("ThemeTextColor", State\themeTextColor)
+    WritePreferenceInteger("ThemeAccentColor", State\themeAccentColor)
     ClosePreferences()
   EndIf
 EndProcedure
@@ -426,6 +431,11 @@ Procedure LoadSettings()
     LibraryRootPath = ReadPreferenceString("LibraryRoot", "")
     LastPlaylistPath = ReadPreferenceString("LastPlaylist", "")
     CurrentPlaylistName = ReadPreferenceString("CurrentPlaylist", "")
+    State\themePreset = ReadPreferenceInteger("ThemePreset", #Theme_System)
+    State\themeWindowColor = ReadPreferenceInteger("ThemeWindowColor", 0)
+    State\themePanelColor = ReadPreferenceInteger("ThemePanelColor", 0)
+    State\themeTextColor = ReadPreferenceInteger("ThemeTextColor", 0)
+    State\themeAccentColor = ReadPreferenceInteger("ThemeAccentColor", 0)
     ClosePreferences()
   Else
     State\volume = 100
@@ -439,7 +449,13 @@ Procedure LoadSettings()
     LibraryRootPath = ""
     LastPlaylistPath = ""
     CurrentPlaylistName = ""
+    State\themePreset = #Theme_System
+    State\themeWindowColor = 0
+    State\themePanelColor = 0
+    State\themeTextColor = 0
+    State\themeAccentColor = 0
   EndIf
+  InitializeThemeDefaults()
 EndProcedure
 
 Procedure CleanupResources()
@@ -540,11 +556,13 @@ Procedure EnsureVideoHostWindow()
   If initialH < DesktopScaledY(240) : initialH = DesktopScaledY(240) : EndIf
 
   If OpenWindow(#Window_Video, #PB_Ignore, #PB_Ignore, initialW, initialH, "Video", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered, WindowID(#Window_Main))
+    ApplyWindowTheme(#Window_Video)
     ButtonGadget(#Gadget_VideoPlay, 10, 10, 55, 24, "Play")
     ButtonGadget(#Gadget_VideoPause, 70, 10, 55, 24, "Pause")
     ButtonGadget(#Gadget_VideoStop, 130, 10, 55, 24, "Stop")
     TrackBarGadget(#Gadget_VideoProgress, 195, 10, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate) - 205, #ProgressBarHeight + 6, 0, #ProgressScaleMax)
     StringGadget(#Gadget_VideoTime, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate) - 110, 10, 100, 24, "00:00/00:00", #PB_String_ReadOnly | #PB_String_BorderLess)
+    ApplyGadgetTheme(#Gadget_VideoTime, #True)
     BindGadgetEvent(#Gadget_VideoProgress, @ProgressBarSeekForGadget())
     BindGadgetEvent(#Gadget_VideoProgress, @ProgressBarClickToSeekForGadget(), #PB_EventType_LeftClick)
     CanvasGadget(#Gadget_VideoHost, 0, 40, WindowWidth(#Window_Video, #PB_Window_InnerCoordinate), WindowHeight(#Window_Video, #PB_Window_InnerCoordinate) - 40)

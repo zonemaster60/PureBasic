@@ -3,7 +3,7 @@
 ;
 
 IncludeFile "HandyMPlayer_Inc.pb"
-Global version.s = "v1.0.4.4"
+Global version.s = "v1.0.4.5"
 
 EnableExplicit
 
@@ -36,7 +36,7 @@ Procedure UpdateHighlightedMenuItem(command.i)
          #Command_SizeX15, #Command_SizeX2, #Command_SizeX3, #Command_SizeStepDown, #Command_SizeStepUp, #Command_VolumeFull,
          #Command_Volume75, #Command_VolumeHalf, #Command_Volume25, #Command_VolumeMute, #Command_VolumeUp, #Command_VolumeDown,
          #Command_BalanceCenter, #Command_BalanceSlightLeft, #Command_BalanceLeft, #Command_BalanceSlightRight, #Command_BalanceRight,
-         #Command_ShowPlaylist, #Command_ShowLyrics, #Command_ShowArtwork, #Command_ShowVideo, #Command_ShowBrowser, #Command_Help, #Command_About
+         #Command_ShowPlaylist, #Command_ShowLyrics, #Command_ShowArtwork, #Command_ShowVideo, #Command_ShowBrowser, #Command_ShowTheme, #Command_Help, #Command_About
         If LastHighlightedMenuCommand >= 0
           SetMenuItemState(0, LastHighlightedMenuCommand, #False)
         EndIf
@@ -91,6 +91,7 @@ Procedure Main()
   EndIf
 
   If OpenWindow(#Window_Main, windowX, windowY, #WindowWidth + 50, #WindowHeight + 25, #APP_NAME + " - " + version, windowFlags)
+  ApplyWindowTheme(#Window_Main)
 
   EnableWindowDrop(#Window_Main, #PB_Drop_Files, #PB_Drag_Copy)
 
@@ -166,7 +167,8 @@ Procedure Main()
       MenuItem(#Command_ShowLyrics, "Lyrics")
       MenuItem(#Command_ShowArtwork, "Artwork")
       MenuItem(#Command_ShowVideo, "Video")
-      MenuItem(#Command_ShowBrowser, "YouTube Browser")
+      MenuItem(#Command_ShowBrowser, "Browser")
+      MenuItem(#Command_ShowTheme, "Theme Settings")
       MenuTitle("Help")
       MenuItem(#Command_Help, "Help")
       MenuItem(#Command_About, "About")
@@ -205,6 +207,12 @@ Procedure Main()
   TextGadget(#Gadget_MetadataSecondary, 10, 70, 395, 18, "Metadata: none   Artwork: none   Lyrics: none")
   ImageGadget(#Gadget_Artwork, 0, 0, #DefaultArtworkSize, #DefaultArtworkSize, 0, #PB_Image_Border)
   HideGadget(#Gadget_Artwork, 1)
+  ApplyGadgetTheme(#Gadget_LibraryTitle, #True)
+  ApplyGadgetTheme(#Gadget_LibrarySearch)
+  ApplyGadgetTheme(#Gadget_LibraryTree)
+  ApplyGadgetTheme(#Gadget_LibraryInfo)
+  ApplyGadgetTheme(#Gadget_MetadataPrimary, #True)
+  ApplyGadgetTheme(#Gadget_MetadataSecondary, #True)
   SetProgressPosition(0)
   isUserSeeking = 1
   UpdateMetadataPanel()
@@ -428,7 +436,10 @@ Procedure Main()
 
              Case #Command_ShowBrowser
                 ToggleBrowserWindow()
-               
+
+             Case #Command_ShowTheme
+                ToggleThemeWindow()
+                
           ; ------------------ Size ---------------------
  
             Case #Command_SizeHalf
@@ -529,6 +540,8 @@ Procedure Main()
           HideWindow(#Window_Video, 1)
         ElseIf EventWindow() = #Window_Browser
           HideWindow(#Window_Browser, 1)
+        ElseIf EventWindow() = #Window_Theme
+          HideWindow(#Window_Theme, 1)
         EndIf
         
       Case #PB_Event_SizeWindow
@@ -566,6 +579,8 @@ Procedure Main()
           UpdatePlaylistWindowLayout()
         ElseIf EventWindow() = #Window_Browser
           UpdateBrowserWindowLayout()
+        ElseIf EventWindow() = #Window_Theme
+          UpdateThemeWindowLayout()
         EndIf
 
       Case #PB_Event_Gadget
@@ -645,6 +660,26 @@ Procedure Main()
           BrowserStop()
         ElseIf EventWindow() = #Window_Browser And EventGadget() = #Gadget_BrowserWeb And EventType() = #PB_EventType_DownloadEnd
           SetGadgetText(#Gadget_BrowserAddress, GetGadgetText(#Gadget_BrowserWeb))
+        ElseIf EventWindow() = #Window_Theme And EventGadget() = #Gadget_ThemeSystem
+          ApplyThemePreset(#Theme_System)
+        ElseIf EventWindow() = #Window_Theme And EventGadget() = #Gadget_ThemeLight
+          ApplyThemePreset(#Theme_Light)
+        ElseIf EventWindow() = #Window_Theme And EventGadget() = #Gadget_ThemeDark
+          ApplyThemePreset(#Theme_Dark)
+        ElseIf EventWindow() = #Window_Theme And EventGadget() = #Gadget_ThemeBlue
+          ApplyThemePreset(#Theme_Blue)
+        ElseIf EventWindow() = #Window_Theme And EventGadget() = #Gadget_ThemeForest
+          ApplyThemePreset(#Theme_Forest)
+        ElseIf EventWindow() = #Window_Theme And EventGadget() = #Gadget_ThemeWindowColor
+          PickThemeColor(0)
+        ElseIf EventWindow() = #Window_Theme And EventGadget() = #Gadget_ThemePanelColor
+          PickThemeColor(1)
+        ElseIf EventWindow() = #Window_Theme And EventGadget() = #Gadget_ThemeTextColor
+          PickThemeColor(2)
+        ElseIf EventWindow() = #Window_Theme And EventGadget() = #Gadget_ThemeAccentColor
+          PickThemeColor(3)
+        ElseIf EventWindow() = #Window_Theme And EventGadget() = #Gadget_ThemeClose
+          HideWindow(#Window_Theme, 1)
         ElseIf EventGadget() = #Gadget_SidebarSplitter And EventType() = #PB_EventType_LeftButtonDown
           State\draggingSidebar = #True
         ElseIf EventGadget() = #Gadget_LibrarySearch And EventType() = #PB_EventType_Change
@@ -793,7 +828,6 @@ End
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 5
-; FirstLine = 2
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -804,12 +838,12 @@ End
 ; Executable = ..\HandyMPlayer.exe
 ; Debugger = IDE
 ; IncludeVersionInfo
-; VersionField0 = 1,0,4,4
-; VersionField1 = 1,0,4,4
+; VersionField0 = 1,0,4,5
+; VersionField1 = 1,0,4,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyMPlayer
-; VersionField4 = 1.0.4.4
-; VersionField5 = 1.0.4.4
+; VersionField4 = 1.0.4.5
+; VersionField5 = 1.0.4.5
 ; VersionField6 = A Handy Compact Audio/Video Player
 ; VersionField7 = HandyMPlayer
 ; VersionField8 = HandyMPlayer.exe

@@ -5,6 +5,87 @@ Procedure.s NormalizeLineBreaks(text.s)
   ProcedureReturn ReplaceString(normalized, #LF$, #CRLF$)
 EndProcedure
 
+Procedure.i SystemColor(index.i)
+  ProcedureReturn GetSysColor_(index)
+EndProcedure
+
+Procedure InitializeThemeDefaults()
+  If State\themePreset < #Theme_System Or State\themePreset > #Theme_Custom
+    State\themePreset = #Theme_System
+  EndIf
+
+  If State\themePreset <> #Theme_Custom
+    ApplyThemePreset(State\themePreset)
+  Else
+    If State\themeWindowColor = 0 And State\themePanelColor = 0 And State\themeTextColor = 0 And State\themeAccentColor = 0
+      ApplyThemePreset(#Theme_System)
+    EndIf
+  EndIf
+EndProcedure
+
+Procedure ApplyWindowTheme(window.i)
+  If IsWindow(window)
+    SetWindowColor(window, State\themeWindowColor)
+  EndIf
+EndProcedure
+
+Procedure ApplyGadgetTheme(gadget.i, useWindowBackground.i = #False)
+  Protected backColor.i = State\themePanelColor
+
+  If IsGadget(gadget) = 0
+    ProcedureReturn
+  EndIf
+
+  If useWindowBackground
+    backColor = State\themeWindowColor
+  EndIf
+
+  SetGadgetColor(gadget, #PB_Gadget_BackColor, backColor)
+  SetGadgetColor(gadget, #PB_Gadget_FrontColor, State\themeTextColor)
+EndProcedure
+
+Procedure ApplyProgressTheme(gadget.i)
+  If IsGadget(gadget) = 0
+    ProcedureReturn
+  EndIf
+
+  SetGadgetColor(gadget, #PB_Gadget_BackColor, State\themePanelColor)
+  SetGadgetColor(gadget, #PB_Gadget_FrontColor, State\themeAccentColor)
+EndProcedure
+
+Procedure ApplyThemeToOpenWindows()
+  ApplyWindowTheme(#Window_Main)
+  ApplyWindowTheme(#Window_Video)
+  ApplyWindowTheme(#Window_Lyrics)
+  ApplyWindowTheme(#Window_ArtworkPreview)
+  ApplyWindowTheme(#Window_Help)
+  ApplyWindowTheme(#Window_Playlist)
+  ApplyWindowTheme(#Window_Browser)
+  ApplyWindowTheme(#Window_Theme)
+
+  ApplyGadgetTheme(#Gadget_LibraryTitle, #True)
+  ApplyGadgetTheme(#Gadget_LibrarySearch)
+  ApplyGadgetTheme(#Gadget_LibraryTree)
+  ApplyGadgetTheme(#Gadget_LibraryInfo)
+  ApplyGadgetTheme(#Gadget_MetadataPrimary, #True)
+  ApplyGadgetTheme(#Gadget_MetadataSecondary, #True)
+  ApplyGadgetTheme(#Gadget_LyricsEditor)
+  ApplyGadgetTheme(#Gadget_HelpEditor)
+  ApplyGadgetTheme(#Gadget_PlaylistTitle, #True)
+  ApplyGadgetTheme(#Gadget_PlaylistNowPlaying, #True)
+  ApplyGadgetTheme(#Gadget_PlaylistTabs)
+  ApplyGadgetTheme(#Gadget_Playlist)
+  ApplyGadgetTheme(#Gadget_QueueTitle, #True)
+  ApplyGadgetTheme(#Gadget_QueueList)
+  ApplyGadgetTheme(#Gadget_VideoTime, #True)
+  ApplyGadgetTheme(#Gadget_BrowserAddress)
+  ApplyGadgetTheme(#Gadget_ThemeTitle, #True)
+  ApplyGadgetTheme(#Gadget_ThemePreview)
+  ApplyProgressTheme(#Gadget_Progress)
+  ApplyProgressTheme(#Gadget_PlaylistProgress)
+  ApplyProgressTheme(#Gadget_VideoProgress)
+EndProcedure
+
 Procedure.s GetTrackDisplayName()
   If State\artist <> "" And State\title <> ""
     ProcedureReturn State\artist + " - " + State\title
