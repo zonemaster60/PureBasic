@@ -21,7 +21,7 @@ EndImport
 ;- Core Types
 
 #APP_NAME = "PB_RegistryManager"
-Global AppVersion.s = "v1.0.1.8"
+Global AppVersion.s = "v1.0.1.9"
 
 Structure RegKeyInfo
   Name.s
@@ -204,6 +204,7 @@ Global BackupCurrentMode.s = ""
 Global LoadValuesThreadID.i = 0
 Global StressTestActive.i = #False
 Global StressThreadID.i = 0
+Global AppTheme.HandyThemePalette
 
 Global NewList Favorites.s()
 Global NewList MonitorEvents.RegMonitorEvent()
@@ -295,6 +296,8 @@ Global LoadValuesMutex.i = 0
 #EVENT_SNAPSHOT_CREATED = #PB_Event_FirstCustomValue + 5
 #EVENT_ASYNC_STATUS = #PB_Event_FirstCustomValue + 8
 #EVENT_ASYNC_MESSAGE = #PB_Event_FirstCustomValue + 9
+#EVENT_DISK_CLEANER_PROGRESS = #PB_Event_FirstCustomValue + 10
+#EVENT_DISK_CLEANER_COMPLETE = #PB_Event_FirstCustomValue + 11
 
 #MENU_FILE_EXPORT = 1
 #MENU_FILE_IMPORT = 2
@@ -317,8 +320,17 @@ Global LoadValuesMutex.i = 0
 #MENU_DEBUG_STRESS = 32
 #MENU_VIEW_64BIT = 40
 #MENU_VIEW_REFRESH = 41
-#MENU_FAV_ADD = 50
-#MENU_FAV_MANAGE = 51
+#MENU_VIEW_THEME_SYSTEM = 42
+#MENU_VIEW_THEME_LIGHT = 43
+#MENU_VIEW_THEME_DARK = 44
+#MENU_VIEW_THEME_BLUE = 45
+#MENU_VIEW_THEME_FOREST = 46
+#MENU_VIEW_THEME_WINDOW = 47
+#MENU_VIEW_THEME_PANEL = 48
+#MENU_VIEW_THEME_TEXT = 49
+#MENU_VIEW_THEME_ACCENT = 50
+#MENU_FAV_ADD = 60
+#MENU_FAV_MANAGE = 61
 #MENU_FAV_START = 1000
 
 #REG_NOTIFY_CHANGE_NAME = $1
@@ -393,8 +405,75 @@ Declare HandleSearchWindowGadget(gadgetID.i)
 Declare.s EscapePowerShellLiteral(text.s)
 Declare.i StartBackupProcess(fileName.s, reason.s, isAuto.i, mode.s = "full", rootKey.i = 0, keyPath.s = "")
 Declare OpenDiskCleaner()
+Declare ApplyRegistryThemeToWindow(window.i)
+Declare ApplyRegistryThemeToGadget(gadget.i, useWindowBackground.i = #False)
+Declare LoadRegistryTheme()
+Declare SaveRegistryTheme()
+Declare RefreshRegistryTheme()
+Declare UpdateThemeMenuStates()
 
 ;- Logging, App Lifecycle, and Shared Helpers
+
+Procedure LoadRegistryTheme()
+  If OpenPreferences(AppPath + "PB_RegistryManager.ini")
+    PreferenceGroup("Theme")
+    HandyThemeReadPreferences(@AppTheme)
+    ClosePreferences()
+  Else
+    HandyThemeApplyPreset(@AppTheme, #HandyTheme_Blue)
+  EndIf
+EndProcedure
+
+Procedure SaveRegistryTheme()
+  If CreatePreferences(AppPath + "PB_RegistryManager.ini")
+    PreferenceGroup("Theme")
+    HandyThemeWritePreferences(@AppTheme)
+    ClosePreferences()
+  EndIf
+EndProcedure
+
+Procedure ApplyRegistryThemeToWindow(window.i)
+  HandyThemeApplyWindow(@AppTheme, window)
+EndProcedure
+
+Procedure ApplyRegistryThemeToGadget(gadget.i, useWindowBackground.i = #False)
+  HandyThemeApplyGadget(@AppTheme, gadget, useWindowBackground)
+EndProcedure
+
+Procedure RefreshRegistryTheme()
+  If IsWindow(#WINDOW_MAIN)
+    ApplyRegistryThemeToWindow(#WINDOW_MAIN)
+    If IsGadget(#GADGET_ADDRESS_BAR) : ApplyRegistryThemeToGadget(#GADGET_ADDRESS_BAR) : EndIf
+    If IsGadget(#GADGET_TREE)
+      SendMessage_(GadgetID(#GADGET_TREE), 4381, 0, AppTheme\panelColor) ; #TVM_SETBKCOLOR
+      ApplyRegistryThemeToGadget(#GADGET_TREE)
+      InvalidateRect_(GadgetID(#GADGET_TREE), 0, #True)
+    EndIf
+    If IsGadget(#GADGET_LISTVIEW) : ApplyRegistryThemeToGadget(#GADGET_LISTVIEW) : EndIf
+    InvalidateRect_(WindowID(#WINDOW_MAIN), 0, #True)
+  EndIf
+
+  If IsWindow(#WINDOW_SEARCH)
+    ApplyRegistryThemeToWindow(#WINDOW_SEARCH)
+    If IsGadget(#GADGET_SEARCH_RESULTS) : ApplyRegistryThemeToGadget(#GADGET_SEARCH_RESULTS) : EndIf
+    If IsGadget(#GADGET_SEARCH_STATUS) : ApplyRegistryThemeToGadget(#GADGET_SEARCH_STATUS, #True) : EndIf
+    InvalidateRect_(WindowID(#WINDOW_SEARCH), 0, #True)
+  EndIf
+
+  If IsWindow(#WINDOW_MONITOR)
+    ApplyRegistryThemeToWindow(#WINDOW_MONITOR)
+    If IsGadget(#GADGET_MONITOR_LIST) : ApplyRegistryThemeToGadget(#GADGET_MONITOR_LIST) : EndIf
+    If IsGadget(MonitorStatusTextGadget) : ApplyRegistryThemeToGadget(MonitorStatusTextGadget, #True) : EndIf
+    InvalidateRect_(WindowID(#WINDOW_MONITOR), 0, #True)
+  EndIf
+
+  If IsWindow(#WINDOW_SNAPSHOT)
+    ApplyRegistryThemeToWindow(#WINDOW_SNAPSHOT)
+    If IsGadget(#GADGET_SNAPSHOT_LIST) : ApplyRegistryThemeToGadget(#GADGET_SNAPSHOT_LIST) : EndIf
+    If IsGadget(#GADGET_SNAPSHOT_DIFF) : ApplyRegistryThemeToGadget(#GADGET_SNAPSHOT_DIFF) : EndIf
+    InvalidateRect_(WindowID(#WINDOW_SNAPSHOT), 0, #True)
+  EndIf
+EndProcedure
 
 Procedure.i InitErrorLog()
   ErrorLogPath = EnsureLogFolder(AppPath) + "PB_RegistryManager.log"
@@ -1402,6 +1481,15 @@ Procedure HandleCustomEvent(eventID.i)
         FreeStructure(*asyncMsg)
       EndIf
 
+    Case #EVENT_DISK_CLEANER_PROGRESS
+      Define *diskStatus.AsyncStatusEvent = EventData()
+      If *diskStatus
+        FreeStructure(*diskStatus)
+      EndIf
+
+    Case #EVENT_DISK_CLEANER_COMPLETE
+      ; Disk cleaner completion is handled by its modal window loop when open.
+
     Case #EVENT_COMPARE_COMPLETE
       RemoveWindowTimer(#WINDOW_SNAPSHOT, 4002)
       UpdateStatusBar("Comparison complete.")
@@ -1479,6 +1567,6 @@ EndProcedure
 ; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 23
 ; FirstLine = 9
-; Folding = ------
+; Folding = -------
 ; EnableXP
 ; DPIAware

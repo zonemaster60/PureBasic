@@ -279,6 +279,7 @@
                     <li><a href="#quick-start">Quick Start Guide</a></li>
                     <li><a href="#features">Features</a></li>
                     <li><a href="#navigation">Navigation & Favorites</a></li>
+                    <li><a href="#appearance">Appearance & Themes</a></li>
                     <li><a href="#search">Advanced Search</a></li>
                     <li><a href="#registry-editor">Registry Editor & Value Editor</a></li>
 
@@ -286,6 +287,7 @@
                     <li><a href="#monitor">Registry Monitor</a></li>
                     <li><a href="#snapshots">Snapshot Manager</a></li>
                     <li><a href="#cleaner">Registry Cleaner</a></li>
+                    <li><a href="#disk-cleaner">Disk Cleaner</a></li>
                     <li><a href="#backup-restore">Backup & Restore</a></li>
                     
                     <li><a href="#troubleshooting">Troubleshooting</a></li>
@@ -311,6 +313,8 @@
                             <li><strong>Threaded Search:</strong> Recursive, non-blocking background search for values and data</li>
                             <li><strong>Smart Navigation:</strong> Address bar for manual jumps and a persistent Favorites system</li>
                             <li><strong>Smart Snapshot Comparison:</strong> Value-level detection for added, removed, and modified data</li>
+                            <li><strong>Threaded Disk Cleaner:</strong> Scan temporary files and application caches in the background with cancel support</li>
+                            <li><strong>Theme Support:</strong> Use Windows colors or choose Light, Dark, Blue, Forest, and custom colors</li>
                         </ul>
                     </div>
 
@@ -450,13 +454,44 @@
                     <div class="feature-box">
                         <ul>
                             <li>Registry Cleaner (remove invalid entries)</li>
+                            <li>Disk Cleaner (temporary files, logs, dumps, browser caches, and app caches)</li>
                             <li>Manual Backup & Restore</li>
+                            <li>Configurable window and control themes</li>
                             <li>Comprehensive error logging</li>
                             <li>Built-in help system (this page!)</li>
                         </ul>
                     </div>
                 </section>
                 
+                <!-- APPEARANCE -->
+                <section id="appearance" class="section">
+                    <h2>🎨 Appearance & Themes</h2>
+                    <p>Registry Manager includes configurable window and control colors so the interface can match your preferred Windows style or a custom color palette.</p>
+
+                    <h3>Changing the Theme</h3>
+                    <div class="feature-box">
+                        <ol>
+                            <li>Open the <strong>View</strong> menu.</li>
+                            <li>Choose <strong>Theme</strong>.</li>
+                            <li>Select one of the preset themes or choose a custom color option.</li>
+                        </ol>
+                    </div>
+
+                    <h3>Available Presets</h3>
+                    <ul>
+                        <li><strong>Use Windows Colors:</strong> Uses the current system colors from Windows.</li>
+                        <li><strong>Light:</strong> Bright neutral background with dark text.</li>
+                        <li><strong>Dark:</strong> Dark window and control backgrounds with light text.</li>
+                        <li><strong>Blue:</strong> Soft blue interface background.</li>
+                        <li><strong>Forest:</strong> Green-toned interface background.</li>
+                    </ul>
+
+                    <h3>Custom Colors</h3>
+                    <div class="info-box">
+                        <p>The Theme menu also includes custom color choices for the window background, control background, text color, and accent color. Theme settings are saved in <code>PB_RegistryManager.ini</code> and reused on the next launch.</p>
+                    </div>
+                </section>
+                 
                 <!-- NAVIGATION -->
                 <section id="navigation" class="section">
                     <h2>🗺️ Navigation & Favorites</h2>
@@ -789,6 +824,89 @@
                     <p>Snapshots are stored as standard .reg files and kept indefinitely (no auto-deletion).</p>
                 </section>
                 
+                <!-- REGISTRY CLEANER -->
+                <section id="cleaner" class="section">
+                    <h2>🧹 Registry Cleaner</h2>
+                    <p>The Registry Cleaner scans selected registry areas for entries that may be safe to remove. It is designed for careful cleanup, not aggressive system repair.</p>
+
+                    <div class="warning-box">
+                        <h4>⚠️ Review Before Cleaning</h4>
+                        <p>Registry cleanup can affect installed applications and Windows behavior. A safety backup is created before cleaning, but you should still review scan output before deleting anything.</p>
+                    </div>
+
+                    <h3>Using the Registry Cleaner</h3>
+                    <div class="feature-box">
+                        <ol>
+                            <li>Click <strong>Tools → Registry Cleaner...</strong></li>
+                            <li>Select the categories you want to scan.</li>
+                            <li>Click <span class="button-demo">Scan Only</span> to review findings without deleting.</li>
+                            <li>Click <span class="button-demo">Clean Now</span> only after reviewing the results.</li>
+                            <li>Use <span class="button-demo">Stop</span> if you need to cancel an active scan.</li>
+                        </ol>
+                    </div>
+
+                    <h3>Safety Behavior</h3>
+                    <ul>
+                        <li>Creates or reuses a validated registry backup before cleaning.</li>
+                        <li>Logs scan and cleanup activity.</li>
+                        <li>Requires confirmation before deleting flagged entries.</li>
+                    </ul>
+                </section>
+
+                <!-- DISK CLEANER -->
+                <section id="disk-cleaner" class="section">
+                    <h2>🗂️ Disk Cleaner</h2>
+                    <p>The Disk Cleaner scans common temporary-file and cache locations, then shows the matching files before deletion. It uses explicit cleanup rules rather than scanning the whole drive.</p>
+
+                    <h3>What It Scans</h3>
+                    <div class="feature-box">
+                        <ul>
+                            <li>Windows Temp and user Temp folders</li>
+                            <li>Crash dumps and Windows Error Reporting data</li>
+                            <li>Browser cache folders for Chrome, Edge, and Firefox profiles</li>
+                            <li>Application logs and cache folders for supported applications</li>
+                            <li>Additional GPU/app cache rules when <strong>Aggressive</strong> mode is selected</li>
+                        </ul>
+                    </div>
+
+                    <h3>Safe vs. Aggressive Mode</h3>
+                    <ul>
+                        <li><strong>Safe:</strong> Uses the default cleanup rule set and age limits.</li>
+                        <li><strong>Aggressive:</strong> Adds extra cache/log rules and scans newer files. Use this when you understand what will be removed.</li>
+                    </ul>
+
+                    <h3>Background Scanning</h3>
+                    <div class="info-box">
+                        <p>Disk Cleaner scans now run in a background worker thread. The window remains responsive while scanning, and the status line shows the current rule being processed.</p>
+                    </div>
+
+                    <h3>Using the Disk Cleaner</h3>
+                    <div class="feature-box">
+                        <ol>
+                            <li>Click <strong>Tools → Disk Cleaner...</strong></li>
+                            <li>Choose <strong>Safe</strong> or <strong>Aggressive</strong>.</li>
+                            <li>Check or uncheck cleanup rules in the top list.</li>
+                            <li>Click <span class="button-demo">Scan</span>.</li>
+                            <li>Use <span class="button-demo">Cancel</span> to stop an active scan.</li>
+                            <li>Review the result list and uncheck anything you do not want removed.</li>
+                            <li>Click <span class="button-demo">Clean</span> to delete the selected results.</li>
+                        </ol>
+                    </div>
+
+                    <h3>Scan Safety Limits</h3>
+                    <ul>
+                        <li>Skips junctions, symlinks, and other reparse points to avoid recursive loops.</li>
+                        <li>Limits recursion depth to protect against unusually deep folder trees.</li>
+                        <li>Stops at a maximum result count and asks you to narrow selected rules if needed.</li>
+                        <li>Revalidates paths before deletion and will not delete drive roots or unsafe paths.</li>
+                    </ul>
+
+                    <div class="warning-box">
+                        <h4>⚠️ Review Results First</h4>
+                        <p>Disk Cleaner does not use the Recycle Bin. Deleted files are removed directly. Always review the result list before clicking Clean.</p>
+                    </div>
+                </section>
+                 
                 <!-- TROUBLESHOOTING -->
                 <section id="troubleshooting" class="section">
                     <h2>🔧 Troubleshooting Guide</h2>
@@ -836,6 +954,18 @@
                             <li>Wait patiently - operation will complete</li>
                         </ul>
                     </div>
+
+                    <h3>Disk Cleaner Scan Takes Too Long</h3>
+                    <div class="warning-box">
+                        <h4>Problem: Disk Cleaner is scanning a large cache tree</h4>
+                        <p><strong>Solutions:</strong></p>
+                        <ul>
+                            <li>Click <span class="button-demo">Cancel</span> and wait for the current folder scan to stop.</li>
+                            <li>Uncheck broad rules you do not need.</li>
+                            <li>Use <strong>Safe</strong> mode instead of Aggressive mode.</li>
+                            <li>If the result limit is reached, narrow the selected rules and scan again.</li>
+                        </ul>
+                    </div>
                     
                     <h3>Getting Help</h3>
                     <div class="info-box">
@@ -875,6 +1005,12 @@
                     
                     <h3>How do I restore from a backup?</h3>
                     <p>Click <strong>Tools → Restore Registry</strong>, navigate to the backup directory, open the relevant <code>AutoBackup_*</code> folder, select the hive <code>.reg</code> file you want to restore, and confirm. A NEW backup is created before restore for extra safety!</p>
+
+                    <h3>Can I cancel a Disk Cleaner scan?</h3>
+                    <p>Yes. Click <span class="button-demo">Cancel</span> in the Disk Cleaner window. The scan stops cooperatively and shows any results found before cancellation.</p>
+
+                    <h3>Where are theme settings stored?</h3>
+                    <p>Theme choices are stored in <code>PB_RegistryManager.ini</code> next to the application.</p>
                     
                     <h3>Can I schedule automatic snapshots?</h3>
                     <p>Not currently, but this is a planned feature for future versions. For now, create snapshots manually before important operations.</p>
@@ -994,6 +1130,7 @@
                         <li><strong>Lines of Code:</strong> 2,547</li>
                         <li><strong>Executable Size:</strong> 401.5 KB</li>
                         <li><strong>Threading:</strong> Multi-threaded (5 monitor threads)</li>
+                        <li><strong>Disk Cleaner:</strong> Background worker thread with cooperative cancellation</li>
                     </ul>
                     
                     <h3>File Locations</h3>
@@ -1049,6 +1186,10 @@
                         <tr>
                             <td>Monitor Event Capture</td>
                             <td>&lt;1 millisecond</td>
+                        </tr>
+                        <tr>
+                            <td>Disk Cleaner Scan</td>
+                            <td>Varies by selected rules and cache size; runs in background</td>
                         </tr>
                     </table>
                     

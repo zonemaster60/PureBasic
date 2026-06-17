@@ -2,6 +2,31 @@
 
 ;- Main Window
 
+Procedure UpdateThemeMenuStates()
+  If Not IsMenu(#GADGET_MENU)
+    ProcedureReturn
+  EndIf
+
+  SetMenuItemState(#GADGET_MENU, #MENU_VIEW_THEME_SYSTEM, #False)
+  SetMenuItemState(#GADGET_MENU, #MENU_VIEW_THEME_LIGHT, #False)
+  SetMenuItemState(#GADGET_MENU, #MENU_VIEW_THEME_DARK, #False)
+  SetMenuItemState(#GADGET_MENU, #MENU_VIEW_THEME_BLUE, #False)
+  SetMenuItemState(#GADGET_MENU, #MENU_VIEW_THEME_FOREST, #False)
+
+  Select AppTheme\preset
+    Case #HandyTheme_System
+      SetMenuItemState(#GADGET_MENU, #MENU_VIEW_THEME_SYSTEM, #True)
+    Case #HandyTheme_Light
+      SetMenuItemState(#GADGET_MENU, #MENU_VIEW_THEME_LIGHT, #True)
+    Case #HandyTheme_Dark
+      SetMenuItemState(#GADGET_MENU, #MENU_VIEW_THEME_DARK, #True)
+    Case #HandyTheme_Blue
+      SetMenuItemState(#GADGET_MENU, #MENU_VIEW_THEME_BLUE, #True)
+    Case #HandyTheme_Forest
+      SetMenuItemState(#GADGET_MENU, #MENU_VIEW_THEME_FOREST, #True)
+  EndSelect
+EndProcedure
+
 Procedure CreateGUI()
   Protected window.i, menu.i
   
@@ -10,10 +35,13 @@ Procedure CreateGUI()
   window = OpenWindow(#WINDOW_MAIN, 0, 0, 1024, 768, "PB_Registry Manager " + AppVersion + " - Editor | Cleaner | Backup | Restore | Hex Editor", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_MaximizeGadget | #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered)
   
   If window
+    ApplyRegistryThemeToWindow(#WINDOW_MAIN)
+
     ; Create Address Bar (at the top)
 
     StringGadget(#GADGET_ADDRESS_BAR, 5, 5, 960, 25, "")
     ButtonGadget(#GADGET_ADDRESS_GO, 970, 5, 45, 25, "Go")
+    ApplyRegistryThemeToGadget(#GADGET_ADDRESS_BAR)
     
     ; Create Menu
 
@@ -45,6 +73,20 @@ Procedure CreateGUI()
       MenuItem(#MENU_VIEW_64BIT, "64-bit Registry View")
       SetMenuItemState(#GADGET_MENU, #MENU_VIEW_64BIT, #True)
       MenuItem(#MENU_VIEW_REFRESH, "Refresh" + Chr(9) + "F5")
+      MenuBar()
+      OpenSubMenu("Theme")
+        MenuItem(#MENU_VIEW_THEME_SYSTEM, "Use Windows Colors")
+        MenuItem(#MENU_VIEW_THEME_LIGHT, "Light")
+        MenuItem(#MENU_VIEW_THEME_DARK, "Dark")
+        MenuItem(#MENU_VIEW_THEME_BLUE, "Blue")
+        MenuItem(#MENU_VIEW_THEME_FOREST, "Forest")
+        MenuBar()
+        MenuItem(#MENU_VIEW_THEME_WINDOW, "Custom Window Background...")
+        MenuItem(#MENU_VIEW_THEME_PANEL, "Custom Control Background...")
+        MenuItem(#MENU_VIEW_THEME_TEXT, "Custom Text Color...")
+        MenuItem(#MENU_VIEW_THEME_ACCENT, "Custom Accent Color...")
+      CloseSubMenu()
+      UpdateThemeMenuStates()
       
       MenuTitle("Favorites")
       MenuItem(#MENU_FAV_ADD, "Add Current Path to Favorites" + Chr(9) + "Ctrl+D")
@@ -130,10 +172,12 @@ Procedure CreateGUI()
     AddGadgetColumn(#GADGET_LISTVIEW, 2, "Data", 500)
     
     ; Apply Explorer Theme to both gadgets now that they both exist
-    SendMessage_(GadgetID(#GADGET_TREE), 4381, 0, RGB(255, 255, 255)) ; #TVM_SETBKCOLOR
+    SendMessage_(GadgetID(#GADGET_TREE), 4381, 0, AppTheme\panelColor) ; #TVM_SETBKCOLOR
     SendMessage_(GadgetID(#GADGET_LISTVIEW), #LVM_SETEXTENDEDLISTVIEWSTYLE, #LVS_EX_FULLROWSELECT | #LVS_EX_DOUBLEBUFFER, #LVS_EX_FULLROWSELECT | #LVS_EX_DOUBLEBUFFER)
     SetWindowTheme(GadgetID(#GADGET_TREE), "Explorer", 0)
     SetWindowTheme(GadgetID(#GADGET_LISTVIEW), "Explorer", 0)
+    ApplyRegistryThemeToGadget(#GADGET_TREE)
+    ApplyRegistryThemeToGadget(#GADGET_LISTVIEW)
 
     ; Add value type icons
 
@@ -267,7 +311,9 @@ EndProcedure
 Procedure OpenFavoritesManager()
   Protected win = OpenWindow(#PB_Any, 0, 0, 400, 300, "Manage Favorites", #PB_Window_SystemMenu | #PB_Window_ScreenCentered, WindowID(#WINDOW_MAIN))
   If win
+    ApplyRegistryThemeToWindow(win)
     ListViewGadget(500, 10, 10, 380, 230)
+    ApplyRegistryThemeToGadget(500)
     LoadFavorites()
     ForEach Favorites()
       AddGadgetItem(500, -1, Favorites())
@@ -676,6 +722,8 @@ Procedure HandleToolsMenu(menuID.i)
 EndProcedure
 
 Procedure HandleViewMenu(menuID.i)
+  Protected themeChanged.i = #False
+
   Select menuID
     Case #MENU_VIEW_64BIT
       View64Bit = 1 - View64Bit
@@ -721,7 +769,46 @@ Procedure HandleViewMenu(menuID.i)
         EndIf
       EndIf
 
+    Case #MENU_VIEW_THEME_SYSTEM
+      HandyThemeApplyPreset(@AppTheme, #HandyTheme_System)
+      themeChanged = #True
+
+    Case #MENU_VIEW_THEME_LIGHT
+      HandyThemeApplyPreset(@AppTheme, #HandyTheme_Light)
+      themeChanged = #True
+
+    Case #MENU_VIEW_THEME_DARK
+      HandyThemeApplyPreset(@AppTheme, #HandyTheme_Dark)
+      themeChanged = #True
+
+    Case #MENU_VIEW_THEME_BLUE
+      HandyThemeApplyPreset(@AppTheme, #HandyTheme_Blue)
+      themeChanged = #True
+
+    Case #MENU_VIEW_THEME_FOREST
+      HandyThemeApplyPreset(@AppTheme, #HandyTheme_Forest)
+      themeChanged = #True
+
+    Case #MENU_VIEW_THEME_WINDOW
+      themeChanged = HandyThemePickColor(@AppTheme, #HandyTheme_ColorWindow)
+
+    Case #MENU_VIEW_THEME_PANEL
+      themeChanged = HandyThemePickColor(@AppTheme, #HandyTheme_ColorPanel)
+
+    Case #MENU_VIEW_THEME_TEXT
+      themeChanged = HandyThemePickColor(@AppTheme, #HandyTheme_ColorText)
+
+    Case #MENU_VIEW_THEME_ACCENT
+      themeChanged = HandyThemePickColor(@AppTheme, #HandyTheme_ColorAccent)
+
   EndSelect
+
+  If themeChanged
+    SaveRegistryTheme()
+    UpdateThemeMenuStates()
+    RefreshRegistryTheme()
+    UpdateStatusBar("Theme settings updated")
+  EndIf
 EndProcedure
 
 Procedure HandleHelpMenu(menuID.i)
@@ -785,7 +872,7 @@ Procedure HandleMenuEvent(menuID.i)
     Case #MENU_TOOLS_CLEANER, #MENU_TOOLS_DISK_CLEANER, #MENU_TOOLS_BACKUP, #MENU_TOOLS_RESTORE, #MENU_TOOLS_MONITOR, #MENU_TOOLS_SNAPSHOT, #MENU_TOOLS_HEX_EXTERNAL
       HandleToolsMenu(menuID)
 
-    Case #MENU_VIEW_64BIT, #MENU_VIEW_REFRESH
+    Case #MENU_VIEW_64BIT, #MENU_VIEW_REFRESH, #MENU_VIEW_THEME_SYSTEM, #MENU_VIEW_THEME_LIGHT, #MENU_VIEW_THEME_DARK, #MENU_VIEW_THEME_BLUE, #MENU_VIEW_THEME_FOREST, #MENU_VIEW_THEME_WINDOW, #MENU_VIEW_THEME_PANEL, #MENU_VIEW_THEME_TEXT, #MENU_VIEW_THEME_ACCENT
       HandleViewMenu(menuID)
 
     Case #MENU_HELP_ONLINE, #MENU_HELP_ABOUT

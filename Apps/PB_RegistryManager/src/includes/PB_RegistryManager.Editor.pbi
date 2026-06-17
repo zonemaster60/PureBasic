@@ -262,11 +262,13 @@ Procedure OpenHexEditor(rootKey.i, keyPath.s, valueName.s, filePath.s = "")
   ctx\Window = OpenWindow(#PB_Any, 0, 0, winWidth, winHeight, title, #PB_Window_SystemMenu | #PB_Window_ScreenCentered, WindowID(#WINDOW_MAIN))
   
   If ctx\Window
+    ApplyRegistryThemeToWindow(ctx\Window)
     ctx\Grid = ListIconGadget(#PB_Any, 10, 10, winWidth - 20, winHeight - 80, "Address", 80, #PB_ListIcon_GridLines | #PB_ListIcon_FullRowSelect)
     AddGadgetColumn(ctx\Grid, 1, "00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F", 370)
     AddGadgetColumn(ctx\Grid, 2, "ASCII", 130)
     
     SetWindowTheme(GadgetID(ctx\Grid), "Explorer", 0)
+    ApplyRegistryThemeToGadget(ctx\Grid)
 
     Protected i.i, row.s, hexPart.s, asciiPart.s, byte.i
     SendMessage_(GadgetID(ctx\Grid), #WM_SETREDRAW, #False, 0)
@@ -397,6 +399,7 @@ Procedure OpenValueEditor(rootKey.i, keyPath.s, valueName.s = "")
   
   Protected win = OpenWindow(#PB_Any, 0, 0, 450, 320, winTitle, #PB_Window_SystemMenu | #PB_Window_ScreenCentered, WindowID(#WINDOW_MAIN))
   If win
+    ApplyRegistryThemeToWindow(win)
     TextGadget(#PB_Any, 10, 15, 80, 20, "Name:")
     StringGadget(#GADGET_VALUE_EDITOR_NAME, 90, 10, 340, 25, valueName)
     If Not isNew : DisableGadget(#GADGET_VALUE_EDITOR_NAME, #True) : EndIf
@@ -430,6 +433,7 @@ Procedure OpenValueEditor(rootKey.i, keyPath.s, valueName.s = "")
     TextGadget(#PB_Any, 10, 85, 80, 20, "Value Data:")
     EditorGadget(#GADGET_VALUE_EDITOR_DATA, 90, 80, 340, 120, #PB_Editor_WordWrap)
     SetGadgetText(#GADGET_VALUE_EDITOR_DATA, currentData)
+    ApplyRegistryThemeToGadget(#GADGET_VALUE_EDITOR_DATA)
     
     ; Hex Editor Launch Button
     Protected btnHexEdit = ButtonGadget(#PB_Any, 90, 205, 120, 25, "Open Hex Editor...")
@@ -516,6 +520,7 @@ Procedure OpenSearchWindow()
   EndIf
   
   If OpenWindow(#WINDOW_SEARCH, 0, 0, 800, 500, "Registry Search - " + GetRootKeyName(CurrentRootKey) + "\" + CurrentKeyPath, #PB_Window_SystemMenu | #PB_Window_ScreenCentered, WindowID(#WINDOW_MAIN))
+    ApplyRegistryThemeToWindow(#WINDOW_SEARCH)
     TextGadget(#PB_Any, 10, 15, 80, 20, "Find what:")
     StringGadget(#GADGET_SEARCH_STRING, 90, 10, 500, 25, "")
     
@@ -533,6 +538,7 @@ Procedure OpenSearchWindow()
     ListIconGadget(#GADGET_SEARCH_RESULTS, 10, 65, 780, 400, "Path", 300, #PB_ListIcon_FullRowSelect | #PB_ListIcon_AlwaysShowSelection | #PB_ListIcon_GridLines)
 
     SetWindowTheme(GadgetID(#GADGET_SEARCH_RESULTS), "Explorer", 0)
+    ApplyRegistryThemeToGadget(#GADGET_SEARCH_RESULTS)
 
     AddGadgetColumn(#GADGET_SEARCH_RESULTS, 1, "Name", 150)
 
@@ -540,6 +546,7 @@ Procedure OpenSearchWindow()
     AddGadgetColumn(#GADGET_SEARCH_RESULTS, 3, "Data", 210)
     
     TextGadget(#GADGET_SEARCH_STATUS, 10, 475, 780, 20, "Ready to search.")
+    ApplyRegistryThemeToGadget(#GADGET_SEARCH_STATUS, #True)
   EndIf
 EndProcedure
 

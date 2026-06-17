@@ -4,14 +4,15 @@
 ; Target: Windows with PureBasic 6.30+
 ; ======================================================================
 
-XIncludeFile "Registry.pbi"
+XIncludeFile "includes\PB_Registry.pbi"
 
 EnableExplicit
 
-XIncludeFile "PB_RegistryManager.Shared.pbi"
-XIncludeFile "PB_RegistryManager.Editor.pbi"
-XIncludeFile "PB_RegistryManager.Tools.pbi"
-XIncludeFile "PB_RegistryManager.UI.pbi"
+XIncludeFile "includes\PB_Theme_Reusable.pbi"
+XIncludeFile "includes\PB_RegistryManager.Shared.pbi"
+XIncludeFile "includes\PB_RegistryManager.Editor.pbi"
+XIncludeFile "includes\PB_RegistryManager.Tools.pbi"
+XIncludeFile "includes\PB_RegistryManager.UI.pbi"
 
 Define fileName.s, helpPath.s
 
@@ -23,6 +24,8 @@ EndIf
 LogInfo("Main", "Registry Manager starting...")
 LogInfo("Main", "PureBasic Version: " + Str(#PB_Compiler_Version))
 LogInfo("Main", "Operating System: " + #PB_Compiler_OS)
+
+LoadRegistryTheme()
 
 ; Cleanup old backups (keep last 7 days)
 CleanupOldBackups(7)
@@ -42,7 +45,7 @@ If CreateGUI()
       Case #PB_Event_Timer
         HandleTimerEvent()
 
-      Case #EVENT_EXPORT_COMPLETE, #EVENT_SNAPSHOT_CREATED, #EVENT_ASYNC_STATUS, #EVENT_ASYNC_MESSAGE, #EVENT_COMPARE_COMPLETE, #EVENT_LOAD_VALUES_COMPLETE, #EVENT_LOAD_COMPLETE
+      Case #EVENT_EXPORT_COMPLETE, #EVENT_SNAPSHOT_CREATED, #EVENT_ASYNC_STATUS, #EVENT_ASYNC_MESSAGE, #EVENT_COMPARE_COMPLETE, #EVENT_LOAD_VALUES_COMPLETE, #EVENT_LOAD_COMPLETE, #EVENT_DISK_CLEANER_PROGRESS, #EVENT_DISK_CLEANER_COMPLETE
         HandleCustomEvent(eventID)
 
       Case #PB_Event_Menu
@@ -68,8 +71,7 @@ LogInfo("Main", "Registry Manager shutting down")
 Exit()
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 10
-; FirstLine = 4
+; CursorPosition = 6
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -78,12 +80,12 @@ Exit()
 ; UseIcon = PB_RegistryManager.ico
 ; Executable = ..\PB_RegistryManager.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,8
-; VersionField1 = 1,0,1,8
+; VersionField0 = 1,0,1,9
+; VersionField1 = 1,0,1,9
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_RegistryManager
-; VersionField4 = 1.0.1.8
-; VersionField5 = 1.0.1.8
+; VersionField4 = 1.0.1.9
+; VersionField5 = 1.0.1.9
 ; VersionField6 = A full featured Registry Manager built with PureBasic
 ; VersionField7 = PB_RegistryManager
 ; VersionField8 = PB_RegistryManager.exe
