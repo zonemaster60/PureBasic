@@ -444,9 +444,6 @@ Procedure CleanRegistry()
   EndIf
 EndProcedure
 
-
-
-
 ;- Disk Cleaner
 
 Structure DiskCleanerRule
@@ -793,43 +790,87 @@ Procedure InitDiskCleanerRules(profileMode.i)
 
   ClearList(DiskCleanerRules())
 
-  AddDiskCleanerRule("win-temp", "Windows Temp", windowsDir + "\Temp", "*", #True, 1)
-  AddDiskCleanerRule("user-temp", "User Temp", userTemp, "*", #True, 1)
+  AddDiskCleanerRule("win-temp", "Windows Temp", windowsDir + "\Temp", "*", #True, 0)
+  AddDiskCleanerRule("user-temp", "User Temp", userTemp, "*", #True, 0)
+  AddDiskCleanerRule("inet-cache", "Windows INetCache", localAppData + "\Microsoft\Windows\INetCache", "*", #True, 0)
+  AddDiskCleanerRule("thumbcache", "Windows Thumbnail Cache", localAppData + "\Microsoft\Windows\Explorer", "thumbcache_*.db", #False, 1)
+  AddDiskCleanerRule("iconcache", "Windows Icon Cache", localAppData + "\Microsoft\Windows\Explorer", "iconcache_*.db", #False, 1)
   AddDiskCleanerRule("crash-dumps", "Crash Dumps", localAppData + "\CrashDumps", "*.dmp", #True, 1)
   AddDiskCleanerRule("wer-user", "Windows Error Reports (User)", localAppData + "\Microsoft\Windows\WER", "*", #True, 1)
   AddDiskCleanerRule("wer-system", "Windows Error Reports (System)", programData + "\Microsoft\Windows\WER", "*", #True, 1)
-  AddDiskCleanerProfileRules("chrome-cache", "Google Chrome Cache", localAppData + "\Google\Chrome\User Data", "Cache", "*", #True, 1)
-  AddDiskCleanerProfileRules("chrome-code", "Google Chrome Code Cache", localAppData + "\Google\Chrome\User Data", "Code Cache", "*", #True, 1)
-  AddDiskCleanerProfileRules("edge-cache", "Microsoft Edge Cache", localAppData + "\Microsoft\Edge\User Data", "Cache", "*", #True, 1)
-  AddDiskCleanerProfileRules("edge-code", "Microsoft Edge Code Cache", localAppData + "\Microsoft\Edge\User Data", "Code Cache", "*", #True, 1)
-  AddDiskCleanerProfileRules("firefox-cache", "Firefox Cache", localAppData + "\Mozilla\Firefox\Profiles", "cache2\entries", "*", #True, 1)
-  AddDiskCleanerRule("discord-cache", "Discord Cache", roamingAppData + "\discord\Cache", "*", #True, 1)
-  AddDiskCleanerRule("discord-code", "Discord Code Cache", roamingAppData + "\discord\Code Cache", "*", #True, 1)
+  AddDiskCleanerRule("delivery-cache", "Windows Delivery Optimization Cache", programData + "\Microsoft\Windows\DeliveryOptimization\Cache", "*", #True, 3)
+  AddDiskCleanerRule("update-logs", "Windows Update Logs", windowsDir + "\Logs", "*.log;*.etl", #True, 7)
+  AddDiskCleanerProfileRules("chrome-cache", "Google Chrome Cache", localAppData + "\Google\Chrome\User Data", "Cache", "*", #True, 0)
+  AddDiskCleanerProfileRules("chrome-cache-data", "Google Chrome Cache Data", localAppData + "\Google\Chrome\User Data", "Cache\Cache_Data", "*", #True, 0)
+  AddDiskCleanerProfileRules("chrome-code", "Google Chrome Code Cache", localAppData + "\Google\Chrome\User Data", "Code Cache", "*", #True, 0)
+  AddDiskCleanerProfileRules("chrome-service-worker", "Google Chrome Service Worker Cache", localAppData + "\Google\Chrome\User Data", "Service Worker\CacheStorage", "*", #True, 1)
+  AddDiskCleanerProfileRules("chrome-media-cache", "Google Chrome Media Cache", localAppData + "\Google\Chrome\User Data", "Media Cache", "*", #True, 0)
+  AddDiskCleanerProfileRules("edge-cache", "Microsoft Edge Cache", localAppData + "\Microsoft\Edge\User Data", "Cache", "*", #True, 0)
+  AddDiskCleanerProfileRules("edge-cache-data", "Microsoft Edge Cache Data", localAppData + "\Microsoft\Edge\User Data", "Cache\Cache_Data", "*", #True, 0)
+  AddDiskCleanerProfileRules("edge-code", "Microsoft Edge Code Cache", localAppData + "\Microsoft\Edge\User Data", "Code Cache", "*", #True, 0)
+  AddDiskCleanerProfileRules("edge-service-worker", "Microsoft Edge Service Worker Cache", localAppData + "\Microsoft\Edge\User Data", "Service Worker\CacheStorage", "*", #True, 1)
+  AddDiskCleanerProfileRules("edge-media-cache", "Microsoft Edge Media Cache", localAppData + "\Microsoft\Edge\User Data", "Media Cache", "*", #True, 0)
+  AddDiskCleanerProfileRules("brave-cache", "Brave Cache", localAppData + "\BraveSoftware\Brave-Browser\User Data", "Cache", "*", #True, 0)
+  AddDiskCleanerProfileRules("brave-cache-data", "Brave Cache Data", localAppData + "\BraveSoftware\Brave-Browser\User Data", "Cache\Cache_Data", "*", #True, 0)
+  AddDiskCleanerProfileRules("brave-code", "Brave Code Cache", localAppData + "\BraveSoftware\Brave-Browser\User Data", "Code Cache", "*", #True, 0)
+  AddDiskCleanerRule("opera-cache", "Opera Cache", roamingAppData + "\Opera Software\Opera Stable\Cache", "*", #True, 0)
+  AddDiskCleanerRule("opera-cache-data", "Opera Cache Data", roamingAppData + "\Opera Software\Opera Stable\Cache\Cache_Data", "*", #True, 0)
+  AddDiskCleanerRule("opera-code", "Opera Code Cache", roamingAppData + "\Opera Software\Opera Stable\Code Cache", "*", #True, 0)
+  AddDiskCleanerRule("opera-gx-cache", "Opera GX Cache", roamingAppData + "\Opera Software\Opera GX Stable\Cache", "*", #True, 0)
+  AddDiskCleanerRule("opera-gx-cache-data", "Opera GX Cache Data", roamingAppData + "\Opera Software\Opera GX Stable\Cache\Cache_Data", "*", #True, 0)
+  AddDiskCleanerRule("opera-gx-code", "Opera GX Code Cache", roamingAppData + "\Opera Software\Opera GX Stable\Code Cache", "*", #True, 0)
+  AddDiskCleanerProfileRules("firefox-cache", "Firefox Cache", localAppData + "\Mozilla\Firefox\Profiles", "cache2\entries", "*", #True, 0)
+  AddDiskCleanerProfileRules("firefox-startup-cache", "Firefox Startup Cache", localAppData + "\Mozilla\Firefox\Profiles", "startupCache", "*", #True, 0)
+  AddDiskCleanerRule("discord-cache", "Discord Cache", roamingAppData + "\discord\Cache", "*", #True, 0)
+  AddDiskCleanerRule("discord-code", "Discord Code Cache", roamingAppData + "\discord\Code Cache", "*", #True, 0)
+  AddDiskCleanerRule("discord-gpu", "Discord GPU Cache", roamingAppData + "\discord\GPUCache", "*", #True, 0)
+  AddDiskCleanerRule("discord-logs", "Discord Logs", roamingAppData + "\discord\logs", "*.log", #True, 3)
+  AddDiskCleanerRule("slack-cache", "Slack Cache", roamingAppData + "\Slack\Cache", "*", #True, 1)
+  AddDiskCleanerRule("slack-code", "Slack Code Cache", roamingAppData + "\Slack\Code Cache", "*", #True, 1)
   AddDiskCleanerRule("teams-logs", "Microsoft Teams Logs", roamingAppData + "\Microsoft\Teams", "*.log", #True, 3)
+  AddDiskCleanerRule("teams-cache", "Microsoft Teams Cache", roamingAppData + "\Microsoft\Teams\Cache", "*", #True, 1)
+  AddDiskCleanerRule("teams-gpu", "Microsoft Teams GPU Cache", roamingAppData + "\Microsoft\Teams\GPUCache", "*", #True, 1)
   AddDiskCleanerRule("steam-logs", "Steam Logs", programFilesX86 + "\Steam\logs", "*.log", #True, 7)
   AddDiskCleanerRule("steam-dumps", "Steam Dumps", programFilesX86 + "\Steam\dumps", "*.dmp", #True, 1)
+  AddDiskCleanerRule("steam-htmlcache", "Steam HTML Cache", localAppData + "\Steam\htmlcache", "*", #True, 7)
   AddDiskCleanerRule("pb-logs", "PureBasic Logs", userHome + "Documents\PureBasic", "*.log", #True, 7)
   AddDiskCleanerRule("pb-dumps", "PureBasic Dumps", userHome + "Documents\PureBasic", "*.dmp", #True, 1)
   AddDiskCleanerRule("adobe-logs", "Adobe Logs", localAppData + "\Adobe", "*.log", #True, 7)
+  AddDiskCleanerRule("adobe-crlogs", "Adobe Crash Logs", roamingAppData + "\Adobe\Common\Logs", "*.log", #True, 7)
   AddDiskCleanerRule("7zip-temp", "7-Zip Temp", userTemp, "7z*.tmp", #True, 1)
   AddDiskCleanerRule("office-cache", "Microsoft Office Cache", localAppData + "\Microsoft\Office\16.0\OfficeFileCache", "*", #True, 7)
+  AddDiskCleanerRule("office-unsaved", "Microsoft Office Unsaved Cache", localAppData + "\Microsoft\Office\UnsavedFiles", "*", #True, 30)
   AddDiskCleanerRule("powershell-history", "PowerShell Transcripts", userHome + "Documents\PowerShell_transcript", "*.txt", #True, 30)
+  AddDiskCleanerRule("msi-temp", "Windows Installer Temp Files", windowsDir + "\Installer", "*.tmp;*.log", #False, 30)
 
   If profileMode
     AddDiskCleanerProfileRules("chrome-gpu", "Google Chrome GPU Cache", localAppData + "\Google\Chrome\User Data", "GPUCache", "*", #True, 1, #True)
     AddDiskCleanerProfileRules("edge-gpu", "Microsoft Edge GPU Cache", localAppData + "\Microsoft\Edge\User Data", "GPUCache", "*", #True, 1, #True)
+    AddDiskCleanerProfileRules("brave-gpu", "Brave GPU Cache", localAppData + "\BraveSoftware\Brave-Browser\User Data", "GPUCache", "*", #True, 1, #True)
     AddDiskCleanerRule("nvidia-dx", "NVIDIA DX Cache", localAppData + "\NVIDIA\DXCache", "*", #True, 2, #True)
     AddDiskCleanerRule("nvidia-gl", "NVIDIA GL Cache", localAppData + "\NVIDIA\GLCache", "*", #True, 2, #True)
+    AddDiskCleanerRule("amd-cache", "AMD Shader Cache", localAppData + "\AMD\DxCache", "*", #True, 2, #True)
+    AddDiskCleanerRule("intel-cache", "Intel Shader Cache", localAppData + "\Intel\ShaderCache", "*", #True, 2, #True)
     AddDiskCleanerRule("unity-logs", "Unity Logs", localAppData + "\Unity", "*.log", #True, 7, #True)
+    AddDiskCleanerRule("unreal-logs", "Unreal Engine Logs", localAppData + "\UnrealEngine\Common\DerivedDataCache", "*", #True, 14, #True)
     AddDiskCleanerRule("obs-logs", "OBS Logs", roamingAppData + "\obs-studio\logs", "*.txt", #True, 7, #True)
     AddDiskCleanerRule("obs-crashes", "OBS Crashes", roamingAppData + "\obs-studio\crashes", "*", #True, 1, #True)
     AddDiskCleanerRule("blender-temp", "Blender Temp", localAppData + "\Temp\Blender", "*", #True, 1, #True)
     AddDiskCleanerRule("vs-code-logs", "VS Code Logs", roamingAppData + "\Code\logs", "*", #True, 3, #True)
+    AddDiskCleanerRule("vs-code-cache", "VS Code Cache", roamingAppData + "\Code\Cache", "*", #True, 7, #True)
+    AddDiskCleanerRule("vs-code-gpu", "VS Code GPU Cache", roamingAppData + "\Code\GPUCache", "*", #True, 7, #True)
+    AddDiskCleanerRule("npm-cache-logs", "npm Cache Logs", roamingAppData + "\npm-cache\_logs", "*.log", #True, 7, #True)
+    AddDiskCleanerRule("pip-cache", "Python pip Cache", localAppData + "\pip\Cache", "*", #True, 14, #True)
+    AddDiskCleanerRule("nuget-http-cache", "NuGet HTTP Cache", localAppData + "\NuGet\v3-cache", "*", #True, 14, #True)
     AddDiskCleanerRule("vlc-art", "VLC Art Cache", roamingAppData + "\vlc\art", "*", #True, 7, #True)
     AddDiskCleanerRule("epic-logs", "Epic Games Launcher Logs", localAppData + "\EpicGamesLauncher\Saved\Logs", "*.log", #True, 7, #True)
     AddDiskCleanerRule("epic-webcache", "Epic Games Web Cache", localAppData + "\EpicGamesLauncher\Saved\webcache", "*", #True, 3, #True)
+    AddDiskCleanerRule("ea-logs", "EA App Logs", localAppData + "\Electronic Arts\EA Desktop\Logs", "*.log", #True, 7, #True)
+    AddDiskCleanerRule("ea-cache", "EA App Cache", localAppData + "\Electronic Arts\EA Desktop\Cache", "*", #True, 7, #True)
+    AddDiskCleanerRule("gog-logs", "GOG Galaxy Logs", programData + "\GOG.com\Galaxy\logs", "*.log", #True, 7, #True)
     AddDiskCleanerRule("battle-net-cache", "Battle.net Cache", programData + "\Battle.net\Cache", "*", #True, 3, #True)
     AddDiskCleanerRule("java-cache", "Java Deployment Cache", localLowAppData + "\Sun\Java\Deployment\cache", "*", #True, 7, #True)
+    AddDiskCleanerRule("docker-temp", "Docker Desktop Temp", localAppData + "\Docker\log", "*.log", #True, 7, #True)
   EndIf
 EndProcedure
 
@@ -849,6 +890,7 @@ Procedure RefreshDiskCleanerResults(listGadget.i, statusGadget.i)
   Protected totalCount.i = 0
   Protected totalSize.q = 0
   Protected itemState.i
+  Protected itemIndex.i = 0
 
   ClearGadgetItems(listGadget)
   ForEach DiskCleanerResults()
@@ -860,6 +902,8 @@ Procedure RefreshDiskCleanerResults(listGadget.i, statusGadget.i)
       itemState = 0
     EndIf
     AddGadgetItem(listGadget, -1, DiskCleanerResults()\RuleLabel + Chr(10) + DiskCleanerResults()\FilePath + Chr(10) + FormatBytes(DiskCleanerResults()\Size), 0, itemState)
+    SetGadgetItemState(listGadget, itemIndex, itemState)
+    itemIndex + 1
   Next
 
   SetGadgetText(statusGadget, Str(totalCount) + " item(s), " + FormatBytes(totalSize) + " recoverable")
@@ -954,6 +998,7 @@ EndProcedure
 Procedure SetDiskCleanerSelection(listGadget.i, mode.i)
   Protected itemIndex.i = 0
   Protected currentChecked.i
+  Protected itemState.i
 
   ForEach DiskCleanerResults()
     Select mode
@@ -965,6 +1010,15 @@ Procedure SetDiskCleanerSelection(listGadget.i, mode.i)
         currentChecked = Bool(GetGadgetItemState(listGadget, itemIndex) & #PB_ListIcon_Checked)
         DiskCleanerResults()\Selected = 1 - currentChecked
     EndSelect
+
+    If DiskCleanerResults()\Selected
+      itemState = #PB_ListIcon_Checked
+    Else
+      itemState = 0
+    EndIf
+    If itemIndex < CountGadgetItems(listGadget)
+      SetGadgetItemState(listGadget, itemIndex, itemState)
+    EndIf
     itemIndex + 1
   Next
 EndProcedure
@@ -1077,16 +1131,16 @@ Procedure OpenDiskCleaner()
   SetWindowTheme(GadgetID(list), "Explorer", 0)
   ApplyRegistryThemeToGadget(list)
 
-  statusText = TextGadget(#PB_Any, 10, 565, 550, 20, "Ready to scan.")
+  statusText = TextGadget(#PB_Any, 10, 555, 450, 20, "Ready to scan.")
   ApplyRegistryThemeToGadget(statusText, #True)
   btnSelectAll = ButtonGadget(#PB_Any, 10, 585, 80, 25, "All")
   btnSelectNone = ButtonGadget(#PB_Any, 100, 585, 80, 25, "None")
   btnInvert = ButtonGadget(#PB_Any, 190, 585, 80, 25, "Invert")
   btnSummary = ButtonGadget(#PB_Any, 280, 585, 90, 25, "Summary")
-  btnCancelScan = ButtonGadget(#PB_Any, 470, 555, 90, 30, "Cancel")
-  btnScan = ButtonGadget(#PB_Any, 570, 555, 90, 30, "Scan")
-  btnClean = ButtonGadget(#PB_Any, 670, 555, 90, 30, "Clean")
-  btnClose = ButtonGadget(#PB_Any, 770, 555, 80, 30, "Close")
+  btnCancelScan = ButtonGadget(#PB_Any, 470, 585, 90, 25, "Cancel")
+  btnScan = ButtonGadget(#PB_Any, 570, 585, 90, 25, "Scan")
+  btnClean = ButtonGadget(#PB_Any, 670, 585, 90, 25, "Clean")
+  btnClose = ButtonGadget(#PB_Any, 770, 585, 80, 25, "Close")
   DisableGadget(btnCancelScan, #True)
   DisableGadget(btnClean, #True)
 
@@ -1108,15 +1162,15 @@ Procedure OpenDiskCleaner()
         If EventWindow() = #WINDOW_DISK_CLEANER
           ResizeGadget(ruleList, 10, 65, WindowWidth(#WINDOW_DISK_CLEANER) - 20, 165)
           ResizeGadget(list, 10, 250, WindowWidth(#WINDOW_DISK_CLEANER) - 20, WindowHeight(#WINDOW_DISK_CLEANER) - 320)
-          ResizeGadget(statusText, 10, WindowHeight(#WINDOW_DISK_CLEANER) - 55, WindowWidth(#WINDOW_DISK_CLEANER) - 300, 20)
+          ResizeGadget(statusText, 10, WindowHeight(#WINDOW_DISK_CLEANER) - 65, WindowWidth(#WINDOW_DISK_CLEANER) - 410, 20)
           ResizeGadget(btnSelectAll, 10, WindowHeight(#WINDOW_DISK_CLEANER) - 30, 80, 25)
           ResizeGadget(btnSelectNone, 100, WindowHeight(#WINDOW_DISK_CLEANER) - 30, 80, 25)
           ResizeGadget(btnInvert, 190, WindowHeight(#WINDOW_DISK_CLEANER) - 30, 80, 25)
           ResizeGadget(btnSummary, 280, WindowHeight(#WINDOW_DISK_CLEANER) - 30, 90, 25)
-          ResizeGadget(btnCancelScan, WindowWidth(#WINDOW_DISK_CLEANER) - 385, WindowHeight(#WINDOW_DISK_CLEANER) - 55, 90, 30)
-          ResizeGadget(btnScan, WindowWidth(#WINDOW_DISK_CLEANER) - 285, WindowHeight(#WINDOW_DISK_CLEANER) - 55, 90, 30)
-          ResizeGadget(btnClean, WindowWidth(#WINDOW_DISK_CLEANER) - 185, WindowHeight(#WINDOW_DISK_CLEANER) - 55, 90, 30)
-          ResizeGadget(btnClose, WindowWidth(#WINDOW_DISK_CLEANER) - 85, WindowHeight(#WINDOW_DISK_CLEANER) - 55, 75, 30)
+          ResizeGadget(btnCancelScan, WindowWidth(#WINDOW_DISK_CLEANER) - 385, WindowHeight(#WINDOW_DISK_CLEANER) - 30, 90, 25)
+          ResizeGadget(btnScan, WindowWidth(#WINDOW_DISK_CLEANER) - 285, WindowHeight(#WINDOW_DISK_CLEANER) - 30, 90, 25)
+          ResizeGadget(btnClean, WindowWidth(#WINDOW_DISK_CLEANER) - 185, WindowHeight(#WINDOW_DISK_CLEANER) - 30, 90, 25)
+          ResizeGadget(btnClose, WindowWidth(#WINDOW_DISK_CLEANER) - 85, WindowHeight(#WINDOW_DISK_CLEANER) - 30, 75, 25)
         EndIf
 
       Case #PB_Event_Gadget
@@ -2007,9 +2061,9 @@ Procedure ToggleStressTest()
 EndProcedure
 
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 677
-; FirstLine = 674
-; Folding = -----
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 446
+; FirstLine = 1014
+; Folding = ---------
 ; EnableXP
 ; DPIAware

@@ -861,17 +861,18 @@
                     <h3>What It Scans</h3>
                     <div class="feature-box">
                         <ul>
-                            <li>Windows Temp and user Temp folders</li>
+                            <li>Windows Temp, user Temp, INetCache, thumbnail cache, and icon cache</li>
                             <li>Crash dumps and Windows Error Reporting data</li>
-                            <li>Browser cache folders for Chrome, Edge, and Firefox profiles</li>
-                            <li>Application logs and cache folders for supported applications</li>
+                            <li>Browser cache folders for Chrome, Edge, Brave, Opera, Opera GX, and Firefox profiles</li>
+                            <li>Application logs and cache folders for Discord, Slack, Teams, Steam, Office, Adobe, and PureBasic</li>
+                            <li>Windows Delivery Optimization and selected update logs</li>
                             <li>Additional GPU/app cache rules when <strong>Aggressive</strong> mode is selected</li>
                         </ul>
                     </div>
 
                     <h3>Safe vs. Aggressive Mode</h3>
                     <ul>
-                        <li><strong>Safe:</strong> Uses the default cleanup rule set and age limits.</li>
+                        <li><strong>Safe:</strong> Scans common temp/cache locations, including current browser cache and user temp files.</li>
                         <li><strong>Aggressive:</strong> Adds extra cache/log rules and scans newer files. Use this when you understand what will be removed.</li>
                     </ul>
 

@@ -32,7 +32,7 @@ Procedure CreateGUI()
   
   LogInfo("CreateGUI", "Creating main window and GUI")
   
-  window = OpenWindow(#WINDOW_MAIN, 0, 0, 1024, 768, "PB_Registry Manager " + AppVersion + " - Editor | Cleaner | Backup | Restore | Hex Editor", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_MaximizeGadget | #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered)
+  window = OpenWindow(#WINDOW_MAIN, 0, 0, 1024, 768, "PB_Registry Manager - " + AppVersion + " | RegEditor | Reg/DiskCleaner | RegBackup | Restore | Hex Editor", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_MaximizeGadget | #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered)
   
   If window
     ApplyRegistryThemeToWindow(#WINDOW_MAIN)
@@ -828,7 +828,7 @@ Procedure HandleHelpMenu(menuID.i)
 
     Case #MENU_HELP_ABOUT
       LogInfo("Main", "Displaying About dialog")
-      MessageRequester("About PB_RegistryManager", "PB_Registry Manager " + AppVersion + #CRLF$ + #CRLF$ + "All-in-One Registry Tool with Auto-Backup" + #CRLF$ + #CRLF$ + "Features:" + #CRLF$ + "Registry Editor" + #CRLF$ + "Registry Cleaner" + #CRLF$ + "Backup & Restore" + #CRLF$ + "Automatic Safety Backups" + #CRLF$ + "Real-Time Registry Monitor" + #CRLF$ + "Snapshot Manager & Comparison" + #CRLF$ + #CRLF$ + "Built with PureBasic 6.30+" + #CRLF$ + #CRLF$ + "Log file: " + ErrorLogPath + #CRLF$ + "Backup directory: " + GetBackupDirectory() + #CRLF$ + "Snapshot directory: " + GetSnapshotDirectory() + #CRLF$ + "Last backup: " + AutoBackupPath + #CRLF$ + "Monitor events: " + Str(MonitorEventCount) + #CRLF$ + "Snapshots: " + Str(ListSize(Snapshots())), #PB_MessageRequester_Info)
+      MessageRequester("About PB_RegistryManager", "PB_Registry Manager - " + AppVersion + #CRLF$ + #CRLF$ + "All-in-One Registry Tool with Auto-Backup" + #CRLF$ + #CRLF$ + "Features:" + #CRLF$ + "Registry Editor" + #CRLF$ + "Registry Cleaner" + #CRLF$ + "Backup & Restore" + #CRLF$ + "Automatic Safety Backups" + #CRLF$ + "Real-Time Registry Monitor" + #CRLF$ + "Snapshot Manager & Comparison" + #CRLF$ + #CRLF$ + "Built with PureBasic 6.40+" + #CRLF$ + #CRLF$ + "Log file: " + ErrorLogPath + #CRLF$ + "Backup directory: " + GetBackupDirectory() + #CRLF$ + "Snapshot directory: " + GetSnapshotDirectory() + #CRLF$ + "Last backup: " + AutoBackupPath + #CRLF$ + "Monitor events: " + Str(MonitorEventCount) + #CRLF$ + "Snapshots: " + Str(ListSize(Snapshots())), #PB_MessageRequester_Info)
 
   EndSelect
 EndProcedure
@@ -1271,9 +1271,9 @@ Procedure HandleSizeWindowEvent()
 EndProcedure
 
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 732
-; FirstLine = 729
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 830
+; FirstLine = 804
 ; Folding = ----
 ; EnableXP
 ; DPIAware

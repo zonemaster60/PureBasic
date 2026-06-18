@@ -21,7 +21,7 @@ EndImport
 ;- Core Types
 
 #APP_NAME = "PB_RegistryManager"
-Global AppVersion.s = "v1.0.1.9"
+Global AppVersion.s = "v1.0.2.0"
 
 Structure RegKeyInfo
   Name.s
