@@ -1,7 +1,7 @@
 ﻿; ======================================================================
 ; Registry Manager - All-in-One Edition
 ; Features: Editor, Cleaner, Backup, Restore, Compactor
-; Target: Windows with PureBasic 6.30+
+; Target: Windows with PureBasic 6.40+
 ; ======================================================================
 
 XIncludeFile "includes\PB_Registry.pbi"
@@ -71,7 +71,7 @@ LogInfo("Main", "Registry Manager shutting down")
 Exit()
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 6
+; CursorPosition = 3
 ; Optimizer
 ; EnableThread
 ; EnableXP

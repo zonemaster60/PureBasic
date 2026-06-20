@@ -32,7 +32,7 @@ Procedure CreateGUI()
   
   LogInfo("CreateGUI", "Creating main window and GUI")
   
-  window = OpenWindow(#WINDOW_MAIN, 0, 0, 1024, 768, "PB_Registry Manager - " + AppVersion + " | RegEditor | Reg/DiskCleaner | RegBackup | Restore | Hex Editor", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_MaximizeGadget | #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered)
+  window = OpenWindow(#WINDOW_MAIN, 0, 0, 1024, 768, "PB_Registry Manager - " + AppVersion + " | RegEditor | Reg/DiskCleaner | RegBackup | RegMonitor| RegRestore | SnapshotMgr | Hex Editor", #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_MaximizeGadget | #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered)
   
   If window
     ApplyRegistryThemeToWindow(#WINDOW_MAIN)
@@ -1272,8 +1272,8 @@ EndProcedure
 
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 830
-; FirstLine = 804
+; CursorPosition = 37
+; FirstLine = 3
 ; Folding = ----
 ; EnableXP
 ; DPIAware
