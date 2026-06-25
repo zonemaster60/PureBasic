@@ -308,23 +308,27 @@ Procedure MaybeAutoSwitchThermalProfile()
       If isBattery
         If gDCAutoSwitchSince = 0 : gDCAutoSwitchSince = Date() : EndIf
         If Date() - gDCAutoSwitchSince >= switchSeconds
-          If gAutoSwitchedDCProfile = 0
-            gLastManualDCProfile = gSettings\DCProfile
+          If gAutoSwitchedDCProfile <> switchProfile
+            If gAutoSwitchedDCProfile = 0
+              gLastManualDCProfile = gSettings\DCProfile
+            EndIf
             gAutoSwitchedDCProfile = switchProfile
+            ApplySingleModePresetAndRefresh(switchProfile, #True, "Auto Cooling")
+            ShowTrayNotification("Auto Cooling", "Battery heat persisted. Switched DC to " + ProfileIdToName(switchProfile) + ".")
           EndIf
-          ApplySingleModePresetAndRefresh(switchProfile, #True, "Auto Cooling")
-          ShowTrayNotification("Auto Cooling", "Battery heat persisted. Switched DC to " + ProfileIdToName(switchProfile) + ".")
           gDCAutoSwitchSince = Date()
         EndIf
       Else
         If gACAutoSwitchSince = 0 : gACAutoSwitchSince = Date() : EndIf
         If Date() - gACAutoSwitchSince >= switchSeconds
-          If gAutoSwitchedACProfile = 0
-            gLastManualACProfile = gSettings\ACProfile
+          If gAutoSwitchedACProfile <> switchProfile
+            If gAutoSwitchedACProfile = 0
+              gLastManualACProfile = gSettings\ACProfile
+            EndIf
             gAutoSwitchedACProfile = switchProfile
+            ApplySingleModePresetAndRefresh(switchProfile, #False, "Auto Cooling")
+            ShowTrayNotification("Auto Cooling", "AC heat persisted. Switched AC to " + ProfileIdToName(switchProfile) + ".")
           EndIf
-          ApplySingleModePresetAndRefresh(switchProfile, #False, "Auto Cooling")
-          ShowTrayNotification("Auto Cooling", "AC heat persisted. Switched AC to " + ProfileIdToName(switchProfile) + ".")
           gACAutoSwitchSince = Date()
         EndIf
       EndIf
@@ -338,6 +342,9 @@ Procedure MaybeAutoSwitchThermalProfile()
       If isBattery And gAutoSwitchedDCProfile > 0
         If gDCAutoRestoreSince = 0 : gDCAutoRestoreSince = Date() : EndIf
         If Date() - gDCAutoRestoreSince >= restoreSeconds
+          If gLastManualDCProfile <= 0
+            gLastManualDCProfile = #PROFILE_BALANCED
+          EndIf
           ApplySingleModePresetAndRefresh(gLastManualDCProfile, #True, "Auto Restore")
           ShowTrayNotification("Auto Restore", "Battery temperature recovered. Restored DC " + ProfileIdToName(gLastManualDCProfile) + ".")
           gAutoSwitchedDCProfile = 0
@@ -346,6 +353,9 @@ Procedure MaybeAutoSwitchThermalProfile()
       ElseIf isBattery = 0 And gAutoSwitchedACProfile > 0
         If gACAutoRestoreSince = 0 : gACAutoRestoreSince = Date() : EndIf
         If Date() - gACAutoRestoreSince >= restoreSeconds
+          If gLastManualACProfile <= 0
+            gLastManualACProfile = #PROFILE_COOL
+          EndIf
           ApplySingleModePresetAndRefresh(gLastManualACProfile, #False, "Auto Restore")
           ShowTrayNotification("Auto Restore", "AC temperature recovered. Restored AC " + ProfileIdToName(gLastManualACProfile) + ".")
           gAutoSwitchedACProfile = 0
@@ -373,9 +383,7 @@ EndProcedure
 Procedure ApplyPresetAndRefresh(profileId.i)
   Protected diag.ApplyDiagnostics
 
-  If profileId <> gAutoThermalSwitchProfile Or gAutoSwitchedProfile = 0
-    gLastManualProfile = profileId
-  EndIf
+  gLastManualProfile = profileId
 
   LoadNamedPreset(profileId, gUseBoost, gUseCooling, gUseASPM)
   SaveCurrentUIToSettings(@gSettings, gUseBoost, gUseCooling, gUseASPM)

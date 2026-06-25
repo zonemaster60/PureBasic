@@ -34,7 +34,7 @@ EndEnumeration
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.0.8"
+Global version.s = "v1.0.0.9"
 
 ; Registry base key (HKCU)
 #APP_NAME = "MyCPUCooler"
@@ -43,7 +43,7 @@ Global version.s = "v1.0.0.8"
 #MAX_CUSTOM_PROFILES = 12
 #BENCHMARK_MODE_SECONDS = 600
 #TELEMETRY_INTERVAL_MS = 7000
-#THERMAL_REFRESH_SECONDS = 30
+#THERMAL_REFRESH_SECONDS = 60
 
 #NIM_MODIFY = 1
 #NIF_INFO = $10
@@ -1342,11 +1342,13 @@ Procedure ApplySettings(scheme$, acMax.i, dcMax.i, acMin.i, dcMin.i,
     LogLine(#LOG_ERROR, "Failed to activate scheme. exit=" + Str(gLastExitCode))
   EndIf
 
-  VerifyAppliedSettings(scheme$, acMax, dcMax, acMin, dcMin,
-                        acBoostValue, dcBoostValue, useBoost,
-                        acCoolingPolicy, dcCoolingPolicy,
-                        acASPMValue, dcASPMValue,
-                        *diag)
+  If *diag
+    VerifyAppliedSettings(scheme$, acMax, dcMax, acMin, dcMin,
+                          acBoostValue, dcBoostValue, useBoost,
+                          acCoolingPolicy, dcCoolingPolicy,
+                          acASPMValue, dcASPMValue,
+                          *diag)
+  EndIf
 
   If *diag
     If *diag\FailureCount = 0
