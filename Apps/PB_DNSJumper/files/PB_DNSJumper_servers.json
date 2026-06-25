@@ -81,9 +81,24 @@
       "secondary": "205.171.2.65"
     },
     {
+      "name": "US - Sprint",
+      "primary": "204.97.212.10",
+      "secondary": "204.117.214.10"
+    },
+    {
       "name": "RU - Safe DNS",
       "primary": "195.46.39.39",
       "secondary": "195.46.39.40"
+    },
+    {
+      "name": "DE - DNS WATCH",
+      "primary": "84.200.69.80",
+      "secondary": "84.200.70.40"
+    },
+    {
+      "name": "US - Sprintlink",
+      "primary": "199.2.252.10",
+      "secondary": "204.97.212.10"
     },
     {
       "name": "US - UltraDNS",
@@ -104,6 +119,16 @@
       "name": "US - Hurricane Electric",
       "primary": "74.82.42.42",
       "secondary": "74.82.42.42"
+    },
+    {
+      "name": "NL - Freenom World",
+      "primary": "80.80.80.80",
+      "secondary": "80.80.81.81"
+    },
+    {
+      "name": "FR - FDN",
+      "primary": "80.67.169.12",
+      "secondary": "80.67.169.40"
     },
     {
       "name": "US - Neustar 1",
