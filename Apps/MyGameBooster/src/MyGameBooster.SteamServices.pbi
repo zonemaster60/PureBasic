@@ -372,6 +372,7 @@ Procedure ImportSingleSteamGame()
   Protected lib.s, steamapps.s, file.s, appId.i, name.s, installdir.s
   Protected commonRoot.s
   Protected added.i, selectedAppId.i
+  Protected importedNames.s
 
   ForEach libs()
     lib = EnsureTrailingSlash(libs())
@@ -437,8 +438,8 @@ Procedure ImportSingleSteamGame()
       Games()\LastPlayed = 0
       Games()\LastDurationSec = 0
       added + 1
-      If name <> "" : name + ", " : EndIf
-      name + options()\Name
+      If importedNames <> "" : importedNames + ", " : EndIf
+      importedNames + options()\Name
       If selectedAppId <> -1
         Break
       EndIf
@@ -451,7 +452,7 @@ Procedure ImportSingleSteamGame()
     If selectedAppId = -1
       MessageRequester(#APP_NAME, "Imported " + Str(added) + " Steam game(s).")
     Else
-      MessageRequester(#APP_NAME, "Imported Steam game: " + name)
+      MessageRequester(#APP_NAME, "Imported Steam game: " + importedNames)
     EndIf
   Else
     MessageRequester(#APP_NAME, "That Steam game could not be imported.")
@@ -461,7 +462,21 @@ EndProcedure
 
 
 Procedure.s RunPowerShellAndCapture(ps.s)
-  ProcedureReturn RunProgramAndCapture("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -Command " + #DQUOTE$ + ps + #DQUOTE$)
+  Protected scriptPath.s
+  Protected f.i
+  Protected out.s
+
+  scriptPath = GetTemporaryDirectory() + #APP_NAME + "_" + Str(ElapsedMilliseconds()) + "_" + Str(Random(1000000)) + ".ps1"
+  f = CreateFile(#PB_Any, scriptPath)
+  If f = 0
+    ProcedureReturn RunProgramAndCapture("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -Command " + QuoteArg(ps))
+  EndIf
+
+  WriteString(f, ps)
+  CloseFile(f)
+  out = RunProgramAndCapture("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -File " + QuoteArg(scriptPath))
+  DeleteFile(scriptPath)
+  ProcedureReturn out
 EndProcedure
 
 Procedure.i IsProtectedServiceName(name.s)

@@ -902,6 +902,11 @@ EndProcedure
 Procedure FinishLaunch(success.i, message.s = "")
   Protected finalStatus.s
   Protected durationSec.i
+  Protected elapsedMs.q
+
+  If LaunchProcess
+    RestoreProcessBoost(LaunchProcess, LaunchGotAffinity, LaunchOrigPriority, LaunchProcessAffinity)
+  EndIf
 
   If LaunchProcess
     CloseHandle_(LaunchProcess)
@@ -917,11 +922,16 @@ Procedure FinishLaunch(success.i, message.s = "")
   EndIf
 
   If LaunchStartedAt > 0
-    durationSec = ElapsedMilliseconds() - LaunchStartedAt
-    If durationSec < 0
-      durationSec = 0
+    elapsedMs = ElapsedMilliseconds() - LaunchStartedAt
+    If elapsedMs < 0
+      elapsedMs = 0
     EndIf
-    durationSec / 1000
+    elapsedMs / 1000
+    If elapsedMs > 2147483647
+      durationSec = 2147483647
+    Else
+      durationSec = elapsedMs
+    EndIf
   EndIf
 
   If success
@@ -1064,8 +1074,6 @@ Procedure BeginSteamLaunch(*g.GameEntry)
   LogLine("Launch Steam: " + LaunchGame\Name + " | AppID=" + Str(LaunchGame\SteamAppId))
   PrepareBoostSession(@LaunchGame, @LaunchCtx)
   SnapshotPids(LaunchBaseline())
-  RecordLaunchStart(@LaunchGame)
-  LaunchStartRecorded = 1
   LogLine("Waiting for Steam game process in: " + CollapseBackslashes(LaunchGameRoot))
 
   workdir = GetPathPart(LaunchGame\SteamExe)
@@ -1089,6 +1097,8 @@ Procedure BeginSteamLaunch(*g.GameEntry)
   EndIf
   FreeMemory(*cmdMem)
 
+  RecordLaunchStart(@LaunchGame)
+  LaunchStartRecorded = 1
   CloseHandle_(pi\hThread)
   CloseHandle_(pi\hProcess)
   LaunchDetectDeadline = ElapsedMilliseconds() + ClampSteamDetectTimeout(LaunchGame\SteamDetectTimeoutMs)
@@ -1214,7 +1224,6 @@ Procedure PollLaunchState()
           ProcedureReturn
         EndIf
 
-        RestoreProcessBoost(LaunchProcess, LaunchGotAffinity, LaunchOrigPriority, LaunchProcessAffinity)
         FinishLaunch(1)
       EndIf
   EndSelect
@@ -1297,11 +1306,11 @@ Procedure UpdateSelectionUI()
   UpdateListHint()
 EndProcedure
 
-Procedure OpenSelectedGameFolder(idxSel.i)
+Procedure OpenSelectedGameFolder(gameIdx.i)
   Protected gg.GameEntry
   Protected folder.s
-  If idxSel < 0 : ProcedureReturn : EndIf
-  If SelectGameByIndex(idxSel, @gg) = 0 : ProcedureReturn : EndIf
+  If gameIdx < 0 : ProcedureReturn : EndIf
+  If SelectGameByIndex(gameIdx, @gg) = 0 : ProcedureReturn : EndIf
   If gg\LaunchMode = #LAUNCHMODE_STEAM
     folder = ResolveSteamGameRoot(@gg)
   Else

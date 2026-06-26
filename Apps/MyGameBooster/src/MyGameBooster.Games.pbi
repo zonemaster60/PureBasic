@@ -41,6 +41,7 @@ Procedure AddExeEntry(exePath.s)
   ge\LaunchCount = 0
   ge\LastPlayed = 0
   ge\LastDurationSec = 0
+  EnsureExeArtwork(exePath)
 
   AddElement(Games())
   Games() = ge
@@ -431,7 +432,6 @@ Procedure LoadGames()
         g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(60000)
         g\GameRoot = ""
       ElseIf g\LaunchMode = #LAUNCHMODE_STEAM
-        g\GameRoot = ""
         g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(g\SteamDetectTimeoutMs)
       EndIf
       If g\Preset < #PRESET_SAFE Or g\Preset > #PRESET_AGGRESSIVE
@@ -633,6 +633,7 @@ Procedure AddGameSimple()
   g\LaunchCount = 0
   g\LastPlayed = 0
   g\LastDurationSec = 0
+  EnsureExeArtwork(g\ExePath)
 
   AddElement(Games())
   Games() = g
@@ -721,6 +722,7 @@ Procedure.i MergeOrAddGame(*g.GameEntry)
       If *g\WorkDir <> "" : Games()\WorkDir = *g\WorkDir : EndIf
       If *g\SteamExe <> "" : Games()\SteamExe = *g\SteamExe : EndIf
       If *g\SteamGameArgs <> "" : Games()\SteamGameArgs = *g\SteamGameArgs : EndIf
+      If *g\SteamDetectTimeoutMs > 0 : Games()\SteamDetectTimeoutMs = ClampSteamDetectTimeout(*g\SteamDetectTimeoutMs) : EndIf
       If *g\GameRoot <> "" : Games()\GameRoot = *g\GameRoot : EndIf
       Games()\Priority = *g\Priority
       Games()\Affinity = *g\Affinity
@@ -844,7 +846,27 @@ Procedure ImportGamesProfile()
     g\LastPlayed = ReadPreferenceQuad("lastPlayed", 0)
     g\LastDurationSec = ReadPreferenceInteger("lastDurationSec", 0)
 
-    If g\Name <> ""
+    If g\LaunchMode < #LAUNCHMODE_EXE Or g\LaunchMode > #LAUNCHMODE_STEAM
+      g\LaunchMode = #LAUNCHMODE_EXE
+    EndIf
+    If g\LaunchMode = #LAUNCHMODE_EXE
+      g\SteamAppId = 0
+      g\SteamExe = ""
+      g\SteamGameArgs = ""
+      g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(60000)
+      g\GameRoot = ""
+    Else
+      g\SteamDetectTimeoutMs = ClampSteamDetectTimeout(g\SteamDetectTimeoutMs)
+    EndIf
+    If g\Preset < #PRESET_SAFE Or g\Preset > #PRESET_AGGRESSIVE
+      g\Preset = #PRESET_BALANCED
+    EndIf
+    If g\PowerMode < #POWERMODE_KEEP Or g\PowerMode > #POWERMODE_ULTIMATE
+      g\PowerMode = #POWERMODE_HIGH
+    EndIf
+    g\OptimizeBackground = Bool(g\OptimizeBackground)
+
+    If g\Name <> "" And ((g\LaunchMode = #LAUNCHMODE_STEAM And g\SteamAppId > 0) Or (g\LaunchMode = #LAUNCHMODE_EXE And g\ExePath <> ""))
       Select MergeOrAddGame(@g)
         Case 1
           imported + 1

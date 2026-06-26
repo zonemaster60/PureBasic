@@ -207,11 +207,39 @@ Procedure EnsureElevatedOrRelaunch()
 EndProcedure
 
 Procedure.s QuoteArg(s.s)
-  If FindString(s, " ", 1) Or FindString(s, #DQUOTE$, 1)
-    s = ReplaceString(s, #DQUOTE$, "\" + #DQUOTE$)
-    ProcedureReturn #DQUOTE$ + s + #DQUOTE$
+  Protected i.i, slashes.i
+  Protected c.s, out.s
+
+  If s = ""
+    ProcedureReturn #DQUOTE$ + #DQUOTE$
   EndIf
-  ProcedureReturn s
+
+  If FindString(s, " ", 1) = 0 And FindString(s, Chr(9), 1) = 0 And FindString(s, #DQUOTE$, 1) = 0
+    ProcedureReturn s
+  EndIf
+
+  out = #DQUOTE$
+  For i = 1 To Len(s)
+    c = Mid(s, i, 1)
+    If c = "\"
+      slashes + 1
+    ElseIf c = #DQUOTE$
+      out + ReplaceString(Space(slashes * 2 + 1), " ", "\") + #DQUOTE$
+      slashes = 0
+    Else
+      If slashes
+        out + ReplaceString(Space(slashes), " ", "\")
+        slashes = 0
+      EndIf
+      out + c
+    EndIf
+  Next
+  If slashes
+    out + ReplaceString(Space(slashes * 2), " ", "\")
+  EndIf
+  out + #DQUOTE$
+
+  ProcedureReturn out
 EndProcedure
 
 Procedure.s TrimCRLF(s.s)
@@ -357,7 +385,13 @@ Procedure.i SystemMemoryStatus(*mem.OC_MEMORYSTATUSEX)
 EndProcedure
 
 Procedure.q CpuUsagePercent()
-  ProcedureReturn -1
+  Protected out.s
+
+  out = Trim(RunPowerShellAndCapture("try { $v=(Get-Counter '\Processor(_Total)\% Processor Time' -SampleInterval 1 -MaxSamples 1).CounterSamples.CookedValue; [math]::Round($v) } catch { '-1' }"))
+  If out = ""
+    ProcedureReturn -1
+  EndIf
+  ProcedureReturn Val(out)
 EndProcedure
 
 Procedure LoadSettings()
@@ -377,6 +411,8 @@ Procedure LoadSettings()
   If ThumbnailSize > 96 : ThumbnailSize = 96 : EndIf
   If HistoryDepth < 1 : HistoryDepth = 1 : EndIf
   If HistoryDepth > 25 : HistoryDepth = 25 : EndIf
+  If SortMode < #SORT_NAME_ASC Or SortMode > #SORT_RUNS_DESC : SortMode = #SORT_NAME_ASC : EndIf
+  If LibraryView < #LIBRARY_ALL Or LibraryView > #LIBRARY_TAGGED : LibraryView = #LIBRARY_ALL : EndIf
   If RememberLastView = 0
     SortMode = #SORT_NAME_ASC
     LibraryView = #LIBRARY_ALL
@@ -470,13 +506,31 @@ Procedure CaptureUndoState(label.s)
 EndProcedure
 
 Procedure UndoLastLibraryChange()
-  Protected state.s, label.s
+  Protected state.s, label.s, current.s
   If ListSize(UndoStates()) = 0
     MessageRequester(#APP_NAME, "Nothing to undo.")
     ProcedureReturn
   EndIf
+
+  current = SerializeGamesState()
+  While ListSize(UndoStates()) > 0
+    LastElement(UndoStates())
+    state = UndoStates()
+    If state <> current
+      Break
+    EndIf
+    DeleteElement(UndoStates())
+    LastElement(UndoLabels())
+    DeleteElement(UndoLabels())
+  Wend
+
+  If ListSize(UndoStates()) = 0
+    MessageRequester(#APP_NAME, "Nothing to undo.")
+    ProcedureReturn
+  EndIf
+
   AddElement(RedoStates())
-  RedoStates() = SerializeGamesState()
+  RedoStates() = current
   AddElement(RedoLabels())
   RedoLabels() = UndoLabel
   LastElement(UndoStates()) : state = UndoStates() : DeleteElement(UndoStates())
