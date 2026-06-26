@@ -91,7 +91,6 @@ Procedure CreateGUI()
       MenuTitle("Favorites")
       MenuItem(#MENU_FAV_ADD, "Add Current Path to Favorites" + Chr(9) + "Ctrl+D")
       MenuItem(#MENU_FAV_MANAGE, "Manage Favorites...")
-      MenuBar()
       ; Dynamic favorites populated at startup or via UpdateFavoritesMenu
       LoadFavorites()
       ForEach Favorites()
@@ -828,7 +827,7 @@ Procedure HandleHelpMenu(menuID.i)
 
     Case #MENU_HELP_ABOUT
       LogInfo("Main", "Displaying About dialog")
-      MessageRequester("About PB_RegistryManager", "PB_Registry Manager - " + AppVersion + #CRLF$ + #CRLF$ + "All-in-One Registry Tool with Auto-Backup" + #CRLF$ + #CRLF$ + "Features:" + #CRLF$ + "Registry Editor" + #CRLF$ + "Registry Cleaner" + #CRLF$ + "Backup & Restore" + #CRLF$ + "Automatic Safety Backups" + #CRLF$ + "Real-Time Registry Monitor" + #CRLF$ + "Snapshot Manager & Comparison" + #CRLF$ + #CRLF$ + "Built with PureBasic 6.40+" + #CRLF$ + #CRLF$ + "Log file: " + ErrorLogPath + #CRLF$ + "Backup directory: " + GetBackupDirectory() + #CRLF$ + "Snapshot directory: " + GetSnapshotDirectory() + #CRLF$ + "Last backup: " + AutoBackupPath + #CRLF$ + "Monitor events: " + Str(MonitorEventCount) + #CRLF$ + "Snapshots: " + Str(ListSize(Snapshots())), #PB_MessageRequester_Info)
+      MessageRequester("About PB_RegistryManager", "PB_Registry Manager - " + AppVersion + #CRLF$ + #CRLF$ + "All-in-One Registry Tool with Auto-Backup" + #CRLF$ + #CRLF$ + "Features:" + #CRLF$ + "Disk Cleaner" + #CRLF$ + "Registry Editor" + #CRLF$ + "Registry Cleaner" + #CRLF$ + "Backup & Restore" + #CRLF$ + "Automatic Safety Backups" + #CRLF$ + "Real-Time Registry Monitor" + #CRLF$ + "Snapshot Manager & Comparison" + #CRLF$ + #CRLF$ + "Built With PureBasic 6.40+" + #CRLF$ + #CRLF$ + "Log file: " + ErrorLogPath + #CRLF$ + "Backup directory: " + GetBackupDirectory() + #CRLF$ + "Snapshot directory: " + GetSnapshotDirectory() + #CRLF$ + "Last backup: " + AutoBackupPath + #CRLF$ + "Monitor events: " + Str(MonitorEventCount) + #CRLF$ + "Snapshots: " + Str(ListSize(Snapshots())), #PB_MessageRequester_Info)
 
   EndSelect
 EndProcedure
@@ -1272,8 +1271,8 @@ EndProcedure
 
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 37
-; FirstLine = 3
+; CursorPosition = 829
+; FirstLine = 824
 ; Folding = ----
 ; EnableXP
 ; DPIAware
