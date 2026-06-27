@@ -1,3 +1,4 @@
+https://github.com/zonemaster60/PureBasic/releases/download/PB_3DChess/Setup_PB_3DChess.exe
 https://github.com/zonemaster60/PureBasic/releases/download/HandyFreeMem/Setup_HandyFreeMem.exe
 https://github.com/zonemaster60/PureBasic/releases/download/PB_XML-Task_Maker/Setup_PB_XML-Task_Maker.exe
 https://github.com/zonemaster60/PureBasic/releases/download/PB_EXE-PE_Viewer/Setup_PB_EXE-PE_Viewer.exe
