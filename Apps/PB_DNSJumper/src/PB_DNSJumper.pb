@@ -13,6 +13,10 @@ EnableExplicit
 #SOL_SOCKET  = $FFFF
 #SO_RCVTIMEO = $1006
 
+#IMAGE_ICON      = 1
+#LR_LOADFROMFILE = $10
+#LR_DEFAULTSIZE  = $40
+
 #APP_NAME        = "PB_DNSJumper"
 #EMAIL_NAME      = "zonemaster60@gmail.com"
 #WORKER_EXIT_WAIT_MS           = 10000
@@ -263,6 +267,10 @@ Import "kernel32.lib"
   GetEnvironmentVariableW(*lpName, *lpBuffer, nSize.l)
 EndImport
 
+Import "user32.lib"
+  LoadImageW(hinst.i, *name, type.l, cx.l, cy.l, fuLoad.l)
+EndImport
+
 Global gMutex.i
 Global gStopFlag.l
 Global gWorkerRunning.l
@@ -273,6 +281,11 @@ Global gLastPowerShellOutput.s
 Global gLastPowerShellExitCode.l = -1
 Global gWorkerCancelled.b = #False
 Global gWorkerThread.i
+Global gTrayIconReady.b = #False
+Global gTrayIconBase.i
+Global Dim gTrayIconTesting.i(3)
+Global gTrayAnimFrame.l
+Global gTrayWasRunning.b = #False
 
 ; ----------------------------
 ; Helper Procedures
@@ -464,6 +477,67 @@ Procedure.s ResolveProvidersFile()
   If FileSize(pSrc) > 0 : ProcedureReturn pSrc : EndIf
 
   ProcedureReturn pExe
+EndProcedure
+
+Procedure.s ResolveIconFile(fileName.s)
+  Protected pExe.s = GetPathPart(ProgramFilename()) + "files\icons\" + fileName
+  Protected pCwd.s = GetCurrentDirectory() + "files\icons\" + fileName
+  Protected pSrc.s = #PB_Compiler_FilePath + fileName
+
+  If FileSize(pExe) > 0 : ProcedureReturn pExe : EndIf
+  If FileSize(pCwd) > 0 : ProcedureReturn pCwd : EndIf
+  If FileSize(pSrc) > 0 : ProcedureReturn pSrc : EndIf
+
+  ProcedureReturn pExe
+EndProcedure
+
+Procedure.i LoadIconFromFile(fileName.s)
+  Protected path.s = ResolveIconFile(fileName)
+  Protected icon.i
+
+  If FileSize(path) <= 0
+    LogLine("Icon file not found: " + path)
+    ProcedureReturn 0
+  EndIf
+
+  icon = LoadImageW(0, @path, #IMAGE_ICON, 0, 0, #LR_LOADFROMFILE | #LR_DEFAULTSIZE)
+  If icon = 0
+    LogLine("Failed to load icon file: " + path)
+  EndIf
+
+  ProcedureReturn icon
+EndProcedure
+
+Procedure LoadTrayIcons()
+  Protected i.l
+
+  gTrayIconBase = LoadIconFromFile("PB_DNSJumper.ico")
+  For i = 0 To 3
+    gTrayIconTesting(i) = LoadIconFromFile("PB_DNSJumper_testing_" + Str(i) + ".ico")
+  Next
+EndProcedure
+
+Procedure SetTrayIcon(icon.i)
+  If gTrayIconReady And icon
+    ChangeSysTrayIcon(#SysTray, icon)
+  EndIf
+EndProcedure
+
+Procedure UpdateTrayAnimation(running.b)
+  If gTrayIconReady = #False
+    ProcedureReturn
+  EndIf
+
+  If running
+    gTrayAnimFrame = (gTrayAnimFrame + 1) % 4
+    If gTrayIconTesting(gTrayAnimFrame)
+      SetTrayIcon(gTrayIconTesting(gTrayAnimFrame))
+    EndIf
+  ElseIf gTrayWasRunning
+    SetTrayIcon(gTrayIconBase)
+  EndIf
+
+  gTrayWasRunning = running
 EndProcedure
 
 ; ----------------------------
@@ -687,13 +761,11 @@ Global gAutoRunPending.b = #False
 Global gCurrentRunAuto.b = #False
 Global gStartTime.q = ElapsedMilliseconds()
 Global gStartToTray.b = #False
-Global gTrayIconReady.b = #False
 Global gAutoStartDelaySec.l = 90
 Global gTrayRescanHours.l = 4
 Global gLastTrayRescanTick.q = ElapsedMilliseconds()
 Global gAutoApplyAfterBenchmark.b = #True
 Global gPreferredAdapter.s = ""
-
 Procedure.i TrayRescanSelectionFromHours(hours.l)
   Select hours
     Case 2
@@ -1614,9 +1686,9 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
   GadgetToolTip(#G_Status, LogPath)
 
   ; SysTray
-  Define hIcon = ExtractIcon_(GetModuleHandle_(0), ProgramFilename(), 0)
-  If hIcon
-    gTrayIconReady = Bool(AddSysTrayIcon(#SysTray, WindowID(#WinMain), hIcon))
+  LoadTrayIcons()
+  If gTrayIconBase
+    gTrayIconReady = Bool(AddSysTrayIcon(#SysTray, WindowID(#WinMain), gTrayIconBase))
     If gTrayIconReady
       SysTrayIconToolTip(#SysTray, #APP_NAME)
       LogLine("Tray icon created")
@@ -1624,7 +1696,7 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
       LogLine("Failed to add tray icon")
     EndIf
   Else
-    LogLine("Failed to extract tray icon from executable")
+    LogLine("Failed to load tray icon")
   EndIf
 
   ; Populate list with initial provider information
@@ -1833,6 +1905,7 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
       Define stepsDone = gWorkerStepsDone
       Define totalSteps = gWorkerTotalSteps
       UnlockMutex(gMutex)
+      UpdateTrayAnimation(Bool(running))
       
       If running
         LockMutex(gMutex)
@@ -1875,14 +1948,13 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
 EndIf
 ; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 1848
-; FirstLine = 1189
 ; Folding = ------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; DPIAware
-; UseIcon = PB_DNSJumper.ico
+; UseIcon = ..\files\icons\PB_DNSJumper.ico
 ; Executable = ..\PB_DNSJumper.exe
 ; IncludeVersionInfo
 ; VersionField0 = 1,0,1,0
