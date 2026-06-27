@@ -286,6 +286,7 @@
                     <li><a href="#auto-backup">Auto-Backup System</a></li>
                     <li><a href="#monitor">Registry Monitor</a></li>
                     <li><a href="#snapshots">Snapshot Manager</a></li>
+                    <li><a href="#auto-cleanup">Automated Cleanup</a></li>
                     <li><a href="#cleaner">Registry Cleaner</a></li>
                     <li><a href="#disk-cleaner">Disk Cleaner</a></li>
                     <li><a href="#backup-restore">Backup & Restore</a></li>
@@ -314,6 +315,7 @@
                             <li><strong>Smart Navigation:</strong> Address bar for manual jumps and a persistent Favorites system</li>
                             <li><strong>Smart Snapshot Comparison:</strong> Value-level detection for added, removed, and modified data</li>
                             <li><strong>Threaded Disk Cleaner:</strong> Scan temporary files and application caches in the background with cancel support</li>
+                            <li><strong>Automated Cleanup:</strong> One-click cleanup workflow with one upfront confirmation</li>
                             <li><strong>Theme Support:</strong> Use Windows colors or choose Light, Dark, Blue, Forest, and custom colors</li>
                         </ul>
                     </div>
@@ -455,6 +457,7 @@
                         <ul>
                             <li>Registry Cleaner (remove invalid entries)</li>
                             <li>Disk Cleaner (temporary files, logs, dumps, browser caches, and app caches)</li>
+                            <li>Automated Cleanup (registry cleanup plus Safe-mode disk cleanup)</li>
                             <li>Manual Backup & Restore</li>
                             <li>Configurable window and control themes</li>
                             <li>Comprehensive error logging</li>
@@ -822,6 +825,36 @@
                     <h3>Snapshot Storage</h3>
                     <code>%USERPROFILE%\RegistryManager_Snapshots\</code>
                     <p>Snapshots are stored as standard .reg files and kept indefinitely (no auto-deletion).</p>
+                </section>
+                
+                <!-- AUTOMATED CLEANUP -->
+                <section id="auto-cleanup" class="section">
+                    <h2>🚀 Automated Cleanup</h2>
+                    <p>Automated Cleanup runs the main cleanup tasks from one progress window. After one upfront confirmation, it proceeds without additional prompts until the analysis and cleanup process has finished.</p>
+
+                    <h3>What It Does</h3>
+                    <div class="feature-box">
+                        <ol>
+                            <li>Creates or reuses a safety registry backup.</li>
+                            <li>Runs the registry cleaner with the default categories enabled.</li>
+                            <li>Runs Disk Cleaner in Safe mode.</li>
+                            <li>Deletes matching Safe-mode disk cleanup results.</li>
+                            <li>Shows a final log in the Automated Cleanup window.</li>
+                        </ol>
+                    </div>
+
+                    <h3>How to Run It</h3>
+                    <ol>
+                        <li>Click <strong>Tools → Automated Cleanup...</strong></li>
+                        <li>Read the warning and click <strong>Yes</strong> to start.</li>
+                        <li>Wait for the progress log to show <strong>Automated Cleanup Finished</strong>.</li>
+                        <li>Click <span class="button-demo">Close</span>.</li>
+                    </ol>
+
+                    <div class="warning-box">
+                        <h4>⚠️ Fully Automated Cleanup</h4>
+                        <p>After the initial confirmation, Automated Cleanup does not ask again before cleaning. Use the separate Registry Cleaner and Disk Cleaner windows if you want to review individual results before deletion.</p>
+                    </div>
                 </section>
                 
                 <!-- REGISTRY CLEANER -->

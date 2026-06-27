@@ -21,7 +21,7 @@ EndImport
 ;- Core Types
 
 #APP_NAME = "PB_RegistryManager"
-Global AppVersion.s = "v1.0.2.0"
+Global AppVersion.s = "v1.0.2.1"
 
 Structure RegKeyInfo
   Name.s
@@ -248,6 +248,7 @@ Global LoadValuesMutex.i = 0
 #WINDOW_CLEANER = 3
 #WINDOW_SEARCH = 4
 #WINDOW_DISK_CLEANER = 5
+#WINDOW_AUTO_CLEANUP = 6
 
 #GADGET_SPLITTER = 0
 #GADGET_TREE = 1
@@ -312,9 +313,10 @@ Global LoadValuesMutex.i = 0
 #MENU_TOOLS_BACKUP = 21
 #MENU_TOOLS_RESTORE = 22
 #MENU_TOOLS_DISK_CLEANER = 23
-  #MENU_TOOLS_MONITOR = 24
-#MENU_TOOLS_SNAPSHOT = 25
-#MENU_TOOLS_HEX_EXTERNAL = 26
+#MENU_TOOLS_AUTO_CLEANUP = 24
+#MENU_TOOLS_MONITOR = 25
+#MENU_TOOLS_SNAPSHOT = 26
+#MENU_TOOLS_HEX_EXTERNAL = 27
 #MENU_HELP_ONLINE = 30
 #MENU_HELP_ABOUT = 31
 #MENU_DEBUG_STRESS = 32
@@ -405,6 +407,7 @@ Declare HandleSearchWindowGadget(gadgetID.i)
 Declare.s EscapePowerShellLiteral(text.s)
 Declare.i StartBackupProcess(fileName.s, reason.s, isAuto.i, mode.s = "full", rootKey.i = 0, keyPath.s = "")
 Declare OpenDiskCleaner()
+Declare OpenAutomatedCleanup()
 Declare ApplyRegistryThemeToWindow(window.i)
 Declare ApplyRegistryThemeToGadget(gadget.i, useWindowBackground.i = #False)
 Declare LoadRegistryTheme()
@@ -480,14 +483,19 @@ Procedure.i InitErrorLog()
   If ErrorLogPath = "PB_RegistryManager.log"
     ErrorLogPath = AppPath + "PB_RegistryManager.log"
   EndIf
-  If Not LogMutex
-    LogMutex = CreateMutex()
-  EndIf
+
+  LogMutex = CreateMutex()
+
   LogFile = OpenFile(#PB_Any, ErrorLogPath, #PB_File_Append | #PB_File_SharedRead)
   If LogFile
-    LockMutex(LogMutex)
+    If LogMutex
+      LockMutex(LogMutex)
+    EndIf
     WriteStringN(LogFile, "--- Log Session Started: " + FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date()) + " ---")
-    UnlockMutex(LogMutex)
+    FlushFileBuffers(LogFile)
+    If LogMutex
+      UnlockMutex(LogMutex)
+    EndIf
     ProcedureReturn #True
   EndIf
   ProcedureReturn #False
@@ -627,60 +635,79 @@ Procedure RefreshMonitorWindow()
   UnlockMutex(PendingEventsMutex)
 EndProcedure
 
-Procedure LogError(location.s, errorMsg.s, errorCode.i = 0)
+Procedure.i EnsureLogFileOpen()
+  If LogFile
+    ProcedureReturn #True
+  EndIf
+
+  If ErrorLogPath = ""
+    ErrorLogPath = EnsureLogFolder(AppPath) + "PB_RegistryManager.log"
+    If ErrorLogPath = "PB_RegistryManager.log"
+      ErrorLogPath = AppPath + "PB_RegistryManager.log"
+    EndIf
+  EndIf
+
+  LogFile = OpenFile(#PB_Any, ErrorLogPath, #PB_File_Append | #PB_File_SharedRead)
+  If LogFile
+    WriteStringN(LogFile, "--- Log Session Reopened: " + FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date()) + " ---")
+    FlushFileBuffers(LogFile)
+    ProcedureReturn #True
+  EndIf
+
+  ProcedureReturn #False
+EndProcedure
+
+Procedure WriteLogLine(level.s, location.s, message.s, errorCode.i = 0)
   Protected timestamp.s, logMsg.s
   timestamp = FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date())
-  logMsg = "[" + timestamp + "] ERROR in " + location + ": " + errorMsg
+  logMsg = "[" + timestamp + "] " + level + " in " + location + ": " + message
   If errorCode <> 0
     logMsg + " (Code: " + Str(errorCode) + ")"
   EndIf
-  If LogFile
-    If Not LogMutex : LogMutex = CreateMutex() : EndIf
+
+  If LogMutex
     LockMutex(LogMutex)
+  EndIf
+
+  If EnsureLogFileOpen()
     WriteStringN(LogFile, logMsg)
     FlushFileBuffers(LogFile)
+  EndIf
+
+  If LogMutex
     UnlockMutex(LogMutex)
   EndIf
+
   Debug logMsg
+EndProcedure
+
+Procedure LogError(location.s, errorMsg.s, errorCode.i = 0)
+  WriteLogLine("ERROR", location, errorMsg, errorCode)
 EndProcedure
 
 Procedure LogInfo(location.s, infoMsg.s)
-  Protected timestamp.s, logMsg.s
-  timestamp = FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date())
-  logMsg = "[" + timestamp + "] INFO in " + location + ": " + infoMsg
-  If LogFile
-    If Not LogMutex : LogMutex = CreateMutex() : EndIf
-    LockMutex(LogMutex)
-    WriteStringN(LogFile, logMsg)
-    FlushFileBuffers(LogFile)
-    UnlockMutex(LogMutex)
-  EndIf
-  Debug logMsg
+  WriteLogLine("INFO", location, infoMsg)
 EndProcedure
 
 Procedure LogWarning(location.s, warnMsg.s)
-  Protected timestamp.s, logMsg.s
-  timestamp = FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date())
-  logMsg = "[" + timestamp + "] WARNING in " + location + ": " + warnMsg
-  If LogFile
-    If Not LogMutex : LogMutex = CreateMutex() : EndIf
-    LockMutex(LogMutex)
-    WriteStringN(LogFile, logMsg)
-    FlushFileBuffers(LogFile)
-    UnlockMutex(LogMutex)
-  EndIf
-  Debug logMsg
+  WriteLogLine("WARNING", location, warnMsg)
 EndProcedure
 
 Procedure CloseErrorLog()
-  If LogFile
-    If Not LogMutex : LogMutex = CreateMutex() : EndIf
+  If LogMutex
     LockMutex(LogMutex)
+  EndIf
+
+  If LogFile
     WriteStringN(LogFile, "")
     WriteStringN(LogFile, "=" + Space(60) + "=")
     WriteStringN(LogFile, "Log closed at " + FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date()))
+    FlushFileBuffers(LogFile)
     CloseFile(LogFile)
     LogFile = 0
+  EndIf
+
+  If LogMutex
     UnlockMutex(LogMutex)
   EndIf
 EndProcedure

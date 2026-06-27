@@ -1078,6 +1078,198 @@ Procedure CleanDiskCleanerResults()
   MessageRequester("Disk Cleaner", "Removed " + Str(cleanedCount) + " item(s) and freed " + FormatBytes(cleanedSize) + ".", #PB_MessageRequester_Info)
 EndProcedure
 
+Procedure AutomatedCleanupMessage(editorID.i, msg.s)
+  If IsGadget(editorID)
+    AddGadgetItem(editorID, -1, msg)
+    SetGadgetState(editorID, CountGadgetItems(editorID) - 1)
+    UpdateWindow_(GadgetID(editorID))
+  EndIf
+  LogInfo("AutomatedCleanup", msg)
+EndProcedure
+
+Declare ProcessAutomatedCleanupWindow(editorID.i)
+
+Procedure.i WaitForAutomatedBackupCompletion(editorID.i)
+  Protected lastStage.s = ""
+  Protected result.i
+
+  If BackupProgram = 0
+    AutomatedCleanupMessage(editorID, "No active backup process was found.")
+    ProcedureReturn #False
+  EndIf
+
+  RemoveWindowTimer(#WINDOW_MAIN, #TIMER_BACKUP_REFRESH)
+  AutomatedCleanupMessage(editorID, "Backup process started.")
+  If BackupStatusFile <> ""
+    AutomatedCleanupMessage(editorID, "Backup status file: " + BackupStatusFile)
+  EndIf
+
+  While BackupProgram And ProgramRunning(BackupProgram)
+    UpdateBackupProgress()
+    If BackupCurrentStage <> "" And BackupCurrentStage <> lastStage
+      AutomatedCleanupMessage(editorID, "Backup: " + BackupCurrentStage)
+      lastStage = BackupCurrentStage
+    EndIf
+    ProcessAutomatedCleanupWindow(editorID)
+    Delay(100)
+  Wend
+
+  UpdateBackupProgress()
+  If BackupCurrentStage <> "" And BackupCurrentStage <> lastStage
+    AutomatedCleanupMessage(editorID, "Backup: " + BackupCurrentStage)
+  EndIf
+
+  result = FinalizeBackupProcess(#False)
+  If result
+    AutomatedCleanupMessage(editorID, "Backup completed successfully: " + AutoBackupPath)
+  Else
+    AutomatedCleanupMessage(editorID, "Backup did not complete successfully. Check the main log for backup errors.")
+  EndIf
+
+  ProcedureReturn result
+EndProcedure
+
+Procedure ProcessAutomatedCleanupWindow(editorID.i)
+  Protected ev.i
+
+  While WindowEvent()
+    ev = Event()
+    If EventWindow() = #WINDOW_AUTO_CLEANUP And ev = #PB_Event_CloseWindow
+      MessageRequester("Automated Cleanup", "Cleanup is running. Please wait until it finishes.", #PB_MessageRequester_Info)
+    EndIf
+  Wend
+EndProcedure
+
+Procedure.i RunAutomatedDiskCleanup(editorID.i, profileMode.i = #False)
+  Protected minAgeDays.i
+  Protected cleanedCount.i = 0
+  Protected cleanedSize.q = 0
+
+  AutomatedCleanupMessage(editorID, "Scanning disk cleaner rules (Safe mode)...")
+  ClearList(DiskCleanerResults())
+  ClearMap(DiskCleanerVisitedDirectories())
+  DiskCleanerResultLimitReached = #False
+  DiskCleanerScanCancel = #False
+  InitDiskCleanerRules(profileMode)
+
+  ForEach DiskCleanerRules()
+    ProcessAutomatedCleanupWindow(editorID)
+    ClearMap(DiskCleanerVisitedDirectories())
+    AutomatedCleanupMessage(editorID, "Scanning disk: " + DiskCleanerRules()\Label)
+    minAgeDays = DiskCleanerRules()\MinAgeDays
+    If profileMode
+      minAgeDays = 0
+    EndIf
+    ScanDiskCleanerPath(DiskCleanerRules()\Label, DiskCleanerRules()\BasePath, DiskCleanerRules()\Pattern, DiskCleanerRules()\Recursive, minAgeDays)
+    If DiskCleanerResultLimitReached
+      AutomatedCleanupMessage(editorID, "Disk scan result limit reached; stopping disk scan.")
+      Break
+    EndIf
+  Next
+
+  AutomatedCleanupMessage(editorID, "Disk scan found " + Str(ListSize(DiskCleanerResults())) + " item(s). Cleaning selected safe results...")
+  ForEach DiskCleanerResults()
+    ProcessAutomatedCleanupWindow(editorID)
+    If Not IsDiskCleanerSafeDeletePath(DiskCleanerResults()\FilePath)
+      Continue
+    EndIf
+
+    If DiskCleanerResults()\IsDirectory
+      If DeleteDirectory(DiskCleanerResults()\FilePath, "*", #PB_FileSystem_Recursive | #PB_FileSystem_Force)
+        cleanedCount + 1
+        cleanedSize + DiskCleanerResults()\Size
+      EndIf
+    Else
+      If DeleteFile(DiskCleanerResults()\FilePath, #PB_FileSystem_Force)
+        cleanedCount + 1
+        cleanedSize + DiskCleanerResults()\Size
+      EndIf
+    EndIf
+  Next
+
+  AutomatedCleanupMessage(editorID, "Disk cleanup removed " + Str(cleanedCount) + " item(s), " + FormatBytes(cleanedSize) + ".")
+  ProcedureReturn cleanedCount
+EndProcedure
+
+Procedure OpenAutomatedCleanup()
+  Protected window.i
+  Protected editorID.i
+  Protected btnClose.i
+  Protected scanParams.CleanerParams
+  Protected ev.i
+
+  If IsWindow(#WINDOW_AUTO_CLEANUP)
+    StickyWindow(#WINDOW_AUTO_CLEANUP, #True)
+    ProcedureReturn
+  EndIf
+
+  If MessageRequester("Automated Cleanup", "Run all-in-one automated cleanup now?" + #CRLF$ + #CRLF$ + "This will create or reuse a safety registry backup, clean selected registry issues, scan Safe-mode disk cleaner rules, and delete matching safe disk cleanup results without additional prompts." + #CRLF$ + #CRLF$ + "Continue?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning) <> #PB_MessageRequester_Yes
+    ProcedureReturn
+  EndIf
+
+  window = OpenWindow(#WINDOW_AUTO_CLEANUP, 0, 0, 640, 430, "Automated Cleanup", #PB_Window_SystemMenu | #PB_Window_WindowCentered, WindowID(#WINDOW_MAIN))
+  If window = 0
+    MessageRequester("Automated Cleanup", "Cannot open automated cleanup window.", #PB_MessageRequester_Error)
+    ProcedureReturn
+  EndIf
+
+  ApplyRegistryThemeToWindow(#WINDOW_AUTO_CLEANUP)
+  TextGadget(#PB_Any, 10, 10, 620, 20, "Automated cleanup is running. No further input is required until it finishes.")
+  editorID = EditorGadget(#PB_Any, 10, 40, 620, 330, #PB_Editor_ReadOnly)
+  ApplyRegistryThemeToGadget(editorID)
+  btnClose = ButtonGadget(#PB_Any, 530, 385, 100, 30, "Close")
+  DisableGadget(btnClose, #True)
+
+  AutomatedCleanupMessage(editorID, "--- Automated Cleanup Started ---")
+  UpdateStatusBar("Automated cleanup started...")
+
+  If AutoBackupPath = "" Or (ElapsedMilliseconds() - LastBackupTime) > #AUTO_BACKUP_INTERVAL
+    AutomatedCleanupMessage(editorID, "Creating safety registry backup...")
+    If CreateAutoBackup("Automated cleanup") And WaitForAutomatedBackupCompletion(editorID)
+      AutomatedCleanupMessage(editorID, "Safety backup ready: " + AutoBackupPath)
+    Else
+      AutomatedCleanupMessage(editorID, "Safety backup failed. Automated cleanup stopped.")
+      UpdateStatusBar("Automated cleanup stopped: backup failed.")
+      DisableGadget(btnClose, #False)
+      Repeat
+        ev = WaitWindowEvent()
+      Until (ev = #PB_Event_CloseWindow And EventWindow() = #WINDOW_AUTO_CLEANUP) Or (ev = #PB_Event_Gadget And EventGadget() = btnClose)
+      CloseWindow(#WINDOW_AUTO_CLEANUP)
+      ProcedureReturn
+    EndIf
+  Else
+    AutomatedCleanupMessage(editorID, "Using existing safety backup: " + AutoBackupPath)
+  EndIf
+
+  CleanerStopRequested = #False
+  AutomatedCleanupMessage(editorID, "Running registry cleaner...")
+  scanParams\MuiCache = #True
+  scanParams\FileAssoc = #True
+  scanParams\ObsoleteSw = #True
+  scanParams\Shortcuts = #True
+  scanParams\InstallerRefs = #True
+  scanParams\EmptyKeys = #True
+  scanParams\IsCleaning = #True
+  scanParams\Wow64 = GetRegistryWow64Flag()
+  scanParams\WindowID = #WINDOW_AUTO_CLEANUP
+  scanParams\EditorID = editorID
+  scanParams\BtnClose = 0
+  RunCleanerScan(@scanParams)
+
+  RunAutomatedDiskCleanup(editorID, #False)
+
+  AutomatedCleanupMessage(editorID, "--- Automated Cleanup Finished ---")
+  UpdateStatusBar("Automated cleanup finished.")
+  DisableGadget(btnClose, #False)
+  SetActiveGadget(btnClose)
+
+  Repeat
+    ev = WaitWindowEvent()
+  Until (ev = #PB_Event_CloseWindow And EventWindow() = #WINDOW_AUTO_CLEANUP) Or (ev = #PB_Event_Gadget And EventGadget() = btnClose)
+
+  CloseWindow(#WINDOW_AUTO_CLEANUP)
+EndProcedure
+
 Procedure OpenDiskCleaner()
   Protected window.i
   Protected ruleList.i
