@@ -2,12 +2,13 @@
 
 ; Constants and Enumerations
 #APP_NAME      = "LoadTextFile"
-#APP_VERSION   = "v1.0.0.2"
+#APP_VERSION   = "v1.0.0.3"
 #EMAIL_NAME    = "zonemaster60@gmail.com"
 #OPEN_FILTER   = "Text and code files|*.txt;*.log;*.md;*.csv;*.json;*.xml;*.ini;*.cfg;*.yml;*.yaml;*.pb;*.pbi;*.c;*.cpp;*.h;*.hpp;*.py;*.js;*.ts;*.html;*.css|All files|*.*"
 #TEXT_EXTENSIONS = "|txt|log|md|csv|json|xml|ini|cfg|conf|yml|yaml|toml|pb|pbi|c|cpp|h|hpp|py|js|ts|html|htm|css|bat|cmd|ps1|sql|sh|"
 #WINDOW_MARGIN = 10
 #MAX_RECENT_FILES = 5
+#MAX_FILE_BYTES = 104857600 ; 100 MB guardrail for the EditorGadget.
 
 Enumeration Windows
   #WinMain
@@ -38,6 +39,8 @@ EndEnumeration
 
 Global CurrentFile.s
 Global Dim RecentFiles.s(#MAX_RECENT_FILES - 1)
+Global QuitRequested.i
+Global PreferencesFile.s = GetHomeDirectory() + "loadtextfile.prefs"
 
 Declare.i LoadFileToEditor(Filename.s)
 
@@ -53,25 +56,62 @@ EndIf
 ; --- Procedures ---
 
 Procedure Shutdown()
+  Protected Index.i
+
+  If CreatePreferences(PreferencesFile)
+    PreferenceGroup("RecentFiles")
+    For Index = 0 To #MAX_RECENT_FILES - 1
+      WritePreferenceString("File" + Str(Index + 1), RecentFiles(Index))
+    Next
+    ClosePreferences()
+  EndIf
+
   If hMutex
     CloseHandle_(hMutex)
     hMutex = 0
   EndIf
-  End
 EndProcedure
 
-Procedure ExitApp()
+Procedure LoadRecentFiles()
+  Protected Index.i
+
+  If OpenPreferences(PreferencesFile)
+    PreferenceGroup("RecentFiles")
+    For Index = 0 To #MAX_RECENT_FILES - 1
+      RecentFiles(Index) = ReadPreferenceString("File" + Str(Index + 1), "")
+    Next
+    ClosePreferences()
+  EndIf
+EndProcedure
+
+Procedure RequestExit()
   Protected Req.i
   Req = MessageRequester("Exit", "Do you want to exit now?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Info)
   If Req = #PB_MessageRequester_Yes
-    Shutdown()
+    QuitRequested = #True
   EndIf
+EndProcedure
+
+Procedure.s FormatByteSize(Size.q)
+  If Size < 0
+    ProcedureReturn "n/a"
+  ElseIf Size < 1024
+    ProcedureReturn Str(Size) + " B"
+  ElseIf Size < 1048576
+    ProcedureReturn StrD(Size / 1024.0, 1) + " KB"
+  ElseIf Size < 1073741824
+    ProcedureReturn StrD(Size / 1048576.0, 1) + " MB"
+  EndIf
+
+  ProcedureReturn StrD(Size / 1073741824.0, 1) + " GB"
 EndProcedure
 
 Procedure.i IsSupportedTextFile(Filename.s)
   Protected Extension.s
+  Protected Size.q
 
-  If FileSize(Filename) < 0
+  Size = FileSize(Filename)
+  If Size < 0
     ProcedureReturn #False
   EndIf
 
@@ -87,12 +127,46 @@ Procedure.i IsSupportedTextFile(Filename.s)
   ProcedureReturn #False
 EndProcedure
 
+Procedure.i ConfirmFileCanLoad(Filename.s)
+  Protected Size.q = FileSize(Filename)
+  Protected Req.i
+
+  If Size = -2
+    MessageRequester("Unsupported file", "Folders cannot be loaded as text files:" + #CRLF$ + Filename, #PB_MessageRequester_Warning)
+    ProcedureReturn #False
+  ElseIf Size < 0
+    MessageRequester("Missing file", "File not found or unavailable:" + #CRLF$ + Filename, #PB_MessageRequester_Warning)
+    ProcedureReturn #False
+  EndIf
+
+  If Size > #MAX_FILE_BYTES
+    Req = MessageRequester("Large file", "This file is " + FormatByteSize(Size) + ". Loading very large files can make the editor slow or unresponsive." + #CRLF$ + #CRLF$ + "Load it anyway?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning)
+    If Req <> #PB_MessageRequester_Yes
+      ProcedureReturn #False
+    EndIf
+  EndIf
+
+  If Not IsSupportedTextFile(Filename)
+    Req = MessageRequester("Unknown file type", "This file extension is not in the known text/code list:" + #CRLF$ + Filename + #CRLF$ + #CRLF$ + "Try to load it anyway?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning)
+    If Req <> #PB_MessageRequester_Yes
+      ProcedureReturn #False
+    EndIf
+  EndIf
+
+  ProcedureReturn #True
+EndProcedure
+
 Procedure.i CountLines(Text.s)
+  Protected NormalizedText.s
+
   If Text = ""
     ProcedureReturn 0
   EndIf
 
-  ProcedureReturn CountString(Text, #CRLF$) + 1
+  NormalizedText = ReplaceString(Text, #CRLF$, #LF$)
+  NormalizedText = ReplaceString(NormalizedText, #CR$, #LF$)
+
+  ProcedureReturn CountString(NormalizedText, #LF$) + 1
 EndProcedure
 
 Procedure UpdateWindowTitle(Filename.s = "")
@@ -106,26 +180,35 @@ EndProcedure
 Procedure UpdateStatusBar(Filename.s, Content.s)
   Protected LineCount.i = CountLines(Content)
   Protected CharacterCount.i = Len(Content)
+  Protected Size.q
 
   If Filename
     StatusBarText(#StatusMain, 0, Filename)
+    Size = FileSize(Filename)
   Else
     StatusBarText(#StatusMain, 0, "Ready - press Ctrl+O or drop a file here")
+    Size = -1
   EndIf
 
   StatusBarText(#StatusMain, 1, "Lines: " + Str(LineCount), #PB_StatusBar_Right)
   StatusBarText(#StatusMain, 2, "Chars: " + Str(CharacterCount), #PB_StatusBar_Right)
+  StatusBarText(#StatusMain, 3, "Size: " + FormatByteSize(Size), #PB_StatusBar_Right)
 EndProcedure
 
 Procedure UpdateRecentFilesMenu()
   Protected Index.i
   Protected MenuItemID.i
+  Protected DisplayText.s
 
   For Index = 0 To #MAX_RECENT_FILES - 1
     MenuItemID = #MenuRecent1 + Index
 
     If RecentFiles(Index)
-      SetMenuItemText(#MenuMain, MenuItemID, "&" + Str(Index + 1) + " " + GetFilePart(RecentFiles(Index)) + #TAB$ + RecentFiles(Index))
+      DisplayText = GetFilePart(RecentFiles(Index))
+      If GetPathPart(RecentFiles(Index))
+        DisplayText + " (" + GetPathPart(RecentFiles(Index)) + ")"
+      EndIf
+      SetMenuItemText(#MenuMain, MenuItemID, "&" + Str(Index + 1) + " " + DisplayText)
       DisableMenuItem(#MenuMain, MenuItemID, 0)
     Else
       SetMenuItemText(#MenuMain, MenuItemID, "(empty)")
@@ -137,9 +220,10 @@ EndProcedure
 Procedure AddRecentFile(Filename.s)
   Protected Index.i
   Protected ExistingIndex.i = -1
+  Protected NormalizedFilename.s = LCase(Filename)
 
   For Index = 0 To #MAX_RECENT_FILES - 1
-    If RecentFiles(Index) = Filename
+    If LCase(RecentFiles(Index)) = NormalizedFilename
       ExistingIndex = Index
       Break
     EndIf
@@ -188,14 +272,24 @@ Procedure LoadFileToEditor(Filename.s)
   Protected Content.s
   Protected Format.i
   Protected Line.s
-  
+  Protected IsFirstLine.i = #True
+
+  If Not ConfirmFileCanLoad(Filename)
+    ProcedureReturn #False
+  EndIf
+   
   FileID = ReadFile(#PB_Any, Filename)
   If FileID
     Format = ReadStringFormat(FileID) ; Automatically detect BOM (UTF-8, UTF-16, etc.)
+    If Format = #PB_Ascii
+      Format = #PB_UTF8 ; Prefer modern UTF-8 for files without a byte-order mark.
+    EndIf
 
     While Eof(FileID) = 0
       Line = ReadString(FileID, Format)
-      If Content
+      If IsFirstLine
+        IsFirstLine = #False
+      Else
         Content + #CRLF$
       EndIf
       Content + Line
@@ -232,6 +326,7 @@ EndProcedure
 Procedure LoadDroppedFiles(Files.s)
   Protected Index.i
   Protected Filename.s
+  Protected FirstCandidate.s
 
   For Index = 1 To CountString(Files, Chr(10)) + 1
     Filename = RemoveString(StringField(Files, Index, Chr(10)), Chr(13))
@@ -239,11 +334,15 @@ Procedure LoadDroppedFiles(Files.s)
     If IsSupportedTextFile(Filename)
       LoadFileToEditor(Filename)
       ProcedureReturn
+    ElseIf Filename
+      If FirstCandidate = ""
+        FirstCandidate = Filename
+      EndIf
     EndIf
   Next
 
-  If Files
-    MessageRequester("Unsupported file", "Drop a supported text file such as TXT, LOG, JSON, PB, PY, JS, or similar text-based formats.", #PB_MessageRequester_Warning)
+  If FirstCandidate
+    LoadFileToEditor(FirstCandidate)
   EndIf
 EndProcedure
 
@@ -287,6 +386,7 @@ If OpenWindow(#WinMain, 100, 100, 720, 540, #APP_NAME, #PB_Window_SystemMenu | #
     MenuItem(#MenuAbout, "About")
     MenuItem(#MenuExit, "Exit")
 
+    LoadRecentFiles()
     UpdateRecentFilesMenu()
   EndIf
   
@@ -299,8 +399,9 @@ If OpenWindow(#WinMain, 100, 100, 720, 540, #APP_NAME, #PB_Window_SystemMenu | #
 
   If CreateStatusBar(#StatusMain, WindowID(#WinMain))
     AddStatusBarField(#PB_Ignore)
-    AddStatusBarField(110)
-    AddStatusBarField(110)
+    AddStatusBarField(DesktopScaledX(110))
+    AddStatusBarField(DesktopScaledX(110))
+    AddStatusBarField(DesktopScaledX(120))
     UpdateStatusBar("", "")
   EndIf
   
@@ -316,11 +417,11 @@ If OpenWindow(#WinMain, 100, 100, 720, 540, #APP_NAME, #PB_Window_SystemMenu | #
   EndIf
 
   Repeat
-    Define Event = WaitWindowEvent()
+    Define Event.i = WaitWindowEvent()
     Select Event
 
       Case #PB_Event_CloseWindow
-        ExitApp()
+        RequestExit()
 
       Case #PB_Event_Menu
         Select EventMenu()
@@ -350,7 +451,7 @@ If OpenWindow(#WinMain, 100, 100, 720, 540, #APP_NAME, #PB_Window_SystemMenu | #
                                      "Website: https://github.com/zonemaster60", #PB_MessageRequester_Info)
             
           Case #MenuExit  ; Exit
-            ExitApp()
+            RequestExit()
 
         EndSelect
 
@@ -360,29 +461,28 @@ If OpenWindow(#WinMain, 100, 100, 720, 540, #APP_NAME, #PB_Window_SystemMenu | #
         EndIf
 
     EndSelect
-  ForEver
+  Until QuitRequested
 
 EndIf
 
 Shutdown()
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 4
 ; Folding = ---
 ; Optimizer
 ; EnableThread
 ; EnableXP
-; EnableAdmin
 ; DPIAware
 ; UseIcon = loadtextfile.ico
 ; Executable = ..\loadtextfile.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = loadtextfile
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = Loads and displays text files
 ; VersionField7 = loadtextfile
 ; VersionField8 = loadtextfile.exe

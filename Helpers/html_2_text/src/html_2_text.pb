@@ -1,17 +1,81 @@
 #APP_NAME   = "Html_2_Text"
 #EMAIL_NAME = "zonemaster60@gmail.com"
+#VERSION    = "v1.0.0.4"
 
-Global version.s = "v1.0.0.3"
+Procedure PrintUsage()
+  PrintN("Usage: " + #APP_NAME + " <input.html> <output.txt>")
+  PrintN("Version: " + #VERSION)
+  PrintN("A simple HTML to Text converter.")
+  PrintN("Contact: " + #EMAIL_NAME)
+  PrintN("GitHub: https://github.com/zonemaster60")
+EndProcedure
+
+Procedure.b IsDecimalDigits(value.s)
+  Protected i.i
+  Protected char.s
+
+  If value = ""
+    ProcedureReturn #False
+  EndIf
+
+  For i = 1 To Len(value)
+    char = Mid(value, i, 1)
+    If FindString("0123456789", char) = 0
+      ProcedureReturn #False
+    EndIf
+  Next
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure.b IsHexDigits(value.s)
+  Protected i.i
+  Protected char.s
+
+  If value = ""
+    ProcedureReturn #False
+  EndIf
+
+  For i = 1 To Len(value)
+    char = UCase(Mid(value, i, 1))
+    If FindString("0123456789ABCDEF", char) = 0
+      ProcedureReturn #False
+    EndIf
+  Next
+
+  ProcedureReturn #True
+EndProcedure
+
+Procedure.b IsValidCodePoint(value.i)
+  If value = 9 Or value = 10 Or value = 13
+    ProcedureReturn #True
+  EndIf
+
+  If value >= 32 And value <= $D7FF
+    ProcedureReturn #True
+  EndIf
+
+  If value >= $E000 And value <= $10FFFF
+    ProcedureReturn #True
+  EndIf
+
+  ProcedureReturn #False
+EndProcedure
 
 Procedure.s DecodeNamedHtmlEntity(entity.s)
   Select LCase(entity)
     Case "amp" : ProcedureReturn "&"
     Case "apos" : ProcedureReturn "'"
+    Case "bdquo" : ProcedureReturn #DQUOTE$
+    Case "brvbar" : ProcedureReturn "|"
     Case "bull" : ProcedureReturn "*"
+    Case "cedil" : ProcedureReturn ","
     Case "cent" : ProcedureReturn "cent"
     Case "copy" : ProcedureReturn "(c)"
+    Case "curren" : ProcedureReturn "currency"
     Case "deg" : ProcedureReturn " deg"
     Case "divide" : ProcedureReturn "/"
+    Case "emsp", "ensp", "nbsp", "thinsp" : ProcedureReturn " "
     Case "euro" : ProcedureReturn "EUR"
     Case "frac12" : ProcedureReturn "1/2"
     Case "frac14" : ProcedureReturn "1/4"
@@ -29,14 +93,17 @@ Procedure.s DecodeNamedHtmlEntity(entity.s)
     Case "micro" : ProcedureReturn "u"
     Case "middot" : ProcedureReturn "-"
     Case "minus", "ndash" : ProcedureReturn "-"
-    Case "nbsp", "thinsp", "ensp", "emsp" : ProcedureReturn " "
+    Case "not" : ProcedureReturn "not"
     Case "para" : ProcedureReturn "P"
+    Case "permil" : ProcedureReturn " per mille"
     Case "plusmn" : ProcedureReturn "+/-"
     Case "pound" : ProcedureReturn "GBP"
     Case "quot" : ProcedureReturn #DQUOTE$
     Case "raquo" : ProcedureReturn #DQUOTE$
     Case "reg" : ProcedureReturn "(r)"
+    Case "sbquo" : ProcedureReturn "'"
     Case "sect" : ProcedureReturn "S"
+    Case "shy" : ProcedureReturn ""
     Case "sup1" : ProcedureReturn "^1"
     Case "sup2" : ProcedureReturn "^2"
     Case "sup3" : ProcedureReturn "^3"
@@ -48,12 +115,22 @@ Procedure.s DecodeNamedHtmlEntity(entity.s)
   ProcedureReturn ""
 EndProcedure
 
+Procedure.b IsRemovableHtmlEntity(entity.s)
+  Select LCase(entity)
+    Case "shy"
+      ProcedureReturn #True
+  EndSelect
+
+  ProcedureReturn #False
+EndProcedure
+
 Procedure.s DecodeHtmlEntities(text.s)
   Protected pos.i = FindString(text, "&")
   Protected endPos.i
   Protected entity.s
   Protected replacement.s
   Protected value.i
+  Protected digits.s
 
   While pos > 0
     endPos = FindString(text, ";", pos + 1)
@@ -63,19 +140,29 @@ Procedure.s DecodeHtmlEntities(text.s)
 
       If Left(entity, 1) = "#"
         If Left(entity, 2) = "#x" Or Left(entity, 2) = "#X"
-          value = Val("$" + Mid(entity, 3))
+          digits = Mid(entity, 3)
+          If IsHexDigits(digits)
+            value = Val("$" + digits)
+          Else
+            value = -1
+          EndIf
         Else
-          value = Val(Mid(entity, 2))
+          digits = Mid(entity, 2)
+          If IsDecimalDigits(digits)
+            value = Val(digits)
+          Else
+            value = -1
+          EndIf
         EndIf
 
-        If value > 0
+        If IsValidCodePoint(value)
           replacement = Chr(value)
         EndIf
       Else
         replacement = DecodeNamedHtmlEntity(entity)
       EndIf
 
-      If replacement <> ""
+      If replacement <> "" Or IsRemovableHtmlEntity(entity)
         text = Left(text, pos - 1) + replacement + Mid(text, endPos + 1)
         pos = FindString(text, "&", pos + Len(replacement))
       Else
@@ -104,11 +191,67 @@ EndProcedure
 
 Procedure.b IsSkipTag(tagName.s)
   Select tagName
-    Case "script", "style", "noscript"
+    Case "iframe", "noembed", "noframes", "noscript", "script", "style", "svg", "template"
       ProcedureReturn #True
   EndSelect
 
   ProcedureReturn #False
+EndProcedure
+
+Procedure.b IsLineBreakTag(tagName.s)
+  Select tagName
+    Case "article", "aside", "blockquote", "br", "div", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main", "nav", "ol", "p", "pre", "section", "table", "tr", "ul"
+      ProcedureReturn #True
+  EndSelect
+
+  ProcedureReturn #False
+EndProcedure
+
+Procedure.i FindTagEnd(html.s, startPos.i)
+  Protected i.i
+  Protected length.i = Len(html)
+  Protected char.s
+  Protected quote.s = ""
+
+  For i = startPos + 1 To length
+    char = Mid(html, i, 1)
+
+    If quote <> ""
+      If char = quote
+        quote = ""
+      EndIf
+    ElseIf char = #DQUOTE$ Or char = "'"
+      quote = char
+    ElseIf char = ">"
+      ProcedureReturn i
+    EndIf
+  Next
+
+  ProcedureReturn 0
+EndProcedure
+
+Procedure.i FindSkipTagEnd(html.s, tagName.s, searchStart.i)
+  Protected closeTag.s = "</" + tagName
+  Protected closePos.i
+  Protected closeEnd.i
+  Protected charAfter.s
+
+  closePos = FindString(html, closeTag, searchStart, #PB_String_NoCase)
+  While closePos > 0
+    charAfter = Mid(html, closePos + Len(closeTag), 1)
+    If charAfter = "" Or charAfter = ">" Or IsWhitespaceChar(charAfter)
+      closeEnd = FindTagEnd(html, closePos)
+      If closeEnd > 0
+        ProcedureReturn closeEnd
+      EndIf
+
+      ProcedureReturn Len(html)
+    EndIf
+
+    closePos = FindString(html, closeTag, closePos + Len(closeTag), #PB_String_NoCase)
+  Wend
+
+  ProcedureReturn 0
 EndProcedure
 
 Procedure.s ExtractTagName(tagContent.s)
@@ -197,7 +340,7 @@ Procedure.s StripHtmlTags(html.s)
   Protected char.s
   Protected tagContent.s
   Protected tagName.s
-  Protected closeTag.s
+  Protected normalized.s
 
   i = 1
   While i <= length
@@ -211,7 +354,7 @@ Procedure.s StripHtmlTags(html.s)
         EndIf
         i = closePos + 2
       Else
-        tagEnd = FindString(html, ">", i + 1)
+        tagEnd = FindTagEnd(html, i)
         If tagEnd = 0
           result + Mid(html, i)
           Break
@@ -221,29 +364,18 @@ Procedure.s StripHtmlTags(html.s)
         tagName = ExtractTagName(tagContent)
 
         If IsSkipTag(tagName)
-          closeTag = "</" + tagName
-          closePos = FindString(html, closeTag, tagEnd + 1, #PB_String_NoCase)
-          If closePos > 0
-            closeEnd = FindString(html, ">", closePos + Len(closeTag))
-            If closeEnd > 0
-              i = closeEnd
-            Else
-              i = length
-            EndIf
+          closeEnd = FindSkipTagEnd(html, tagName, tagEnd + 1)
+          If closeEnd > 0
+            i = closeEnd
           Else
             i = tagEnd
           EndIf
         Else
-          Select tagName
-            Case "br", "hr", "li", "tr", "p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "section", "article", "header", "footer", "nav", "aside", "blockquote", "ul", "ol", "table", "pre"
-              result = AddSeparator(result, #LF$)
-            Case "td", "th"
-              result = AddSeparator(result, " ")
-            Default
-              If IsBlockTag(tagName)
-                result = AddSeparator(result, #LF$)
-              EndIf
-          EndSelect
+          If tagName = "td" Or tagName = "th"
+            result = AddSeparator(result, " ")
+          ElseIf IsLineBreakTag(tagName) Or IsBlockTag(tagName)
+            result = AddSeparator(result, #LF$)
+          EndIf
 
           i = tagEnd
         EndIf
@@ -257,7 +389,9 @@ Procedure.s StripHtmlTags(html.s)
     i + 1
   Wend
 
-  ProcedureReturn NormalizeText(result)
+  normalized = DecodeHtmlEntities(result)
+
+  ProcedureReturn NormalizeText(normalized)
 EndProcedure
 
 Define.i fileIn, fileOut, exitCode
@@ -266,7 +400,7 @@ Define.s inputFile, outputFile, html, text
 exitCode = 0
 
 If OpenConsole()
-  If CountProgramParameters() >= 2
+  If CountProgramParameters() = 2
     inputFile = ProgramParameter(0)
     outputFile = ProgramParameter(1)
 
@@ -281,7 +415,6 @@ If OpenConsole()
       CloseFile(fileIn)
 
       text = StripHtmlTags(html)
-      text = DecodeHtmlEntities(text)
 
       fileOut = CreateFile(#PB_Any, outputFile, #PB_UTF8)
       If fileOut
@@ -297,12 +430,10 @@ If OpenConsole()
       exitCode = 2
     EndIf
      
+  ElseIf CountProgramParameters() = 1 And (ProgramParameter(0) = "--help" Or ProgramParameter(0) = "-h" Or ProgramParameter(0) = "/?")
+    PrintUsage()
   Else
-    PrintN("Usage: " + #APP_NAME + " <input.html> <output.txt>")
-    PrintN("Version: " + version)
-    PrintN("A simple HTML to Text converter.")
-    PrintN("Contact: " + #EMAIL_NAME)
-    PrintN("GitHub: https://github.com/zonemaster60")
+    PrintUsage()
     exitCode = 1
   EndIf
 Else
@@ -322,12 +453,12 @@ End exitCode
 ; UseIcon = html_2_text.ico
 ; Executable = ..\html_2_text.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = html_2_text
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = Convert HTML documents to readable text
 ; VersionField7 = html_2_text
 ; VersionField8 = html_2_text.exe

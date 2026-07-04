@@ -1,5 +1,5 @@
 ; hash_tool.pb
-; PureBasic v6.30 (beta 5)
+; PureBasic v6.40
 ; Console tool: compute file hashes and write CSV/TXT.
 ;
 ; Usage:
@@ -14,9 +14,11 @@ EnableExplicit
 
 #APP_NAME = "Hash_Tool"
 
-Global version.s = "v1.0.0.3"
+Global version.s = "v1.0.0.4"
 
 #DefaultChunkSize = 1024 * 1024
+#MinChunkSize = 4096
+#MaxChunkSize = 64 * 1024 * 1024
 
 Structure HashAlgo
   name.s
@@ -29,9 +31,13 @@ Procedure CleanupAndExit(ExitCode.i = 0)
   End ExitCode
 EndProcedure
 
-Procedure PrintError(Message.s, Silent.i = #False)
+Procedure PrintError(Message.s)
+  PrintN("ERROR: " + Message)
+EndProcedure
+
+Procedure PrintWarning(Message.s, Silent.i = #False)
   If Not Silent
-    PrintN("ERROR: " + Message)
+    PrintN("WARNING: " + Message)
   EndIf
 EndProcedure
 
@@ -45,9 +51,41 @@ Procedure.s GetFileName(FilePath.s)
   ProcedureReturn GetFilePart(FilePath)
 EndProcedure
 
+Procedure.i IsAbsolutePath(FilePath.s)
+  If Mid(FilePath, 2, 2) = ":\" Or Left(FilePath, 2) = "\\"
+    ProcedureReturn #True
+  EndIf
+
+  ProcedureReturn #False
+EndProcedure
+
+Procedure.s NormalizePath(FilePath.s)
+  Protected path.s = FilePath
+
+  If path = ""
+    ProcedureReturn path
+  EndIf
+
+  path = ReplaceString(path, "/", "\")
+
+  While Left(path, 2) = ".\"
+    path = Mid(path, 3)
+  Wend
+
+  If IsAbsolutePath(path)
+    ProcedureReturn path
+  EndIf
+
+  ProcedureReturn GetCurrentDirectory() + path
+EndProcedure
+
+Procedure.s HashKey(FilePath.s, AlgoName.s)
+  ProcedureReturn FilePath + Chr(31) + AlgoName
+EndProcedure
+
 Procedure.s JoinPath(Dir.s, FileName.s)
   If Dir = "" Or Dir = "."
-    ProcedureReturn ".\\" + FileName
+    ProcedureReturn FileName
   EndIf
 
   If Right(Dir, 1) = "\\" Or Right(Dir, 1) = "/"
@@ -67,18 +105,20 @@ Procedure ResetFingerprints(List Algos.HashAlgo())
 EndProcedure
 
 Procedure AddUniqueFile(List FilesToHash.s(), Map SeenFiles.i(), FilePath.s)
-  Protected key.s = LCase(FilePath)
+  Protected normalizedPath.s = NormalizePath(FilePath)
+  Protected key.s = LCase(normalizedPath)
 
   If FindMapElement(SeenFiles(), key) = 0
     SeenFiles(key) = #True
     AddElement(FilesToHash())
-    FilesToHash() = FilePath
+    FilesToHash() = normalizedPath
   EndIf
 EndProcedure
 
 Procedure.s DefaultOutputPath(List Files.s(), Format.s)
   Protected suffix.s
   Protected firstFile.s
+  Protected outputBase.s
   
   If FirstElement(Files())
     firstFile = Files()
@@ -91,7 +131,13 @@ Procedure.s DefaultOutputPath(List Files.s(), Format.s)
   Else
     suffix = ".csv"
   EndIf
-  ProcedureReturn firstFile + suffix
+
+  outputBase = GetPathPart(firstFile) + GetFilePart(firstFile, #PB_FileSystem_NoExtension)
+  If outputBase = ""
+    outputBase = "hashes"
+  EndIf
+
+  ProcedureReturn outputBase + ".hashes" + suffix
 EndProcedure
 
 Procedure.i WriteCSV(OutputPath.s, List FilesToHash.s(), List Algos.HashAlgo(), Map AllHashes.s())
@@ -117,7 +163,7 @@ Procedure.i WriteCSV(OutputPath.s, List FilesToHash.s(), List Algos.HashAlgo(), 
   ForEach FilesToHash()
     values = QuoteCSV(FilesToHash()) + "," + Str(FileSize(FilesToHash()))
     ForEach Algos()
-      hashKey = FilesToHash() + "|" + Algos()\name
+      hashKey = HashKey(FilesToHash(), Algos()\name)
       If FindMapElement(AllHashes(), hashKey)
         values + "," + QuoteCSV(AllHashes())
       Else
@@ -145,7 +191,7 @@ Procedure.i WriteTXT(OutputPath.s, List FilesToHash.s(), List Algos.HashAlgo(), 
     WriteStringN(fileId, "File: " + FilesToHash())
     WriteStringN(fileId, "Size: " + Str(FileSize(FilesToHash())) + " bytes")
     ForEach Algos()
-      hashKey = FilesToHash() + "|" + Algos()\name
+      hashKey = HashKey(FilesToHash(), Algos()\name)
       If FindMapElement(AllHashes(), hashKey)
         WriteStringN(fileId, "  " + Algos()\name + ": " + AllHashes())
       EndIf
@@ -167,12 +213,14 @@ Procedure.i ComputeHashesStreaming(FilePath.s, ChunkSize.i, List Algos.HashAlgo(
   Protected currentRead.q = 0
   Protected lastPercent.i = -1
   Protected currentPercent.i
+  Protected startedCount.i = 0
 
   If totalSize < 0
+    PrintError("Input file does not exist or is not readable: " + FilePath)
     ProcedureReturn #False
   EndIf
 
-  If ChunkSize <= 0
+  If ChunkSize < #MinChunkSize Or ChunkSize > #MaxChunkSize
     ChunkSize = #DefaultChunkSize
   EndIf
 
@@ -188,11 +236,18 @@ Procedure.i ComputeHashesStreaming(FilePath.s, ChunkSize.i, List Algos.HashAlgo(
     If Algos()\fp = 0
       Continue
     EndIf
+    startedCount + 1
   Next
+
+  If startedCount = 0
+    PrintError("No fingerprint algorithms could be initialized.")
+    ProcedureReturn #False
+  EndIf
 
   fileId = ReadFile(#PB_Any, FilePath)
   If fileId = 0
     ResetFingerprints(Algos())
+    PrintError("Unable to open input file: " + FilePath)
     ProcedureReturn #False
   EndIf
 
@@ -200,6 +255,7 @@ Procedure.i ComputeHashesStreaming(FilePath.s, ChunkSize.i, List Algos.HashAlgo(
   If *buffer = 0
     CloseFile(fileId)
     ResetFingerprints(Algos())
+    PrintError("Unable to allocate read buffer (" + Str(ChunkSize) + " bytes).")
     ProcedureReturn #False
   EndIf
 
@@ -235,12 +291,13 @@ Procedure.i ComputeHashesStreaming(FilePath.s, ChunkSize.i, List Algos.HashAlgo(
 
   If readError
     ResetFingerprints(Algos())
+    PrintError("Error while reading input file: " + FilePath)
     ProcedureReturn #False
   EndIf
 
   ; Finish and collect results.
   ForEach Algos()
-    hashKey = FilePath + "|" + Algos()\name
+    hashKey = HashKey(FilePath, Algos()\name)
     If Algos()\fp
       Hashes(hashKey) = LCase(FinishFingerprint(Algos()\fp))
       Algos()\fp = 0
@@ -299,7 +356,7 @@ Procedure PrintUsage(ExeName.s)
   PrintN("Options:")
   PrintN(" --out <file>       Specify output path (default: first_input.csv/txt)")
   PrintN(" --format <fmt>     Set output format: csv (default) or txt")
-  PrintN(" --chunk-size <n>   Set read buffer size in bytes (default: 1MB)")
+  PrintN(" --chunk-size <n>   Set read buffer size in bytes (4KB to 64MB; default: 1MB)")
   PrintN(" --silent, -s       Suppress all console output except critical errors")
   PrintN(" --help, -h         Show this help message")
   PrintN("")
@@ -340,6 +397,8 @@ Define chunkSize.i = #DefaultChunkSize
 Define silent.i = #False
 Define failedCount.i = 0
 Define parseError.s = ""
+Define wildcardMisses.i = 0
+Define matchedWildcard.i
 
 ; First pass: identify input files (supports multiple) and options
 For i = 0 To CountProgramParameters() - 1
@@ -366,8 +425,8 @@ For i = 0 To CountProgramParameters() - 1
         If i + 1 < CountProgramParameters()
           i + 1
           chunkSize = Val(ProgramParameter(i))
-          If chunkSize <= 0
-            parseError = "--chunk-size must be a positive integer"
+          If chunkSize < #MinChunkSize Or chunkSize > #MaxChunkSize
+            parseError = "--chunk-size must be between " + Str(#MinChunkSize) + " and " + Str(#MaxChunkSize) + " bytes"
             Break
           EndIf
         Else
@@ -387,13 +446,19 @@ For i = 0 To CountProgramParameters() - 1
       If dir = "" : dir = "." : EndIf
       Define pattern.s = GetFilePart(param)
       Define hDir.i = ExamineDirectory(#PB_Any, dir, pattern)
+      matchedWildcard = #False
       If hDir
         While NextDirectoryEntry(hDir)
           If DirectoryEntryType(hDir) = #PB_DirectoryEntry_File
             AddUniqueFile(filesToHash(), seenFiles(), JoinPath(dir, DirectoryEntryName(hDir)))
+            matchedWildcard = #True
           EndIf
         Wend
         FinishDirectory(hDir)
+      EndIf
+      If matchedWildcard = #False
+        wildcardMisses + 1
+        PrintWarning("No files matched wildcard: " + param, silent)
       EndIf
     Else
       AddUniqueFile(filesToHash(), seenFiles(), param)
@@ -402,17 +467,21 @@ For i = 0 To CountProgramParameters() - 1
 Next
 
 If parseError <> ""
-  PrintError(parseError, silent)
+  PrintError(parseError)
   CleanupAndExit(1)
 EndIf
 
 If ListSize(filesToHash()) = 0
-  PrintUsage(GetFileName(ProgramFilename()))
+  If wildcardMisses = 0
+    PrintUsage(GetFileName(ProgramFilename()))
+  Else
+    PrintError("No input files matched.")
+  EndIf
   CleanupAndExit(1)
 EndIf
 
 If format <> "csv" And format <> "txt"
-  PrintError("Unsupported format: " + format, silent)
+  PrintError("Unsupported format: " + format)
   CleanupAndExit(1)
 EndIf
 
@@ -437,7 +506,7 @@ ForEach filesToHash()
 Next
 
 If ListSize(successfulFiles()) = 0 Or MapSize(hashes()) <= 0
-  PrintError("No hashes generated.", silent)
+  PrintError("No hashes generated.")
   CleanupAndExit(1)
 EndIf
 
@@ -461,9 +530,9 @@ EndIf
 
 CleanupAndExit(0)
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 16
-; Folding = ---
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 1
+; Folding = ----
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -471,12 +540,12 @@ CleanupAndExit(0)
 ; UseIcon = hash_tool.ico
 ; Executable = ..\hash_tool.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = hash_tool
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = Create hash tables for executable files.
 ; VersionField7 = hash_tool
 ; VersionField8 = hash_tool.exe

@@ -3,6 +3,10 @@ EnableExplicit
 
 #CHUNK_LINES = 1024
 #APP_NAME = "Viewer"
+#APP_VERSION = "1.0.0.3"
+#TAB_WIDTH = 4
+#ESC_SEQUENCE_TIMEOUT_MS = 40
+#FRAME_DELAY_MS = 16
 #NAV_NONE = 0
 #NAV_QUIT = 1
 #NAV_UP = 2
@@ -11,7 +15,6 @@ EnableExplicit
 #NAV_PAGEDOWN = 5
 #NAV_HOME = 6
 #NAV_END = 7
-Global version.s = "1.0.0.2"
 
 ; Windows Virtual-Key codes for RawKey() fallback navigation
 #VK_UP     = 38
@@ -47,6 +50,19 @@ Procedure.i ParseAnsiNavigation(seq.s)
   ProcedureReturn #NAV_NONE
 EndProcedure
 
+Procedure.i NavigationFromCharacter(k.s)
+  Select k
+    Case "q", "Q"
+      ProcedureReturn #NAV_QUIT
+    Case "w", "W", "k", "K"
+      ProcedureReturn #NAV_UP
+    Case "s", "S", "j", "J"
+      ProcedureReturn #NAV_DOWN
+  EndSelect
+
+  ProcedureReturn #NAV_NONE
+EndProcedure
+
 Procedure.i IsAnsiPrefix(seq.s)
   Select seq
     Case Chr(27), Chr(27) + "[", Chr(27) + "O", Chr(27) + "[1", Chr(27) + "[4", Chr(27) + "[5", Chr(27) + "[6", Chr(27) + "[7", Chr(27) + "[8"
@@ -64,6 +80,7 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   #ENABLE_QUICK_EDIT_MODE   = $0040
   #ENABLE_INSERT_MODE       = $0020
   #ENABLE_MOUSE_INPUT       = $0010
+  #INVALID_CONSOLE_MODE     = -1
 
   CompilerIf Defined(COORD, #PB_Structure) = 0
     Structure COORD
@@ -100,10 +117,17 @@ EndProcedure
 
 Procedure.s ClipToWidth(text.s, cols.i)
   If cols <= 0 : ProcedureReturn "" : EndIf
-  ; Replace tabs with spaces for consistent viewing
-  text = ReplaceString(text, #TAB$, "    ")
+  text = ReplaceString(text, #TAB$, Space(#TAB_WIDTH))
   If Len(text) > cols : ProcedureReturn Left(text, cols) : EndIf
   ProcedureReturn text
+EndProcedure
+
+Procedure.s PadToWidth(text.s, cols.i)
+  Protected clipped.s
+  If cols <= 0 : ProcedureReturn "" : EndIf
+
+  clipped = ClipToWidth(text, cols)
+  ProcedureReturn clipped + Space(cols - Len(clipped))
 EndProcedure
 
 Procedure.i ConsoleCols()
@@ -129,15 +153,33 @@ Procedure.i ConsoleRows()
 EndProcedure
 
 CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-  Procedure DisableConsoleMouseAndQuickEdit()
+  Procedure.i DisableConsoleMouseAndQuickEdit()
     Protected hIn.i = GetStdHandle_(#STD_INPUT_HANDLE)
     Protected mode.l
     If IsValidConsoleHandle(hIn) And GetConsoleMode_(hIn, @mode)
+      Protected originalMode.l = mode
       mode | #ENABLE_EXTENDED_FLAGS
       mode & ~#ENABLE_QUICK_EDIT_MODE
       mode & ~#ENABLE_INSERT_MODE
       mode & ~#ENABLE_MOUSE_INPUT
-      SetConsoleMode_(hIn, mode)
+      If SetConsoleMode_(hIn, mode)
+        ProcedureReturn originalMode
+      EndIf
+    EndIf
+
+    ProcedureReturn #INVALID_CONSOLE_MODE
+  EndProcedure
+
+  Procedure RestoreConsoleInputMode(originalMode.i)
+    Protected hIn.i
+
+    If originalMode = #INVALID_CONSOLE_MODE
+      ProcedureReturn
+    EndIf
+
+    hIn = GetStdHandle_(#STD_INPUT_HANDLE)
+    If IsValidConsoleHandle(hIn)
+      SetConsoleMode_(hIn, originalMode)
     EndIf
   EndProcedure
 
@@ -156,7 +198,53 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     buf\y = winH
     SetConsoleScreenBufferSize_(hOut, buf)
   EndProcedure
+
+  Procedure.i NavigationFromRawKey(rk.i)
+    Select rk
+      Case #VK_UP
+        ProcedureReturn #NAV_UP
+      Case #VK_DOWN
+        ProcedureReturn #NAV_DOWN
+      Case #VK_PRIOR
+        ProcedureReturn #NAV_PAGEUP
+      Case #VK_NEXT
+        ProcedureReturn #NAV_PAGEDOWN
+      Case #VK_HOME
+        ProcedureReturn #NAV_HOME
+      Case #VK_END
+        ProcedureReturn #NAV_END
+    EndSelect
+
+    ProcedureReturn #NAV_NONE
+  EndProcedure
 CompilerEndIf
+
+Procedure PrintUsage()
+  PrintN(#APP_NAME + " " + #APP_VERSION)
+  PrintN("Usage: " + #APP_NAME + " <file>")
+  PrintN("Keys: Up/Down, PgUp/PgDn, Home/End, W/S, J/K, Q or Esc")
+EndProcedure
+
+Procedure ExitConsoleAfterEnter(message.s = "")
+  If message <> ""
+    PrintN(message)
+  EndIf
+
+  Print("Press Enter to exit...")
+  Input()
+  CloseConsole()
+  End
+EndProcedure
+
+Procedure RestoreConsoleForExit()
+  Protected rows.i = ConsoleRows()
+
+  ConsoleColor(7, 0)
+  If rows > 0
+    ConsoleLocate(0, rows - 1)
+  EndIf
+  PrintN("")
+EndProcedure
 
 Procedure.i LoadFileIntoArray(fileName.s, Array lines.s(1))
   Protected f.i, count.i, cap.i, format.i
@@ -190,8 +278,6 @@ Procedure DrawScreen(Array lines.s(1), lineCount.i, topLine.i, fileName.s)
   Protected viewRows.i = rowsTotal - 1
   Protected i.i, idx.i
   Protected status.s
-  Protected clipped.s
-  Protected currentLineLen.i
   Protected firstShown.i
   Protected lastShown.i
 
@@ -201,20 +287,14 @@ Procedure DrawScreen(Array lines.s(1), lineCount.i, topLine.i, fileName.s)
   ; Draw file content
   For i = 0 To viewRows - 1
     idx = topLine + i
-    clipped = ""
     If idx < lineCount
-      clipped = ClipToWidth(lines(idx), cols)
-      Print(clipped)
-    EndIf
-    ; Clear to end of line to avoid artifacts from previous draws
-    currentLineLen = Len(clipped)
-    
-    If cols - currentLineLen > 0
-      Print(Space(cols - currentLineLen))
+      Print(PadToWidth(lines(idx), cols))
+    Else
+      Print(Space(cols))
     EndIf
     
     If i < viewRows - 1
-        PrintN("")
+      PrintN("")
     EndIf
   Next
 
@@ -227,12 +307,93 @@ Procedure DrawScreen(Array lines.s(1), lineCount.i, topLine.i, fileName.s)
     lastShown = ClampI(topLine + viewRows, 0, lineCount)
   EndIf
   status = " " + GetFilePart(fileName) + " | " + Str(lineCount) + " lines | " + Str(firstShown) + "-" + Str(lastShown) + " | Q: Quit"
-  status = ClipToWidth(status, cols)
   
   ConsoleLocate(0, viewRows)
   ConsoleColor(0, 7)
-  Print(status + Space(cols - Len(status)))
+  Print(PadToWidth(status, cols))
   ConsoleColor(7, 0)
+EndProcedure
+
+Procedure.i MaxTopLine(lineCount.i, viewRows.i)
+  Protected maxTop.i = lineCount - viewRows
+  If maxTop < 0 : ProcedureReturn 0 : EndIf
+  ProcedureReturn maxTop
+EndProcedure
+
+Procedure.i NextTopLine(topLine.i, nav.i, viewRows.i, maxTop.i)
+  Select nav
+    Case #NAV_UP
+      topLine - 1
+    Case #NAV_DOWN
+      topLine + 1
+    Case #NAV_PAGEUP
+      topLine - viewRows
+    Case #NAV_PAGEDOWN
+      topLine + viewRows
+    Case #NAV_HOME
+      topLine = 0
+    Case #NAV_END
+      topLine = maxTop
+  EndSelect
+
+  ProcedureReturn ClampI(topLine, 0, maxTop)
+EndProcedure
+
+Procedure.i ReadAnsiNavigation(initial.s)
+  Protected seq.s = initial
+  Protected ch.s
+  Protected nav.i
+  Protected deadline.i = ElapsedMilliseconds() + #ESC_SEQUENCE_TIMEOUT_MS
+
+  Repeat
+    ch = Inkey()
+    If ch <> ""
+      seq + ch
+      nav = ParseAnsiNavigation(seq)
+      If nav <> #NAV_NONE Or IsAnsiPrefix(seq) = 0
+        Break
+      EndIf
+    Else
+      Delay(1)
+    EndIf
+  Until ElapsedMilliseconds() >= deadline
+
+  If nav <> #NAV_NONE
+    ProcedureReturn nav
+  EndIf
+
+  nav = ParseAnsiNavigation(seq)
+  If nav <> #NAV_NONE
+    ProcedureReturn nav
+  EndIf
+
+  If Len(seq) = 1
+    ProcedureReturn #NAV_QUIT
+  EndIf
+
+  ProcedureReturn #NAV_NONE
+EndProcedure
+
+Procedure.i ReadNavigation()
+  Protected k.s = Inkey()
+  Protected nav.i
+
+  If k = Chr(27)
+    ProcedureReturn ReadAnsiNavigation(k)
+  EndIf
+
+  If k <> ""
+    nav = NavigationFromCharacter(k)
+    If nav <> #NAV_NONE
+      ProcedureReturn nav
+    EndIf
+  EndIf
+
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    ProcedureReturn NavigationFromRawKey(RawKey())
+  CompilerEndIf
+
+  ProcedureReturn #NAV_NONE
 EndProcedure
 
 ; ---- Main ----
@@ -240,17 +401,12 @@ If OpenConsole() = 0 : End : EndIf
 EnableGraphicalConsole(1)
 
 CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-  DisableConsoleMouseAndQuickEdit()
-  EnsureNoConsoleScrollback()
+  Define originalInputMode.i = #INVALID_CONSOLE_MODE
 CompilerEndIf
 
 If CountProgramParameters() < 1
-  PrintN("Usage: " + #APP_NAME + " <file>")
-  PrintN("Keys: Up/Down, PgUp/PgDn, Home/End, W/S, J/K, Q or Esc")
-  Print("Press Enter to exit...")
-  Input()
-  CloseConsole()
-  End
+  PrintUsage()
+  ExitConsoleAfterEnter()
 EndIf
 
 Define fileName.s = ProgramParameter(0)
@@ -258,28 +414,28 @@ Define Dim lines.s(0)
 Define lineCount.i = LoadFileIntoArray(fileName, lines())
 
 If lineCount < 0
-  PrintN("Error: Could not open file: " + fileName)
-  Print("Press Enter to exit...")
-  Input()
-  CloseConsole()
-  End
+  ExitConsoleAfterEnter("Error: Could not open file: " + fileName)
 EndIf
 
+CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+  originalInputMode = DisableConsoleMouseAndQuickEdit()
+  EnsureNoConsoleScrollback()
+CompilerEndIf
+
 Define topLine.i = 0
-Define k.s, seq.s, ch.s
-Define rk.i, nav.i, deadline.i
+Define nav.i
 Define colsTotal.i, rowsTotal.i, viewRows.i, maxTop.i
 Define lastTop.i = -1
 Define lastCols.i = -1
 Define lastRows.i = -1
+Define quit.i = #False
 
 Repeat
   colsTotal = ConsoleCols()
   rowsTotal = ConsoleRows()
   viewRows = rowsTotal - 1
   If viewRows < 1 : viewRows = 1 : EndIf
-  maxTop = lineCount - viewRows
-  If maxTop < 0 : maxTop = 0 : EndIf
+  maxTop = MaxTopLine(lineCount, viewRows)
   topLine = ClampI(topLine, 0, maxTop)
 
   ; Only redraw if something changed
@@ -295,90 +451,28 @@ Repeat
     lastCols = colsTotal
   EndIf
 
-  nav = #NAV_NONE
-  k = Inkey()
-  rk = 0
-  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    rk = RawKey()
-  CompilerEndIf
-  If k = Chr(27)
-    seq = k
-    deadline = ElapsedMilliseconds() + 40
-
-    Repeat
-      ch = Inkey()
-      If ch <> ""
-        seq + ch
-        nav = ParseAnsiNavigation(seq)
-        If nav <> #NAV_NONE Or IsAnsiPrefix(seq) = 0
-          Break
-        EndIf
-      Else
-        Delay(1)
-      EndIf
-    Until ElapsedMilliseconds() >= deadline
-
-    If nav = #NAV_NONE
-      If ParseAnsiNavigation(seq) <> #NAV_NONE
-        nav = ParseAnsiNavigation(seq)
-      ElseIf Len(seq) = 1
-        nav = #NAV_QUIT
-      EndIf
-    EndIf
-  ElseIf k <> ""
-    Select k
-      Case "q", "Q"
-        nav = #NAV_QUIT
-      Case "w", "W"
-        nav = #NAV_UP
-      Case "s", "S"
-        nav = #NAV_DOWN
-      Case "k", "K"
-        nav = #NAV_UP
-      Case "j", "J"
-        nav = #NAV_DOWN
-    EndSelect
-  EndIf
-
-  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    If nav = #NAV_NONE And rk
-      Select rk
-        Case #VK_UP : nav = #NAV_UP
-        Case #VK_DOWN : nav = #NAV_DOWN
-        Case #VK_PRIOR : nav = #NAV_PAGEUP
-        Case #VK_NEXT : nav = #NAV_PAGEDOWN
-        Case #VK_HOME : nav = #NAV_HOME
-        Case #VK_END : nav = #NAV_END
-      EndSelect
-    EndIf
-  CompilerEndIf
+  nav = ReadNavigation()
 
   Select nav
     Case #NAV_QUIT
-      Break
-    Case #NAV_UP
-      topLine - 1
-    Case #NAV_DOWN
-      topLine + 1
-    Case #NAV_PAGEUP
-      topLine - viewRows
-    Case #NAV_PAGEDOWN
-      topLine + viewRows
-    Case #NAV_HOME
-      topLine = 0
-    Case #NAV_END
-      topLine = maxTop
+      quit = #True
+    Case #NAV_UP, #NAV_DOWN, #NAV_PAGEUP, #NAV_PAGEDOWN, #NAV_HOME, #NAV_END
+      topLine = NextTopLine(topLine, nav, viewRows, maxTop)
   EndSelect
   
-  Delay(16) ; ~60fps response
-ForEver
+  Delay(#FRAME_DELAY_MS)
+Until quit
 
+RestoreConsoleForExit()
+CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+  RestoreConsoleInputMode(originalInputMode)
+CompilerEndIf
 CloseConsole()
 End
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 13
-; Folding = ----
+; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 5
+; Folding = ------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -387,12 +481,12 @@ End
 ; UseIcon = viewer.ico
 ; Executable = ..\Viewer.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = viewer
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = Console text viewer
 ; VersionField7 = viewer
 ; VersionField8 = viewer.exe
