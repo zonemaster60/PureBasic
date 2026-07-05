@@ -20,7 +20,7 @@ EnableExplicit
 #APP_NAME        = "PB_DNSJumper"
 #EMAIL_NAME      = "zonemaster60@gmail.com"
 #WORKER_EXIT_WAIT_MS           = 10000
-Global version.s = "v1.0.1.1"
+Global version.s = "v1.0.1.2"
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 If AppPath = "" : AppPath = GetCurrentDirectory() : EndIf
@@ -190,6 +190,7 @@ Enumeration Gadgets
   #G_TrayRescanCombo
   #G_StartToTrayCheck
   #G_AutoApplyCheck
+  #G_QuickTestCheck
   #G_Start
   #G_Stop
   #G_Apply
@@ -766,6 +767,15 @@ Global gTrayRescanHours.l = 4
 Global gLastTrayRescanTick.q = ElapsedMilliseconds()
 Global gAutoApplyAfterBenchmark.b = #True
 Global gPreferredAdapter.s = ""
+Global gQuickBenchmark.b = #True
+
+Procedure.l BenchmarkDomainCount(domains.s, quickMode.b)
+  If quickMode
+    ProcedureReturn 1
+  EndIf
+
+  ProcedureReturn CountString(domains, "|") + 1
+EndProcedure
 Procedure.i TrayRescanSelectionFromHours(hours.l)
   Select hours
     Case 2
@@ -794,6 +804,7 @@ Procedure LoadSettings()
     gTrayRescanHours = ReadPreferenceLong("TrayRescanHours", gTrayRescanHours)
     gStartToTray = ReadPreferenceLong("StartToTray", gStartToTray)
     gAutoApplyAfterBenchmark = ReadPreferenceLong("AutoApplyAfterBenchmark", gAutoApplyAfterBenchmark)
+    gQuickBenchmark = ReadPreferenceLong("QuickBenchmark", gQuickBenchmark)
     gPreferredAdapter = ReadPreferenceString("PreferredAdapter", gPreferredAdapter)
     ClosePreferences()
   EndIf
@@ -813,6 +824,7 @@ Procedure LoadSettings()
 
   gStartToTray = Bool(gStartToTray)
   gAutoApplyAfterBenchmark = Bool(gAutoApplyAfterBenchmark)
+  gQuickBenchmark = Bool(gQuickBenchmark)
 EndProcedure
 
 Procedure SaveSettings()
@@ -828,6 +840,7 @@ Procedure SaveSettings()
     WritePreferenceLong("TrayRescanHours", gTrayRescanHours)
     WritePreferenceLong("StartToTray", gStartToTray)
     WritePreferenceLong("AutoApplyAfterBenchmark", gAutoApplyAfterBenchmark)
+    WritePreferenceLong("QuickBenchmark", gQuickBenchmark)
     WritePreferenceString("PreferredAdapter", gPreferredAdapter)
     ClosePreferences()
   Else
@@ -936,15 +949,16 @@ Procedure.d P90FromSortedArray(Array a.d(1), n.l)
   ProcedureReturn a(f) + (a(c) - a(f)) * (k - f)
 EndProcedure
 
-Procedure BenchProvider(providerName.s, ip1.s, ip2.s, tries.l, timeoutMs.l, domains.s)
-  Protected domainCount = CountString(domains, "|") + 1
+Procedure BenchProvider(providerName.s, ip1.s, ip2.s, tries.l, timeoutMs.l, domains.s, quickMode.b)
+  Protected allDomainCount = CountString(domains, "|") + 1
+  Protected domainCount = BenchmarkDomainCount(domains, quickMode)
   Protected total.l = tries * domainCount * 2
   Protected ok.l = 0
 
   Dim samples.d(total - 1)
   Protected si.l = 0
 
-  Protected pass, i, d.s, rtt.d
+  Protected pass, i, domainIndex, d.s, rtt.d
   LogLine("Benchmarking provider: " + providerName + " | " + ip1 + " / " + ip2)
   For pass = 1 To tries
     For i = 1 To domainCount
@@ -952,7 +966,12 @@ Procedure BenchProvider(providerName.s, ip1.s, ip2.s, tries.l, timeoutMs.l, doma
         ProcedureReturn
       EndIf
 
-      d = StringField(domains, i, "|")
+      If quickMode
+        domainIndex = ((pass - 1) % allDomainCount) + 1
+      Else
+        domainIndex = i
+      EndIf
+      d = StringField(domains, domainIndex, "|")
 
       rtt = DnsRTTms(ip1, d, timeoutMs)
       If rtt >= 0
@@ -1014,6 +1033,7 @@ Procedure WorkerThread(*dummy)
   Protected tries.l
   Protected timeoutMs.l
   Protected domains.s
+  Protected quickMode.b
   Protected wsa.DNSJ_WSAData
   LogLine("Worker thread started")
   If WSAStartup($0202, @wsa) <> 0
@@ -1033,6 +1053,7 @@ Procedure WorkerThread(*dummy)
   tries = gTries
   timeoutMs = gTimeoutMs
   domains = gDomains
+  quickMode = gQuickBenchmark
   
   ForEach Providers()
     AddElement(localProviders())
@@ -1046,7 +1067,7 @@ Procedure WorkerThread(*dummy)
     LockMutex(gMutex)
     gCurrentTest = "Testing: " + localProviders()\name + "  [" + localProviders()\ip1 + ", " + localProviders()\ip2 + "]"
     UnlockMutex(gMutex)
-    BenchProvider(localProviders()\name, localProviders()\ip1, localProviders()\ip2, tries, timeoutMs, domains)
+    BenchProvider(localProviders()\name, localProviders()\ip1, localProviders()\ip2, tries, timeoutMs, domains, quickMode)
   Next
 
   WSACleanup()
@@ -1150,6 +1171,7 @@ Procedure SetBenchmarkUiState(isRunning.i)
   DisableGadget(#G_TimeoutSpin, Bool(isRunning))
   DisableGadget(#G_AutoStartSpin, Bool(isRunning))
   DisableGadget(#G_TrayRescanCombo, Bool(isRunning))
+  DisableGadget(#G_QuickTestCheck, Bool(isRunning))
   DisableGadget(#G_Exit, Bool(isRunning))
 EndProcedure
 
@@ -1257,8 +1279,10 @@ Procedure SyncSettingsFromUi()
   gTimeoutMs = GetGadgetState(#G_TimeoutSpin)
   gAutoStartDelaySec = GetGadgetState(#G_AutoStartSpin)
   gTrayRescanHours = TrayRescanHours()
+  gQuickBenchmark = Bool(GetGadgetState(#G_QuickTestCheck))
   gStartToTray = Bool(GetGadgetState(#G_StartToTrayCheck))
   gAutoApplyAfterBenchmark = Bool(GetGadgetState(#G_AutoApplyCheck))
+  gQuickBenchmark = Bool(GetGadgetState(#G_QuickTestCheck))
   gPreferredAdapter = GetGadgetText(#G_AdapterCombo)
 EndProcedure
 
@@ -1328,7 +1352,7 @@ Procedure.b StartBenchmarkRun()
   gWorkerStepsDone = 0
   ClearList(gQueue())
   ; steps = (providers * 2 IPs) * (tries * domains)
-  Protected domainCount = CountString(gDomains, "|") + 1
+  Protected domainCount = BenchmarkDomainCount(gDomains, gQuickBenchmark)
   gWorkerTotalSteps = ListSize(Providers()) * 2 * gTries * domainCount
   UnlockMutex(gMutex)
 
@@ -1357,11 +1381,11 @@ Procedure FinishBenchmarkRun(wasCancelled.i)
   If wasCancelled
     SetGadgetText(#G_Status, "Stopped.")
     LogLine("Benchmark stopped")
-    SysTrayIconToolTip(#SysTray, "Benchmark Stopped")
+    SysTrayIconToolTip(#SysTray, "Benchmark Stopped.")
   Else
     SetGadgetText(#G_Status, "Done. (Apply requires Administrator)")
     LogLine("Benchmark completed")
-    SysTrayIconToolTip(#SysTray, "Benchmark Complete")
+    SysTrayIconToolTip(#SysTray, "Benchmark Complete.")
   EndIf
 
   LockMutex(gMutex)
@@ -1385,7 +1409,7 @@ Procedure.b AutoApplyBestProvider(adapter.s)
   SetGadgetText(#G_Status, "Auto-Applying best DNS...")
   If ApplyBest(adapter)
     SetGadgetText(#G_Status, "Auto-Apply complete.")
-    SysTrayIconToolTip(#SysTray, "Auto-Apply Complete")
+    SysTrayIconToolTip(#SysTray, "Auto-Apply Complete.")
     LogLine("Auto-apply completed")
     Delay(2500)
     SysTrayIconToolTip(#SysTray, #APP_NAME + " - Done.")
@@ -1654,12 +1678,14 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
   SetGadgetState(#G_StartToTrayCheck, gStartToTray)
   CheckBoxGadget(#G_AutoApplyCheck, 130, 68, 145, 22, "Auto-apply best DNS")
   SetGadgetState(#G_AutoApplyCheck, gAutoApplyAfterBenchmark)
+  CheckBoxGadget(#G_QuickTestCheck, 285, 68, 105, 22, "Quick test")
+  SetGadgetState(#G_QuickTestCheck, gQuickBenchmark)
 
-  ButtonGadget(#G_Start, 560, 66, 60, 26, "Test")
-  ButtonGadget(#G_Stop, 625, 66, 60, 26, "Stop")
-  ButtonGadget(#G_About, 690, 66, 70, 26, "About")
-  ButtonGadget(#G_Apply, 765, 66, 90, 26, "Apply Best")
-  ButtonGadget(#G_Exit, 860, 66, 45, 26, "Exit")
+  ButtonGadget(#G_Start, 575, 66, 60, 26, "Test")
+  ButtonGadget(#G_Stop, 640, 66, 60, 26, "Stop")
+  ButtonGadget(#G_About, 705, 66, 70, 26, "About")
+  ButtonGadget(#G_Apply, 780, 66, 85, 26, "Apply Best")
+  ButtonGadget(#G_Exit, 870, 66, 35, 26, "Exit")
 
   ProgressBarGadget(#G_Progress, 14, 44, 891, 18, 0, 100)
   TextGadget(#G_BestLabel, 14, 98, 891, 22, "Best provider: (none)")
@@ -1890,7 +1916,7 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
             HideWindow(#WinAbout, #True)
           EndIf
 
-        Case #G_TriesSpin, #G_TimeoutSpin, #G_AutoStartSpin, #G_TrayRescanCombo, #G_StartToTrayCheck, #G_AutoApplyCheck, #G_AdapterCombo
+        Case #G_TriesSpin, #G_TimeoutSpin, #G_AutoStartSpin, #G_TrayRescanCombo, #G_StartToTrayCheck, #G_AutoApplyCheck, #G_QuickTestCheck, #G_AdapterCombo
           SyncSettingsFromUi()
           SaveSettings()
       EndSelect
@@ -1947,8 +1973,9 @@ LogLine("Provider count: " + Str(ListSize(Providers())))
     End
 EndIf
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 22
-; Folding = ------------
+; CursorPosition = 1386
+; FirstLine = 1383
+; Folding = -------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1957,12 +1984,12 @@ EndIf
 ; UseIcon = ..\files\icons\PB_DNSJumper.ico
 ; Executable = ..\PB_DNSJumper.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,1
-; VersionField1 = 1,0,1,1
+; VersionField0 = 1,0,1,2
+; VersionField1 = 1,0,1,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_DNSJumper
-; VersionField4 = 1.0.1.1
-; VersionField5 = 1.0.1.1
+; VersionField4 = 1.0.1.2
+; VersionField5 = 1.0.1.2
 ; VersionField6 = An automatic DNS changer similar to DNSJumper
 ; VersionField7 = PB_DNSJumper
 ; VersionField8 = PB_DNSJumper.exe
