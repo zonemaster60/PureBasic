@@ -46,7 +46,7 @@ Global gTooltipOverrideText.s = ""
 
 ; Logging toggle
 Global loggingEnabled   = #True
-Global version.s = "v1.0.1.8"
+Global version.s = "v1.0.1.9"
 
 ; Memory threshold (auto-clean when available RAM <= threshold)
 Global gMemThresholdEnabled.i = #False
@@ -115,9 +115,7 @@ Procedure.b HasArg(arg$)
 EndProcedure
 
 gSingleRunMode = HasArg("--clearonce")
-Global gInstallStartupTaskMode.i = HasArg("--installstartup")
-Global gRemoveStartupTaskMode.i  = HasArg("--removestartup")
-Global gHelperMode.i = Bool(gSingleRunMode Or gInstallStartupTaskMode Or gRemoveStartupTaskMode)
+Global gHelperMode.i = Bool(gSingleRunMode)
 
 ; Prevent multiple instances (don't rely on window title text)
 ; Allow helper modes to run even if the tray app is running.
@@ -455,198 +453,65 @@ EndProcedure
 ; Task Scheduler startup helpers
 ; ---------------------------------------------------------
 
-Procedure.s StartupTaskName()
-  ProcedureReturn "HandyFreeMem"
+Declare RunHandyFreeMem_Thread(*unused)
+
+Procedure.s GetEnvVar(name.s)
+  ProcedureReturn GetEnvironmentVariable(name)
 EndProcedure
 
-Procedure.s StartupTaskUserId()
-  Protected user.s = GetEnvironmentVariable("USERNAME")
-  Protected domain.s = GetEnvironmentVariable("USERDOMAIN")
-
-  If user = ""
-    ProcedureReturn ""
-  EndIf
-
-  If domain <> ""
-    ProcedureReturn domain + "\\" + user
-  EndIf
-
+Procedure.s CurrentUserSam()
+  Protected user.s = Trim(GetEnvVar("USERNAME"))
+  Protected domain.s = Trim(GetEnvVar("USERDOMAIN"))
+  If user = "" : ProcedureReturn "" : EndIf
+  If domain <> "" : ProcedureReturn domain + "\\" + user : EndIf
   ProcedureReturn user
 EndProcedure
 
-Procedure RemoveLegacyStartupRegistryEntry()
-  ; Older versions used HKCU\...\Run. Best-effort cleanup.
-  Protected cmd.s = "reg delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v " + #APP_NAME + " /f"
-  RunProgram("cmd.exe", "/c " + cmd, "", #PB_Program_Hide)
-EndProcedure
-
-Declare.i IsInStartup()
-Declare RunHandyFreeMem_Thread(*unused)
-
-; ---------------------------------------------------------
-; Task Scheduler helpers (logging + elevation)
-; ---------------------------------------------------------
-
-Global gLastExecExitCode.i
-
-Procedure.s RunAndCapture(exe.s, args.s)
-  Protected output.s = ""
-
-  LogMessage("RUN: " + exe + " " + args)
-
-  Protected program = RunProgram(exe, args, "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Hide)
+Procedure.i RunAndCapture(exe.s, args.s)
+  Protected program.i, exitCode.i = -1
+  LogMessage("Run: " + exe + " " + args)
+  program = RunProgram(exe, args, "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Hide)
   If program = 0
-    gLastExecExitCode = -1
-    LogMessage("ERROR: failed to start process")
-    ProcedureReturn output
+    LogMessage("Failed to start: " + exe)
+    ProcedureReturn -1
   EndIf
-
   While ProgramRunning(program)
-    While AvailableProgramOutput(program)
-      output + ReadProgramString(program) + #CRLF$
-    Wend
-    Delay(10)
+    While AvailableProgramOutput(program) : ReadProgramString(program) : Wend
+    Delay(5)
   Wend
-
-  While AvailableProgramOutput(program)
-    output + ReadProgramString(program) + #CRLF$
-  Wend
-
-  gLastExecExitCode = ProgramExitCode(program)
+  exitCode = ProgramExitCode(program)
   CloseProgram(program)
-
-  LogMessage("EXITCODE: " + Str(gLastExecExitCode))
-  If Trim(output) <> ""
-    LogMessage("OUTPUT: " + ReplaceString(output, #CRLF$, " | "))
-  EndIf
-
-  ProcedureReturn output
-EndProcedure
-
-Procedure.b IsProcessElevated()
-  ; TokenElevation (20)
-  #TokenElevation = 20
-
-  Protected hToken.i
-  If OpenProcessToken_(GetCurrentProcess_(), $0008, @hToken) = 0
-    ProcedureReturn #False
-  EndIf
-
-  Protected elevation.l
-  Protected cbSize.l
-  Protected ok = GetTokenInformation_(hToken, #TokenElevation, @elevation, SizeOf(Long), @cbSize)
-  CloseHandle_(hToken)
-
-  If ok = 0
-    ProcedureReturn #False
-  EndIf
-
-  ProcedureReturn Bool(elevation <> 0)
-EndProcedure
-
-Procedure RelaunchSelfElevated(args.s)
-  Protected exe$ = ProgramFilename()
-  LogMessage("Requesting elevation: " + exe$ + " " + args)
-  ShellExecute_(0, "runas", exe$, args, AppPath, 1)
-EndProcedure
-
-Procedure AddToStartup()
-  RemoveLegacyStartupRegistryEntry()
-
-  LogMessage("AddToStartup: task='" + StartupTaskName() + "' exe='" + ProgramFilename() + "'")
-
-  If IsProcessElevated() = #False And gInstallStartupTaskMode = #False
-    RelaunchSelfElevated("--installstartup")
-    ProcedureReturn
-  EndIf
-
-  ; Task is created to run in the current user session (interactive),
-  ; so the tray icon is visible after logon.
-
-  ; Fully automated task creation (no external XML file).
-  ; Runs at logon for the current user, delays 60 seconds, highest privileges,
-  ; and runs as soon as possible if a scheduled start is missed.
-  ; NOTE: Running as SYSTEM prevents the tray icon from showing in the user session.
-  Protected taskName.s = StartupTaskName()
-
-  ; Build a PowerShell Register-ScheduledTask command.
-  Protected psTaskName.s = ReplaceString(taskName, "'", "''")
-  Protected psExe.s = ReplaceString(ProgramFilename(), "'", "''")
-  Protected psWorkDir.s = ReplaceString(AppPath, "'", "''")
-  Protected psUser.s = ReplaceString(StartupTaskUserId(), "'", "''")
-
-  ; Use explicit try/catch so any errors go to stdout.
-  Protected psCmd.s
-  psCmd = "try {" +
-          " $ErrorActionPreference='Stop';" +
-          " $taskName='" + psTaskName + "';" +
-          " $exe='" + psExe + "';" +
-          " $wd='" + psWorkDir + "';" +
-          " $user='" + psUser + "';" +
-          " if ($user -eq '') { throw 'Unable to determine current user for scheduled task.' };" +
-          " $action=New-ScheduledTaskAction -Execute $exe -WorkingDirectory $wd;" +
-          " $trigger=New-ScheduledTaskTrigger -AtLogOn -User $user;" +
-          " $trigger.Delay='PT1M';" +
-          " $settings=New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew;" +
-          " $principal=New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest;" +
-          " Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null;" +
-          " Write-Output ('OK: task created/updated: ' + $taskName);" +
-          "} catch {" +
-          " Write-Output ('ERROR: ' + $_.Exception.Message);" +
-          " if ($_.ScriptStackTrace) { Write-Output $_.ScriptStackTrace };" +
-          " exit 1" +
-          "}"
-
-  RunAndCapture("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -Command " + Chr(34) + psCmd + Chr(34))
-
-  ; Verify task now exists.
-  If IsInStartup()
-    LogMessage("Startup task ensured: " + StartupTaskName())
-  Else
-    LogMessage("ERROR: Startup task not present after create attempt")
-  EndIf
-EndProcedure
-
-Procedure RemoveFromStartup()
-  RemoveLegacyStartupRegistryEntry()
-
-  LogMessage("RemoveFromStartup: task='" + StartupTaskName() + "'")
-
-  If IsProcessElevated() = #False And gRemoveStartupTaskMode = #False
-    RelaunchSelfElevated("--removestartup")
-    ProcedureReturn
-  EndIf
-
-  Protected nameQuoted.s = Chr(34) + StartupTaskName() + Chr(34)
-  Protected cmd.s = "/c schtasks /Delete /TN " + nameQuoted + " /F"
-  RunAndCapture("cmd.exe", cmd)
-
-  If IsInStartup() = #False
-    LogMessage("Startup task removed: " + StartupTaskName())
-  Else
-    LogMessage("WARN: Startup task still present after delete attempt")
-  EndIf
+  LogMessage("Exit code: " + Str(exitCode) + " | " + exe)
+  ProcedureReturn exitCode
 EndProcedure
 
 Procedure.i IsInStartup()
-  Protected nameQuoted.s = Chr(34) + StartupTaskName() + Chr(34)
-  Protected cmd.s = "schtasks /Query /TN " + nameQuoted
+  Protected args.s = "/Query /TN " + #DQUOTE$ + #APP_NAME + #DQUOTE$
+  ProcedureReturn Bool(RunAndCapture("schtasks.exe", args) = 0)
+EndProcedure
 
-  Protected program = RunProgram("cmd.exe", "/c " + cmd, "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Hide)
-  If program
-    While ProgramRunning(program)
-      While AvailableProgramOutput(program)
-        ReadProgramString(program) ; drain output
-      Wend
-      Delay(10)
-    Wend
-
-    Protected code.i = ProgramExitCode(program)
-    CloseProgram(program)
-    ProcedureReturn Bool(code = 0)
+Procedure.i SetRunAtStartup(state.b)
+  Protected taskName.s = #APP_NAME
+  Protected exePath.s = ProgramFilename()
+  Protected workDir.s = GetPathPart(exePath)
+  Protected userSam.s = CurrentUserSam()
+  
+  If state
+    LogMessage("Enabling run at startup")
+    ; Register-ScheduledTask via PowerShell for maximum reliability (bypass registry hurdles)
+    Protected psCmd.s = "Register-ScheduledTask -TaskName '" + ReplaceString(taskName, "'", "''") + "' " +
+                        "-Action (New-ScheduledTaskAction -Execute '" + ReplaceString(exePath, "'", "''") + "' -WorkingDirectory '" + ReplaceString(workDir, "'", "''") + "') " +
+                        "-Trigger (New-ScheduledTaskTrigger -AtLogOn -User '" + ReplaceString(userSam, "'", "''") + "') " +
+                        "-Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries) " +
+                        "-Principal (New-ScheduledTaskPrincipal -UserId '" + ReplaceString(userSam, "'", "''") + "' -LogonType Interactive -RunLevel Highest) -Force"
+    
+    Protected args.s = "-NoProfile -ExecutionPolicy Bypass -Command " + #DQUOTE$ + psCmd + #DQUOTE$
+    ProcedureReturn Bool(RunAndCapture("powershell.exe", args) = 0)
+  Else
+    LogMessage("Disabling run at startup")
+    Protected delArgs.s = "/Delete /F /TN " + #DQUOTE$ + taskName + #DQUOTE$
+    ProcedureReturn Bool(RunAndCapture("schtasks.exe", delArgs) = 0)
   EndIf
-
-  ProcedureReturn #False
 EndProcedure
 
 ; ---------------------------------------------------------
@@ -1399,21 +1264,6 @@ If gSingleRunMode
   ShutdownAndExit()
 EndIf
 
-If gInstallStartupTaskMode
-  LogMessage("--installstartup: ensuring startup task")
-  AddToStartup()
-  ShutdownAndExit()
-EndIf
-
-If gRemoveStartupTaskMode
-  LogMessage("--removestartup: removing startup task")
-  RemoveFromStartup()
-  ShutdownAndExit()
-EndIf
-
-; Best-effort cleanup of old registry startup entry.
-RemoveLegacyStartupRegistryEntry()
-
 ; Do not create/remove tasks automatically at every launch.
 ; The tray menu toggle controls whether the task exists.
 LogMessage(#APP_NAME + " starting up...")
@@ -1531,11 +1381,7 @@ Repeat
           QueueRunHandyFreeMem()
             
         Case #MENU_STARTUP
-          If startupEnabled
-            RemoveFromStartup()
-          Else
-            AddToStartup()
-          EndIf
+          SetRunAtStartup(Bool(Not IsInStartup()))
           startupEnabled = IsInStartup()
           UpdateStartupMenuLabel()
           SaveSettings()
@@ -1570,8 +1416,8 @@ Repeat
 
 Until quitProgram = #True
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 1152
-; FirstLine = 1026
+; CursorPosition = 48
+; FirstLine = 18
 ; Folding = ----------
 ; Optimizer
 ; EnableThread
@@ -1582,12 +1428,12 @@ Until quitProgram = #True
 ; Executable = ..\HandyFreeMem.exe
 ; DisableDebugger
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,8
-; VersionField1 = 1,0,1,8
+; VersionField0 = 1,0,1,9
+; VersionField1 = 1,0,1,9
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyFreeMem
-; VersionField4 = 1.0.1.8
-; VersionField5 = 1.0.1.8
+; VersionField4 = 1.0.1.9
+; VersionField5 = 1.0.1.9
 ; VersionField6 = Frees memory using native Windows APIs
 ; VersionField7 = HandyFreeMem
 ; VersionField8 = HandyFreeMem.exe

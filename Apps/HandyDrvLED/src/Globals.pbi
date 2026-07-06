@@ -1,7 +1,7 @@
 ; HandyDrvLED Globals & Constants
 
 #APP_NAME = "HandyDrvLED"
-Global version.s = "v1.0.3.8"
+Global version.s = "v1.0.3.9"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
 #IOCTL_DISK_PERFORMANCE = $70020
@@ -554,18 +554,6 @@ Procedure.i Exit()
   ProcedureReturn #False
 EndProcedure
 
-Procedure.s QuoteArgument(text.s)
-  Protected q.s = Chr(34)
-  If FindString(text, q, 1)
-    text = ReplaceString(text, q, "\\" + q)
-  EndIf
-  ProcedureReturn q + text + q
-EndProcedure
-
-Procedure.s PsEscapeSingleQuotes(text.s)
-  ProcedureReturn ReplaceString(text, "'", "''")
-EndProcedure
-
 Procedure.s GetEnvVar(name.s)
   Protected buf.s = Space(512)
   Protected rc.l
@@ -582,67 +570,51 @@ Procedure.s CurrentUserSam()
   ProcedureReturn user
 EndProcedure
 
-Procedure.i IsProcessElevated()
-  Protected hToken.i, elev.TOKEN_ELEVATION, cb.l
-  If OpenProcessToken_(GetCurrentProcess_(), #TOKEN_QUERY, @hToken) = 0 : ProcedureReturn #False : EndIf
-  cb = SizeOf(TOKEN_ELEVATION)
-  If GetTokenInformation_(hToken, #TokenElevation, @elev, cb, @cb) = 0
-    CloseHandle_(hToken) : ProcedureReturn #False
-  EndIf
-  CloseHandle_(hToken)
-  ProcedureReturn Bool(elev\TokenIsElevated)
-EndProcedure
-
 Procedure.i RunAndCapture(exe.s, args.s)
-  Protected out.s, program.i, exitCode.i = -1
-  program = RunProgram(exe, args, "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Error | #PB_Program_Hide)
-  If program = 0 : ProcedureReturn -1 : EndIf
+  Protected program.i, exitCode.i = -1
+  LogLine("Run: " + exe + " " + args)
+  program = RunProgram(exe, args, "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Hide)
+  If program = 0
+    LogLine("Failed to start: " + exe)
+    ProcedureReturn -1
+  EndIf
   While ProgramRunning(program)
     While AvailableProgramOutput(program) : ReadProgramString(program) : Wend
     Delay(5)
   Wend
   exitCode = ProgramExitCode(program)
   CloseProgram(program)
+  LogLine("Exit code: " + Str(exitCode) + " | " + exe)
   ProcedureReturn exitCode
 EndProcedure
 
 Procedure.i IsInStartup()
-  Protected tn.s = #STARTUP_TASK_NAME
-  Protected args.s = "/Query /TN " + QuoteArgument(tn)
+  Protected args.s = "/Query /TN " + Chr(34) + #APP_NAME + Chr(34)
   ProcedureReturn Bool(RunAndCapture("schtasks.exe", args) = 0)
 EndProcedure
 
-Procedure.i InstallStartupTask(userSamOverride.s = "")
-  Protected taskName.s = #STARTUP_TASK_NAME
+Procedure.i SetRunAtStartup(state.b)
+  Protected taskName.s = #APP_NAME
   Protected exePath.s = ProgramFilename()
   Protected workDir.s = GetPathPart(exePath)
-  Protected userSam.s = Trim(userSamOverride)
-  If userSam = "" : userSam = CurrentUserSam() : EndIf
+  Protected userSam.s = CurrentUserSam()
   If userSam = "" : ProcedureReturn #False : EndIf
 
-  Protected psCmd.s = "Register-ScheduledTask -TaskName '" + PsEscapeSingleQuotes(taskName) + "' " +
-                      "-Action (New-ScheduledTaskAction -Execute '" + PsEscapeSingleQuotes(exePath) + "' -WorkingDirectory '" + PsEscapeSingleQuotes(workDir) + "') " +
-                      "-Trigger (New-ScheduledTaskTrigger -AtLogOn -User '" + PsEscapeSingleQuotes(userSam) + "') " +
-                      "-Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew) " +
-                      "-Principal (New-ScheduledTaskPrincipal -UserId '" + PsEscapeSingleQuotes(userSam) + "' -LogonType Interactive -RunLevel Highest) -Force"
-  
-  Protected args.s = "-NoProfile -ExecutionPolicy Bypass -Command " + Chr(34) + psCmd + Chr(34)
-  ProcedureReturn Bool(RunAndCapture("powershell.exe", args) = 0)
-EndProcedure
+  If state
+    LogLine("Enabling run at startup")
+    Protected psCmd.s = "Register-ScheduledTask -TaskName '" + ReplaceString(taskName, "'", "''") + "' " +
+                        "-Action (New-ScheduledTaskAction -Execute '" + ReplaceString(exePath, "'", "''") + "' -WorkingDirectory '" + ReplaceString(workDir, "'", "''") + "') " +
+                        "-Trigger (New-ScheduledTaskTrigger -AtLogOn -User '" + ReplaceString(userSam, "'", "''") + "') " +
+                        "-Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries) " +
+                        "-Principal (New-ScheduledTaskPrincipal -UserId '" + ReplaceString(userSam, "'", "''") + "' -LogonType Interactive -RunLevel Highest) -Force"
 
-Procedure.i RemoveFromStartup()
-  Protected args.s = "/Delete /F /TN " + QuoteArgument(#STARTUP_TASK_NAME)
-  ProcedureReturn Bool(RunAndCapture("schtasks.exe", args) = 0)
-EndProcedure
-
-Procedure.i AddToStartup(targetUserSam.s = "")
-  If Not IsProcessElevated()
-    If ShellExecute_(0, "runas", ProgramFilename(), "--installstartup --user " + QuoteArgument(targetUserSam), "", #SW_SHOWNORMAL) > 32
-      ProcedureReturn -1
-    EndIf
-    ProcedureReturn #False
+    Protected args.s = "-NoProfile -ExecutionPolicy Bypass -Command " + Chr(34) + psCmd + Chr(34)
+    ProcedureReturn Bool(RunAndCapture("powershell.exe", args) = 0)
+  Else
+    LogLine("Disabling run at startup")
+    Protected delArgs.s = "/Delete /F /TN " + Chr(34) + taskName + Chr(34)
+    ProcedureReturn Bool(RunAndCapture("schtasks.exe", delArgs) = 0)
   EndIf
-  ProcedureReturn InstallStartupTask(targetUserSam)
 EndProcedure
 
 Procedure About(icon1.i)
@@ -796,7 +768,7 @@ EndProcedure
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 3
-; Folding = -------
+; Folding = ------
 ; EnableXP
 ; DPIAware
 ; Executable = ..\HandyDrvLED.exe

@@ -1,6 +1,6 @@
 ; Author: David Scouten
 ; zonemaster@yahoo.com
-; PureBasic v6.30 (x64)
+; PureBasic v6.40 (x64)
 ; Highly improved version: Threaded, DPI-aware, Modular, Localized
 
 #APP_NAME = "HandyDrvLED"
@@ -10,62 +10,19 @@ IncludeFile "Globals.pbi"
 IncludeFile "DiskLogic.pbi"
 IncludeFile "UI_Drives.pbi"
 
-Global HelperMode.i
-
 #TrayIcon_Main = 1
 #Timer_TryTrayIcon = 1001
 
-Procedure.i IsHelperMode()
-  If CountProgramParameters() = 0 : ProcedureReturn #False : EndIf
-  Select LCase(ProgramParameter(0))
-    Case "--installstartup", "--removestartup"
-      ProcedureReturn #True
-  EndSelect
-  ProcedureReturn #False
-EndProcedure
-
 ; Prevent multiple instances (don't rely on window title text)
-; Allow helper modes to run even if the tray app is running.
-  HelperMode = IsHelperMode()
-  If Not HelperMode
-    hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
-    If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
-      MessageRequester(Lng\InfoTitle, Lng\AlreadyRunning, #PB_MessageRequester_Info)
-      CloseHandle_(hMutex)
-      End
-    EndIf
+  hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
+  If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
+    MessageRequester(Lng\InfoTitle, Lng\AlreadyRunning, #PB_MessageRequester_Info)
+    CloseHandle_(hMutex)
+    End
   EndIf
-
-Procedure.s FindCmdArgValue(name.s)
-  Protected i.i, key.s = LCase(name)
-  For i = 0 To CountProgramParameters() - 1
-    If LCase(ProgramParameter(i)) = key
-      If i + 1 <= CountProgramParameters() - 1 : ProcedureReturn ProgramParameter(i + 1) : EndIf
-      ProcedureReturn ""
-    EndIf
-  Next
-  ProcedureReturn ""
-EndProcedure
 
 ; --- Initialization ---
 Procedure InitializeApp()
-  ; Helper-modes for startup task management
-  If HelperMode
-    Select LCase(ProgramParameter(0))
-      Case "--installstartup"
-        Define targetUser.s = FindCmdArgValue("--user")
-        If Not InstallStartupTask(targetUser)
-          MessageRequester(Lng\ErrorTitle, Lng\StartupInstallError, #PB_MessageRequester_Error)
-        EndIf
-        End
-      Case "--removestartup"
-        If Not RemoveFromStartup()
-          MessageRequester(Lng\ErrorTitle, Lng\StartupRemoveError, #PB_MessageRequester_Error)
-        EndIf
-        End
-    EndSelect
-  EndIf
-
   LoadSettings()
   LogLine("Application started")
   numicl = CountIconLibraries()
@@ -228,24 +185,11 @@ EndIf
           EndIf
         Case #MenuItem_Edit : EditSettings()
         Case #MenuItem_Startup
-          StartupEnabled ! 1
-          requestedStartupState = StartupEnabled
-          If StartupEnabled
-            result = AddToStartup(CurrentUserSam())
-          Else
-            result = RemoveFromStartup()
-          EndIf
-          If result = -1
-            StartupEnabled = IsInStartup()
-            UpdateStartupMenuLabel()
-            MessageRequester(Lng\InfoTitle, Lng\StartupChangePending, #PB_MessageRequester_Info)
-          ElseIf result
-            StartupEnabled = IsInStartup()
-            UpdateStartupMenuLabel()
-            If StartupEnabled <> requestedStartupState
-              MessageRequester(Lng\ErrorTitle, Lng\StartupChangeError, #PB_MessageRequester_Error)
-            EndIf
-          Else
+          requestedStartupState = Bool(Not IsInStartup())
+          result = SetRunAtStartup(requestedStartupState)
+          StartupEnabled = IsInStartup()
+          UpdateStartupMenuLabel()
+          If Not result Or StartupEnabled <> requestedStartupState
             StartupEnabled = IsInStartup()
             UpdateStartupMenuLabel()
             MessageRequester(Lng\ErrorTitle, Lng\StartupChangeError, #PB_MessageRequester_Error)
@@ -265,7 +209,7 @@ Cleanup()
 End
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 89
+; CursorPosition = 2
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -275,12 +219,12 @@ End
 ; UseIcon = HandyDrvLED.ico
 ; Executable = ..\HandyDrvLED.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,8
-; VersionField1 = 1,0,3,8
+; VersionField0 = 1,0,3,9
+; VersionField1 = 1,0,3,9
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyDrvLED
-; VersionField4 = 1.0.3.8
-; VersionField5 = 1.0.3.8
+; VersionField4 = 1.0.3.9
+; VersionField5 = 1.0.3.9
 ; VersionField6 = A handy drive monitor - with tons of features
 ; VersionField7 = HandyDrvLED
 ; VersionField8 = HandyDrvLED.exe

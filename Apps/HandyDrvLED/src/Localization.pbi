@@ -49,10 +49,7 @@ Structure AppStrings
   StartingMonitor.s
   PdhFallbackActive.s
   AlreadyRunning.s
-  StartupInstallError.s
-  StartupRemoveError.s
   StartupChangeError.s
-  StartupChangePending.s
   EditSettingsTitle.s
   MonitoringTitle.s
   UpdateIntervalLabel.s
@@ -173,10 +170,7 @@ Procedure LoadLanguage(lang.s = "EN")
       Lng\StartingMonitor = "Starting monitor..."
       Lng\PdhFallbackActive = "PDH fallback active (physical drive access denied)"
       Lng\AlreadyRunning = "HandyDrvLED is already running."
-      Lng\StartupInstallError = "Unable to install startup task."
-      Lng\StartupRemoveError = "Unable to remove startup task."
       Lng\StartupChangeError = "Unable to change startup setting."
-      Lng\StartupChangePending = "The startup change request was launched, but completion could not be confirmed yet."
       Lng\EditSettingsTitle = "Edit Settings"
       Lng\MonitoringTitle = "Monitoring"
       Lng\UpdateIntervalLabel = "Update Interval (ms):"
