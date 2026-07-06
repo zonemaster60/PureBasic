@@ -1,0 +1,10 @@
+{
+  "title": "PB_2DEngine",
+  "width": 1280,
+  "height": 720,
+  "targetFps": 60,
+  "inputBindingsPath": "game/input.json",
+  "scriptPath": "game/main.lua",
+  "scenePath": "game/scene.json",
+  "audioManifestPath": "game/audio.json"
+}

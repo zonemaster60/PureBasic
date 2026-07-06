@@ -1,7 +1,11 @@
 EnableExplicit
 
 XIncludeFile "../core/Log.pb"
+XIncludeFile "../core/Time.pb"
+XIncludeFile "../gfx/Gfx.pb"
 XIncludeFile "../input/Input.pb"
+XIncludeFile "../audio/Audio.pb"
+XIncludeFile "../world/World.pb"
 
 ; This module is a thin wrapper around LuaJIT (lua51.dll).
 ; You must ship `lua51.dll` next to the built exe, or in PATH.
@@ -14,8 +18,8 @@ DeclareModule Lua
   Declare RegisterEngineApi()
 
   Declare.i LoadFile(scriptPath.s)
-  Declare CallGlobalNoArgs(functionName.s)
-  Declare CallGlobalUpdate(functionName.s, dt.f)
+  Declare.i CallGlobalNoArgs(functionName.s)
+  Declare.i CallGlobalUpdate(functionName.s, dt.f)
 
   Declare.i State()
 EndDeclareModule
@@ -229,6 +233,15 @@ EndDeclareModule
     ProcedureReturn 1
   EndProcedure
 
+  ProcedureC.i L_MathLerp(L.i)
+    Protected a.d = p_luaL_checknumber(L, 1)
+    Protected b.d = p_luaL_checknumber(L, 2)
+    Protected t.d = p_luaL_checknumber(L, 3)
+
+    p_lua_pushnumber(L, a + ((b - a) * t))
+    ProcedureReturn 1
+  EndProcedure
+
   ProcedureC.i L_InputDown(L.i)
     Protected actionName.s = PeekLuaString(L, 1)
     p_lua_pushboolean(L, Bool(Input::DownName(actionName)))
@@ -263,6 +276,211 @@ EndDeclareModule
     ProcedureReturn 1
   EndProcedure
 
+  ProcedureC.i L_TimeNow(L.i)
+    p_lua_pushnumber(L, Time::NowSeconds())
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_TimeFixedDelta(L.i)
+    p_lua_pushnumber(L, Time::FixedDeltaSeconds())
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_EngineIsHeadless(L.i)
+    p_lua_pushboolean(L, Bool(Gfx::Headless()))
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_EngineScreenToWorldX(L.i)
+    Protected screenX.d = p_luaL_checknumber(L, 1)
+    p_lua_pushnumber(L, Camera::ScreenToWorldX(screenX))
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_EngineScreenToWorldY(L.i)
+    Protected screenY.d = p_luaL_checknumber(L, 1)
+    p_lua_pushnumber(L, Camera::ScreenToWorldY(screenY))
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_InputMouseX(L.i)
+    p_lua_pushnumber(L, Input::PointerX())
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_InputMouseY(L.i)
+    p_lua_pushnumber(L, Input::PointerY())
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_InputMouseDown(L.i)
+    Protected button.i = #PB_MouseButton_Left
+    If p_lua_gettop(g_L) >= 1
+      button = Int(p_luaL_checknumber(L, 1))
+    EndIf
+    p_lua_pushboolean(L, Bool(Input::PointerDown(button)))
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_InputMousePressed(L.i)
+    Protected button.i = #PB_MouseButton_Left
+    If p_lua_gettop(g_L) >= 1
+      button = Int(p_luaL_checknumber(L, 1))
+    EndIf
+    p_lua_pushboolean(L, Bool(Input::PointerPressed(button)))
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_InputMouseReleased(L.i)
+    Protected button.i = #PB_MouseButton_Left
+    If p_lua_gettop(g_L) >= 1
+      button = Int(p_luaL_checknumber(L, 1))
+    EndIf
+    p_lua_pushboolean(L, Bool(Input::PointerReleased(button)))
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_WorldEntityCount(L.i)
+    p_lua_pushnumber(L, World::EntityCount())
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_WorldFindEntity(L.i)
+    Protected name.s = PeekLuaString(L, 1)
+    p_lua_pushnumber(L, World::FindEntity(name))
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_WorldSpawnEntity(L.i)
+    Protected name.s = PeekLuaString(L, 1)
+    Protected x.d = p_luaL_checknumber(L, 2)
+    Protected y.d = p_luaL_checknumber(L, 3)
+    Protected vx.d = p_luaL_checknumber(L, 4)
+    Protected vy.d = p_luaL_checknumber(L, 5)
+    Protected size.d = p_luaL_checknumber(L, 6)
+    Protected color.i = Int(p_luaL_checknumber(L, 7))
+
+    p_lua_pushnumber(L, World::SpawnEntity(name, x, y, vx, vy, size, color))
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_WorldSpawnEntitySprite(L.i)
+    Protected name.s = PeekLuaString(L, 1)
+    Protected x.d = p_luaL_checknumber(L, 2)
+    Protected y.d = p_luaL_checknumber(L, 3)
+    Protected vx.d = p_luaL_checknumber(L, 4)
+    Protected vy.d = p_luaL_checknumber(L, 5)
+    Protected size.d = p_luaL_checknumber(L, 6)
+    Protected color.i = Int(p_luaL_checknumber(L, 7))
+    Protected spritePath.s = PeekLuaString(L, 8)
+
+    p_lua_pushnumber(L, World::SpawnEntitySprite(name, x, y, vx, vy, size, color, spritePath))
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_WorldMoveEntityToward(L.i)
+    Protected entityId.i = Int(p_luaL_checknumber(L, 1))
+    Protected x.d = p_luaL_checknumber(L, 2)
+    Protected y.d = p_luaL_checknumber(L, 3)
+    Protected speed.d = p_luaL_checknumber(L, 4)
+
+    p_lua_pushboolean(L, Bool(World::MoveEntityToward(entityId, x, y, speed)))
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_WorldSetEntityVelocity(L.i)
+    Protected entityId.i = Int(p_luaL_checknumber(L, 1))
+    Protected vx.d = p_luaL_checknumber(L, 2)
+    Protected vy.d = p_luaL_checknumber(L, 3)
+
+    p_lua_pushboolean(L, Bool(World::SetEntityVelocity(entityId, vx, vy)))
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_WorldEntityPositionX(L.i)
+    Protected entityId.i = Int(p_luaL_checknumber(L, 1))
+    Protected posX.Float
+    Protected posY.Float
+
+    If World::GetEntityPosition(entityId, @posX, @posY)
+      p_lua_pushnumber(L, posX\f)
+    Else
+      p_lua_pushnumber(L, 0.0)
+    EndIf
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_WorldEntityPositionY(L.i)
+    Protected entityId.i = Int(p_luaL_checknumber(L, 1))
+    Protected posX.Float
+    Protected posY.Float
+
+    If World::GetEntityPosition(entityId, @posX, @posY)
+      p_lua_pushnumber(L, posY\f)
+    Else
+      p_lua_pushnumber(L, 0.0)
+    EndIf
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_WorldPickEntityAt(L.i)
+    Protected worldX.d = p_luaL_checknumber(L, 1)
+    Protected worldY.d = p_luaL_checknumber(L, 2)
+    p_lua_pushnumber(L, World::PickEntityAt(worldX, worldY))
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_WorldSelectEntity(L.i)
+    Protected entityId.i = Int(p_luaL_checknumber(L, 1))
+    p_lua_pushboolean(L, Bool(World::SelectEntity(entityId)))
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_WorldSelectedEntity(L.i)
+    p_lua_pushnumber(L, World::SelectedEntity())
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_WorldSetEntityPosition(L.i)
+    Protected entityId.i = Int(p_luaL_checknumber(L, 1))
+    Protected worldX.d = p_luaL_checknumber(L, 2)
+    Protected worldY.d = p_luaL_checknumber(L, 3)
+    p_lua_pushboolean(L, Bool(World::SetEntityPosition(entityId, worldX, worldY)))
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_AudioPlay(L.i)
+    Protected name.s = PeekLuaString(L, 1)
+    Protected loop.i = #False
+
+    If p_lua_gettop(g_L) >= 2
+      loop = Int(p_luaL_checknumber(L, 2))
+    EndIf
+
+    p_lua_pushboolean(L, Bool(Audio::Play(name, loop)))
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_AudioSetGroupVolume(L.i)
+    Protected groupName.s = PeekLuaString(L, 1)
+    Protected volume.i = Int(p_luaL_checknumber(L, 2))
+
+    Audio::SetGroupVolume(groupName, volume)
+    ProcedureReturn 0
+  EndProcedure
+
+  ProcedureC.i L_AudioGroupVolume(L.i)
+    Protected groupName.s = PeekLuaString(L, 1)
+    p_lua_pushnumber(L, Audio::GroupVolume(groupName))
+    ProcedureReturn 1
+  EndProcedure
+
+  ProcedureC.i L_WorldSaveScene(L.i)
+    Protected path.s = PeekLuaString(L, 1)
+    p_lua_pushboolean(L, Bool(World::SaveScene(path)))
+    ProcedureReturn 1
+  EndProcedure
+
   Procedure RegisterEngineApi()
     If g_L = 0
       ProcedureReturn
@@ -284,16 +502,19 @@ EndDeclareModule
     p_lua_setfield(g_L, #LUA_GLOBALSINDEX, "Log")
 
     ; Math table
-    p_lua_createtable(g_L, 0, 1)
+    p_lua_createtable(g_L, 0, 2)
 
     p_lua_pushcclosure(g_L, @L_MathClamp(), 0)
     p_lua_setfield(g_L, -2, "Clamp")
+
+    p_lua_pushcclosure(g_L, @L_MathLerp(), 0)
+    p_lua_setfield(g_L, -2, "Lerp")
 
     p_lua_pushvalue(g_L, -1)
     p_lua_setfield(g_L, #LUA_GLOBALSINDEX, "Math")
 
     ; Input table
-    p_lua_createtable(g_L, 0, 4)
+    p_lua_createtable(g_L, 0, 9)
 
     p_lua_pushcclosure(g_L, @L_InputDown(), 0)
     p_lua_setfield(g_L, -2, "Down")
@@ -307,8 +528,110 @@ EndDeclareModule
     p_lua_pushcclosure(g_L, @L_InputAxis(), 0)
     p_lua_setfield(g_L, -2, "Axis")
 
+    p_lua_pushcclosure(g_L, @L_InputMouseX(), 0)
+    p_lua_setfield(g_L, -2, "MouseX")
+
+    p_lua_pushcclosure(g_L, @L_InputMouseY(), 0)
+    p_lua_setfield(g_L, -2, "MouseY")
+
+    p_lua_pushcclosure(g_L, @L_InputMouseDown(), 0)
+    p_lua_setfield(g_L, -2, "MouseDown")
+
+    p_lua_pushcclosure(g_L, @L_InputMousePressed(), 0)
+    p_lua_setfield(g_L, -2, "MousePressed")
+
+    p_lua_pushcclosure(g_L, @L_InputMouseReleased(), 0)
+    p_lua_setfield(g_L, -2, "MouseReleased")
+
     p_lua_pushvalue(g_L, -1)
     p_lua_setfield(g_L, #LUA_GLOBALSINDEX, "Input")
+
+    ; Time table
+    p_lua_createtable(g_L, 0, 2)
+
+    p_lua_pushcclosure(g_L, @L_TimeNow(), 0)
+    p_lua_setfield(g_L, -2, "Now")
+
+    p_lua_pushcclosure(g_L, @L_TimeFixedDelta(), 0)
+    p_lua_setfield(g_L, -2, "FixedDelta")
+
+    p_lua_pushvalue(g_L, -1)
+    p_lua_setfield(g_L, #LUA_GLOBALSINDEX, "Time")
+
+    ; Engine table
+    p_lua_createtable(g_L, 0, 3)
+
+    p_lua_pushcclosure(g_L, @L_EngineIsHeadless(), 0)
+    p_lua_setfield(g_L, -2, "IsHeadless")
+
+    p_lua_pushcclosure(g_L, @L_EngineScreenToWorldX(), 0)
+    p_lua_setfield(g_L, -2, "ScreenToWorldX")
+
+    p_lua_pushcclosure(g_L, @L_EngineScreenToWorldY(), 0)
+    p_lua_setfield(g_L, -2, "ScreenToWorldY")
+
+    p_lua_pushvalue(g_L, -1)
+    p_lua_setfield(g_L, #LUA_GLOBALSINDEX, "Engine")
+
+    ; World table
+    p_lua_createtable(g_L, 0, 13)
+
+    p_lua_pushcclosure(g_L, @L_WorldEntityCount(), 0)
+    p_lua_setfield(g_L, -2, "EntityCount")
+
+    p_lua_pushcclosure(g_L, @L_WorldFindEntity(), 0)
+    p_lua_setfield(g_L, -2, "FindEntity")
+
+    p_lua_pushcclosure(g_L, @L_WorldSpawnEntity(), 0)
+    p_lua_setfield(g_L, -2, "SpawnEntity")
+
+    p_lua_pushcclosure(g_L, @L_WorldSpawnEntitySprite(), 0)
+    p_lua_setfield(g_L, -2, "SpawnEntitySprite")
+
+    p_lua_pushcclosure(g_L, @L_WorldMoveEntityToward(), 0)
+    p_lua_setfield(g_L, -2, "MoveEntityToward")
+
+    p_lua_pushcclosure(g_L, @L_WorldSetEntityVelocity(), 0)
+    p_lua_setfield(g_L, -2, "SetEntityVelocity")
+
+    p_lua_pushcclosure(g_L, @L_WorldEntityPositionX(), 0)
+    p_lua_setfield(g_L, -2, "EntityX")
+
+    p_lua_pushcclosure(g_L, @L_WorldEntityPositionY(), 0)
+    p_lua_setfield(g_L, -2, "EntityY")
+
+    p_lua_pushcclosure(g_L, @L_WorldSaveScene(), 0)
+    p_lua_setfield(g_L, -2, "SaveScene")
+
+    p_lua_pushcclosure(g_L, @L_WorldPickEntityAt(), 0)
+    p_lua_setfield(g_L, -2, "PickEntityAt")
+
+    p_lua_pushcclosure(g_L, @L_WorldSelectEntity(), 0)
+    p_lua_setfield(g_L, -2, "SelectEntity")
+
+    p_lua_pushcclosure(g_L, @L_WorldSelectedEntity(), 0)
+    p_lua_setfield(g_L, -2, "SelectedEntity")
+
+    p_lua_pushcclosure(g_L, @L_WorldSetEntityPosition(), 0)
+    p_lua_setfield(g_L, -2, "SetEntityPosition")
+
+    p_lua_pushvalue(g_L, -1)
+    p_lua_setfield(g_L, #LUA_GLOBALSINDEX, "World")
+
+    ; Audio table
+    p_lua_createtable(g_L, 0, 3)
+
+    p_lua_pushcclosure(g_L, @L_AudioPlay(), 0)
+    p_lua_setfield(g_L, -2, "Play")
+
+    p_lua_pushcclosure(g_L, @L_AudioSetGroupVolume(), 0)
+    p_lua_setfield(g_L, -2, "SetGroupVolume")
+
+    p_lua_pushcclosure(g_L, @L_AudioGroupVolume(), 0)
+    p_lua_setfield(g_L, -2, "GroupVolume")
+
+    p_lua_pushvalue(g_L, -1)
+    p_lua_setfield(g_L, #LUA_GLOBALSINDEX, "Audio")
 
     ; Leave Lua stack in a clean state after registration.
     ClearStack()
@@ -363,21 +686,24 @@ EndDeclareModule
     ProcedureReturn #True
   EndProcedure
 
-  Procedure CallGlobalNoArgs(functionName.s)
+  Procedure.i CallGlobalNoArgs(functionName.s)
     If PrepareGlobalFunctionCall(functionName) = #False
-      ProcedureReturn
+      ProcedureReturn #True
     EndIf
 
     Protected rc = p_lua_pcall(g_L, 0, 0, 0)
     If rc <> 0
       Log::Error("Lua error calling " + functionName + ": " + PeekLuaString(g_L, -1))
       ClearStack()
+      ProcedureReturn #False
     EndIf
+
+    ProcedureReturn #True
   EndProcedure
 
-  Procedure CallGlobalUpdate(functionName.s, dt.f)
+  Procedure.i CallGlobalUpdate(functionName.s, dt.f)
     If PrepareGlobalFunctionCall(functionName) = #False
-      ProcedureReturn
+      ProcedureReturn #True
     EndIf
 
     p_lua_pushnumber(g_L, dt)
@@ -386,7 +712,10 @@ EndDeclareModule
     If rc <> 0
       Log::Error("Lua error calling " + functionName + ": " + PeekLuaString(g_L, -1))
       ClearStack()
+      ProcedureReturn #False
     EndIf
+
+    ProcedureReturn #True
   EndProcedure
 
   Procedure.i State()

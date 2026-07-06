@@ -1,0 +1,21 @@
+{
+  "groups": {
+    "master": 100,
+    "ui": 90,
+    "sfx": 100
+  },
+  "clips": {
+    "startup": {
+      "path": "game/assets/startup.wav",
+      "group": "ui"
+    },
+    "ui_click": {
+      "path": "game/assets/ui_click.wav",
+      "group": "ui"
+    },
+    "spawn": {
+      "path": "game/assets/spawn.wav",
+      "group": "sfx"
+    }
+  }
+}

@@ -10,11 +10,16 @@ EndDeclareModule
 Module Log
   Global g_logFile.i = 0
 
+  Procedure.s Timestamp()
+    ProcedureReturn FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date())
+  EndProcedure
+
   Procedure WriteLine(line.s)
-    Debug line
+    Protected formatted.s = "[" + Timestamp() + "] " + line
+    Debug formatted
 
     If g_logFile
-      WriteStringN(g_logFile, line)
+      WriteStringN(g_logFile, formatted)
       FlushFileBuffers(g_logFile)
     EndIf
   EndProcedure
@@ -31,9 +36,9 @@ Module Log
 
     g_logFile = CreateFile(#PB_Any, path)
     If g_logFile
-      WriteLine("[INFO] Log started at " + FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date()))
+      WriteLine("[INFO] Log started")
     Else
-      Debug "[ERROR] Failed to open log file: " + path
+      Debug "[" + Timestamp() + "] [ERROR] Failed to open log file: " + path
     EndIf
   EndProcedure
 

@@ -1,0 +1,13 @@
+{
+  "actions": {
+    "quit": {"keys": ["#PB_Key_Escape"]},
+    "left": {"keys": ["#PB_Key_A", "#PB_Key_Left"]},
+    "right": {"keys": ["#PB_Key_D", "#PB_Key_Right"]},
+    "up": {"keys": ["#PB_Key_W", "#PB_Key_Up"]},
+    "down": {"keys": ["#PB_Key_S", "#PB_Key_Down"]},
+    "spawn": {"keys": ["#PB_Key_E"]},
+    "save_scene": {"keys": ["#PB_Key_F"]},
+    "volume_up": {"keys": ["#PB_Key_R"]},
+    "volume_down": {"keys": ["#PB_Key_V"]}
+  }
+}

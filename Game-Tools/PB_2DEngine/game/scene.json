@@ -1,0 +1,41 @@
+{
+  "world": {
+    "width": 1920,
+    "height": 1080,
+    "camera": {
+      "smoothing": 8
+    }
+  },
+  "entities": [
+    {
+      "name": "player",
+      "x": 160,
+      "y": 120,
+      "vx": 150,
+      "vy": 110,
+      "size": 18,
+      "color": "0x50B4FF",
+      "spritePath": "game/assets/player.bmp"
+    },
+    {
+      "name": "npc_a",
+      "x": 540,
+      "y": 300,
+      "vx": -120,
+      "vy": 90,
+      "size": 24,
+      "color": "0xFFB450",
+      "spritePath": "game/assets/npc_a.bmp"
+    },
+    {
+      "name": "npc_b",
+      "x": 940,
+      "y": 180,
+      "vx": 70,
+      "vy": 145,
+      "size": 14,
+      "color": "0x78FF8C",
+      "spritePath": "game/assets/npc_b.bmp"
+    }
+  ]
+}

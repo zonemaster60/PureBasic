@@ -7,6 +7,11 @@ DeclareModule Input
     #Action_Right
     #Action_Up
     #Action_Down
+    #Action_Spawn
+    #Action_SaveScene
+    #Action_VolumeUp
+    #Action_VolumeDown
+    #Action_Count
   EndEnumeration
 
   Declare.i Init()
@@ -31,6 +36,12 @@ DeclareModule Input
 
   ; UI helper
   Declare GetBindingDisplay(actionName.s, *outText)
+  Declare.s LastLoadMessage()
+  Declare.i PointerX()
+  Declare.i PointerY()
+  Declare.i PointerDown(button.i = #PB_MouseButton_Left)
+  Declare.i PointerPressed(button.i = #PB_MouseButton_Left)
+  Declare.i PointerReleased(button.i = #PB_MouseButton_Left)
 EndDeclareModule
 
 Module Input
@@ -48,10 +59,25 @@ Module Input
   Global NewMap g_pressedByName.i()
   Global NewMap g_releasedByName.i()
 
-  Global Dim g_actionDown.i(#Action_Down)
-  Global Dim g_actionPrev.i(#Action_Down)
-  Global Dim g_actionPressed.i(#Action_Down)
-  Global Dim g_actionReleased.i(#Action_Down)
+  Global Dim g_actionDown.i(#Action_Count - 1)
+  Global Dim g_actionPrev.i(#Action_Count - 1)
+  Global Dim g_actionPressed.i(#Action_Count - 1)
+  Global Dim g_actionReleased.i(#Action_Count - 1)
+  Global g_lastLoadMessage.s
+  Global g_mouseX.i = 0
+  Global g_mouseY.i = 0
+  Global g_mouseLeftDown.i = #False
+  Global g_mouseLeftPrev.i = #False
+  Global g_mouseLeftPressed.i = #False
+  Global g_mouseLeftReleased.i = #False
+  Global g_mouseRightDown.i = #False
+  Global g_mouseRightPrev.i = #False
+  Global g_mouseRightPressed.i = #False
+  Global g_mouseRightReleased.i = #False
+
+  Procedure SetLastLoadMessage(msg.s)
+    g_lastLoadMessage = msg
+  EndProcedure
 
   Procedure.i LookupDownByName(actionName.s)
     Protected key.s = LCase(actionName)
@@ -79,6 +105,10 @@ Module Input
     g_actionDown(#Action_Right) = LookupDownByName("right")
     g_actionDown(#Action_Up) = LookupDownByName("up")
     g_actionDown(#Action_Down) = LookupDownByName("down")
+    g_actionDown(#Action_Spawn) = LookupDownByName("spawn")
+    g_actionDown(#Action_SaveScene) = LookupDownByName("save_scene")
+    g_actionDown(#Action_VolumeUp) = LookupDownByName("volume_up")
+    g_actionDown(#Action_VolumeDown) = LookupDownByName("volume_down")
   EndProcedure
 
   Procedure AddBinding(name.s, keyPrimary.i, keySecondary.i)
@@ -115,18 +145,33 @@ Module Input
     AddBinding("right", #PB_Key_D, #PB_Key_Right)
     AddBinding("up", #PB_Key_W, #PB_Key_Up)
     AddBinding("down", #PB_Key_S, #PB_Key_Down)
+    AddBinding("spawn", #PB_Key_E, 0)
+    AddBinding("save_scene", #PB_Key_F, 0)
+    AddBinding("volume_up", #PB_Key_R, 0)
+    AddBinding("volume_down", #PB_Key_V, 0)
   EndProcedure
 
   Procedure.i Init()
     ; keyboard/mouse init handled in Gfx::Init
+    SetLastLoadMessage("")
     ResetDefaultBindings()
+    g_mouseX = 0
+    g_mouseY = 0
+    g_mouseLeftDown = #False
+    g_mouseLeftPrev = #False
+    g_mouseLeftPressed = #False
+    g_mouseLeftReleased = #False
+    g_mouseRightDown = #False
+    g_mouseRightPrev = #False
+    g_mouseRightPressed = #False
+    g_mouseRightReleased = #False
     ProcedureReturn #True
   EndProcedure
 
   Procedure Poll()
     Protected i
 
-    For i = 0 To #Action_Down
+    For i = 0 To #Action_Count - 1
       g_actionPrev(i) = g_actionDown(i)
     Next
 
@@ -136,6 +181,9 @@ Module Input
       g_prevByName(MapKey(g_downByName())) = g_downByName()
     Wend
 
+    g_mouseLeftPrev = g_mouseLeftDown
+    g_mouseRightPrev = g_mouseRightDown
+
     CompilerIf Defined(HEADLESS, #PB_Constant)
       FillMemory(@g_actionDown(), (ArraySize(g_actionDown()) + 1) * SizeOf(Integer), 0)
 
@@ -144,8 +192,15 @@ Module Input
       While NextMapElement(g_downByName())
         g_downByName() = #False
       Wend
+
+      g_mouseX = 0
+      g_mouseY = 0
+      g_mouseLeftDown = #False
+      g_mouseRightDown = #False
     CompilerElse
       ExamineKeyboard()
+      InitMouse()
+      ExamineMouse()
 
       ; Compute down-state for all named bindings
       ResetMap(g_bindings())
@@ -153,10 +208,15 @@ Module Input
         g_downByName(MapKey(g_bindings())) = Bool((g_bindings()\keyPrimary And KeyboardPushed(g_bindings()\keyPrimary)) Or (g_bindings()\keySecondary And KeyboardPushed(g_bindings()\keySecondary)))
       Wend
 
+      g_mouseX = MouseX()
+      g_mouseY = MouseY()
+      g_mouseLeftDown = Bool(MouseButton(#PB_MouseButton_Left))
+      g_mouseRightDown = Bool(MouseButton(#PB_MouseButton_Right))
+
       SyncBuiltInActionsFromBindings()
     CompilerEndIf
 
-    For i = 0 To #Action_Down
+    For i = 0 To #Action_Count - 1
       g_actionPressed(i) = Bool(g_actionDown(i) And Not g_actionPrev(i))
       g_actionReleased(i) = Bool((Not g_actionDown(i)) And g_actionPrev(i))
     Next
@@ -168,6 +228,11 @@ Module Input
       g_pressedByName(key) = Bool(g_downByName() And Not g_prevByName(key))
       g_releasedByName(key) = Bool((Not g_downByName()) And g_prevByName(key))
     Wend
+
+    g_mouseLeftPressed = Bool(g_mouseLeftDown And Not g_mouseLeftPrev)
+    g_mouseLeftReleased = Bool((Not g_mouseLeftDown) And g_mouseLeftPrev)
+    g_mouseRightPressed = Bool(g_mouseRightDown And Not g_mouseRightPrev)
+    g_mouseRightReleased = Bool((Not g_mouseRightDown) And g_mouseRightPrev)
   EndProcedure
 
   Procedure Shutdown()
@@ -176,6 +241,16 @@ Module Input
     ClearMap(g_prevByName())
     ClearMap(g_pressedByName())
     ClearMap(g_releasedByName())
+    g_mouseX = 0
+    g_mouseY = 0
+    g_mouseLeftDown = #False
+    g_mouseLeftPrev = #False
+    g_mouseLeftPressed = #False
+    g_mouseLeftReleased = #False
+    g_mouseRightDown = #False
+    g_mouseRightPrev = #False
+    g_mouseRightPressed = #False
+    g_mouseRightReleased = #False
   EndProcedure
 
   Procedure.i ParseKeyString(s.s)
@@ -315,19 +390,25 @@ Module Input
 
   Procedure.i LoadBindings(jsonFile.s)
     Protected loadedAny.i = #False
+    Protected invalidCount.i = 0
+
+    SetLastLoadMessage("")
 
     If FileSize(jsonFile) <= 0
+      SetLastLoadMessage("Binding file missing or empty: " + jsonFile)
       ProcedureReturn #False
     EndIf
 
     Protected json = LoadJSON(#PB_Any, jsonFile)
     If json = 0
+      SetLastLoadMessage("Failed to parse JSON: " + jsonFile)
       ProcedureReturn #False
     EndIf
 
     Protected root = JSONValue(json)
     If root = 0
       FreeJSON(json)
+      SetLastLoadMessage("Invalid JSON root in: " + jsonFile)
       ProcedureReturn #False
     EndIf
 
@@ -342,6 +423,7 @@ Module Input
     Protected actions = GetJSONMember(root, "actions")
     If actions = 0 Or JSONType(actions) <> #PB_JSON_Object
       FreeJSON(json)
+      SetLastLoadMessage("Missing object member 'actions' in: " + jsonFile)
       ProcedureReturn #False
     EndIf
 
@@ -351,7 +433,9 @@ Module Input
       While NextJSONMember(actions)
         Protected name.s = JSONMemberKey(actions)
         Protected actionObj = JSONMemberValue(actions)
-        If actionObj And JSONType(actionObj) = #PB_JSON_Object
+        If name = ""
+          invalidCount + 1
+        ElseIf actionObj And JSONType(actionObj) = #PB_JSON_Object
           Protected keysVal = GetJSONMember(actionObj, "keys")
           Protected k1.i = 0
           Protected k2.i = 0
@@ -370,31 +454,42 @@ Module Input
           If k1 Or k2
             AddBinding(name, k1, k2)
             loadedAny = #True
+          Else
+            invalidCount + 1
           EndIf
+        Else
+          invalidCount + 1
         EndIf
       Wend
     EndIf
 
     FreeJSON(json)
+
+    If loadedAny = #False
+      SetLastLoadMessage("No valid bindings found in: " + jsonFile)
+    ElseIf invalidCount > 0
+      SetLastLoadMessage("Skipped " + Str(invalidCount) + " invalid binding entries in: " + jsonFile)
+    EndIf
+
     ProcedureReturn loadedAny
   EndProcedure
 
   Procedure.i ActionDown(action.i)
-    If action < 0 Or action > #Action_Down
+    If action < 0 Or action >= #Action_Count
       ProcedureReturn #False
     EndIf
     ProcedureReturn g_actionDown(action)
   EndProcedure
 
   Procedure.i ActionPressed(action.i)
-    If action < 0 Or action > #Action_Down
+    If action < 0 Or action >= #Action_Count
       ProcedureReturn #False
     EndIf
     ProcedureReturn g_actionPressed(action)
   EndProcedure
 
   Procedure.i ActionReleased(action.i)
-    If action < 0 Or action > #Action_Down
+    If action < 0 Or action >= #Action_Count
       ProcedureReturn #False
     EndIf
     ProcedureReturn g_actionReleased(action)
@@ -486,6 +581,51 @@ Module Input
     EndIf
 
     PokeS(*outText, t, -1, #PB_Unicode)
+  EndProcedure
+
+  Procedure.s LastLoadMessage()
+    ProcedureReturn g_lastLoadMessage
+  EndProcedure
+
+  Procedure.i PointerX()
+    ProcedureReturn g_mouseX
+  EndProcedure
+
+  Procedure.i PointerY()
+    ProcedureReturn g_mouseY
+  EndProcedure
+
+  Procedure.i PointerDown(button.i = #PB_MouseButton_Left)
+    Select button
+      Case #PB_MouseButton_Left
+        ProcedureReturn g_mouseLeftDown
+      Case #PB_MouseButton_Right
+        ProcedureReturn g_mouseRightDown
+    EndSelect
+
+    ProcedureReturn #False
+  EndProcedure
+
+  Procedure.i PointerPressed(button.i = #PB_MouseButton_Left)
+    Select button
+      Case #PB_MouseButton_Left
+        ProcedureReturn g_mouseLeftPressed
+      Case #PB_MouseButton_Right
+        ProcedureReturn g_mouseRightPressed
+    EndSelect
+
+    ProcedureReturn #False
+  EndProcedure
+
+  Procedure.i PointerReleased(button.i = #PB_MouseButton_Left)
+    Select button
+      Case #PB_MouseButton_Left
+        ProcedureReturn g_mouseLeftReleased
+      Case #PB_MouseButton_Right
+        ProcedureReturn g_mouseRightReleased
+    EndSelect
+
+    ProcedureReturn #False
   EndProcedure
 EndModule
 
