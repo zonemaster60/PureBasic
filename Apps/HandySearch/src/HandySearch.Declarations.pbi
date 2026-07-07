@@ -2,7 +2,7 @@
 
 #APP_NAME   = "HandySearch"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-Global version.s = "v1.0.1.7"
+Global version.s = "v1.0.1.9"
 
 ; Crash logging (best-effort)
 Declare InitCrashLogging()
@@ -54,7 +54,7 @@ Global gLastExecExitCode.i
 ; Startup/OS integration
 Declare.i OpenCrashLogFile(filePath.s)
 Declare.s ChooseCrashLogPath()
-Declare.s RunAndCapture(exe.s, args.s)
+Declare.i RunAndCapture(exe.s, args.s)
 Declare.i IsInStartup()
 Declare.i AddToStartup()
 Declare.i RemoveFromStartup()
@@ -96,9 +96,7 @@ Declare.s RegexLiteralHint(pattern.s)
 Declare RefreshResultsFromDb(query.s)
 
 ; Indexing pipeline
-Declare EnqueueResult(path.s)
-Declare EnqueueResultsBatch(List batch.s())
-Declare.i PendingResultsCount()
+Declare.i PendingDbWriterCount()
 Declare DbWriterThreadProc(dummy.i)
 Declare IndexThreadProc(*params.SearchParams)
 
@@ -125,6 +123,8 @@ Declare SyncUiState()
 Declare UpdateStartupMenuState()
 Declare UpdateControlStates()
 Declare RequestUiStateSync()
+Declare FreePathIconCache(keepVisible.i)
+Declare FreeIconCache()
 Declare.i GetFileIconIndex(path.s)
 Declare ResizeMainWindow()
 Declare SetCompactMode(enable.i)
@@ -180,7 +180,6 @@ Declare MainLoop()
 
 Global IndexThread.i
 Global StopIndexingRequested.i
-Global ResultMutex.i
 Global ProgressMutex.i
 Global ExcludeMutex.i
 
@@ -201,6 +200,8 @@ Global LastTrayTooltip.s
 Global LastQueryText.s
 Global QueryDirty.i
 Global QueryNextAtMS.i
+Global LastDbRefreshAtMS.i
+Global DbRefreshIntervalMS.i = 1500
 Global LiveMatcherMode.i ; 0=contains, 1=wildcard, 2=regex
 Global LiveMatcherNeedle.s
 Global LiveMatcherRegexID.i
@@ -242,7 +243,7 @@ Global NewMap IconCache.i()
 Global IconMutex.i
 
 ; Live incremental results (from worker threads -> UI)
-Global NewMap LiveShownPaths.i() ; path -> 1 (GUI thread only)
+Global NewMap LiveShownPaths.i() ; normalized path -> 1 (GUI thread only)
 
 ; Tray icon handle when using embedded EXE icon
 Global TrayIconHandle.i
@@ -264,7 +265,6 @@ Global DbWriterQueueMutex.i
 Global DbWriterQueueSem.i
 Global NewList DbWriterQueue.IndexRecord()
 
-Global NewList PendingResults.s()
 Global NewMap ExcludeDirNames.i()
 Global NewMap ExcludeFileNames.i()
 Global NewMap ExcludePathPrefixes.i()

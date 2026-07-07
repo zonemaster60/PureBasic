@@ -70,19 +70,79 @@ Procedure RequestUiStateSync()
   PendingUiStateSync = #True
 EndProcedure
 
+Procedure FreeIconCache()
+  Protected image.i
+
+  If IconMutex = 0
+    ProcedureReturn
+  EndIf
+
+  LockMutex(IconMutex)
+  ForEach IconCache()
+    image = IconCache()
+    If image And IsImage(image)
+      FreeImage(image)
+    EndIf
+  Next
+  ClearMap(IconCache())
+  UnlockMutex(IconMutex)
+EndProcedure
+
+Procedure FreePathIconCache(keepVisible.i)
+  Protected image.i
+  Protected path.s
+  Protected keepKey.s
+
+  If IconMutex = 0
+    ProcedureReturn
+  EndIf
+
+  LockMutex(IconMutex)
+  ForEach IconCache()
+    If Left(MapKey(IconCache()), 5) = "PATH:"
+      If keepVisible
+        path = Mid(MapKey(IconCache()), 6)
+        If path <> ""
+          keepKey = LCase(NormalizePath(path))
+          If FindMapElement(LiveShownPaths(), keepKey)
+            Continue
+          EndIf
+        EndIf
+      EndIf
+
+      image = IconCache()
+      If image And IsImage(image)
+        FreeImage(image)
+      EndIf
+      DeleteMapElement(IconCache())
+    EndIf
+  Next
+  UnlockMutex(IconMutex)
+EndProcedure
+
 Procedure.i GetFileIconIndex(path.s)
   Protected shinfo.SHFILEINFO
-  Protected ext.s = GetExtensionPart(path)
+  Protected ext.s = LCase(GetExtensionPart(path))
   Protected isDir.i = Bool(FileSize(path) = -2)
-  Protected key.s = LCase(ext)
+  Protected key.s
   Protected cached.i
   Protected flags.i = $100 | $1 | $10
   Protected attr.i = 0
   Protected img.i
   Protected hdc.i
 
-  If isDir : key = "_DIR_" : EndIf
-  If key = "" : key = "_FILE_" : EndIf
+  If isDir
+    key = "_DIR_"
+  Else
+    Select ext
+      Case "exe", "ico", "lnk", "url"
+        key = "PATH:" + LCase(NormalizePath(path))
+      Case ""
+        key = "_FILE_"
+      Default
+        key = "EXT:" + ext
+    EndSelect
+  EndIf
 
   LockMutex(IconMutex)
   If FindMapElement(IconCache(), key)

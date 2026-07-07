@@ -14,7 +14,7 @@ Procedure.s WildcardToRegex(pattern.s)
       Case ".", "^", "$", "+", "(", ")", "[", "]", "{", "}", "|"
         out + "\" + ch
       Case "\"
-        out + "\"
+        out + "\\"
       Default
         out + ch
     EndSelect
@@ -131,7 +131,7 @@ Procedure.s RegexLiteralHint(pattern.s)
       Continue
     EndIf
 
-    If ch = "\\"
+    If ch = "\"
       escaped = 1
       Continue
     EndIf
@@ -170,8 +170,12 @@ Procedure RefreshResultsFromDb(query.s)
   Protected candidateLimit.i
   Protected rowName.s
   Protected rowPath.s
+  Protected rowKey.s
   Protected rowImg.i
+  Protected listHandle.i
+  Protected redrawDisabled.i
   Protected startTime.q = ElapsedMilliseconds()
+  Protected NewList resultPaths.s()
 
   If IndexDbId = 0
     ProcedureReturn
@@ -181,6 +185,14 @@ Procedure RefreshResultsFromDb(query.s)
     ProcedureReturn
   EndIf
 
+  listHandle = GadgetID(#Gadget_ResultsList)
+
+  FreePathIconCache(#True)
+  ClearMap(LiveShownPaths())
+  If listHandle
+    SendMessage_(listHandle, #WM_SETREDRAW, 0, 0)
+    redrawDisabled = #True
+  EndIf
   ClearGadgetItems(#Gadget_ResultsList)
 
   ignoreCase = 1
@@ -214,28 +226,36 @@ Procedure RefreshResultsFromDb(query.s)
           rowPath = GetDatabaseString(IndexDbId, 1)
 
           If MatchRegularExpression(regexID, rowName) Or MatchRegularExpression(regexID, rowPath)
-            rowImg = GetFileIconIndex(rowPath)
-            If rowImg
-              AddGadgetItem(#Gadget_ResultsList, -1, rowPath, ImageID(rowImg))
-            Else
-              AddGadgetItem(#Gadget_ResultsList, -1, rowPath)
-            EndIf
-            LiveShownPaths(rowPath) = 1
-            shown + 1
-            If shown >= SearchMaxResults
+            AddElement(resultPaths())
+            resultPaths() = rowPath
+            If ListSize(resultPaths()) >= SearchMaxResults
               Break
             EndIf
-          EndIf
-
-          If shown % 500 = 0 And ElapsedMilliseconds() - startTime > 500
-            While WindowEvent() : Wend
           EndIf
         Wend
         FinishDatabaseQuery(IndexDbId)
       EndIf
       UnlockMutex(DbMutex)
 
+      ForEach resultPaths()
+        rowPath = resultPaths()
+        rowKey = LCase(NormalizePath(rowPath))
+        rowImg = GetFileIconIndex(rowPath)
+        If rowImg
+          AddGadgetItem(#Gadget_ResultsList, -1, rowPath, ImageID(rowImg))
+        Else
+          AddGadgetItem(#Gadget_ResultsList, -1, rowPath)
+        EndIf
+        LiveShownPaths(rowKey) = 1
+        shown + 1
+      Next
+
       FreeRegularExpression(regexID)
+      If redrawDisabled And listHandle
+        SendMessage_(listHandle, #WM_SETREDRAW, 1, 0)
+        RedrawWindow_(listHandle, 0, 0, $0001 | $0100)
+        redrawDisabled = #False
+      EndIf
       StatusBarText(#StatusBar_Main, 1, "Showing: " + Str(shown) + "  (regex)  Indexed: " + Str(GetIndexedCountCached()))
       ProcedureReturn
     EndIf
@@ -248,18 +268,30 @@ Procedure RefreshResultsFromDb(query.s)
   If DatabaseQuery(IndexDbId, sql)
     While NextDatabaseRow(IndexDbId)
       rowPath = GetDatabaseString(IndexDbId, 0)
-      rowImg = GetFileIconIndex(rowPath)
-      If rowImg
-        AddGadgetItem(#Gadget_ResultsList, -1, rowPath, ImageID(rowImg))
-      Else
-        AddGadgetItem(#Gadget_ResultsList, -1, rowPath)
-      EndIf
-      LiveShownPaths(rowPath) = 1
-      shown + 1
+      AddElement(resultPaths())
+      resultPaths() = rowPath
     Wend
     FinishDatabaseQuery(IndexDbId)
   EndIf
   UnlockMutex(DbMutex)
 
+  ForEach resultPaths()
+    rowPath = resultPaths()
+    rowKey = LCase(NormalizePath(rowPath))
+    rowImg = GetFileIconIndex(rowPath)
+    If rowImg
+      AddGadgetItem(#Gadget_ResultsList, -1, rowPath, ImageID(rowImg))
+    Else
+      AddGadgetItem(#Gadget_ResultsList, -1, rowPath)
+    EndIf
+    LiveShownPaths(rowKey) = 1
+    shown + 1
+  Next
+
+  If redrawDisabled And listHandle
+    SendMessage_(listHandle, #WM_SETREDRAW, 1, 0)
+    RedrawWindow_(listHandle, 0, 0, $0001 | $0100)
+    redrawDisabled = #False
+  EndIf
   StatusBarText(#StatusBar_Main, 1, "Showing: " + Str(shown) + "  Indexed: " + Str(GetIndexedCountCached()))
 EndProcedure

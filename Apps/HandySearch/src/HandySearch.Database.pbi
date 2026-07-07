@@ -162,22 +162,35 @@ Procedure.b RebuildIndexDatabase()
 EndProcedure
 
 Procedure FinalizeCompletedScan()
+  Protected txOk.i
+
   If IndexDbId = 0 Or DbMutex = 0 Or CurrentScanId <= 0
     ProcedureReturn
   EndIf
 
   LockMutex(DbMutex)
-  ExecDb("BEGIN TRANSACTION;")
-  ExecDb("DELETE FROM files WHERE scan_id <> " + Str(CurrentScanId) + ";")
-  If DatabaseQuery(IndexDbId, "SELECT COUNT(*) FROM files;")
+  txOk = ExecDb("BEGIN TRANSACTION;")
+  If txOk
+    txOk = ExecDb("DELETE FROM files WHERE scan_id <> " + Str(CurrentScanId) + ";")
+  EndIf
+  If txOk And DatabaseQuery(IndexDbId, "SELECT COUNT(*) FROM files;")
     If NextDatabaseRow(IndexDbId)
       SetIndexedCount(GetDatabaseQuad(IndexDbId, 0))
     EndIf
     FinishDatabaseQuery(IndexDbId)
   EndIf
-  ExecDb("INSERT OR REPLACE INTO meta(key,value) VALUES('indexed_count','" + Str(GetIndexedCountCached()) + "');")
-  ExecDb("INSERT OR REPLACE INTO meta(key,value) VALUES('last_scan_id','" + Str(CurrentScanId) + "');")
-  ExecDb("COMMIT;")
+  If txOk
+    txOk = ExecDb("INSERT OR REPLACE INTO meta(key,value) VALUES('indexed_count','" + Str(GetIndexedCountCached()) + "');")
+  EndIf
+  If txOk
+    txOk = ExecDb("INSERT OR REPLACE INTO meta(key,value) VALUES('last_scan_id','" + Str(CurrentScanId) + "');")
+  EndIf
+  If txOk
+    ExecDb("COMMIT;")
+  Else
+    ExecDb("ROLLBACK;")
+    LogLine("FinalizeCompletedScan failed and was rolled back.")
+  EndIf
   UnlockMutex(DbMutex)
 EndProcedure
 

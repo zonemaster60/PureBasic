@@ -4,15 +4,10 @@ Procedure PumpPendingResults(maxItems.i)
   Protected folder.s, files.q, dirs.q
   Protected indexed.q
   Protected now.i = ElapsedMilliseconds()
-  Protected pulled.i
-  Protected path.s
   Protected query.s
   Protected ignoreCase.i
   Protected regexPattern.s
   Protected trayTip.s
-  Protected testSubject.s
-  Protected pathImg.i
-  Protected defImg.i
 
   If IndexingActive
     SetWindowTitle(#Window_Main, #APP_NAME + " - indexing...")
@@ -29,7 +24,6 @@ Procedure PumpPendingResults(maxItems.i)
   If QueryDirty And now >= QueryNextAtMS
     QueryDirty = 0
     LastQueryText = GetGadgetText(#Gadget_SearchBar)
-    ClearMap(LiveShownPaths())
 
     If LiveMatcherRegexID
       FreeRegularExpression(LiveMatcherRegexID)
@@ -68,52 +62,12 @@ Procedure PumpPendingResults(maxItems.i)
     EndIf
 
     RefreshResultsFromDb(LastQueryText)
+    LastDbRefreshAtMS = now
   EndIf
 
-  If ResultMutex
-    LockMutex(ResultMutex)
-    While pulled < maxItems And FirstElement(PendingResults())
-      path = PendingResults()
-      DeleteElement(PendingResults())
-      pulled + 1
-
-      If FindMapElement(LiveShownPaths(), path) = 0
-        If CountGadgetItems(#Gadget_ResultsList) >= SearchMaxResults
-          Continue
-        EndIf
-
-        LiveShownPaths(path) = 1
-
-        If LiveMatchFullPath
-          testSubject = LCase(path)
-        Else
-          testSubject = LCase(GetFilePart(path))
-        EndIf
-
-        Select LiveMatcherMode
-          Case 2, 1
-            If LiveMatcherRegexID And MatchRegularExpression(LiveMatcherRegexID, testSubject)
-              pathImg = GetFileIconIndex(path)
-              If pathImg
-                AddGadgetItem(#Gadget_ResultsList, -1, path, ImageID(pathImg))
-              Else
-                AddGadgetItem(#Gadget_ResultsList, -1, path)
-              EndIf
-            EndIf
-
-          Default
-            If LiveMatcherNeedle = "" Or FindString(testSubject, LiveMatcherNeedle, 1)
-              defImg = GetFileIconIndex(path)
-              If defImg
-                AddGadgetItem(#Gadget_ResultsList, -1, path, ImageID(defImg))
-              Else
-                AddGadgetItem(#Gadget_ResultsList, -1, path)
-              EndIf
-            EndIf
-        EndSelect
-      EndIf
-    Wend
-    UnlockMutex(ResultMutex)
+  If QueryDirty = 0 And IndexingActive And IndexingPaused = 0 And CountGadgetItems(#Gadget_ResultsList) < SearchMaxResults And now - LastDbRefreshAtMS >= DbRefreshIntervalMS
+    LastDbRefreshAtMS = now
+    RefreshResultsFromDb(LastQueryText)
   EndIf
 
   If ProgressMutex

@@ -50,40 +50,16 @@ Procedure SetProgressFolder(folder.s)
   UnlockMutex(ProgressMutex)
 EndProcedure
 
-Procedure EnqueueResult(path.s)
-  If ResultMutex = 0
-    ProcedureReturn
-  EndIf
-
-  LockMutex(ResultMutex)
-  AddElement(PendingResults())
-  PendingResults() = path
-  UnlockMutex(ResultMutex)
-EndProcedure
-
-Procedure EnqueueResultsBatch(List batch.s())
-  If ResultMutex = 0 Or ListSize(batch()) = 0
-    ProcedureReturn
-  EndIf
-
-  LockMutex(ResultMutex)
-  ForEach batch()
-    AddElement(PendingResults())
-    PendingResults() = batch()
-  Next
-  UnlockMutex(ResultMutex)
-EndProcedure
-
-Procedure.i PendingResultsCount()
+Procedure.i PendingDbWriterCount()
   Protected count.i
 
-  If ResultMutex = 0
+  If DbWriterQueueMutex = 0
     ProcedureReturn 0
   EndIf
 
-  LockMutex(ResultMutex)
-  count = ListSize(PendingResults())
-  UnlockMutex(ResultMutex)
+  LockMutex(DbWriterQueueMutex)
+  count = ListSize(DbWriterQueue())
+  UnlockMutex(DbWriterQueueMutex)
   ProcedureReturn count
 EndProcedure
 
@@ -252,11 +228,20 @@ EndProcedure
 
 Procedure DbWriterThreadProc(dummy.i)
   Protected NewList localQueue.IndexRecord()
+  Protected hasQueuedItems.i
 
-  While DbWriterStop = 0
+  While #True
     If WaitForSingleObject_(DbWriterQueueSem, 1000) = #WAIT_TIMEOUT
-      If DbWriterStop : Break : EndIf
-      Continue
+      If DbWriterStop
+        LockMutex(DbWriterQueueMutex)
+        hasQueuedItems = Bool(ListSize(DbWriterQueue()) > 0)
+        UnlockMutex(DbWriterQueueMutex)
+        If hasQueuedItems = 0
+          Break
+        EndIf
+      Else
+        Continue
+      EndIf
     EndIf
 
     LockMutex(DbWriterQueueMutex)
@@ -272,6 +257,8 @@ Procedure DbWriterThreadProc(dummy.i)
     If ListSize(localQueue()) > 0
       FlushIndexBatchToDb(localQueue())
       ClearList(localQueue())
+    ElseIf DbWriterStop
+      Break
     EndIf
 
     Delay(10)
@@ -283,7 +270,8 @@ Procedure FlushIndexBatchToDb(List batch.IndexRecord())
   Protected values.s
   Protected cnt.i
   Protected rowCount.i
-  Protected NewList pathsForUi.s()
+  Protected txOk.i = #True
+  Protected newIndexedCount.q
 
   If IndexDbId = 0 Or DbMutex = 0
     ClearList(batch())
@@ -296,40 +284,52 @@ Procedure FlushIndexBatchToDb(List batch.IndexRecord())
   EndIf
 
   LockMutex(DbMutex)
-  ExecDb("BEGIN TRANSACTION;")
+  If ExecDb("BEGIN TRANSACTION;") = 0
+    UnlockMutex(DbMutex)
+    ClearList(batch())
+    ProcedureReturn
+  EndIf
 
   cnt = 0
   values = ""
+  newIndexedCount = IndexTotalFiles
   ForEach batch()
     If values <> "" : values + "," : EndIf
     values + "('" + DbEscape(batch()\Path) + "','" + DbEscape(batch()\Name) + "','" + DbEscape(batch()\Dir) + "'," +
               Str(batch()\Size) + "," + Str(batch()\MTime) + "," + Str(Bool(batch()\IsDir)) + "," + Str(batch()\ScanId) + ")"
 
-    AddElement(pathsForUi())
-    pathsForUi() = batch()\Path
-
-    IndexTotalFiles + 1
+    newIndexedCount + 1
     cnt + 1
 
     If cnt >= 500
       sql = "INSERT OR REPLACE INTO files(path,name,dir,size,mtime,is_dir,scan_id) VALUES" + values + ";"
-      ExecDb(sql)
+      If ExecDb(sql) = 0
+        txOk = #False
+        Break
+      EndIf
       values = ""
       cnt = 0
     EndIf
   Next
 
-  If values <> ""
+  If txOk And values <> ""
     sql = "INSERT OR REPLACE INTO files(path,name,dir,size,mtime,is_dir,scan_id) VALUES" + values + ";"
-    ExecDb(sql)
+    txOk = ExecDb(sql)
   EndIf
 
-  SetIndexedCount(IndexTotalFiles)
-  ExecDb("INSERT OR REPLACE INTO meta(key,value) VALUES('indexed_count','" + Str(GetIndexedCountCached()) + "');")
-  ExecDb("COMMIT;")
+  If txOk
+    SetIndexedCount(newIndexedCount)
+    txOk = ExecDb("INSERT OR REPLACE INTO meta(key,value) VALUES('indexed_count','" + Str(GetIndexedCountCached()) + "');")
+  EndIf
+
+  If txOk
+    ExecDb("COMMIT;")
+  Else
+    ExecDb("ROLLBACK;")
+    LogLine("DB batch flush failed and was rolled back.")
+  EndIf
   UnlockMutex(DbMutex)
 
-  EnqueueResultsBatch(pathsForUi())
   ClearList(batch())
 EndProcedure
 
@@ -350,6 +350,7 @@ EndProcedure
 
 Procedure WorkerThreadProc(*params.WorkerParams)
   Protected dir.s
+  Protected dbQueueLimit.i
   Protected NewList batch.IndexRecord()
 
   While WorkStop = 0 And StopIndexingRequested = 0
@@ -358,7 +359,11 @@ Procedure WorkerThreadProc(*params.WorkerParams)
       Continue
     EndIf
 
-    If PendingResultsCount() > 10000
+    dbQueueLimit = ConfigBatchSize * WorkerCount * 8
+    If dbQueueLimit < ConfigBatchSize * 8
+      dbQueueLimit = ConfigBatchSize * 8
+    EndIf
+    If PendingDbWriterCount() > dbQueueLimit
       Delay(100)
       Continue
     EndIf
@@ -460,7 +465,7 @@ Procedure StartIndexingAllFixedDrives()
   StopIndexingRequested = 0
   WorkStop = 0
   SetIndexedCount(0)
-  CurrentScanId = Date()
+  CurrentScanId = Date() * 1000 + (ElapsedMilliseconds() % 1000)
   WorkerCount = -1
 
   DbWriterStop = 0
@@ -567,12 +572,6 @@ Procedure StartIndexingAllFixedDrives()
 
   If StopIndexingRequested = 0 And WorkStop = 0
     FinalizeCompletedScan()
-  EndIf
-
-  If ResultMutex
-    LockMutex(ResultMutex)
-    ClearList(PendingResults())
-    UnlockMutex(ResultMutex)
   EndIf
 
   SetIndexingActive(#False)

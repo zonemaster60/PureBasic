@@ -4,9 +4,9 @@ Procedure.s StartupTaskName()
   ProcedureReturn #APP_NAME
 EndProcedure
 
-Procedure.s StartupTaskUserId()
-  Protected user.s = GetEnvironmentVariable("USERNAME")
-  Protected domain.s = GetEnvironmentVariable("USERDOMAIN")
+Procedure.s CurrentUserSam()
+  Protected user.s = Trim(GetEnvironmentVariable("USERNAME"))
+  Protected domain.s = Trim(GetEnvironmentVariable("USERDOMAIN"))
 
   If user = ""
     ProcedureReturn ""
@@ -25,28 +25,35 @@ Procedure RemoveLegacyStartupRegistryEntry()
   RunProgram("cmd.exe", "/c " + cmd, "", #PB_Program_Hide)
 EndProcedure
 
-Procedure.s RunAndCapture(exe.s, args.s)
-  Protected output.s = ""
-  Protected program = RunProgram(exe, args, "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Hide)
+Procedure.i RunAndCapture(exe.s, args.s)
+  Protected program.i
+  Protected exitCode.i = -1
+
+  LogLine("Run: " + exe + " " + args)
+  program = RunProgram(exe, args, "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Hide)
 
   If program = 0
     gLastExecExitCode = -1
-    ProcedureReturn output
+    LogLine("Failed to start: " + exe)
+    ProcedureReturn -1
   EndIf
 
   While ProgramRunning(program)
     While AvailableProgramOutput(program)
-      output + ReadProgramString(program) + #CRLF$
+      ReadProgramString(program)
     Wend
+    Delay(5)
   Wend
 
   While AvailableProgramOutput(program)
-    output + ReadProgramString(program) + #CRLF$
+    ReadProgramString(program)
   Wend
 
-  gLastExecExitCode = ProgramExitCode(program)
+  exitCode = ProgramExitCode(program)
+  gLastExecExitCode = exitCode
   CloseProgram(program)
-  ProcedureReturn output
+  LogLine("Exit code: " + Str(exitCode) + " | " + exe)
+  ProcedureReturn exitCode
 EndProcedure
 
 Procedure.i OpenCrashLogFile(filePath.s)
@@ -207,66 +214,36 @@ EndProcedure
 Procedure.i AddToStartup()
   RemoveLegacyStartupRegistryEntry()
 
-  ; Create/update an interactive scheduled task so the tray icon shows up.
   Protected taskName.s = StartupTaskName()
-  Protected psTaskName.s = ReplaceString(taskName, "'", "''")
-  Protected psExe.s = ReplaceString(ProgramFilename(), "'", "''")
-  Protected psWorkDir.s = ReplaceString(AppPath, "'", "''")
-  Protected psUser.s = ReplaceString(StartupTaskUserId(), "'", "''")
+  Protected exePath.s = ProgramFilename()
+  Protected workDir.s = GetPathPart(exePath)
+  Protected userSam.s = CurrentUserSam()
   Protected psCmd.s
+  Protected args.s
 
-  psCmd = "try {" +
-          " $ErrorActionPreference='Stop';" +
-          " $taskName='" + psTaskName + "';" +
-          " $exe='" + psExe + "';" +
-          " $wd='" + psWorkDir + "';" +
-          " $user='" + psUser + "';" +
-          " if ($user -eq '') { throw 'Unable to determine current user for scheduled task.' };" +
-          " $action=New-ScheduledTaskAction -Execute $exe -WorkingDirectory $wd;" +
-          " $trigger=New-ScheduledTaskTrigger -AtLogOn -User $user;" +
-          " $trigger.Delay='PT1M';" +
-          " $settings=New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew;" +
-          " $principal=New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited;" +
-          " Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null;" +
-          " Write-Output ('OK: task created/updated: ' + $taskName);" +
-          "} catch {" +
-          " Write-Output ('ERROR: ' + $_.Exception.Message);" +
-          " if ($_.ScriptStackTrace) { Write-Output $_.ScriptStackTrace };" +
-          " exit 1" +
-          "}"
+  LogLine("Enabling run at startup")
+  psCmd = "Register-ScheduledTask -TaskName '" + ReplaceString(taskName, "'", "''") + "' " +
+          "-Action (New-ScheduledTaskAction -Execute '" + ReplaceString(exePath, "'", "''") + "' -WorkingDirectory '" + ReplaceString(workDir, "'", "''") + "') " +
+          "-Trigger (New-ScheduledTaskTrigger -AtLogOn -User '" + ReplaceString(userSam, "'", "''") + "') " +
+          "-Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries) " +
+          "-Principal (New-ScheduledTaskPrincipal -UserId '" + ReplaceString(userSam, "'", "''") + "' -LogonType Interactive -RunLevel Highest) -Force"
 
-  RunAndCapture("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -Command " + Chr(34) + psCmd + Chr(34))
-  ProcedureReturn Bool(gLastExecExitCode = 0)
+  args = "-NoProfile -ExecutionPolicy Bypass -Command " + #DQUOTE$ + psCmd + #DQUOTE$
+  ProcedureReturn Bool(RunAndCapture("powershell.exe", args) = 0)
 EndProcedure
 
 Procedure.i RemoveFromStartup()
   RemoveLegacyStartupRegistryEntry()
 
-  Protected nameQuoted.s = Chr(34) + StartupTaskName() + Chr(34)
-  Protected cmd.s = "/c schtasks /Delete /TN " + nameQuoted + " /F"
-  RunAndCapture("cmd.exe", cmd)
-  ProcedureReturn Bool(gLastExecExitCode = 0)
+  Protected delArgs.s = "/Delete /F /TN " + #DQUOTE$ + StartupTaskName() + #DQUOTE$
+
+  LogLine("Disabling run at startup")
+  ProcedureReturn Bool(RunAndCapture("schtasks.exe", delArgs) = 0)
 EndProcedure
 
 Procedure.i IsInStartup()
-  Protected nameQuoted.s = Chr(34) + StartupTaskName() + Chr(34)
-  Protected cmd.s = "schtasks /Query /TN " + nameQuoted
-  Protected code.i
-  Protected program = RunProgram("cmd.exe", "/c " + cmd, "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Hide)
-
-  If program
-    While ProgramRunning(program)
-      While AvailableProgramOutput(program)
-        ReadProgramString(program)
-      Wend
-    Wend
-
-    code = ProgramExitCode(program)
-    CloseProgram(program)
-    ProcedureReturn Bool(code = 0)
-  EndIf
-
-  ProcedureReturn #False
+  Protected args.s = "/Query /TN " + #DQUOTE$ + StartupTaskName() + #DQUOTE$
+  ProcedureReturn Bool(RunAndCapture("schtasks.exe", args) = 0)
 EndProcedure
 
 Procedure.s NormalizePath(path.s)

@@ -44,7 +44,6 @@ EndIf
 ; Best-effort cleanup of any old registry startup entry.
 RemoveLegacyStartupRegistryEntry()
 
-ResultMutex = CreateMutex()
 ProgressMutex = CreateMutex()
 ExcludeMutex = CreateMutex()
 DbMutex = CreateMutex()
@@ -90,8 +89,8 @@ EndIf
 MainLoop()
 
 If LiveMatcherRegexID : FreeRegularExpression(LiveMatcherRegexID) : LiveMatcherRegexID = 0 : EndIf
+FreeIconCache()
 If IndexDbId : CloseDatabase(IndexDbId) : EndIf
-If ResultMutex : FreeMutex(ResultMutex) : EndIf
 If ProgressMutex : FreeMutex(ProgressMutex) : EndIf
 If ExcludeMutex : FreeMutex(ExcludeMutex) : EndIf
 If DbMutex : FreeMutex(DbMutex) : EndIf
@@ -110,16 +109,17 @@ If hMutex : CloseHandle_(hMutex) : EndIf
 ; Optimizer
 ; EnableThread
 ; EnableXP
+; EnableAdmin
 ; DPIAware
 ; UseIcon = HandySearch.ico
 ; Executable = ..\HandySearch.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,7
-; VersionField1 = 1,0,1,7
+; VersionField0 = 1,0,1,9
+; VersionField1 = 1,0,1,9
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandySearch
-; VersionField4 = 1.0.1.7
-; VersionField5 = 1.0.1.7
+; VersionField4 = 1.0.1.9
+; VersionField5 = 1.0.1.9
 ; VersionField6 = Everything-like search tool for desktop and web
 ; VersionField7 = HandySearch
 ; VersionField8 = HandySearch.exe
