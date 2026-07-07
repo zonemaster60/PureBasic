@@ -312,24 +312,28 @@ Procedure WriteSettingsToIni(iniPath$, *settings.AppSettings)
 EndProcedure
 
 Procedure DeleteScheduledStartupTask(taskName$)
+  LogLine(#LOG_INFO, "Deleting scheduled task: " + taskName$)
   RunProgramCapture("schtasks.exe", "/Delete /F /TN " + Chr(34) + taskName$ + Chr(34))
 EndProcedure
 
 Procedure CreateScheduledStartupTask(taskName$, userAccount$, runValue$, workDir$)
+  Protected exePath$ = ProgramFilename()
+  Protected exeArgs$ = Trim(Mid(runValue$, Len(Chr(34) + exePath$ + Chr(34)) + 1))
+  Protected psCmd$
+  Protected psArgs$
+
   LogLine(#LOG_INFO, "Creating scheduled task: " + taskName$)
-  RunProgramCapture("schtasks.exe", "/Create /F /TN " + Chr(34) + taskName$ + Chr(34) +
-                                 " /SC ONLOGON /RL HIGHEST /RU " + Chr(34) + userAccount$ + Chr(34) +
-                                 " /TR " + Chr(34) + runValue$ + Chr(34) +
-                                 " /IT")
+  psCmd$ = "Register-ScheduledTask -TaskName '" + ReplaceString(taskName$, "'", "''") + "' " +
+           "-Action (New-ScheduledTaskAction -Execute '" + ReplaceString(exePath$, "'", "''") + "' -WorkingDirectory '" + ReplaceString(GetPathPart(exePath$), "'", "''") + "' -Argument '" + ReplaceString(exeArgs$, "'", "''") + "') " +
+           "-Trigger (New-ScheduledTaskTrigger -AtLogOn -User '" + ReplaceString(userAccount$, "'", "''") + "') " +
+           "-Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries) " +
+           "-Principal (New-ScheduledTaskPrincipal -UserId '" + ReplaceString(userAccount$, "'", "''") + "' -LogonType Interactive -RunLevel Highest) -Force"
+
+  psArgs$ = "-NoProfile -ExecutionPolicy Bypass -Command " + Chr(34) + psCmd$ + Chr(34)
+  RunProgramCapture("powershell.exe", psArgs$)
   If gLastExitCode <> 0
-    LogLine(#LOG_ERROR, "schtasks create failed exit=" + Str(gLastExitCode))
+    LogLine(#LOG_ERROR, "PowerShell Register-ScheduledTask failed exit=" + Str(gLastExitCode))
     If gLastStdout <> "" : LogLine(#LOG_ERROR, "output: " + ReplaceString(Trim(gLastStdout), #CRLF$, " | ")) : EndIf
-    LogLine(#LOG_INFO, "Retrying scheduled task with cmd wrapper")
-    RunProgramCapture("schtasks.exe", "/Create /F /TN " + Chr(34) + taskName$ + Chr(34) +
-                                   " /SC ONLOGON /RL HIGHEST /RU " + Chr(34) + userAccount$ + Chr(34) +
-                                   " /TR " + Chr(34) + "cmd.exe /c cd /d " + workDir$ + " && " + runValue$ + Chr(34) +
-                                   " /IT")
-    If gLastExitCode <> 0 And gLastStdout <> "" : LogLine(#LOG_ERROR, "retry output: " + ReplaceString(Trim(gLastStdout), #CRLF$, " | ")) : EndIf
   EndIf
 EndProcedure
 
@@ -339,10 +343,18 @@ Procedure UpdateStartupRegistration(*settings.AppSettings)
   EndIf
 
   Protected runValue$ = StartupCommandLine(*settings)
-  Protected workDir$ = Chr(34) + GetPathPart(ProgramFilename()) + Chr(34)
+  Protected workDir$ = GetPathPart(ProgramFilename())
   Protected userAccount$ = CurrentUserAccount()
   Protected runKey$ = RunRegistryKey()
   Protected taskName$ = #APP_NAME
+
+  If gStartupRegistrationReady And
+     gLastStartupRunAtStartup = *settings\RunAtStartup And
+     gLastStartupUseTaskScheduler = *settings\UseTaskScheduler And
+     gLastStartupMode = *settings\StartupMode And
+     gLastStartupCommand = runValue$
+    ProcedureReturn
+  EndIf
 
   If *settings\RunAtStartup And *settings\UseTaskScheduler = 0
     RegWriteString(runKey$, #APP_NAME, runValue$)
@@ -368,6 +380,20 @@ Procedure UpdateStartupRegistration(*settings.AppSettings)
       LogLine(#LOG_DEBUG, "schtasks delete (cleanup) exit=" + Str(gLastExitCode))
     EndIf
   EndIf
+
+  MarkStartupRegistrationCurrent(*settings)
+EndProcedure
+
+Procedure MarkStartupRegistrationCurrent(*settings.AppSettings)
+  If *settings = 0
+    ProcedureReturn
+  EndIf
+
+  gStartupRegistrationReady = #True
+  gLastStartupRunAtStartup = *settings\RunAtStartup
+  gLastStartupUseTaskScheduler = *settings\UseTaskScheduler
+  gLastStartupMode = *settings\StartupMode
+  gLastStartupCommand = StartupCommandLine(*settings)
 EndProcedure
 
 

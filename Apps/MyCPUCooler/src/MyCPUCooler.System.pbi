@@ -34,7 +34,7 @@ EndEnumeration
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.0.9"
+Global version.s = "v1.0.1.0"
 
 ; Registry base key (HKCU)
 #APP_NAME = "MyCPUCooler"
@@ -44,6 +44,8 @@ Global version.s = "v1.0.0.9"
 #BENCHMARK_MODE_SECONDS = 600
 #TELEMETRY_INTERVAL_MS = 7000
 #THERMAL_REFRESH_SECONDS = 60
+#COMMAND_TIMEOUT_MS = 30000
+#COMMAND_OUTPUT_MAX_CHARS = 262144
 
 #NIM_MODIFY = 1
 #NIF_INFO = $10
@@ -202,6 +204,11 @@ Global gAutoSwitchedACProfile.i
 Global gAutoSwitchedDCProfile.i
 Global gPendingSettingsSave.i
 Global gPendingSettingsSaveAt.i
+Global gStartupRegistrationReady.i
+Global gLastStartupRunAtStartup.i
+Global gLastStartupUseTaskScheduler.i
+Global gLastStartupMode.i
+Global gLastStartupCommand.s
 Global Dim gThermalHistory.i(#HISTORY_POINTS - 1)
 Global Dim gCpuLoadHistory.i(#HISTORY_POINTS - 1)
 Global gHistoryCount.i
@@ -511,6 +518,7 @@ Declare CheckBenchmarkMode()
 Declare ApplyCurrentGadgetSettings(scheme$, useBoost.i, useCooling.i, useASPM.i, *diag.ApplyDiagnostics = 0)
 Declare ScheduleSettingsSave(delayMs.i = 350)
 Declare FlushPendingSettingsSave()
+Declare MarkStartupRegistrationCurrent(*settings.AppSettings)
 
 ; -----------------------------
 ; Windows registry helpers (HKCU)
@@ -736,6 +744,10 @@ Procedure.s RunProgramCaptureEx(program$, args$, *result.ProgramCaptureResult)
   Protected exitCode.i = -1
   Protected win32Error.i = 0
   Protected stdout$ = ""
+  Protected startedAt.i
+  Protected timedOut.i
+  Protected outputTruncated.i
+  Protected chunk$
 
   LogLine(#LOG_DEBUG, "exec: " + program$ + " " + args$)
 
@@ -756,19 +768,45 @@ Procedure.s RunProgramCaptureEx(program$, args$, *result.ProgramCaptureResult)
     ProcedureReturn ""
   EndIf
 
+  startedAt = ElapsedMilliseconds()
   While ProgramRunning(prog)
     While AvailableProgramOutput(prog)
-      stdout$ + ReadProgramString(prog) + #LF$
+      chunk$ = ReadProgramString(prog) + #LF$
+      If Len(stdout$) + Len(chunk$) <= #COMMAND_OUTPUT_MAX_CHARS
+        stdout$ + chunk$
+      Else
+        outputTruncated = #True
+      EndIf
     Wend
+    If ElapsedMilliseconds() - startedAt > #COMMAND_TIMEOUT_MS
+      timedOut = #True
+      KillProgram(prog)
+      Break
+    EndIf
     Delay(5)
   Wend
 
   While AvailableProgramOutput(prog)
-    stdout$ + ReadProgramString(prog) + #LF$
+    chunk$ = ReadProgramString(prog) + #LF$
+    If Len(stdout$) + Len(chunk$) <= #COMMAND_OUTPUT_MAX_CHARS
+      stdout$ + chunk$
+    Else
+      outputTruncated = #True
+    EndIf
   Wend
 
-  exitCode = ProgramExitCode(prog)
+  If timedOut
+    exitCode = -2
+    LogLine(#LOG_ERROR, "timeout after " + Str(#COMMAND_TIMEOUT_MS) + "ms cmd=" + program$ + " " + args$)
+  Else
+    exitCode = ProgramExitCode(prog)
+  EndIf
   CloseProgram(prog)
+
+  If outputTruncated
+    stdout$ + "[output truncated]" + #LF$
+    LogLine(#LOG_WARN, "output truncated cmd=" + program$ + " " + args$)
+  EndIf
 
   If exitCode <> 0
     LogLine(#LOG_WARN, "exit=" + Str(exitCode) + " cmd=" + program$ + " " + args$)
