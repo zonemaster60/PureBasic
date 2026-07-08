@@ -1,9 +1,9 @@
 Procedure GenerateSpaceShip(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
-  Protected x, y, w, h, i
+  Protected i
   Protected bodyColor.l, wingColor.l, detailColor.l, engineColor.l
   
   ClearSprite(*sprite)
-  *sprite\name = "SpaceShip"
+  *sprite\name = "Space Ship"
   
   bodyColor = RandomColor(*palette)
   wingColor = RandomColor(*palette)
@@ -47,7 +47,7 @@ EndProcedure
 
 Procedure GenerateAlien(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected bodyColor.l, eyeColor.l, detailColor.l
-  Protected x, y
+  Protected y
   
   ClearSprite(*sprite)
   *sprite\name = "Alien"
@@ -242,17 +242,17 @@ EndProcedure
 
 Procedure GenerateCrystal(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected crystalColor.l, glowColor.l, i
+  Protected x.l = 16
+  Protected y.l = 26
+  Protected size.l = 8
   
   ClearSprite(*sprite)
   *sprite\name = "Crystal"
   
   crystalColor = RandomColor(*palette)
   glowColor = RGB2(200, 200, 255)
-  
+
   ; Main crystal shape
-  Protected x.l = 16
-  Protected y.l = 26
-  Protected size.l = 8
   
   For i = 0 To size
     DrawRectangle(*sprite, x - i / 2, y - i * 2, i, 1, crystalColor)
@@ -391,6 +391,7 @@ EndProcedure
 
 Procedure GeneratePowerUp(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected coreColor.l, glowColor.l, i
+  Protected angle.f, px.l, py.l
   
   ClearSprite(*sprite)
   *sprite\name = "PowerUp"
@@ -406,9 +407,9 @@ Procedure GeneratePowerUp(*sprite.SpriteData, *palette.ColorPalette, symmetry.l,
   
   ; Outer particles
   For i = 0 To 7
-    Protected angle.f = i * #PI / 4
-    Protected px.l = 16 + Cos(angle) * 8
-    Protected py.l = 16 + Sin(angle) * 8
+    angle = i * #PI / 4
+    px = 16 + Cos(angle) * 8
+    py = 16 + Sin(angle) * 8
     SetPixel(*sprite, px, py, glowColor)
     SetPixel(*sprite, px + 1, py, glowColor)
     SetPixel(*sprite, px, py + 1, glowColor)
@@ -421,6 +422,7 @@ EndProcedure
 
 Procedure GeneratePlanet(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected planetColor.l, cloudColor.l, shadowColor.l
+  Protected x, y
   
   ClearSprite(*sprite)
   *sprite\name = "Planet"
@@ -439,9 +441,7 @@ Procedure GeneratePlanet(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, 
   
   ; Shadow on one side
   If complexity > 40
-    Protected y
     For y = 10 To 22
-      Protected x
       For x = 22 To 26
         If GetPixel(*sprite, x, y) = planetColor
           SetPixel(*sprite, x, y, shadowColor)
@@ -492,6 +492,7 @@ EndProcedure
 
 Procedure GenerateParticle(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected particleColor.l, i, x, y
+  Protected angle.f, dist.l
   
   ClearSprite(*sprite)
   *sprite\name = "Particle"
@@ -503,8 +504,8 @@ Procedure GenerateParticle(*sprite.SpriteData, *palette.ColorPalette, symmetry.l
   
   ; Sparkles
   For i = 0 To 11
-    Protected angle.f = i * #PI / 6 + Random(100) / 100.0
-    Protected dist.l = 4 + Random(4)
+    angle = i * #PI / 6 + Random(100) / 100.0
+    dist = 4 + Random(4)
     x = 16 + Cos(angle) * dist
     y = 16 + Sin(angle) * dist
     SetPixel(*sprite, x, y, particleColor)
@@ -798,7 +799,7 @@ Procedure GenerateSoldier(*sprite.SpriteData, *palette.ColorPalette, symmetry.l,
     SetPixel(*sprite, 19, 17, weaponColor)
   EndIf
   
-    ; Vest/gear details
+  ; Vest/gear details
   If complexity > 60
     DrawRectangle(*sprite, 14, 14, 4, 2, RGB2(70, 85, 35))
     SetPixel(*sprite, 15, 16, RGB2(150, 150, 150))
@@ -1037,7 +1038,7 @@ Procedure GenerateSatellite(*sprite.SpriteData, *palette.ColorPalette, symmetry.
     SetPixel(*sprite, 18, 7, antennaColor)
   EndIf
   
-    ; Central details
+  ; Central details
   DrawRectangle(*sprite, 14, 16, 4, 2, RGB2(100, 100, 100))
   
   If symmetry > 0
@@ -1048,6 +1049,7 @@ EndProcedure
 
 Procedure GenerateSpaceStation(*sprite.SpriteData, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected moduleColor.l, panelColor.l, windowColor.l
+  Protected i, angle.f, px.l, py.l
   
   ClearSprite(*sprite)
   *sprite\name = "Space Station"
@@ -1076,11 +1078,10 @@ Procedure GenerateSpaceStation(*sprite.SpriteData, *palette.ColorPalette, symmet
   DrawRectangle(*sprite, 27, 14, 3, 5, panelColor)
   
   ; Central windows
-  Protected i
   For i = 0 To 3
-    Protected angle.f = i * #PI / 2
-    Protected px.l = 16 + Cos(angle) * 3
-    Protected py.l = 16 + Sin(angle) * 3
+    angle = i * #PI / 2
+    px = 16 + Cos(angle) * 3
+    py = 16 + Sin(angle) * 3
     SetPixel(*sprite, px, py, windowColor)
   Next
   

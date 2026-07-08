@@ -86,7 +86,7 @@ Procedure.l SaveRenderedSprite(filename.s, *sprite.SpriteData, imageSize.l, scal
 EndProcedure
 
 Procedure DrawSpritePreview()
-  Protected imgPreview, x, y
+  Protected x, y, color
   
   If StartDrawing(CanvasOutput(#CanvasPreview))
     DrawingMode(#PB_2DDrawing_Default)
@@ -101,20 +101,17 @@ Procedure DrawSpritePreview()
       Next
     Next
 
+    ; Draw sprite pixels directly onto the preview canvas.
+    For y = 0 To #SPRITE_SIZE - 1
+      For x = 0 To #SPRITE_SIZE - 1
+        color = GetPixel(@currentSprite, x, y)
+        If color <> 0
+          Box(x * #PREVIEW_SCALE, y * #PREVIEW_SCALE, #PREVIEW_SCALE, #PREVIEW_SCALE, color)
+        EndIf
+      Next
+    Next
+
     StopDrawing()
-  EndIf
-
-  imgPreview = CreateImage(#PB_Any, #PREVIEW_SIZE, #PREVIEW_SIZE, 32, RGBA(0, 0, 0, 0))
-  If imgPreview
-    If RenderSpriteImage(@currentSprite, imgPreview, #PREVIEW_SCALE)
-      If StartDrawing(CanvasOutput(#CanvasPreview))
-        DrawingMode(#PB_2DDrawing_AlphaBlend)
-        DrawImage(ImageID(imgPreview), 0, 0)
-        StopDrawing()
-      EndIf
-    EndIf
-
-    FreeImage(imgPreview)
   EndIf
 EndProcedure
 

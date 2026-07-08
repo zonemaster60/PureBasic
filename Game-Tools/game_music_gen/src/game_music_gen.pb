@@ -10,15 +10,16 @@ EnableExplicit
 #BITS_PER_SAMPLE = 16
 #CHANNELS = 1
 #APP_NAME = "Game_Music_Gen"
+#ERROR_ALREADY_EXISTS = 183
 
-Global version.s = "v1.0.0.3"
+Global version.s = "v1.0.0.4"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
 ; Prevent multiple instances
 Global hMutex.i
 hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
-If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
+If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
   MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
   CloseHandle_(hMutex)
   End
@@ -155,6 +156,7 @@ Declare CleanupAndExit()
 Declare SetStatus(text.s)
 Declare UpdateActionButtons(hasMusic.i, isPlaying.i)
 Declare.i HasCurrentMusic()
+Declare.s EnsureFileExtension(filename.s, extension.s)
 Declare PollPlaybackState()
 Declare.i CreateWaveFile(filename.s, *clip.MusicClip)
 Declare.i CreateMidiFile(filename.s, *clip.MusicClip)
@@ -318,6 +320,22 @@ Procedure.i HasCurrentMusic()
   ProcedureReturn Bool(ListSize(currentMusic\samples()) > 0)
 EndProcedure
 
+Procedure.s EnsureFileExtension(filename.s, extension.s)
+  If filename = "" Or extension = ""
+    ProcedureReturn filename
+  EndIf
+
+  If Left(extension, 1) <> "."
+    extension = "." + extension
+  EndIf
+
+  If LCase(GetExtensionPart(filename)) <> LCase(Mid(extension, 2))
+    filename + extension
+  EndIf
+
+  ProcedureReturn filename
+EndProcedure
+
 IncludeFile "includes/midi_gen.pbi"
 IncludeFile "includes/wave_gen.pbi"
 IncludeFile "includes/ui_gen.pbi"
@@ -346,19 +364,34 @@ Procedure.f StateVariableFilter(*state.FilterState, in.f, cutoffHz.f, resonance.
   ProcedureReturn *state\v1 ; Lowpass output
 EndProcedure
 
-Procedure.f NesNoisePeriodSamples(rate.i)
+Procedure.i NesNoisePeriodSamples(rate.i)
   ; Approximates NES noise timer periods mapped to samples at 44.1kHz.
   ; NES periods are in APU ticks; this is a musical approximation.
-  Dim periods.i(16)
-  periods(0)=4  : periods(1)=8  : periods(2)=16 : periods(3)=32
-  periods(4)=64 : periods(5)=96 : periods(6)=128: periods(7)=160
-  periods(8)=202: periods(9)=254: periods(10)=380: periods(11)=508
-  periods(12)=762: periods(13)=1016: periods(14)=2034: periods(15)=4068
+  Protected period.i
 
   rate = ClampI(rate, 0, 15)
 
+  Select rate
+    Case 0 : period = 4
+    Case 1 : period = 8
+    Case 2 : period = 16
+    Case 3 : period = 32
+    Case 4 : period = 64
+    Case 5 : period = 96
+    Case 6 : period = 128
+    Case 7 : period = 160
+    Case 8 : period = 202
+    Case 9 : period = 254
+    Case 10 : period = 380
+    Case 11 : period = 508
+    Case 12 : period = 762
+    Case 13 : period = 1016
+    Case 14 : period = 2034
+    Case 15 : period = 4068
+  EndSelect
+
   ; Convert a notional NES period to samples. Tuned so rate 4 feels like a hat.
-  Protected samples.i = Round(periods(rate) * (#SAMPLE_RATE / 8000.0), #PB_Round_Nearest)
+  Protected samples.i = Round(period * (#SAMPLE_RATE / 8000.0), #PB_Round_Nearest)
   If samples < 1
     samples = 1
   EndIf
@@ -457,6 +490,7 @@ Procedure PlayCurrentMusic()
       SetStatus("Error: failed to load sound")
     EndIf
   Else
+    DeleteFile(tempFile)
     UpdateActionButtons(#True, #False)
     SetStatus("Error: failed to create WAV")
   EndIf
@@ -464,17 +498,31 @@ EndProcedure
 
 Procedure.i ScaleInterval(scaleType.i, degree.i)
   ; degree 0..6
-  Dim major.i(7)
-  Dim minor.i(7)
-
-  major(0)=0 : major(1)=2 : major(2)=4 : major(3)=5 : major(4)=7 : major(5)=9 : major(6)=11
-  minor(0)=0 : minor(1)=2 : minor(2)=3 : minor(3)=5 : minor(4)=7 : minor(5)=8 : minor(6)=10
-
   degree = degree % 7
+
   If scaleType = 1
-    ProcedureReturn minor(degree)
+    Select degree
+      Case 0 : ProcedureReturn 0
+      Case 1 : ProcedureReturn 2
+      Case 2 : ProcedureReturn 3
+      Case 3 : ProcedureReturn 5
+      Case 4 : ProcedureReturn 7
+      Case 5 : ProcedureReturn 8
+      Case 6 : ProcedureReturn 10
+    EndSelect
+  Else
+    Select degree
+      Case 0 : ProcedureReturn 0
+      Case 1 : ProcedureReturn 2
+      Case 2 : ProcedureReturn 4
+      Case 3 : ProcedureReturn 5
+      Case 4 : ProcedureReturn 7
+      Case 5 : ProcedureReturn 9
+      Case 6 : ProcedureReturn 11
+    EndSelect
   EndIf
-  ProcedureReturn major(degree)
+
+  ProcedureReturn 0
 EndProcedure
 
 Procedure.i ProgressionDegree(prog.i, barIndex.i)
@@ -528,11 +576,10 @@ Procedure GenerateMusic(*clip.MusicClip, *params.MusicParams)
   Protected leadEnv.f, bassEnv.f
   Protected tInStep.f
 
-  Protected swingAmt.f
-
   Protected noise.f
   Protected kickEnv.f, snareEnv.f, hatEnv.f
   Protected kickAccent.f, snareAccent.f, hatAccent.f
+  Protected kickTimeSeconds.f
 
   Protected lpState.Float
   Protected lfsr.Long
@@ -553,7 +600,7 @@ Procedure GenerateMusic(*clip.MusicClip, *params.MusicParams)
   If *params\seed <> 0
     RandomSeed(*params\seed)
   Else
-    RandomSeed(Date())
+    RandomSeed(Date() ! ElapsedMilliseconds())
   EndIf
 
   lfsr\l = $7FFF
@@ -573,8 +620,6 @@ Procedure GenerateMusic(*clip.MusicClip, *params.MusicParams)
   *clip\swing = ClampI(*params\swing, 0, 60)
   secondsPerBeat = 60.0 / *clip\tempo
   secondsPerStep16 = secondsPerBeat / 4.0
-
-  swingAmt = *clip\swing / 100.0
 
   leadAdsr\attack = 0.01
   leadAdsr\decay = 0.05
@@ -971,6 +1016,7 @@ Procedure GenerateMusic(*clip.MusicClip, *params.MusicParams)
     kickEnv = 0.0
     snareEnv = 0.0
     hatEnv = 0.0
+    kickTimeSeconds = 0.0
 
     kickAccent = 0.0
     snareAccent = 0.0
@@ -978,7 +1024,7 @@ Procedure GenerateMusic(*clip.MusicClip, *params.MusicParams)
 
     If kickLastTrigger(curStep) >= 0
       Protected kickTimeSteps.f = stepPosition - stepStart(kickLastTrigger(curStep))
-      Protected kickTimeSeconds.f = kickTimeSteps * secondsPerStep16
+      kickTimeSeconds = kickTimeSteps * secondsPerStep16
       kickAccent = kickLastVelocity(curStep) / 127.0
       kickEnv = Exp(-kickTimeSteps * 10.0) * (0.6 + 0.7 * kickAccent)
     EndIf
@@ -1092,6 +1138,7 @@ Procedure SaveCurrentWav()
 
   Protected filename.s = SaveFileRequester("Save Music WAV", "music_loop.wav", "Wave Files (*.wav)|*.wav", 0)
   If filename
+    filename = EnsureFileExtension(filename, ".wav")
     If CreateWaveFile(filename, @currentMusic)
       SetStatus("Saved WAV: " + filename)
     Else
@@ -1108,6 +1155,7 @@ Procedure SaveCurrentMidi()
 
   Protected filename.s = SaveFileRequester("Save Music MIDI", "music_loop.mid", "MIDI Files (*.mid)|*.mid", 0)
   If filename
+    filename = EnsureFileExtension(filename, ".mid")
     If CreateMidiFile(filename, @currentMusic)
       SetStatus("Saved MIDI: " + filename)
     Else
@@ -1133,7 +1181,7 @@ EndIf
 End
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 13
+; CursorPosition = 14
 ; Folding = -----
 ; Optimizer
 ; EnableThread
@@ -1143,12 +1191,12 @@ End
 ; UseIcon = game_music_gen.ico
 ; Executable = ..\Game_Music_Gen.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = Game_Music_Gen
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = A configurable game music generator
 ; VersionField7 = Game_Music_Gen
 ; VersionField8 = Game_Music_Gen.exe

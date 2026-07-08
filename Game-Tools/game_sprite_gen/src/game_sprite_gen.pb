@@ -1,6 +1,6 @@
 ; ====================================================================
 ; Sprite Generator for Games
-; PureBasic v6.30 Beta 6
+; PureBasic v6.40
 ; Creates pixel art sprites with various themes
 ; ====================================================================
 
@@ -15,7 +15,7 @@ EnableExplicit
 #THEME_COUNT = 8
 #APP_NAME = "Game_Sprite_Gen"
 
-Global version.s = "v1.0.0.3"
+Global version.s = "v1.0.0.4"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -178,6 +178,7 @@ Declare InitializeGeneratorRegistry()
 Declare InitializeThemeLabels()
 Declare AddThemeTypeEntry(themeId.l, title.s, typeId.l)
 Declare InitializeTypeEntries()
+Declare SetPaletteColor(themeId.l, paletteName.s, colorCount.l, colorIndex.l, colorValue.l)
 Declare PopulateThemeList()
 Declare UpdateThemeTypes()
 Declare InitializePalettes()
@@ -485,8 +486,7 @@ EndIf
 End
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 127
-; FirstLine = 123
+; CursorPosition = 2
 ; Folding = ---
 ; Optimizer
 ; EnableThread
@@ -495,12 +495,12 @@ End
 ; UseIcon = game_sprite_gen.ico
 ; Executable = ..\Game_Sprite_Gen.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = Game_Sprite_Gen
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = A configurable game sprite generator
 ; VersionField7 = Game_Sprite_Gen
 ; VersionField8 = Game_Sprite_Gen.exe

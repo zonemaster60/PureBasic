@@ -9,11 +9,12 @@ EnableExplicit
 
 #TILE_SIZE = 32
 #PREVIEW_SCALE = 8
+#PREVIEW_GRID_SIZE = 4
 #MAX_COLORS = 16
 #TILE_VARIANTS = 16
 #APP_NAME = "Game_Tile_Gen"
 
-Global version.s = "v1.0.0.3"
+Global version.s = "v1.0.0.4"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -65,7 +66,6 @@ Enumeration TileTypeId
 EndEnumeration
 
 Global.TileData currentTile
-Global.ColorPalette currentPalette
 Global Dim palettes.ColorPalette(10)
 Global randomSeed.l
 Global hasGeneratedTile.i
@@ -81,6 +81,7 @@ Declare ExportTileset()
 Declare.l SaveTilePNG(filename.s, *tile.TileData)
 Declare.l SaveTilesetPNG(filename.s)
 Declare.l SaveTsx(filename.s, imageFilename.s)
+Declare.l GetPaletteColor(*palette.ColorPalette, colorIndex.i, fallbackColor.l)
 Declare.i Clamp(value.i, minVal.i, maxVal.i)
 Declare.i IsNumericText(text.s)
 Declare.s GetTileTypeName(tileType.l)
@@ -130,6 +131,14 @@ Procedure.l RandomColor(*palette.ColorPalette)
     ProcedureReturn *palette\colors(Random(*palette\numColors - 1))
   EndIf
   ProcedureReturn RGB2(Random(255), Random(255), Random(255))
+EndProcedure
+
+Procedure.l GetPaletteColor(*palette.ColorPalette, colorIndex.i, fallbackColor.l)
+  If colorIndex >= 0 And colorIndex < *palette\numColors
+    ProcedureReturn *palette\colors(colorIndex)
+  EndIf
+
+  ProcedureReturn fallbackColor
 EndProcedure
 
 Procedure ClearTile(*tile.TileData)
@@ -247,8 +256,10 @@ EndProcedure
 
 Procedure GenerateTile(*tile.TileData, tileType.l, *palette.ColorPalette, symmetry.l, complexity.l)
   Protected x, y
-  Protected baseColor.l, detailColor.l, secondaryColor.l
-  Protected noiseChance.l
+  Protected seedOffsetX.l, seedOffsetY.l
+  Protected baseColor.l, detailColor.l, secondaryColor.l, accentColor.l
+  Protected noiseChance.l, patchChance.l, waveValue.d
+  Protected localSeed.l = randomSeed & $7FFFFFFF
 
   ClearTile(*tile)
 
@@ -259,61 +270,80 @@ Procedure GenerateTile(*tile.TileData, tileType.l, *palette.ColorPalette, symmet
   baseColor = RandomColor(*palette)
   detailColor = RandomColor(*palette)
   secondaryColor = RandomColor(*palette)
+  accentColor = RandomColor(*palette)
   noiseChance = 10 + complexity / 3
+  patchChance = 4 + complexity / 12
+  seedOffsetX = localSeed % 5
+  seedOffsetY = (localSeed / 7) % 5
 
   Select tileType
     Case #TileGrass
       *tile\name = "Grass"
-      If *palette\numColors > 0 : baseColor = *palette\colors(0) : EndIf
-      If *palette\numColors > 1 : detailColor = *palette\colors(1) : EndIf
+      baseColor = GetPaletteColor(*palette, 0, baseColor)
+      detailColor = GetPaletteColor(*palette, 1, detailColor)
+      secondaryColor = GetPaletteColor(*palette, 2, detailColor)
+      accentColor = GetPaletteColor(*palette, 3, secondaryColor)
 
       DrawRectangle(*tile, 0, 0, #TILE_SIZE, #TILE_SIZE, baseColor)
       For y = 0 To #TILE_SIZE - 1
         For x = 0 To #TILE_SIZE - 1
-          If Random(100) < noiseChance
+          If ((x * 13 + y * 7 + localSeed) % 29) < patchChance And x < #TILE_SIZE - 1 And y < #TILE_SIZE - 1
+            DrawRectangle(*tile, x, y, 2, 2, secondaryColor)
+          ElseIf Random(100) < noiseChance
             SetPixel(*tile, x, y, detailColor)
+          ElseIf Random(100) < complexity / 14
+            SetPixel(*tile, x, y, accentColor)
           EndIf
         Next
       Next
 
     Case #TileWater
       *tile\name = "Water"
-      If *palette\numColors > 0 : baseColor = *palette\colors(0) : EndIf
-      If *palette\numColors > 1 : detailColor = *palette\colors(1) : EndIf
-      If *palette\numColors > 2 : secondaryColor = *palette\colors(2) : EndIf
+      baseColor = GetPaletteColor(*palette, 0, baseColor)
+      detailColor = GetPaletteColor(*palette, 1, detailColor)
+      secondaryColor = GetPaletteColor(*palette, 2, secondaryColor)
+      accentColor = GetPaletteColor(*palette, 3, detailColor)
 
       DrawRectangle(*tile, 0, 0, #TILE_SIZE, #TILE_SIZE, baseColor)
       For y = 0 To #TILE_SIZE - 1
         For x = 0 To #TILE_SIZE - 1
-          If (Sin((x + Random(4)) * 0.4) + Cos((y + Random(4)) * 0.4)) > 0.6 And Random(100) < (20 + complexity / 2)
+          waveValue = Sin((x + seedOffsetX) * 0.35) + Cos((y + seedOffsetY) * 0.30)
+          If waveValue > 0.75 And Random(100) < (18 + complexity / 2)
             SetPixel(*tile, x, y, detailColor)
-          ElseIf Random(100) < (complexity / 5)
+          ElseIf waveValue < -0.85 And Random(100) < (8 + complexity / 8)
             SetPixel(*tile, x, y, secondaryColor)
+          ElseIf waveValue > 1.15 And Random(100) < (3 + complexity / 20)
+            SetPixel(*tile, x, y, accentColor)
           EndIf
         Next
       Next
 
     Case #TileDirt
       *tile\name = "Dirt"
-      If *palette\numColors > 0 : baseColor = *palette\colors(0) : EndIf
-      If *palette\numColors > 1 : detailColor = *palette\colors(1) : EndIf
-      If *palette\numColors > 2 : secondaryColor = *palette\colors(2) : EndIf
+      baseColor = GetPaletteColor(*palette, 0, baseColor)
+      detailColor = GetPaletteColor(*palette, 1, detailColor)
+      secondaryColor = GetPaletteColor(*palette, 2, secondaryColor)
+      accentColor = GetPaletteColor(*palette, 3, detailColor)
 
       DrawRectangle(*tile, 0, 0, #TILE_SIZE, #TILE_SIZE, baseColor)
       For y = 0 To #TILE_SIZE - 1
         For x = 0 To #TILE_SIZE - 1
-          If Random(100) < (15 + complexity / 3)
+          If ((x * 9 + y * 5 + localSeed) % 31) < patchChance And x < #TILE_SIZE - 1 And y < #TILE_SIZE - 1
+            DrawRectangle(*tile, x, y, 2, 2, secondaryColor)
+          ElseIf Random(100) < (15 + complexity / 3)
             SetPixel(*tile, x, y, detailColor)
           ElseIf Random(100) < (5 + complexity / 10)
             SetPixel(*tile, x, y, secondaryColor)
+          ElseIf Random(100) < complexity / 18
+            SetPixel(*tile, x, y, accentColor)
           EndIf
         Next
       Next
 
     Case #TileStone
       *tile\name = "Stone"
-      If *palette\numColors > 0 : baseColor = *palette\colors(0) : EndIf
-      If *palette\numColors > 1 : secondaryColor = *palette\colors(1) : EndIf
+      baseColor = GetPaletteColor(*palette, 0, baseColor)
+      secondaryColor = GetPaletteColor(*palette, 1, secondaryColor)
       detailColor = RGB2(40, 40, 40)
 
       DrawRectangle(*tile, 0, 0, #TILE_SIZE, #TILE_SIZE, baseColor)
@@ -345,17 +375,24 @@ Procedure GenerateTile(*tile.TileData, tileType.l, *palette.ColorPalette, symmet
 EndProcedure
 
 Procedure DrawTilePreview()
-  Protected x, y, color
+  Protected x, y, color, bgColor
 
   If StartDrawing(CanvasOutput(#CanvasPreview))
-    Box(0, 0, GadgetWidth(#CanvasPreview), GadgetHeight(#CanvasPreview), RGB2(200, 200, 200))
+    For y = 0 To #TILE_SIZE - 1
+      For x = 0 To #TILE_SIZE - 1
+        If ((x / #PREVIEW_GRID_SIZE) + (y / #PREVIEW_GRID_SIZE)) % 2 = 0
+          bgColor = RGB2(220, 220, 220)
+        Else
+          bgColor = RGB2(245, 245, 245)
+        EndIf
+        Box(x * #PREVIEW_SCALE, y * #PREVIEW_SCALE, #PREVIEW_SCALE, #PREVIEW_SCALE, bgColor)
+      Next
+    Next
 
     For y = 0 To #TILE_SIZE - 1
       For x = 0 To #TILE_SIZE - 1
         color = GetPixel(@currentTile, x, y)
-        If color = 0
-          Box(x * #PREVIEW_SCALE, y * #PREVIEW_SCALE, #PREVIEW_SCALE, #PREVIEW_SCALE, RGB2(255, 255, 255))
-        Else
+        If color <> 0
           Box(x * #PREVIEW_SCALE, y * #PREVIEW_SCALE, #PREVIEW_SCALE, #PREVIEW_SCALE, color)
         EndIf
       Next
@@ -584,7 +621,6 @@ Procedure InitializePalettes()
     palettes(i)\colors(3) = RGB2(Random(200), Random(200), Random(200))
   Next
 
-  currentPalette = palettes(0)
 EndProcedure
 
 Procedure PopulatePalettes()
@@ -765,7 +801,7 @@ If InitSprite()
 
   ButtonGadget(#ButtonGenerate, 500, 30, 200, 40, "Generate Tile")
   ButtonGadget(#ButtonSaveTile, 500, 80, 200, 35, "Save Tile PNG")
-  ButtonGadget(#ButtonExportTileset, 500, 125, 200, 35, "Export Tileset (" + Str(#TILE_VARIANTS) + "x4)")
+  ButtonGadget(#ButtonExportTileset, 500, 125, 200, 35, "Export Tileset (" + Str(#TILE_VARIANTS) + "x" + Str(ListSize(tileTypeIds())) + ")")
 
   TextGadget(#PB_Any, 500, 180, 200, 80, "Tileset layout: " + Str(ListSize(tileTypeIds())) + " rows (types) x " + Str(#TILE_VARIANTS) + " cols (variants)." + #CRLF$ + "Row0=Grass Row1=Water Row2=Dirt Row3=Stone")
 
@@ -817,7 +853,7 @@ EndIf
 End
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 15
+; CursorPosition = 16
 ; Folding = ------
 ; Optimizer
 ; EnableThread
@@ -827,12 +863,12 @@ End
 ; UseIcon = game_tile_gen.ico
 ; Executable = ..\Game_Tile_Gen.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = Game_Tile_Gen
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = A configurable game tile generator
 ; VersionField7 = Game_Tile_Gen
 ; VersionField8 = Game_Tile_Gen.exe
