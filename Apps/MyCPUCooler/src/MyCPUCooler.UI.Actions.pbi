@@ -197,8 +197,10 @@ Procedure SaveCurrentUIToSettings(*settings.AppSettings, useBoost.i, useCooling.
     *settings\ACCoolingPolicy = ACCoolingPolicyArg(useCooling)
     *settings\DCCoolingPolicy = DCCoolingPolicyArg(useCooling)
   EndIf
-  *settings\ACASPMMode = ACASPMArg(useASPM)
-  *settings\DCASPMMode = DCASPMArg(useASPM)
+  If useASPM
+    *settings\ACASPMMode = ACASPMArg(useASPM)
+    *settings\DCASPMMode = DCASPMArg(useASPM)
+  EndIf
   *settings\BoostMode = *settings\ACBoostMode
   *settings\CoolingPolicy = *settings\ACCoolingPolicy
   *settings\ASPMMode = *settings\ACASPMMode

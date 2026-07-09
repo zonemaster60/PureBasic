@@ -34,7 +34,7 @@ EndEnumeration
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.1.0"
+Global version.s = "v1.0.1.1"
 
 ; Registry base key (HKCU)
 #APP_NAME = "MyCPUCooler"
@@ -740,7 +740,7 @@ Structure ProgramCaptureResult
   Win32Error.i
 EndStructure
 
-Procedure.s RunProgramCaptureEx(program$, args$, *result.ProgramCaptureResult)
+Procedure.s RunProgramCaptureEx(program$, args$, *result.ProgramCaptureResult, quietFailure.i = #False)
   Protected exitCode.i = -1
   Protected win32Error.i = 0
   Protected stdout$ = ""
@@ -808,8 +808,10 @@ Procedure.s RunProgramCaptureEx(program$, args$, *result.ProgramCaptureResult)
     LogLine(#LOG_WARN, "output truncated cmd=" + program$ + " " + args$)
   EndIf
 
-  If exitCode <> 0
+  If exitCode <> 0 And quietFailure = #False
     LogLine(#LOG_WARN, "exit=" + Str(exitCode) + " cmd=" + program$ + " " + args$)
+  ElseIf exitCode <> 0
+    LogLine(#LOG_DEBUG, "probe exit=" + Str(exitCode) + " cmd=" + program$ + " " + args$)
   Else
     LogLine(#LOG_DEBUG, "ok exit=0")
   EndIf
@@ -822,14 +824,14 @@ Procedure.s RunProgramCaptureEx(program$, args$, *result.ProgramCaptureResult)
   ProcedureReturn stdout$
 EndProcedure
 
-Procedure.s RunProgramCapture(program$, args$)
+Procedure.s RunProgramCapture(program$, args$, quietFailure.i = #False)
   ; Captures combined stdout+stderr (2>&1) into gLastStdout.
   ; Note: this PB build doesn't expose separate stderr read APIs.
   Protected result.ProgramCaptureResult
 
   gLastExitCode = -1
   gLastWin32Error = 0
-  gLastStdout = RunProgramCaptureEx(program$, args$, @result)
+  gLastStdout = RunProgramCaptureEx(program$, args$, @result, quietFailure)
   gLastStderr = ""
   gLastExitCode = result\ExitCode
   gLastWin32Error = result\Win32Error
@@ -844,6 +846,10 @@ Procedure.s RunPowerCfg(args$)
     If gLastStdout <> "" : LogLine(#LOG_ERROR, "output: " + ReplaceString(Trim(gLastStdout), #CRLF$, " | ")) : EndIf
   EndIf
   ProcedureReturn out$
+EndProcedure
+
+Procedure.s RunPowerCfgProbe(args$)
+  ProcedureReturn RunProgramCapture("powercfg", args$, #True)
 EndProcedure
 
 Procedure.s ExtractGuidAfter(text$, marker$)
@@ -939,7 +945,7 @@ EndProcedure
 Procedure.i SupportsBoostModeSetting(scheme$)
   ; Prefer a deterministic check: query just that setting.
   ; If the setting is unsupported/hidden, powercfg typically returns non-zero.
-  Protected out$ = RunPowerCfg("-q " + scheme$ + " " + #SUB_PROCESSOR$ + " " + #SET_BOOST_MODE$)
+  Protected out$ = RunPowerCfgProbe("-q " + scheme$ + " " + #SUB_PROCESSOR$ + " " + #SET_BOOST_MODE$)
 
   If gLastExitCode <> 0
     ProcedureReturn #False
@@ -954,7 +960,7 @@ Procedure.i SupportsBoostModeSetting(scheme$)
 EndProcedure
 
 Procedure.i SupportsCoolingPolicySetting(scheme$)
-  Protected out$ = RunPowerCfg("-q " + scheme$ + " " + #SUB_PROCESSOR$ + " " + #SET_SYS_COOLING_POLICY$)
+  Protected out$ = RunPowerCfgProbe("-q " + scheme$ + " " + #SUB_PROCESSOR$ + " " + #SET_SYS_COOLING_POLICY$)
   If gLastExitCode <> 0
     ProcedureReturn #False
   EndIf
@@ -967,7 +973,7 @@ Procedure.i SupportsCoolingPolicySetting(scheme$)
 EndProcedure
 
 Procedure.i SupportsASPMSetting(scheme$)
-  Protected out$ = RunPowerCfg("-q " + scheme$ + " " + #SUB_PCIE$ + " " + #SET_ASPM$)
+  Protected out$ = RunPowerCfgProbe("-q " + scheme$ + " " + #SUB_PCIE$ + " " + #SET_ASPM$)
   If gLastExitCode <> 0
     ProcedureReturn #False
   EndIf

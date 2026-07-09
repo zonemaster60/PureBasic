@@ -15,12 +15,12 @@ XIncludeFile "MyCPUCooler.Runtime.pbi"
 ; UseIcon = MyCPUCooler.ico
 ; Executable = ..\MyCPUCooler.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,0
-; VersionField1 = 1,0,1,0
+; VersionField0 = 1,0,1,1
+; VersionField1 = 1,0,1,1
 ; VersionField2 = ZoneSoft
 ; VersionField3 = MyCPUCooler
-; VersionField4 = 1.0.1.0
-; VersionField5 = 1.0.1.0
+; VersionField4 = 1.0.1.1
+; VersionField5 = 1.0.1.1
 ; VersionField6 = An app to choose the coolest powerplan
 ; VersionField7 = MyCPUCooler
 ; VersionField8 = MyCPUCooler.exe
