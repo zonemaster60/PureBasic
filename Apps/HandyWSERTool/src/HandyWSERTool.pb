@@ -3,13 +3,13 @@ EnableExplicit
 #APP_NAME   = "HandyWSERTool"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
-Global version.s = "v1.0.0.9"
+Global version.s = "v1.0.1.0"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
 Global hMutex.i
 hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
-If hMutex And GetLastError_() = 183
+If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
   MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
   CloseHandle_(hMutex)
   End
@@ -81,12 +81,12 @@ ForEver
 ; UseIcon = HandyWSERTool.ico
 ; Executable = ..\HandyWSERTool.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,9
-; VersionField1 = 1,0,0,9
+; VersionField0 = 1,0,1,0
+; VersionField1 = 1,0,1,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyWSERTool
-; VersionField4 = 1.0.0.9
-; VersionField5 = 1.0.0.9
+; VersionField4 = 1.0.1.0
+; VersionField5 = 1.0.1.0
 ; VersionField6 = Windows System Environment Repair Tool
 ; VersionField7 = HandyWSERTool
 ; VersionField8 = HandyWSERTool.exe

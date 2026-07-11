@@ -202,7 +202,9 @@ Procedure RefreshCustomProfileCombo()
   Next
 EndProcedure
 Procedure.i AutomationIsBatteryMode()
-  ProcedureReturn Bool(LCase(gTelemetry\PowerSource) = "battery")
+  Protected telemetry.LiveTelemetry
+  SnapshotTelemetry(@telemetry)
+  ProcedureReturn Bool(LCase(telemetry\PowerSource) = "battery")
 EndProcedure
 Procedure ScheduleSettingsSave(delayMs.i = 350)
   If delayMs < 0
@@ -575,30 +577,33 @@ Procedure UpdateMiniDashboard()
   Protected thermalText$
   Protected loadText$
   Protected idx.i
+  Protected telemetry.LiveTelemetry
 
   If IsWindow(#WinMini) = 0
     ProcedureReturn
   EndIf
 
-  loadText$ = gTelemetry\CpuLoad
+  SnapshotTelemetry(@telemetry)
+
+  loadText$ = telemetry\CpuLoad
   If loadText$ = "" : loadText$ = "Unavailable" : EndIf
-  thermalText$ = gTelemetry\ThermalC
+  thermalText$ = telemetry\ThermalC
   If thermalText$ = "" : thermalText$ = "Unavailable" : EndIf
 
-  If gTelemetry\ThermalC <> "" And LCase(gTelemetry\ThermalC) <> "unavailable"
+  If telemetry\ThermalC <> "" And LCase(telemetry\ThermalC) <> "unavailable"
     For idx = 0 To #HISTORY_POINTS - 2
       gThermalHistory(idx) = gThermalHistory(idx + 1)
       gCpuLoadHistory(idx) = gCpuLoadHistory(idx + 1)
     Next
-    gThermalHistory(#HISTORY_POINTS - 1) = Val(gTelemetry\ThermalC)
-    gCpuLoadHistory(#HISTORY_POINTS - 1) = Val(gTelemetry\CpuLoad)
+    gThermalHistory(#HISTORY_POINTS - 1) = Val(telemetry\ThermalC)
+    gCpuLoadHistory(#HISTORY_POINTS - 1) = Val(telemetry\CpuLoad)
     If gHistoryCount < #HISTORY_POINTS
       gHistoryCount + 1
     EndIf
   EndIf
 
-  SetGadgetText(#TxtMiniTelemetry, "CPU " + loadText$ + "% | " + gTelemetry\PowerSource)
-  SetGadgetText(#TxtMiniThermal, "Thermal zone " + thermalText$ + " C | " + gTelemetry\LastUpdated)
+  SetGadgetText(#TxtMiniTelemetry, "CPU " + loadText$ + "% | " + telemetry\PowerSource)
+  SetGadgetText(#TxtMiniThermal, "Thermal zone " + thermalText$ + " C | " + telemetry\LastUpdated)
   RefreshMiniProfileBadge()
   UpdateAutomationDisplay()
   DrawMiniHistory()

@@ -34,7 +34,7 @@ EndEnumeration
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.0.1.1"
+Global version.s = "v1.0.1.2"
 
 ; Registry base key (HKCU)
 #APP_NAME = "MyCPUCooler"
@@ -162,6 +162,7 @@ Global gLogRotateEnabled.i = #True
 Global gLogRotateMaxBytes.q = 1024 * 1024 ; 1 MiB
 Global gLogRotateKeep.i = 3
 Global gTelemetry.LiveTelemetry
+Global gTelemetryMutex.i = CreateMutex()
 Global gTelemetryThread.i
 Global gTelemetryBusy.i
 Global gTelemetryAvailable.i = #True
@@ -214,6 +215,34 @@ Global Dim gCpuLoadHistory.i(#HISTORY_POINTS - 1)
 Global gHistoryCount.i
 Global NewList gCustomProfiles.CustomProfile()
 Global gLastNonBenchmarkSettings.AppSettings
+
+Procedure PublishTelemetry(*telemetry.LiveTelemetry)
+  If *telemetry = 0
+    ProcedureReturn
+  EndIf
+
+  If gTelemetryMutex
+    LockMutex(gTelemetryMutex)
+  EndIf
+  CopyStructure(*telemetry, @gTelemetry, LiveTelemetry)
+  If gTelemetryMutex
+    UnlockMutex(gTelemetryMutex)
+  EndIf
+EndProcedure
+
+Procedure SnapshotTelemetry(*telemetry.LiveTelemetry)
+  If *telemetry = 0
+    ProcedureReturn
+  EndIf
+
+  If gTelemetryMutex
+    LockMutex(gTelemetryMutex)
+  EndIf
+  CopyStructure(@gTelemetry, *telemetry, LiveTelemetry)
+  If gTelemetryMutex
+    UnlockMutex(gTelemetryMutex)
+  EndIf
+EndProcedure
 
 Procedure.b HasArg(arg$)
   Protected i
@@ -1429,8 +1458,10 @@ Procedure RefreshTelemetryThread(*unused)
   Protected out$
   Protected thermalLine$
   Protected thermalPos.i
+  Protected telemetry.LiveTelemetry
 
-  gTelemetry\ErrorText = ""
+  SnapshotTelemetry(@telemetry)
+  telemetry\ErrorText = ""
   EnsureKernel32Telemetry()
 
   If GetSystemTimesAPI And GetSystemTimesAPI(@idle, @kernel, @user)
@@ -1445,10 +1476,10 @@ Procedure RefreshTelemetryThread(*unused)
         cpuLoad = 100.0 - ((idleDelta * 100.0) / totalDelta)
         If cpuLoad < 0.0 : cpuLoad = 0.0 : EndIf
         If cpuLoad > 100.0 : cpuLoad = 100.0 : EndIf
-        gTelemetry\CpuLoad = StrD(cpuLoad, 1)
+        telemetry\CpuLoad = StrD(cpuLoad, 1)
       EndIf
-    ElseIf gTelemetry\CpuLoad = ""
-      gTelemetry\CpuLoad = "0.0"
+    ElseIf telemetry\CpuLoad = ""
+      telemetry\CpuLoad = "0.0"
     EndIf
 
     gLastCpuIdleTime = cpuIdle
@@ -1456,24 +1487,24 @@ Procedure RefreshTelemetryThread(*unused)
     gLastCpuUserTime = cpuUser
     gCpuTimesReady = #True
   Else
-    gTelemetry\CpuLoad = "Unavailable"
+    telemetry\CpuLoad = "Unavailable"
   EndIf
 
   If GetSystemPowerStatusAPI And GetSystemPowerStatusAPI(@powerStatus)
     Select powerStatus\ACLineStatus
       Case 0
-        gTelemetry\PowerSource = "Battery"
+        telemetry\PowerSource = "Battery"
       Case 1
         If (powerStatus\BatteryFlag & 8) <> 0
-          gTelemetry\PowerSource = "Charging"
+          telemetry\PowerSource = "Charging"
         Else
-          gTelemetry\PowerSource = "AC"
+          telemetry\PowerSource = "AC"
         EndIf
       Default
-        gTelemetry\PowerSource = "Unknown"
+        telemetry\PowerSource = "Unknown"
     EndSelect
   Else
-    gTelemetry\PowerSource = "Unknown"
+    telemetry\PowerSource = "Unknown"
   EndIf
 
   If gLastThermalRefreshTime = 0 Or Date() - gLastThermalRefreshTime >= #THERMAL_REFRESH_SECONDS
@@ -1498,8 +1529,9 @@ Procedure RefreshTelemetryThread(*unused)
     gLastThermalRefreshTime = Date()
   EndIf
 
-  gTelemetry\ThermalC = gCachedThermalC
-  gTelemetry\LastUpdated = FormatDate("%hh:%ii:%ss", Date())
+  telemetry\ThermalC = gCachedThermalC
+  telemetry\LastUpdated = FormatDate("%hh:%ii:%ss", Date())
+  PublishTelemetry(@telemetry)
   gTelemetryBusy = #False
 EndProcedure
 
@@ -1512,7 +1544,10 @@ Procedure StartTelemetryRefresh()
   gTelemetryThread = CreateThread(@RefreshTelemetryThread(), 0)
   If gTelemetryThread = 0
     gTelemetryBusy = #False
-    gTelemetry\ErrorText = "Telemetry unavailable"
+    Protected telemetry.LiveTelemetry
+    SnapshotTelemetry(@telemetry)
+    telemetry\ErrorText = "Telemetry unavailable"
+    PublishTelemetry(@telemetry)
     LogLine(#LOG_WARN, "Failed to create telemetry thread")
   EndIf
 EndProcedure
@@ -1625,6 +1660,6 @@ EndProcedure
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 36
-; Folding = ---------
+; Folding = ----------
 ; EnableXP
 ; DPIAware

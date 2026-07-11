@@ -215,19 +215,22 @@ Procedure UpdateTelemetryDisplay()
   Protected summary$
   Protected updated$
   Protected heatValue.d
+  Protected telemetry.LiveTelemetry
+
+  SnapshotTelemetry(@telemetry)
 
   If gTelemetryAvailable = #False
     summary$ = "Live telemetry: unavailable"
     updated$ = "Built-in Windows counters not available on this system."
-  ElseIf gTelemetry\ErrorText <> ""
-    summary$ = "Live telemetry: " + gTelemetry\ErrorText
-    updated$ = "Last checked: " + gTelemetry\LastUpdated
+  ElseIf telemetry\ErrorText <> ""
+    summary$ = "Live telemetry: " + telemetry\ErrorText
+    updated$ = "Last checked: " + telemetry\LastUpdated
   Else
-    If gTelemetry\CpuLoad = "" : gTelemetry\CpuLoad = "Unavailable" : EndIf
-    If gTelemetry\ThermalC = "" : gTelemetry\ThermalC = "Unavailable" : EndIf
-    If gTelemetry\PowerSource = "" : gTelemetry\PowerSource = "Unknown" : EndIf
-    summary$ = "Live telemetry: CPU load " + gTelemetry\CpuLoad + "% | Thermal zone " + gTelemetry\ThermalC + " C | Power " + gTelemetry\PowerSource
-    updated$ = "Updated at " + gTelemetry\LastUpdated + ". Thermal zone is firmware-reported and may be unavailable on some laptops."
+    If telemetry\CpuLoad = "" : telemetry\CpuLoad = "Unavailable" : EndIf
+    If telemetry\ThermalC = "" : telemetry\ThermalC = "Unavailable" : EndIf
+    If telemetry\PowerSource = "" : telemetry\PowerSource = "Unknown" : EndIf
+    summary$ = "Live telemetry: CPU load " + telemetry\CpuLoad + "% | Thermal zone " + telemetry\ThermalC + " C | Power " + telemetry\PowerSource
+    updated$ = "Updated at " + telemetry\LastUpdated + ". Thermal zone is firmware-reported and may be unavailable on some laptops."
   EndIf
 
   If IsGadget(#TxtTelemetrySummary)
@@ -241,8 +244,8 @@ Procedure UpdateTelemetryDisplay()
 
   CheckBenchmarkMode()
 
-  If gTelemetry\ThermalC <> "" And LCase(gTelemetry\ThermalC) <> "unavailable"
-    heatValue = ValD(gTelemetry\ThermalC)
+  If telemetry\ThermalC <> "" And LCase(telemetry\ThermalC) <> "unavailable"
+    heatValue = ValD(telemetry\ThermalC)
     If gHeatPopupEnabled And heatValue >= gHeatAlertThreshold And Date() - gLastHeatAlertTime > 300
       gLastHeatAlertTime = Date()
       ShowTrayNotification("Heat Alert", "Thermal zone reached " + StrD(heatValue, 1) + " C. Consider switching to Cool or Battery Saver.")
@@ -273,19 +276,22 @@ Procedure MaybeAutoSwitchThermalProfile()
   Protected isBattery.i
   Protected switchEnabled.i, switchProfile.i, switchThreshold.i, switchSeconds.i
   Protected restoreEnabled.i, restoreThreshold.i, restoreSeconds.i
+  Protected telemetry.LiveTelemetry
 
   If gSettings\BenchmarkModeEnabled
     ProcedureReturn
   EndIf
 
-  If gTelemetry\ThermalC = "" Or LCase(gTelemetry\ThermalC) = "unavailable"
+  SnapshotTelemetry(@telemetry)
+
+  If telemetry\ThermalC = "" Or LCase(telemetry\ThermalC) = "unavailable"
     gACAutoSwitchSince = 0 : gDCAutoSwitchSince = 0
     gACAutoRestoreSince = 0 : gDCAutoRestoreSince = 0
     ProcedureReturn
   EndIf
 
-  heatValue = ValD(gTelemetry\ThermalC)
-  isBattery = Bool(LCase(gTelemetry\PowerSource) = "battery")
+  heatValue = ValD(telemetry\ThermalC)
+  isBattery = Bool(LCase(telemetry\PowerSource) = "battery")
 
   If isBattery
     switchEnabled = gSettings\DCAutoSwitchEnabled

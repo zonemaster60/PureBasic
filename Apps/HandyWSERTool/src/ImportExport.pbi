@@ -14,24 +14,19 @@ Procedure DoExport()
     scopeLabel = "system"
     file = PromptExportFile(scopeLabel)
     If file = "" : ProcedureReturn : EndIf
-    ExportScopeOrLog(scope, scopeLabel, file)
+    ExportScopeOrLog(scope, file)
 
   ElseIf choice = #PB_MessageRequester_No
     scope = EnvSys::#ScopeUser
     scopeLabel = "user"
     file = PromptExportFile(scopeLabel)
     If file = "" : ProcedureReturn : EndIf
-    ExportScopeOrLog(scope, scopeLabel, file)
+    ExportScopeOrLog(scope, file)
 
   Else
     file = SaveFileRequester("Export both environments to...", "env_backup_both.txt", "Text|*.txt", 0)
     If file = "" : ProcedureReturn : EndIf
-
-    If EnvSys::BackupBoth(file)
-      AppendLog("Export saved to: " + file)
-    Else
-      AppendLog("Export FAILED: " + file + " (" + LastRegistryErrorText() + ")")
-    EndIf
+    ExportBothOrLog(file)
   EndIf
 EndProcedure
 

@@ -343,7 +343,7 @@ Procedure.i LoadBothScopesAndMaps(List sysVars.EnvSys::VarEntry(), Map sysMap.En
 EndProcedure
 
 Procedure.s MakeTempBackupFileName(prefix.s)
-  ProcedureReturn GetTemporaryDirectory() + prefix + "_env_backup_" + Str(Date()) + ".txt"
+  ProcedureReturn GetTemporaryDirectory() + prefix + "_env_backup_" + Str(Date()) + "_" + Str(ElapsedMilliseconds()) + ".txt"
 EndProcedure
 
 Procedure.i BackupScopeOrLog(scope.i, label.s, filePath.s, stopOnFailure.i)
@@ -369,8 +369,18 @@ Procedure.s PromptImportFile(scopeLabel.s)
   ProcedureReturn OpenFileRequester("Import " + scopeLabel + " environment from...", "", "Text|*.txt", 0)
 EndProcedure
 
-Procedure.i ExportScopeOrLog(scope.i, scopeLabel.s, filePath.s)
+Procedure.i ExportScopeOrLog(scope.i, filePath.s)
   If EnvSys::Backup(filePath, scope)
+    AppendLog("Export saved to: " + filePath)
+    ProcedureReturn #True
+  EndIf
+
+  AppendLog("Export FAILED: " + filePath + " (" + LastRegistryErrorText() + ")")
+  ProcedureReturn #False
+EndProcedure
+
+Procedure.i ExportBothOrLog(filePath.s)
+  If EnvSys::BackupBoth(filePath)
     AppendLog("Export saved to: " + filePath)
     ProcedureReturn #True
   EndIf
