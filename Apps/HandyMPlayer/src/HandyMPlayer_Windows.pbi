@@ -347,11 +347,11 @@ Procedure BrowserRunScript(script.s)
 EndProcedure
 
 Procedure BrowserPlay()
-  BrowserRunScript("(function(){var v=document.querySelector('video');if(v){v.play();}else{var b=document.querySelector('.ytp-play-button');if(b&&b.getAttribute('title')!='Pause'){b.click();}}})();")
+  BrowserRunScript("(function(){var v=document.querySelector('video');if(v){v.play();}else{var b=document.querySelector('.ytp-play-button');if(b&&b.getAttribute('title')!=" + Chr(34) + "Pause" + Chr(34) + "){b.click();}}})();")
 EndProcedure
 
 Procedure BrowserPause()
-  BrowserRunScript("(function(){var v=document.querySelector('video');if(v){v.pause();}else{var b=document.querySelector('.ytp-play-button');if(b&&b.getAttribute('title')!='Play'){b.click();}}})();")
+  BrowserRunScript("(function(){var v=document.querySelector('video');if(v){v.pause();}else{var b=document.querySelector('.ytp-play-button');if(b&&b.getAttribute('title')!=" + Chr(34) + "Play" + Chr(34) + "){b.click();}}})();")
 EndProcedure
 
 Procedure BrowserStop()
@@ -364,6 +364,8 @@ Procedure UpdateBrowserWindowLayout()
   Protected topH.i = 72
   Protected buttonY.i = 10
   Protected mediaY.i = 42
+  Protected addressW.i
+  Protected webH.i
 
   If IsWindow(#Window_Browser) = 0
     ProcedureReturn
@@ -371,6 +373,20 @@ Procedure UpdateBrowserWindowLayout()
 
   winW = WindowWidth(#Window_Browser, #PB_Window_InnerCoordinate)
   winH = WindowHeight(#Window_Browser, #PB_Window_InnerCoordinate)
+  If winW < 520
+    winW = 520
+  EndIf
+  If winH < 220
+    winH = 220
+  EndIf
+  addressW = winW - 320
+  If addressW < 120
+    addressW = 120
+  EndIf
+  webH = winH - topH
+  If webH < 80
+    webH = 80
+  EndIf
 
   If IsGadget(#Gadget_BrowserBack)
     ResizeGadget(#Gadget_BrowserBack, 10, buttonY, 50, 24)
@@ -385,7 +401,7 @@ Procedure UpdateBrowserWindowLayout()
     ResizeGadget(#Gadget_BrowserHome, 185, buttonY, 55, 24)
   EndIf
   If IsGadget(#Gadget_BrowserAddress)
-    ResizeGadget(#Gadget_BrowserAddress, 250, buttonY, winW - 320, 24)
+    ResizeGadget(#Gadget_BrowserAddress, 250, buttonY, addressW, 24)
   EndIf
   If IsGadget(#Gadget_BrowserGo)
     ResizeGadget(#Gadget_BrowserGo, winW - 60, buttonY, 50, 24)
@@ -400,7 +416,7 @@ Procedure UpdateBrowserWindowLayout()
     ResizeGadget(#Gadget_BrowserStop, 130, mediaY, 55, 24)
   EndIf
   If IsGadget(#Gadget_BrowserWeb)
-    ResizeGadget(#Gadget_BrowserWeb, 0, topH, winW, winH - topH)
+    ResizeGadget(#Gadget_BrowserWeb, 0, topH, winW, webH)
   EndIf
 EndProcedure
 
@@ -449,7 +465,7 @@ Procedure UpdateThemePreviewText()
   EndIf
 EndProcedure
 
-Procedure ApplyThemePreset(preset.i)
+Procedure ApplyThemePreset(preset.i, persist.i = #True)
   State\themePreset = preset
 
   Select preset
@@ -487,6 +503,9 @@ Procedure ApplyThemePreset(preset.i)
 
   ApplyThemeToOpenWindows()
   UpdateThemePreviewText()
+  If persist
+    SaveSettings()
+  EndIf
 EndProcedure
 
 Procedure PickThemeColor(colorKind.i)
@@ -523,11 +542,13 @@ Procedure PickThemeColor(colorKind.i)
 
   ApplyThemeToOpenWindows()
   UpdateThemePreviewText()
+  SaveSettings()
 EndProcedure
 
 Procedure UpdateThemeWindowLayout()
   Protected winW.i
   Protected winH.i
+  Protected previewH.i
 
   If IsWindow(#Window_Theme) = 0
     ProcedureReturn
@@ -535,6 +556,16 @@ Procedure UpdateThemeWindowLayout()
 
   winW = WindowWidth(#Window_Theme, #PB_Window_InnerCoordinate)
   winH = WindowHeight(#Window_Theme, #PB_Window_InnerCoordinate)
+  If winW < #ThemeWindowWidth
+    winW = #ThemeWindowWidth
+  EndIf
+  If winH < #ThemeWindowHeight
+    winH = #ThemeWindowHeight
+  EndIf
+  previewH = winH - 170
+  If previewH < 40
+    previewH = 40
+  EndIf
 
   ResizeGadget(#Gadget_ThemeTitle, 10, 10, winW - 20, 20)
   ResizeGadget(#Gadget_ThemeSystem, 10, 40, 80, 28)
@@ -546,7 +577,7 @@ Procedure UpdateThemeWindowLayout()
   ResizeGadget(#Gadget_ThemePanelColor, 120, 82, 105, 28)
   ResizeGadget(#Gadget_ThemeTextColor, 230, 82, 105, 28)
   ResizeGadget(#Gadget_ThemeAccentColor, 340, 82, 105, 28)
-  ResizeGadget(#Gadget_ThemePreview, 10, 125, winW - 20, winH - 170)
+  ResizeGadget(#Gadget_ThemePreview, 10, 125, winW - 20, previewH)
   ResizeGadget(#Gadget_ThemeClose, winW - 100, winH - 35, 90, 26)
 EndProcedure
 

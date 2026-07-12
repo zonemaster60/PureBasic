@@ -47,7 +47,20 @@ Structure HandyThemePalette
 EndStructure
 
 Procedure.i HandyThemeSystemColor(index.i)
-  ProcedureReturn GetSysColor_(index)
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    ProcedureReturn GetSysColor_(index)
+  CompilerElse
+    Select index
+      Case #HandyTheme_COLOR_WINDOWTEXT
+        ProcedureReturn RGB(32, 35, 39)
+      Case #HandyTheme_COLOR_HIGHLIGHT
+        ProcedureReturn RGB(0, 120, 215)
+      Case #HandyTheme_COLOR_BTNFACE
+        ProcedureReturn RGB(245, 247, 250)
+      Default
+        ProcedureReturn RGB(255, 255, 255)
+    EndSelect
+  CompilerEndIf
 EndProcedure
 
 Procedure HandyThemeApplyPreset(*theme.HandyThemePalette, preset.i)

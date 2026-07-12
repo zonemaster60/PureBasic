@@ -11,7 +11,7 @@ Procedure RefreshPlaylistGadget()
     SetGadgetItemData(#Gadget_Playlist, index, index)
     If index = State\playlistIndex
       SetGadgetState(#Gadget_Playlist, index)
-      SetGadgetItemColor(#Gadget_Playlist, index, #PB_Gadget_FrontColor, RGB(0, 80, 180))
+      SetGadgetItemColor(#Gadget_Playlist, index, #PB_Gadget_FrontColor, State\themeAccentColor)
     EndIf
     index + 1
   Next
@@ -771,13 +771,16 @@ Procedure LoadPlaylistFromPath(path.s)
       EndIf
     Wend
     CloseFile(0)
+  Else
+    MessageRequester("Playlist", "Could not open playlist:" + #CRLF$ + path, #PB_MessageRequester_Error)
+    ProcedureReturn
   EndIf
 
   If ListSize(files()) > 0
     LastPlaylistPath = path
     LoadPlaylistFiles(files())
   Else
-    ClearPlaylistItems()
+    MessageRequester("Playlist", "The playlist does not contain any supported media files.", #PB_MessageRequester_Warning)
   EndIf
 EndProcedure
 

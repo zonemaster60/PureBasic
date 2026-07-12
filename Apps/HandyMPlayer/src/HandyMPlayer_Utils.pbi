@@ -15,10 +15,10 @@ Procedure InitializeThemeDefaults()
   EndIf
 
   If State\themePreset <> #Theme_Custom
-    ApplyThemePreset(State\themePreset)
+    ApplyThemePreset(State\themePreset, #False)
   Else
     If State\themeWindowColor = 0 And State\themePanelColor = 0 And State\themeTextColor = 0 And State\themeAccentColor = 0
-      ApplyThemePreset(#Theme_System)
+      ApplyThemePreset(#Theme_System, #False)
     EndIf
   EndIf
 EndProcedure

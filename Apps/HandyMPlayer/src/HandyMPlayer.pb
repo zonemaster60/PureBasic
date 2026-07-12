@@ -3,7 +3,7 @@
 ;
 
 IncludeFile "HandyMPlayer_Inc.pb"
-Global version.s = "v1.0.4.5"
+Global version.s = "v1.0.4.6"
 
 EnableExplicit
 
@@ -838,12 +838,12 @@ End
 ; Executable = ..\HandyMPlayer.exe
 ; Debugger = IDE
 ; IncludeVersionInfo
-; VersionField0 = 1,0,4,5
-; VersionField1 = 1,0,4,5
+; VersionField0 = 1,0,4,6
+; VersionField1 = 1,0,4,6
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyMPlayer
-; VersionField4 = 1.0.4.5
-; VersionField5 = 1.0.4.5
+; VersionField4 = 1.0.4.6
+; VersionField5 = 1.0.4.6
 ; VersionField6 = A Handy Compact Audio/Video Player
 ; VersionField7 = HandyMPlayer
 ; VersionField8 = HandyMPlayer.exe

@@ -239,10 +239,10 @@ Procedure ResetPlaybackState(clearMediaInfo.i = #True)
   State\year = ""
   State\genre = ""
   State\metadataSource = ""
-    State\lyricsSource = ""
-    State\artworkSource = ""
-    State\lyricsFile = ""
-    State\targetW = #WindowWidth + 50
+  State\lyricsSource = ""
+  State\artworkSource = ""
+  State\lyricsFile = ""
+  State\targetW = #WindowWidth + 50
   State\targetH = #WindowHeight + 25
 
   ClearArtworkImage()
