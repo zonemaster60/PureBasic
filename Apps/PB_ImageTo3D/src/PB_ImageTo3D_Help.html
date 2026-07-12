@@ -1,0 +1,698 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PB_ImageTo3D Help</title>
+  <style>
+    :root {
+      --bg: #efe7d9;
+      --paper: #fffaf2;
+      --paper-2: #f8f1e5;
+      --ink: #1d2330;
+      --muted: #5f6778;
+      --line: #d8cab4;
+      --accent: #b25531;
+      --accent-2: #2b6e70;
+      --accent-3: #7c5a2b;
+      --shadow: rgba(29, 35, 48, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 10%, rgba(178, 85, 49, 0.14), transparent 20%),
+        radial-gradient(circle at 90% 8%, rgba(43, 110, 112, 0.18), transparent 18%),
+        radial-gradient(circle at 50% 100%, rgba(124, 90, 43, 0.12), transparent 24%),
+        linear-gradient(180deg, #f6f0e4 0%, var(--bg) 100%);
+      line-height: 1.6;
+    }
+
+    .shell {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 26px 18px 56px;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: linear-gradient(135deg, rgba(255,250,242,0.98), rgba(245,235,219,0.96));
+      box-shadow: 0 24px 48px var(--shadow);
+      padding: 34px 30px 30px;
+    }
+
+    .hero:before,
+    .hero:after {
+      content: "";
+      position: absolute;
+      border-radius: 999px;
+      pointer-events: none;
+      opacity: 0.55;
+    }
+
+    .hero:before {
+      width: 260px;
+      height: 260px;
+      right: -60px;
+      top: -80px;
+      background: radial-gradient(circle, rgba(43, 110, 112, 0.24), transparent 65%);
+    }
+
+    .hero:after {
+      width: 280px;
+      height: 280px;
+      left: -80px;
+      bottom: -120px;
+      background: radial-gradient(circle, rgba(178, 85, 49, 0.20), transparent 68%);
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.4fr 0.9fr;
+      gap: 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    h1, h2, h3 {
+      font-family: "Palatino Linotype", Georgia, serif;
+      margin: 0 0 12px;
+      line-height: 1.12;
+      color: var(--ink);
+    }
+
+    h1 { font-size: 2.65rem; }
+
+    h2 {
+      font-size: 1.5rem;
+      margin-top: 30px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+
+    h3 { font-size: 1.08rem; margin-top: 18px; }
+
+    p, li { color: var(--muted); }
+
+    .eyebrow,
+    .badge,
+    .mini-badge {
+      display: inline-block;
+      border-radius: 999px;
+      font-size: 0.92rem;
+      letter-spacing: 0.01em;
+    }
+
+    .eyebrow {
+      padding: 8px 13px;
+      border: 1px solid var(--line);
+      background: rgba(178, 85, 49, 0.08);
+      margin-bottom: 14px;
+    }
+
+    .badge {
+      padding: 7px 12px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      text-decoration: none;
+    }
+
+    .mini-badge {
+      padding: 5px 10px;
+      border: 1px solid rgba(43, 110, 112, 0.18);
+      background: rgba(43, 110, 112, 0.08);
+      color: #174646;
+    }
+
+    .lead {
+      font-size: 1.08rem;
+      max-width: 58ch;
+    }
+
+    .toc {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .hero-panel,
+    .section,
+    .card,
+    .callout,
+    .visual,
+    .kbd-list {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      box-shadow: 0 14px 28px var(--shadow);
+    }
+
+    .hero-panel {
+      border-radius: 22px;
+      padding: 18px;
+      align-self: start;
+      background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,240,229,0.96));
+    }
+
+    .hero-panel h3 { margin-top: 0; }
+
+    .section {
+      border-radius: 22px;
+      padding: 20px 22px 22px;
+      margin-top: 20px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .grid.two {
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    }
+
+    .card {
+      border-radius: 18px;
+      padding: 16px;
+      background: linear-gradient(180deg, rgba(255,250,242,0.96), rgba(247,239,227,0.92));
+    }
+
+    .callout {
+      border-left: 5px solid var(--accent);
+      border-radius: 14px;
+      padding: 14px 16px;
+      margin-top: 14px;
+      background: rgba(178, 85, 49, 0.08);
+    }
+
+    .callout.cool {
+      border-left-color: var(--accent-2);
+      background: rgba(43, 110, 112, 0.08);
+    }
+
+    .strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .stat {
+      padding: 14px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.68);
+    }
+
+    .stat strong {
+      display: block;
+      font-size: 1.4rem;
+      color: var(--accent);
+      margin-bottom: 4px;
+    }
+
+    .visual {
+      border-radius: 18px;
+      padding: 16px;
+      margin-top: 16px;
+      background: linear-gradient(180deg, rgba(255,252,246,0.98), rgba(244,235,223,0.95));
+    }
+
+    .viewport-demo {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .mock {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      min-height: 190px;
+      padding: 14px;
+      position: relative;
+      overflow: hidden;
+      background: linear-gradient(160deg, #182232 0%, #24364a 55%, #1f2b39 100%);
+      color: #fff8ef;
+    }
+
+    .mock .label {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background: rgba(255, 250, 242, 0.14);
+      border: 1px solid rgba(255, 250, 242, 0.22);
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 0.84rem;
+    }
+
+    .planes,
+    .mesh {
+      position: absolute;
+      inset: 0;
+    }
+
+    .plane {
+      position: absolute;
+      left: 50%;
+      top: 56%;
+      transform: translate(-50%, -50%) rotate(-3deg);
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.18);
+      box-shadow: 0 18px 36px rgba(0,0,0,0.22);
+    }
+
+    .plane.back {
+      width: 72%;
+      height: 48%;
+      background: linear-gradient(135deg, rgba(118,162,130,0.75), rgba(52,81,67,0.84));
+      transform: translate(-50%, -50%) rotate(-4deg) translate(-18px, 10px);
+    }
+
+    .plane.mid {
+      width: 60%;
+      height: 42%;
+      background: linear-gradient(135deg, rgba(204,176,120,0.80), rgba(120,86,52,0.88));
+      transform: translate(-50%, -50%) rotate(-1deg) translate(-6px, 0);
+    }
+
+    .plane.front {
+      width: 46%;
+      height: 36%;
+      background: linear-gradient(135deg, rgba(220,143,100,0.92), rgba(132,63,41,0.92));
+      transform: translate(-50%, -50%) rotate(4deg) translate(12px, -10px);
+    }
+
+    .mesh-surface {
+      position: absolute;
+      left: 50%;
+      top: 56%;
+      width: 70%;
+      height: 48%;
+      transform: translate(-50%, -50%) perspective(540px) rotateX(56deg) rotateZ(-8deg);
+      border-radius: 14px;
+      background:
+        linear-gradient(90deg, rgba(255,255,255,0.13) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(255,255,255,0.13) 1px, transparent 1px),
+        linear-gradient(135deg, rgba(221,183,110,0.92), rgba(52,106,112,0.82));
+      background-size: 16px 16px, 16px 16px, cover;
+      box-shadow: 0 18px 36px rgba(0,0,0,0.22);
+      border: 1px solid rgba(255,255,255,0.16);
+    }
+
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      background: rgba(43, 110, 112, 0.10);
+      color: #184b4c;
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+
+    kbd {
+      font-family: Consolas, "Courier New", monospace;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-bottom-width: 2px;
+      border-radius: 6px;
+      padding: 2px 7px;
+      color: var(--ink);
+      font-size: 0.9rem;
+    }
+
+    .kbd-list {
+      border-radius: 16px;
+      padding: 14px 16px;
+      margin-top: 16px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(247,240,227,0.96));
+    }
+
+    .kbd-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .kbd-row:last-child { border-bottom: 0; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 14px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 12px 24px var(--shadow);
+    }
+
+    th, td {
+      text-align: left;
+      padding: 11px 12px;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+    }
+
+    th {
+      background: rgba(43, 110, 112, 0.11);
+      color: var(--ink);
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.95rem;
+      margin-top: 26px;
+    }
+
+    @media (max-width: 880px) {
+      .hero-grid,
+      .viewport-demo {
+        grid-template-columns: 1fr;
+      }
+
+      h1 { font-size: 2.15rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <span class="eyebrow">PureBasic 6.40 x64 desktop help</span>
+          <h1>PB_ImageTo3D User Guide</h1>
+          <p class="lead">PB_ImageTo3D converts normal 2D image files into interactive pseudo-3D presentations with layered parallax, a depth mesh, exportable layer assets, and a smoke-test workspace designed for quick validation.</p>
+          <div class="toc">
+            <a class="badge" href="#quick-start">Quick Start</a>
+            <a class="badge" href="#workflow">Workflow</a>
+            <a class="badge" href="#views">Viewer Modes</a>
+            <a class="badge" href="#masks">Masks</a>
+            <a class="badge" href="#controls">Controls</a>
+            <a class="badge" href="#projects">Projects</a>
+            <a class="badge" href="#export">Export</a>
+            <a class="badge" href="#smoke-test">Smoke Test</a>
+            <a class="badge" href="#troubleshooting">Troubleshooting</a>
+          </div>
+        </div>
+        <aside class="hero-panel">
+          <h3>At a glance</h3>
+          <div class="strip">
+            <div class="stat"><strong>3</strong>Viewer modes</div>
+            <div class="stat"><strong>4</strong>PNG exports</div>
+            <div class="stat"><strong>2</strong>Optional masks</div>
+            <div class="stat"><strong>1</strong>Project format</div>
+          </div>
+          <div class="callout cool">
+            This build is designed for desktop smoke testing: load an image, check the previews, compare parallax vs mesh, export layers, then save and reload a project.
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="quick-start" class="section">
+      <h2>Quick Start</h2>
+      <div class="grid two">
+        <div class="card">
+          <h3>Fast path</h3>
+          <ol>
+            <li>Launch <code>PB_ImageTo3D.exe</code>.</li>
+            <li>Open a JPG, PNG, GIF, BMP, TGA, or TIFF image.</li>
+            <li>Move the mouse inside the viewport.</li>
+            <li>Switch between <code>Parallax View</code>, <code>Depth Mesh</code>, and <code>Smoke Test</code>.</li>
+            <li>Optionally load foreground and middle masks.</li>
+            <li>Export generated layers if you want to inspect the results.</li>
+          </ol>
+        </div>
+        <div class="card">
+          <h3>Best source images</h3>
+          <ul>
+            <li>portraits with clean subject separation</li>
+            <li>objects photographed against simpler backgrounds</li>
+            <li>landscapes with obvious foreground and horizon depth</li>
+            <li>artwork with strong value contrast between layers</li>
+          </ul>
+          <div class="callout">
+            The app can auto-generate masks, but manual grayscale masks almost always produce cleaner depth separation.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="workflow" class="section">
+      <h2>Recommended Workflow</h2>
+      <div class="grid">
+        <div class="card">
+          <span class="mini-badge">Step 1</span>
+          <h3>Load an image</h3>
+          <p>Begin with a source image. The app resizes very large images internally so texture generation stays practical.</p>
+        </div>
+        <div class="card">
+          <span class="mini-badge">Step 2</span>
+          <h3>Check generated previews</h3>
+          <p>Review the front, middle, and depth previews. If they do not look believable, tune the threshold sliders or load masks.</p>
+        </div>
+        <div class="card">
+          <span class="mini-badge">Step 3</span>
+          <h3>Refine interaction</h3>
+          <p>Adjust depth strength, sensitivity, smoothing, camera distance, and mesh strength until motion feels intentional.</p>
+        </div>
+        <div class="card">
+          <span class="mini-badge">Step 4</span>
+          <h3>Export and save</h3>
+          <p>Export PNG layers, then save a project file so you can return to the exact same setup later.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="views" class="section">
+      <h2>Viewer Modes</h2>
+      <div class="visual">
+        <p>The program now supports three ways to inspect the same source image.</p>
+        <div class="viewport-demo">
+          <div class="mock">
+            <span class="label">Parallax View</span>
+            <div class="planes">
+              <div class="plane back"></div>
+              <div class="plane mid"></div>
+              <div class="plane front"></div>
+            </div>
+          </div>
+          <div class="mock">
+            <span class="label">Depth Mesh</span>
+            <div class="mesh">
+              <div class="mesh-surface"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="grid">
+        <div class="card">
+          <h3>Parallax View</h3>
+          <p>Creates separate back, middle, and front planes that shift and rotate at different rates. This is usually the most stable and readable pseudo-3D mode.</p>
+        </div>
+        <div class="card">
+          <h3>Depth Mesh</h3>
+          <p>Pushes a subdivided plane forward and backward using the generated depth map, creating a more sculpted appearance.</p>
+        </div>
+        <div class="card">
+          <h3>Smoke Test</h3>
+          <p>Uses a dual-view layout so you can compare parallax and mesh behavior at the same time while validating the build.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="masks" class="section">
+      <h2>Masks and Depth Generation</h2>
+      <p>Masks control which image regions are treated as foreground or middle distance. The remaining content becomes part of the back layer and also contributes to the depth map.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Input</th>
+            <th>Purpose</th>
+            <th>What to paint white</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Foreground Mask</td>
+            <td>Pushes the most important subject forward</td>
+            <td>person, face, product, main object</td>
+          </tr>
+          <tr>
+            <td>Middle Mask</td>
+            <td>Keeps secondary forms between front and back</td>
+            <td>trees, props, furniture, architecture details</td>
+          </tr>
+          <tr>
+            <td>Auto Masks</td>
+            <td>Fallback when manual masks are absent</td>
+            <td>generated from brightness and thresholds</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="grid two">
+        <div class="card">
+          <h3>Brightness interpretation</h3>
+          <ul>
+            <li><strong>White</strong> means strong inclusion in that layer.</li>
+            <li><strong>Gray</strong> means a softer transition.</li>
+            <li><strong>Black</strong> means exclusion from that layer.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Auto-mask tuning</h3>
+          <ul>
+            <li><code>Auto Front Threshold</code> controls when bright areas begin to feel like foreground.</li>
+            <li><code>Auto Mid Low</code> and <code>Auto Mid High</code> define the middle-depth band.</li>
+            <li>If the result feels wrong, export the generated depth map and inspect it.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="controls" class="section">
+      <h2>Controls</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Depth Strength</h3>
+          <p>Controls layer separation and camera drift in the parallax scene.</p>
+        </div>
+        <div class="card">
+          <h3>Mouse Sensitivity</h3>
+          <p>Scales how strongly mouse movement influences tilt and motion.</p>
+        </div>
+        <div class="card">
+          <h3>Smoothing</h3>
+          <p>Controls how quickly the scene catches up to input. Lower values feel heavier; higher values react more quickly.</p>
+        </div>
+        <div class="card">
+          <h3>Camera Distance</h3>
+          <p>Moves the camera closer or farther away from the scene.</p>
+        </div>
+        <div class="card">
+          <h3>Mesh Strength</h3>
+          <p>Changes how much the depth map deforms the mesh in Depth Mesh mode.</p>
+        </div>
+      </div>
+
+      <div class="kbd-list">
+        <div class="kbd-row"><span>Exit the app</span><span><kbd>Esc</kbd></span></div>
+        <div class="kbd-row"><span>Open image</span><span><code>File &gt; Open Image...</code></span></div>
+        <div class="kbd-row"><span>Open help</span><span><code>Help &gt; Help Contents</code></span></div>
+        <div class="kbd-row"><span>Reset motion state</span><span><code>View &gt; Reset View</code></span></div>
+      </div>
+    </section>
+
+    <section id="projects" class="section">
+      <h2>Projects</h2>
+      <p>Project files use <code>.prefs</code> and remember your working state so you can return later without rebuilding the scene manually.</p>
+      <div class="grid two">
+        <div class="card">
+          <h3>Saved values</h3>
+          <ul>
+            <li>source image path</li>
+            <li>foreground and middle mask paths</li>
+            <li>depth strength, sensitivity, smoothing, camera distance</li>
+            <li>mesh strength and active viewer mode</li>
+            <li>auto-mask threshold values</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Suggested habit</h3>
+          <p>After finding a convincing setup, save a project before exporting layers so you can always reopen the exact same state for follow-up editing.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="export" class="section">
+      <h2>Export</h2>
+      <p><code>Export Generated Layers...</code> saves the internal generated outputs as PNG files:</p>
+      <div class="grid">
+        <div class="card"><h3>Back Layer</h3><p><code>PB_ImageTo3D_BackLayer.png</code></p></div>
+        <div class="card"><h3>Mid Layer</h3><p><code>PB_ImageTo3D_MidLayer.png</code></p></div>
+        <div class="card"><h3>Front Layer</h3><p><code>PB_ImageTo3D_FrontLayer.png</code></p></div>
+        <div class="card"><h3>Depth Map</h3><p><code>PB_ImageTo3D_DepthMap.png</code></p></div>
+      </div>
+      <div class="callout cool">
+        Exporting is useful when you want to refine masks in an external editor, inspect the generated depth behavior, or archive intermediate data for comparison.
+      </div>
+    </section>
+
+    <section id="smoke-test" class="section">
+      <h2>Recommended Smoke Test</h2>
+      <ol>
+        <li>Run the packaged executable.</li>
+        <li>Load <code>SampleProject.prefs</code> or <code>SampleLandscape.jpg</code>.</li>
+        <li>Check that the three previews populate.</li>
+        <li>Verify mouse response in <code>Parallax View</code>.</li>
+        <li>Switch to <code>Depth Mesh</code> and test <code>Mesh Strength</code>.</li>
+        <li>Switch to <code>Smoke Test</code> and confirm the dual viewport appears.</li>
+        <li>Export generated layers.</li>
+        <li>Save a project and load it back.</li>
+        <li>Open this help file from the application menu.</li>
+      </ol>
+      <div class="callout">
+        If something looks wrong, the previews usually reveal the cause quickly. Check whether the foreground or mid mask is too broad, too narrow, or whether the thresholds need adjustment.
+      </div>
+    </section>
+
+    <section id="troubleshooting" class="section">
+      <h2>Troubleshooting</h2>
+      <div class="grid two">
+        <div class="card">
+          <h3>The scene looks too flat</h3>
+          <ul>
+            <li>Increase <code>Depth Strength</code>.</li>
+            <li>Lower the front threshold slightly.</li>
+            <li>Use a stronger manual foreground mask.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>The depth mesh looks too extreme</h3>
+          <ul>
+            <li>Reduce <code>Mesh Strength</code>.</li>
+            <li>Inspect the exported depth map.</li>
+            <li>Tighten the auto-mask range or provide manual masks.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>A mask seems ignored</h3>
+          <ul>
+            <li>Use grayscale input rather than painted color art.</li>
+            <li>Make sure white marks the intended region.</li>
+            <li>Confirm you loaded the correct mask file for the intended layer.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>The help file does not open</h3>
+          <ul>
+            <li>Keep <code>PB_ImageTo3D_Help.html</code> next to the executable.</li>
+            <li>Try opening it manually from Windows Explorer.</li>
+            <li>If the app is moved, move the help file with it.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <p class="footer">PB_ImageTo3D local HTML help. Keep this file beside the executable so <code>Help &gt; Help Contents</code> can find it.</p>
+  </div>
+</body>
+</html>
