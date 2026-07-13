@@ -1,5 +1,0 @@
-Global ConstantTheme.s = "Steampunk"
-Global ConstantSetting.s = "Shadowy rain-slicked alleys"
-Global ConstantCulture.s = "Forbidden alchemical secrets"
-Global ConstantLandmark.s = "The Silent Archive"
-Global ConstantRole.s = "Holy Inquisitor"

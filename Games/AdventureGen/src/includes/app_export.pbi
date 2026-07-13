@@ -50,7 +50,7 @@ Procedure.b WriteStandaloneBuildSource(SourceFile.s, OutputSourceFile.s, ConfigI
   Wend
 
   WriteStringN(OutputFile, "")
-  WriteStringN(OutputFile, "; IDE Options = PureBasic 6.30 (Windows - x64)")
+  WriteStringN(OutputFile, "; IDE Options = PureBasic 6.40 (Windows - x64)")
   WriteStringN(OutputFile, "; Optimizer")
   WriteStringN(OutputFile, "; EnableThread")
   WriteStringN(OutputFile, "; EnableXP")

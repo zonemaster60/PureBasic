@@ -4,13 +4,13 @@
 
 EnableExplicit
 
-XIncludeFile "config_defaults.pbi"
-XIncludeFile "app_core.pbi"
-XIncludeFile "app_helpers.pbi"
-XIncludeFile "app_content.pbi"
-XIncludeFile "app_world.pbi"
-XIncludeFile "app_export.pbi"
-XIncludeFile "app_ui.pbi"
+XIncludeFile "includes\config_defaults.pbi"
+XIncludeFile "includes\app_core.pbi"
+XIncludeFile "includes\app_helpers.pbi"
+XIncludeFile "includes\app_content.pbi"
+XIncludeFile "includes\app_world.pbi"
+XIncludeFile "includes\app_export.pbi"
+XIncludeFile "includes\app_ui.pbi"
 
 Main()
 
@@ -20,7 +20,7 @@ DataSection
 EndDataSection
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 13
+; CursorPosition = 12
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -29,12 +29,12 @@ EndDataSection
 ; UseIcon = main.ico
 ; Executable = ..\AdventureGen.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,2
-; VersionField1 = 1,0,0,2
+; VersionField0 = 1,0,0,3
+; VersionField1 = 1,0,0,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = AdventureGen
-; VersionField4 = 1.0.0.2
-; VersionField5 = 1.0.0.2
+; VersionField4 = 1.0.0.3
+; VersionField5 = 1.0.0.3
 ; VersionField6 = An automated text adventure creator with theme
 ; VersionField7 = AdventureGen
 ; VersionField8 = AdventureGen.exe

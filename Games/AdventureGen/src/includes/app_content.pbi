@@ -29,18 +29,32 @@ Procedure LoadThemes()
     ProcedureReturn
   EndIf
 
+  Dim ThemeByColumn.i(Count - 1)
   For Col = 0 To Count - 1
-    AddElement(Themes())
-    Themes()\Name = CSVFieldByIndex(Fields(), Col)
+    ThemeByColumn(Col) = -1
   Next
+
+  For Col = 0 To Count - 1
+    Value = CSVFieldByIndex(Fields(), Col)
+    If Value <> ""
+      AddElement(Themes())
+      Themes()\Name = Value
+      ThemeByColumn(Col) = ListIndex(Themes())
+    EndIf
+  Next
+
+  Count = ListSize(Themes())
+  If Count = 0
+    ProcedureReturn
+  EndIf
 
   While Row <= 7 And Not Memory_Eof(@MF)
     Line = Memory_ReadString(@MF)
     If Trim(Line) <> ""
       ParseCSVLine(Line, Fields())
 
-      For Col = 0 To Count - 1
-        If SelectElement(Themes(), Col)
+      For Col = 0 To ArraySize(ThemeByColumn())
+        If ThemeByColumn(Col) >= 0 And SelectElement(Themes(), ThemeByColumn(Col))
           Value = CSVFieldByIndex(Fields(), Col)
           If Value <> ""
             Select Row

@@ -21,6 +21,10 @@ Procedure.s GetVersionInfoTuple()
   ProcedureReturn ReplaceString(RemoveString(version, "v"), ".", ",")
 EndProcedure
 
+Procedure.b WaitForEnter()
+  ProcedureReturn Bool(Input() <> #PB_Input_Eof)
+EndProcedure
+
 Procedure.s GetConsoleTitle()
   If IsBuilderMode()
     ProcedureReturn #APP_NAME + " - " + version + " Build System"
@@ -70,6 +74,30 @@ Procedure.s ResolveSourceFile()
   Candidate = JoinPath(GetCurrentDirectory(), "src\main.pb")
   If FileSize(Candidate) >= 0
     ProcedureReturn Candidate
+  EndIf
+
+  ProcedureReturn ""
+EndProcedure
+
+Procedure.s FirstWord(Value.s)
+  Protected SpacePosition.i
+
+  Value = Trim(Value)
+  SpacePosition = FindString(Value, " ")
+  If SpacePosition > 0
+    ProcedureReturn Left(Value, SpacePosition - 1)
+  EndIf
+
+  ProcedureReturn Value
+EndProcedure
+
+Procedure.s RemainderAfterFirstWord(Value.s)
+  Protected SpacePosition.i
+
+  Value = Trim(Value)
+  SpacePosition = FindString(Value, " ")
+  If SpacePosition > 0
+    ProcedureReturn Trim(Mid(Value, SpacePosition + 1))
   EndIf
 
   ProcedureReturn ""

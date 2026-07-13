@@ -70,7 +70,7 @@ Procedure ShowHelpScreen()
     PrintN(Memory_ReadString(@MF))
   Wend
 
-  If Input() = #PB_Input_Eof
+  If WaitForEnter() = #False
     ProcedureReturn
   EndIf
 EndProcedure
@@ -90,9 +90,9 @@ Procedure GameLoop()
       Break
     EndIf
 
-    InputLine = LCase(Trim(InputLine))
-    Cmd = StringField(InputLine, 1, " ")
-    Arg = Trim(Mid(InputLine, Len(Cmd) + 1))
+    InputLine = Trim(InputLine)
+    Cmd = LCase(FirstWord(InputLine))
+    Arg = RemainderAfterFirstWord(InputLine)
 
     Select Cmd
       Case "n", "north"
@@ -135,7 +135,7 @@ Procedure GameLoop()
     EndSelect
 
     If GS\PlayerHealth <= 0
-      If Input() = #PB_Input_Eof
+      If WaitForEnter() = #False
         Break
       EndIf
       Break
@@ -143,7 +143,7 @@ Procedure GameLoop()
 
     If GS\AdventureWon
       PrintN("Victory! Press Enter to return to the main menu.")
-      If Input() = #PB_Input_Eof
+      If WaitForEnter() = #False
         Break
       EndIf
       Break
@@ -203,7 +203,7 @@ Procedure Main()
           GameLoop()
         Else
           PrintN("No themes were loaded.")
-          If Input() = #PB_Input_Eof
+          If WaitForEnter() = #False
             Choice = "E"
           EndIf
         EndIf
@@ -226,7 +226,7 @@ Procedure Main()
           EndIf
         Else
           PrintN("No themes were loaded.")
-          If Input() = #PB_Input_Eof
+          If WaitForEnter() = #False
             Choice = "E"
           EndIf
         EndIf
