@@ -8,7 +8,10 @@
 #WINDOW_WIDTH = 660
 #WINDOW_HEIGHT = 585
 #MAX_POWERUPS = 3
+#BOARD_LAST_INDEX = #BOARD_SIZE - 1
+#BOARD_CENTER = #BOARD_SIZE / 2
 #HELP_FILE = "tictactoe+_help.html"
+#ERROR_ALREADY_EXISTS = 183
 
 ; === Enumerations ===
 Enumeration
@@ -60,7 +63,7 @@ SetCurrentDirectory(AppPath)
 ; Prevent multiple instances (don't rely on window title text)
 Global hMutex.i
 hMutex = CreateMutex_(0, 1, #APP_NAME + "_mutex")
-If hMutex And GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
+If hMutex And GetLastError_() = #ERROR_ALREADY_EXISTS
   MessageRequester("Info", #APP_NAME + " is already running.", #PB_MessageRequester_Info)
   CloseHandle_(hMutex)
   End
@@ -111,7 +114,7 @@ Global DoubleStrikeActive = #False
 Global DoubleStrikeCount = 0
 Global LastMove.Position
 Global LastPlayer.s = ""
-Global version.s = "v1.0.0.4"
+Global version.s = "v1.0.0.5"
 
 ; Power-up arrays
 Global Dim Player1Powerups.PowerUp(#MAX_POWERUPS-1)
@@ -146,6 +149,12 @@ Procedure ClearBoard()
       BlockedBoard(x, y) = #False
     Next
   Next
+EndProcedure
+
+Procedure ClearLastMove()
+  LastMove\x = -1
+  LastMove\y = -1
+  LastPlayer = ""
 EndProcedure
 
 Procedure UpdatePowerupLists()
@@ -399,14 +408,14 @@ Procedure RotateBoard()
   Protected Dim newBoard.s(#BOARD_SIZE-1, #BOARD_SIZE-1)
   Protected Dim newShield.b(#BOARD_SIZE-1, #BOARD_SIZE-1)
   Protected Dim newBlocked.b(#BOARD_SIZE-1, #BOARD_SIZE-1)
-  Protected x, y
+  Protected x, y, lastX
   
   ; Rotate board 90 degrees clockwise
   For y = 0 To #BOARD_SIZE-1
     For x = 0 To #BOARD_SIZE-1
-      newBoard(#BOARD_SIZE-1-y, x) = Board(x, y)
-      newShield(#BOARD_SIZE-1-y, x) = ShieldBoard(x, y)
-      newBlocked(#BOARD_SIZE-1-y, x) = BlockedBoard(x, y)
+      newBoard(#BOARD_LAST_INDEX-y, x) = Board(x, y)
+      newShield(#BOARD_LAST_INDEX-y, x) = ShieldBoard(x, y)
+      newBlocked(#BOARD_LAST_INDEX-y, x) = BlockedBoard(x, y)
     Next
   Next
   
@@ -418,6 +427,12 @@ Procedure RotateBoard()
       BlockedBoard(x, y) = newBlocked(x, y)
     Next
   Next
+
+  If LastPlayer <> "" And IsValidPosition(LastMove\x, LastMove\y)
+    lastX = LastMove\x
+    LastMove\x = #BOARD_LAST_INDEX - LastMove\y
+    LastMove\y = lastX
+  EndIf
 EndProcedure
 
 Procedure SetPowerupDetails(*powerup.PowerUp, powerupType)
@@ -521,9 +536,9 @@ Procedure EvaluateSymbolPosition(player.s, x, y)
     score + GetLinePotential(player, 2, 0, 1, 1, 0, 2)
   EndIf
 
-  If x = 1 And y = 1
+  If x = #BOARD_CENTER And y = #BOARD_CENTER
     score + 4
-  ElseIf (x = 0 Or x = 2) And (y = 0 Or y = 2)
+  ElseIf (x = 0 Or x = #BOARD_LAST_INDEX) And (y = 0 Or y = #BOARD_LAST_INDEX)
     score + 2
   Else
     score + 1
@@ -658,10 +673,11 @@ Procedure ExecutePowerup(powerupType, player.s)
       success = #True
       
     Case #POWERUP_REWIND
-      If LastPlayer <> ""
+      If LastPlayer <> "" And IsValidPosition(LastMove\x, LastMove\y)
         Board(LastMove\x, LastMove\y) = ""
+        ShieldBoard(LastMove\x, LastMove\y) = #False
         SetGadgetText(#Gadget_PowerupStatus, "'" + player + "' rewound the last move!")
-        LastPlayer = ""
+        ClearLastMove()
         success = #True
       Else
         SetGadgetText(#Gadget_PowerupStatus, "No move to rewind!")
@@ -708,12 +724,12 @@ Procedure ExecutePowerup(powerupType, player.s)
       
     Case #POWERUP_BOMB
       ; Claim the center only if it is a legal target
-      If Not ShieldBoard(1, 1) And Not BlockedBoard(1, 1)
-        Board(1, 1) = player
+      If Board(#BOARD_CENTER, #BOARD_CENTER) = "" And Not ShieldBoard(#BOARD_CENTER, #BOARD_CENTER) And Not BlockedBoard(#BOARD_CENTER, #BOARD_CENTER)
+        Board(#BOARD_CENTER, #BOARD_CENTER) = player
         SetGadgetText(#Gadget_PowerupStatus, "'" + player + "' claimed the center with Bomb!")
         success = #True
       Else
-        SetGadgetText(#Gadget_PowerupStatus, "Center is shielded or blocked!")
+        SetGadgetText(#Gadget_PowerupStatus, "Center is occupied, shielded, or blocked!")
       EndIf
   EndSelect
 
@@ -822,16 +838,16 @@ Procedure EvaluatePositionScore()
   score + EvaluateLineScore(Board(0, 0), Board(1, 1), Board(2, 2))
   score + EvaluateLineScore(Board(2, 0), Board(1, 1), Board(0, 2))
 
-  If Board(1, 1) = "O"
+  If Board(#BOARD_CENTER, #BOARD_CENTER) = "O"
     score + 3
-  ElseIf Board(1, 1) = "X"
+  ElseIf Board(#BOARD_CENTER, #BOARD_CENTER) = "X"
     score - 3
   EndIf
 
   For y = 0 To #BOARD_SIZE-1
     For x = 0 To #BOARD_SIZE-1
       If BlockedBoard(x, y)
-        If x = 1 And y = 1
+        If x = #BOARD_CENTER And y = #BOARD_CENTER
           score - 2
         Else
           score - 1
@@ -997,7 +1013,7 @@ Procedure GetBestMove()
         score = Minimax(0, #False, -10000, 10000)
         Board(x, y) = ""
 
-        If Difficulty <> #DIFF_EASY And x = 1 And y = 1
+        If Difficulty <> #DIFF_EASY And x = #BOARD_CENTER And y = #BOARD_CENTER
           score + 2
         EndIf
 
@@ -1072,7 +1088,7 @@ Procedure AITurn()
             
           Case #POWERUP_BOMB
             ; Use if center is strategic
-            If Board(1, 1) = "" And CountEmptyCells() >= 5
+            If Board(#BOARD_CENTER, #BOARD_CENTER) = "" And Not BlockedBoard(#BOARD_CENTER, #BOARD_CENTER) And CountEmptyCells() >= 5
               currentPriority = 55
             EndIf
             
@@ -1341,7 +1357,7 @@ Procedure ResetGame()
   WinningLineCount = 0
   DoubleStrikeActive = #False
   DoubleStrikeCount = 0
-  LastPlayer = ""
+  ClearLastMove()
   
   ; Reset power-ups if power-up mode is enabled
   If PowerupMode
@@ -1569,7 +1585,8 @@ If OpenWindow(#Window_Main, 0, 0, #WINDOW_WIDTH, #WINDOW_HEIGHT, #APP_NAME + " -
   ForEver
 EndIf
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 10
+; CursorPosition = 12
+; FirstLine = 3
 ; Folding = --------
 ; Optimizer
 ; EnableThread
@@ -1578,12 +1595,12 @@ EndIf
 ; UseIcon = tictactoe+.ico
 ; Executable = ..\TicTacToe+.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,4
-; VersionField1 = 1,0,0,4
+; VersionField0 = 1,0,0,5
+; VersionField1 = 1,0,0,55
 ; VersionField2 = ZoneSoft
 ; VersionField3 = TicTacToe+
-; VersionField4 = 1.0.0.4
-; VersionField5 = 1.0.0.4
+; VersionField4 = 1.0.0.5
+; VersionField5 = 1.0.0.5
 ; VersionField6 = A full-featured 2-Player TicTacToe game.
 ; VersionField7 = TicTacToe+
 ; VersionField8 = TicTacToe+.exe
