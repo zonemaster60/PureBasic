@@ -1,4 +1,4 @@
-; WindowsUpdateRepair.pb (PureBasic 6.30, Windows)
+; WindowsUpdateRepair.pb (PureBasic 6.40, Windows)
 ; Windows Update repair tool (portable) for Windows 7 SP1 -> Windows 11 + Servers
 ; Features:
 ; - Selectable steps + Recommended preset
@@ -18,6 +18,7 @@ Declare LogLine(line.s)
 Declare.s OsLabel()
 Declare.i Is64BitOS()
 Declare.i IsAdmin()
+Declare.s Quote(arg.s)
 
 ; ----------------------------
 ; WinAPI imports / constants
@@ -41,6 +42,9 @@ Declare.i IsAdmin()
 #SERVICE_ACCEPT_STOP    = $00000001
 
 #ERROR_SERVICE_DOES_NOT_EXIST = 1060
+#ERROR_ALREADY_EXISTS = 183
+
+#SW_SHOW = 5
 
 ; Registry access
 #HKEY_LOCAL_MACHINE     = $80000002
@@ -61,7 +65,7 @@ Declare.i IsAdmin()
 #APP_NAME = "WindowsUpdateRepair"
 
 SetCurrentDirectory(GetPathPart(ProgramFilename()))
-Global version.s = "v1.0.0.4"
+Global version.s = "v1.0.0.5"
 
 ; Prevent multiple instances (don't rely on window title text)
 Global hMutex.i
@@ -90,7 +94,7 @@ Procedure.i AcquireInstanceMutex()
     ProcedureReturn #False
   EndIf
 
-  If GetLastError_() = 183 ; ERROR_ALREADY_EXISTS
+  If GetLastError_() = #ERROR_ALREADY_EXISTS
     LogLine("Another instance is already running.")
     ShowInfo("Info", #APP_NAME + " is already running.")
     CloseHandle_(hMutex)
@@ -238,13 +242,25 @@ Procedure.s BoolLabel(value.i)
 EndProcedure
 
 Procedure.s Quote(s.s)
-  ; Minimal quoting for command lines.
+  If s = ""
+    ProcedureReturn Chr(34) + Chr(34)
+  EndIf
+
   If FindString(s, " ", 1) Or FindString(s, Chr(9), 1) Or FindString(s, Chr(34), 1)
-    ; Avoid embedding quotes inside quotes. If callers pass quoted args, strip quotes.
-    s = ReplaceString(s, Chr(34), "")
+    s = ReplaceString(s, Chr(34), "\" + Chr(34))
+    If Right(s, 1) = "\"
+      s + "\"
+    EndIf
     ProcedureReturn Chr(34) + s + Chr(34)
   EndIf
   ProcedureReturn s
+EndProcedure
+
+Procedure.s FormatCommand(exePath.s, args.s)
+  If args = ""
+    ProcedureReturn Quote(exePath)
+  EndIf
+  ProcedureReturn Quote(exePath) + " " + args
 EndProcedure
 
 Procedure.s JoinParams()
@@ -273,6 +289,16 @@ Procedure LogLine(line.s)
   AddElement(gPendingLog())
   gPendingLog() = line
   UnlockMutex(gMutex)
+EndProcedure
+
+Procedure FlushAndFreeLogging()
+  If gMutex
+    LockMutex(gMutex)
+    ClearList(gPendingLog())
+    UnlockMutex(gMutex)
+    FreeMutex(gMutex)
+    gMutex = 0
+  EndIf
 EndProcedure
 
 Procedure LogSection(title.s)
@@ -352,6 +378,7 @@ EndProcedure
 
 Procedure.i RelaunchElevatedIfNeeded()
   Protected rc.i
+  Protected params.s = JoinParams()
 
   If IsAdmin()
     LogLine("Elevation check: already running as administrator.")
@@ -360,7 +387,7 @@ Procedure.i RelaunchElevatedIfNeeded()
 
   ; Pass only args, not full command line.
   LogLine("Elevation check: requesting administrator privileges.")
-  rc = ShellExecuteW_(0, "runas", ProgramFilename(), JoinParams(), ExeDir(), 1)
+  rc = ShellExecuteW_(0, "runas", ProgramFilename(), params, ExeDir(), #SW_SHOW)
   If rc <= 32
     LogLine("ERROR: elevation request failed or was cancelled. ShellExecute rc=" + Str(rc))
     ShowInfo("Elevation Required", "Administrator privileges are required. The UAC prompt was cancelled or elevation failed.")
@@ -416,7 +443,7 @@ EndProcedure
 
 Procedure.i RunAndLog(exePath.s, args.s, workDir.s="")
   Protected p.i, line.s, exitCode.i
-  LogLine("RUN: " + Quote(exePath) + " " + args)
+  LogLine("RUN: " + FormatCommand(exePath, args))
   If workDir <> ""
     LogLine("WORKDIR: " + workDir)
   EndIf
@@ -1127,6 +1154,10 @@ Procedure.i ExportDiagnosticsZip()
   EndIf
   ClosePack(pack)
 
+  If DeleteDirectory(diagDir, "*", #PB_FileSystem_Recursive | #PB_FileSystem_Force) = 0
+    LogLine("WARN: diagnostics temp folder could not be removed: " + diagDir)
+  EndIf
+
   LogLine("Diagnostics: done: " + zipPath)
   ProcedureReturn #True
 EndProcedure
@@ -1144,6 +1175,21 @@ Procedure ExportThread(*dummy)
   EndIf
   LogLine("=== End Diagnostics Export ===")
   gIsExporting = #False
+EndProcedure
+
+Procedure.i StartExportThread()
+  If gIsRunning Or gIsExporting
+    ProcedureReturn #False
+  EndIf
+
+  gIsExporting = #True
+  If CreateThread(@ExportThread(), 0) = 0
+    gIsExporting = #False
+    LogLine("ERROR: failed to create diagnostics export thread.")
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn #True
 EndProcedure
 
 ; ----------------------------
@@ -1352,6 +1398,21 @@ Procedure Worker(*dummy)
   LogLine("Repair worker thread finished.")
 EndProcedure
 
+Procedure.i StartWorkerThread()
+  If gIsRunning Or gIsExporting
+    ProcedureReturn #False
+  EndIf
+
+  gIsRunning = #True
+  If CreateThread(@Worker(), 0) = 0
+    gIsRunning = #False
+    LogLine("ERROR: failed to create repair worker thread.")
+    ProcedureReturn #False
+  EndIf
+
+  ProcedureReturn #True
+EndProcedure
+
 ; ----------------------------
 ; CLI mode
 ; ----------------------------
@@ -1443,6 +1504,24 @@ Procedure.i ParseCliAndMaybeRun()
   Protected count.i = CountProgramParameters()
 
   If count = 0 : ProcedureReturn #False : EndIf
+
+  For i = 0 To count-1
+    p = ProgramParameter(i)
+    If Left(Lower(p), 1) = "/" Or Left(Lower(p), 1) = "-"
+      cmd = Lower(Mid(p, 2))
+    Else
+      cmd = Lower(p)
+    EndIf
+
+    Select cmd
+      Case "quiet"
+        gQuietMode = #True
+      Case "dryrun"
+        gDryRun = #True
+      Case "reboot"
+        gRebootAfter = #True
+    EndSelect
+  Next
 
   LogStartupContext("CLI")
 
@@ -1633,22 +1712,30 @@ InitLogging()
 ; CLI early-exit if requested
 If ParseCliAndMaybeRun()
   ReleaseInstanceMutex()
+  FlushAndFreeLogging()
   End
 EndIf
 
 If RelaunchElevatedIfNeeded() = 0
   ReleaseInstanceMutex()
+  FlushAndFreeLogging()
   End
 EndIf
 
 If AcquireInstanceMutex() = 0
+  FlushAndFreeLogging()
   End
 EndIf
 
 LogStartupContext("GUI")
 
-OpenWindow(#Win, 0, 0, 900, 660, #APP_NAME + " - " + version, #PB_Window_MinimizeGadget | #PB_Window_SystemMenu |
-                                                                 #PB_Window_ScreenCentered)
+If OpenWindow(#Win, 0, 0, 900, 660, #APP_NAME + " - " + version, #PB_Window_MinimizeGadget | #PB_Window_SystemMenu |
+                                                                  #PB_Window_ScreenCentered) = 0
+  LogLine("ERROR: failed to open main window.")
+  ReleaseInstanceMutex()
+  FlushAndFreeLogging()
+  End
+EndIf
 
 TextGadget(#PB_Any, 16, 14, 700, 20, "Selectable repair steps + diagnostics export. Log is saved in the Logs folder next to the EXE.")
 
@@ -1726,21 +1813,13 @@ Repeat
             EndIf
             NormalizeSelectedSteps()
             LogSelectedStepsSummary("Selected steps:")
-            gIsRunning = #True
-            If CreateThread(@Worker(), 0) = 0
-              gIsRunning = #False
-              LogLine("ERROR: failed to create repair worker thread.")
-            EndIf
+            StartWorkerThread()
           EndIf
 
         Case #BtnExport
           If gIsRunning = 0 And gIsExporting = 0
             LogLine("Diagnostics export requested from UI.")
-            gIsExporting = #True
-            If CreateThread(@ExportThread(), 0) = 0
-              gIsExporting = #False
-              LogLine("ERROR: failed to create diagnostics export thread.")
-            EndIf
+            StartExportThread()
           EndIf
       EndSelect
 
@@ -1750,11 +1829,12 @@ Repeat
 Until gShouldExit
 
 ReleaseInstanceMutex()
+FlushAndFreeLogging()
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 63
+; CursorPosition = 67
 ; FirstLine = 36
-; Folding = ------------
+; Folding = -------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -1763,12 +1843,12 @@ ReleaseInstanceMutex()
 ; UseIcon = WindowsUpdateRepair.ico
 ; Executable = ..\WindowsUpdateRepair.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,4
-; VersionField1 = 1,0,0,4
+; VersionField0 = 1,0,0,5
+; VersionField1 = 1,0,0,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = WindowsUpdateRepair
-; VersionField4 = 1.0.0.4
-; VersionField5 = 1.0.0.4
+; VersionField4 = 1.0.0.5
+; VersionField5 = 1.0.0.5
 ; VersionField6 = A Windows Update Repair Tool
 ; VersionField7 = WindowsUpdateRepair
 ; VersionField8 = WindowsUpdateRepair.exe
