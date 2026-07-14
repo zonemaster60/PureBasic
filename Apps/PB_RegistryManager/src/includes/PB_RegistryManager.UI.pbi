@@ -61,6 +61,8 @@ Procedure CreateGUI()
       
       MenuTitle("Tools")
       MenuItem(#MENU_TOOLS_AUTO_CLEANUP, "Automated Cleanup...")
+      MenuItem(#MENU_TOOLS_AUTO_CLEANUP_STARTUP, "Run Automated Cleanup at Windows Startup")
+      SetMenuItemState(#GADGET_MENU, #MENU_TOOLS_AUTO_CLEANUP_STARTUP, IsAutomatedCleanupStartupEnabled())
       MenuBar()
       MenuItem(#MENU_TOOLS_CLEANER, "Registry Cleaner...")
       MenuItem(#MENU_TOOLS_DISK_CLEANER, "Disk Cleaner...")
@@ -672,6 +674,18 @@ Procedure HandleToolsMenu(menuID.i)
     Case #MENU_TOOLS_AUTO_CLEANUP
       OpenAutomatedCleanup()
 
+    Case #MENU_TOOLS_AUTO_CLEANUP_STARTUP
+      If SetAutomatedCleanupStartup(Bool(Not IsAutomatedCleanupStartupEnabled()))
+        SetMenuItemState(#GADGET_MENU, #MENU_TOOLS_AUTO_CLEANUP_STARTUP, IsAutomatedCleanupStartupEnabled())
+        If IsAutomatedCleanupStartupEnabled()
+          UpdateStatusBar("Automated cleanup will run at Windows startup.")
+        Else
+          UpdateStatusBar("Automated cleanup startup task disabled.")
+        EndIf
+      Else
+        MessageRequester("Startup Task", "Could not update the automated cleanup startup task. Check the log for details.", #PB_MessageRequester_Error)
+      EndIf
+
     Case #MENU_TOOLS_CLEANER
       CleanRegistry()
 
@@ -873,7 +887,7 @@ Procedure HandleMenuEvent(menuID.i)
     Case #MENU_EDIT_NEW_KEY, #MENU_EDIT_NEW_VALUE, #MENU_EDIT_DELETE, #MENU_EDIT_COPY_PATH, #MENU_EDIT_PERMISSIONS, #MENU_EDIT_RENAME
       HandleEditMenu(menuID)
 
-    Case #MENU_TOOLS_AUTO_CLEANUP, #MENU_TOOLS_CLEANER, #MENU_TOOLS_DISK_CLEANER, #MENU_TOOLS_BACKUP, #MENU_TOOLS_RESTORE, #MENU_TOOLS_MONITOR, #MENU_TOOLS_SNAPSHOT, #MENU_TOOLS_HEX_EXTERNAL
+    Case #MENU_TOOLS_AUTO_CLEANUP, #MENU_TOOLS_AUTO_CLEANUP_STARTUP, #MENU_TOOLS_CLEANER, #MENU_TOOLS_DISK_CLEANER, #MENU_TOOLS_BACKUP, #MENU_TOOLS_RESTORE, #MENU_TOOLS_MONITOR, #MENU_TOOLS_SNAPSHOT, #MENU_TOOLS_HEX_EXTERNAL
       HandleToolsMenu(menuID)
 
     Case #MENU_VIEW_64BIT, #MENU_VIEW_REFRESH, #MENU_VIEW_THEME_SYSTEM, #MENU_VIEW_THEME_LIGHT, #MENU_VIEW_THEME_DARK, #MENU_VIEW_THEME_BLUE, #MENU_VIEW_THEME_FOREST, #MENU_VIEW_THEME_WINDOW, #MENU_VIEW_THEME_PANEL, #MENU_VIEW_THEME_TEXT, #MENU_VIEW_THEME_ACCENT

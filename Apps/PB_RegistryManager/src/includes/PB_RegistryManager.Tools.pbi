@@ -1203,8 +1203,10 @@ Procedure OpenAutomatedCleanup()
     ProcedureReturn
   EndIf
 
-  If MessageRequester("Automated Cleanup", "Run all-in-one automated cleanup now?" + #CRLF$ + #CRLF$ + "This will create or reuse a safety registry backup, clean selected registry issues, scan Safe-mode disk cleaner rules, and delete matching safe disk cleanup results without additional prompts." + #CRLF$ + #CRLF$ + "Continue?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning) <> #PB_MessageRequester_Yes
-    ProcedureReturn
+  If Not AutoCleanupStartupMode
+    If MessageRequester("Automated Cleanup", "Run all-in-one automated cleanup now?" + #CRLF$ + #CRLF$ + "This will create or reuse a safety registry backup, clean selected registry issues, scan Safe-mode disk cleaner rules, and delete matching safe disk cleanup results without additional prompts." + #CRLF$ + #CRLF$ + "Continue?", #PB_MessageRequester_YesNo | #PB_MessageRequester_Warning) <> #PB_MessageRequester_Yes
+      ProcedureReturn
+    EndIf
   EndIf
 
   window = OpenWindow(#WINDOW_AUTO_CLEANUP, 0, 0, 640, 430, "Automated Cleanup", #PB_Window_SystemMenu | #PB_Window_WindowCentered, WindowID(#WINDOW_MAIN))

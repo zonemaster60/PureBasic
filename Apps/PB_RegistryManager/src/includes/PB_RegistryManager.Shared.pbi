@@ -21,7 +21,7 @@ EndImport
 ;- Core Types
 
 #APP_NAME = "PB_RegistryManager"
-Global AppVersion.s = "v1.0.2.1"
+Global AppVersion.s = "v1.0.2.2"
 
 Structure RegKeyInfo
   Name.s
@@ -235,6 +235,7 @@ Global LastSelectedItem.i = -1
 Global NewMap ActiveLoadThreads.i()
 Global LoadKeysMutex.i = 0
 Global LoadValuesMutex.i = 0
+Global AutoCleanupStartupMode.i = #False
 
 ;- App Constants
 
@@ -317,6 +318,7 @@ Global LoadValuesMutex.i = 0
 #MENU_TOOLS_MONITOR = 25
 #MENU_TOOLS_SNAPSHOT = 26
 #MENU_TOOLS_HEX_EXTERNAL = 27
+#MENU_TOOLS_AUTO_CLEANUP_STARTUP = 28
 #MENU_HELP_ONLINE = 30
 #MENU_HELP_ABOUT = 31
 #MENU_DEBUG_STRESS = 32
@@ -408,6 +410,8 @@ Declare.s EscapePowerShellLiteral(text.s)
 Declare.i StartBackupProcess(fileName.s, reason.s, isAuto.i, mode.s = "full", rootKey.i = 0, keyPath.s = "")
 Declare OpenDiskCleaner()
 Declare OpenAutomatedCleanup()
+Declare.i IsAutomatedCleanupStartupEnabled()
+Declare.i SetAutomatedCleanupStartup(enabled.i)
 Declare ApplyRegistryThemeToWindow(window.i)
 Declare ApplyRegistryThemeToGadget(gadget.i, useWindowBackground.i = #False)
 Declare LoadRegistryTheme()
@@ -732,6 +736,80 @@ EndProcedure
 
 Procedure.s EscapePowerShellLiteral(text.s)
   ProcedureReturn ReplaceString(text, "'", "''")
+EndProcedure
+
+Procedure.s GetEnvVar(name.s)
+  ProcedureReturn GetEnvironmentVariable(name)
+EndProcedure
+
+Procedure.s CurrentUserSam()
+  Protected user.s = Trim(GetEnvVar("USERNAME"))
+  Protected domain.s = Trim(GetEnvVar("USERDOMAIN"))
+  If user = "" : ProcedureReturn "" : EndIf
+  If domain <> "" : ProcedureReturn domain + "\" + user : EndIf
+  ProcedureReturn user
+EndProcedure
+
+Procedure.i RunHiddenAndWait(exe.s, args.s)
+  Protected program.i
+  Protected exitCode.i = -1
+
+  LogInfo("RunHiddenAndWait", "Run: " + exe + " " + args)
+  program = RunProgram(exe, args, "", #PB_Program_Open | #PB_Program_Read | #PB_Program_Hide)
+  If program = 0
+    LogError("RunHiddenAndWait", "Failed to start: " + exe)
+    ProcedureReturn -1
+  EndIf
+
+  While ProgramRunning(program)
+    While AvailableProgramOutput(program)
+      ReadProgramString(program)
+    Wend
+    Delay(10)
+  Wend
+
+  exitCode = ProgramExitCode(program)
+  CloseProgram(program)
+  LogInfo("RunHiddenAndWait", "Exit code: " + Str(exitCode) + " | " + exe)
+  ProcedureReturn exitCode
+EndProcedure
+
+Procedure.s AutomatedCleanupStartupTaskName()
+  ProcedureReturn #APP_NAME + "_AutomatedCleanup"
+EndProcedure
+
+Procedure.i IsAutomatedCleanupStartupEnabled()
+  Protected args.s = "/Query /TN " + #DQUOTE$ + AutomatedCleanupStartupTaskName() + #DQUOTE$
+  ProcedureReturn Bool(RunHiddenAndWait("schtasks.exe", args) = 0)
+EndProcedure
+
+Procedure.i SetAutomatedCleanupStartup(enabled.i)
+  Protected taskName.s = AutomatedCleanupStartupTaskName()
+  Protected exePath.s = ProgramFilename()
+  Protected workDir.s = GetPathPart(exePath)
+  Protected userSam.s = CurrentUserSam()
+  Protected psCmd.s
+  Protected args.s
+
+  If enabled
+    If userSam = ""
+      LogError("SetAutomatedCleanupStartup", "Cannot resolve current user for scheduled task")
+      ProcedureReturn #False
+    EndIf
+
+    LogInfo("SetAutomatedCleanupStartup", "Enabling automated cleanup at startup")
+    psCmd = "Register-ScheduledTask -TaskName '" + EscapePowerShellLiteral(taskName) + "' " +
+            "-Action (New-ScheduledTaskAction -Execute '" + EscapePowerShellLiteral(exePath) + "' -WorkingDirectory '" + EscapePowerShellLiteral(workDir) + "' -Argument '/AUTOCLEANUP') " +
+            "-Trigger (New-ScheduledTaskTrigger -AtLogOn -User '" + EscapePowerShellLiteral(userSam) + "') " +
+            "-Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries) " +
+            "-Principal (New-ScheduledTaskPrincipal -UserId '" + EscapePowerShellLiteral(userSam) + "' -LogonType Interactive -RunLevel Highest) -Force"
+    args = "-NoProfile -ExecutionPolicy Bypass -Command " + #DQUOTE$ + psCmd + #DQUOTE$
+    ProcedureReturn Bool(RunHiddenAndWait("powershell.exe", args) = 0)
+  EndIf
+
+  LogInfo("SetAutomatedCleanupStartup", "Disabling automated cleanup at startup")
+  args = "/Delete /F /TN " + #DQUOTE$ + taskName + #DQUOTE$
+  ProcedureReturn Bool(RunHiddenAndWait("schtasks.exe", args) = 0)
 EndProcedure
 
 Procedure.i StartBackupProcess(fileName.s, reason.s, isAuto.i, mode.s = "full", rootKey.i = 0, keyPath.s = "")
@@ -1594,6 +1672,6 @@ EndProcedure
 ; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 23
 ; FirstLine = 9
-; Folding = -------
+; Folding = --------
 ; EnableXP
 ; DPIAware

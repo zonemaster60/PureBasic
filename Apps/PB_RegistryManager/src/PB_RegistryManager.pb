@@ -14,7 +14,14 @@ XIncludeFile "includes\PB_RegistryManager.Editor.pbi"
 XIncludeFile "includes\PB_RegistryManager.Tools.pbi"
 XIncludeFile "includes\PB_RegistryManager.UI.pbi"
 
-Define fileName.s, helpPath.s
+Define fileName.s, helpPath.s, argIndex.i, arg.s
+
+For argIndex = 0 To CountProgramParameters() - 1
+  arg = UCase(ProgramParameter(argIndex))
+  If arg = "/AUTOCLEANUP" Or arg = "--AUTOCLEANUP"
+    AutoCleanupStartupMode = #True
+  EndIf
+Next
 
 ; Initialize error logging
 If Not InitErrorLog()
@@ -35,6 +42,10 @@ LogInfo("Main", "Auto-backup directory: " + GetBackupDirectory())
 
 If CreateGUI()
   LogInfo("Main", "Entering main event loop")
+  If AutoCleanupStartupMode
+    LogInfo("Main", "Automated cleanup startup mode detected")
+    OpenAutomatedCleanup()
+  EndIf
   
   Repeat
     Define eventID.i = WaitWindowEvent()
@@ -80,12 +91,12 @@ Exit()
 ; UseIcon = PB_RegistryManager.ico
 ; Executable = ..\PB_RegistryManager.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,2,1
-; VersionField1 = 1,0,2,1
+; VersionField0 = 1,0,2,2
+; VersionField1 = 1,0,2,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_RegistryManager
-; VersionField4 = 1.0.2.1
-; VersionField5 = 1.0.2.1
+; VersionField4 = 1.0.2.2
+; VersionField5 = 1.0.2.2
 ; VersionField6 = A full featured Registry Manager built with PureBasic
 ; VersionField7 = PB_RegistryManager
 ; VersionField8 = PB_RegistryManager.exe
