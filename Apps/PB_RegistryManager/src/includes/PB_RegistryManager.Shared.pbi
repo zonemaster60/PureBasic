@@ -21,7 +21,7 @@ EndImport
 ;- Core Types
 
 #APP_NAME = "PB_RegistryManager"
-Global AppVersion.s = "v1.0.2.3"
+Global AppVersion.s = "v1.0.2.4"
 
 Structure RegKeyInfo
   Name.s
@@ -412,6 +412,8 @@ Declare OpenDiskCleaner()
 Declare OpenAutomatedCleanup()
 Declare.i IsAutomatedCleanupStartupEnabled()
 Declare.i SetAutomatedCleanupStartup(enabled.i)
+Declare.i ShouldRunAutomatedCleanupToday()
+Declare MarkAutomatedCleanupRunToday()
 Declare ApplyRegistryThemeToWindow(window.i)
 Declare ApplyRegistryThemeToGadget(gadget.i, useWindowBackground.i = #False)
 Declare LoadRegistryTheme()
@@ -432,9 +434,37 @@ Procedure LoadRegistryTheme()
 EndProcedure
 
 Procedure SaveRegistryTheme()
-  If CreatePreferences(AppPath + "PB_RegistryManager.ini")
+  If OpenPreferences(AppPath + "PB_RegistryManager.ini") Or CreatePreferences(AppPath + "PB_RegistryManager.ini")
     PreferenceGroup("Theme")
     HandyThemeWritePreferences(@AppTheme)
+    ClosePreferences()
+  EndIf
+EndProcedure
+
+Procedure.s AutomatedCleanupTodayKey()
+  ProcedureReturn FormatDate("%yyyy-%mm-%dd", Date())
+EndProcedure
+
+Procedure.s ReadAutomatedCleanupLastRunDate()
+  Protected lastRun.s = ""
+
+  If OpenPreferences(AppPath + "PB_RegistryManager.ini")
+    PreferenceGroup("AutomatedCleanup")
+    lastRun = ReadPreferenceString("LastStartupRunDate", "")
+    ClosePreferences()
+  EndIf
+
+  ProcedureReturn lastRun
+EndProcedure
+
+Procedure.i ShouldRunAutomatedCleanupToday()
+  ProcedureReturn Bool(ReadAutomatedCleanupLastRunDate() <> AutomatedCleanupTodayKey())
+EndProcedure
+
+Procedure MarkAutomatedCleanupRunToday()
+  If OpenPreferences(AppPath + "PB_RegistryManager.ini") Or CreatePreferences(AppPath + "PB_RegistryManager.ini")
+    PreferenceGroup("AutomatedCleanup")
+    WritePreferenceString("LastStartupRunDate", AutomatedCleanupTodayKey())
     ClosePreferences()
   EndIf
 EndProcedure
@@ -1672,6 +1702,6 @@ EndProcedure
 ; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 23
 ; FirstLine = 9
-; Folding = --------
+; Folding = ---------
 ; EnableXP
 ; DPIAware

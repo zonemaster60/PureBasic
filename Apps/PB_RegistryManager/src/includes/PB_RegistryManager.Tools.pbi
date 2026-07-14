@@ -1270,6 +1270,7 @@ Procedure OpenAutomatedCleanup()
 
   If AutoCleanupStartupMode
     AutomatedCleanupMessage(editorID, "Startup automated cleanup complete. Exiting in 10 seconds...")
+    MarkAutomatedCleanupRunToday()
     waitStart = ElapsedMilliseconds()
     While ElapsedMilliseconds() - waitStart < 10000
       While WindowEvent()
