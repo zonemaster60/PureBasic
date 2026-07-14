@@ -2,7 +2,7 @@
 
 EnableExplicit
 
-XIncludeFile "HandySearch.Declarations.pbi"
+XIncludeFile "includes\HandySearch.Declarations.pbi"
 
 SetCurrentDirectory(AppPath)
 
@@ -19,14 +19,14 @@ If gInstallStartupTaskMode = #False And gRemoveStartupTaskMode = #False
   EndIf
 EndIf
 
-XIncludeFile "HandySearch.StartupOs.pbi"
-XIncludeFile "HandySearch.ConfigIni.pbi"
-XIncludeFile "HandySearch.Database.pbi"
-XIncludeFile "HandySearch.SearchQuery.pbi"
-XIncludeFile "HandySearch.IndexingPipeline.pbi"
-XIncludeFile "HandySearch.ActionsSettings.pbi"
-XIncludeFile "HandySearch.UiShell.pbi"
-XIncludeFile "HandySearch.UiEvents.pbi"
+XIncludeFile "includes\HandySearch.StartupOs.pbi"
+XIncludeFile "includes\HandySearch.ConfigIni.pbi"
+XIncludeFile "includes\HandySearch.Database.pbi"
+XIncludeFile "includes\HandySearch.SearchQuery.pbi"
+XIncludeFile "includes\HandySearch.IndexingPipeline.pbi"
+XIncludeFile "includes\HandySearch.ActionsSettings.pbi"
+XIncludeFile "includes\HandySearch.UiShell.pbi"
+XIncludeFile "includes\HandySearch.UiEvents.pbi"
 
 ; === Main ===
 
@@ -105,7 +105,7 @@ If TrayIconHandle : DestroyIcon_(TrayIconHandle) : TrayIconHandle = 0 : EndIf
 If hMutex : CloseHandle_(hMutex) : EndIf
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 6
+; CursorPosition = 28
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -114,12 +114,12 @@ If hMutex : CloseHandle_(hMutex) : EndIf
 ; UseIcon = HandySearch.ico
 ; Executable = ..\HandySearch.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,1,9
-; VersionField1 = 1,0,1,9
+; VersionField0 = 1,0,2,0
+; VersionField1 = 1,0,2,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandySearch
-; VersionField4 = 1.0.1.9
-; VersionField5 = 1.0.1.9
+; VersionField4 = 1.0.2.0
+; VersionField5 = 1.0.2.0
 ; VersionField6 = Everything-like search tool for desktop and web
 ; VersionField7 = HandySearch
 ; VersionField8 = HandySearch.exe

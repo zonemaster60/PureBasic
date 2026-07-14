@@ -2,7 +2,7 @@
 
 #APP_NAME   = "HandySearch"
 #EMAIL_NAME = "zonemaster60@gmail.com"
-Global version.s = "v1.0.1.9"
+Global version.s = "v1.0.2.0"
 
 ; Crash logging (best-effort)
 Declare InitCrashLogging()
