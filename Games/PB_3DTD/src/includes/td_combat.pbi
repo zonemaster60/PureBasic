@@ -900,7 +900,7 @@ Procedure ApplyHitFeedback(*Enemy.Enemy, SourceType.i)
   If SourceType = #TowerType_Pulse
     *Enemy\burnTimer = 1.8
     *Enemy\burnTick = 0.35
-    *Enemy\burnDamage = 4 + Wave * 0.2
+    *Enemy\burnDamage = (4 + Wave * 0.2) * ConfigBurnScale
   EndIf
 
   *Enemy\flashTimer = 0.10

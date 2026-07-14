@@ -304,8 +304,6 @@ Procedure ProcessInput()
             SetLevel(CurrentLevel + 1)
           EndIf
           RestartGame()
-        ElseIf GameState <> #GameState_Playing
-          CloseOverlay()
         Else
           RestartGame()
         EndIf

@@ -200,7 +200,7 @@ Structure Projectile
   special.i
 EndStructure
 
-Global version.s = "v1.0.0.3"
+Global version.s = "v1.0.0.4"
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
 
@@ -458,11 +458,11 @@ Declare PlayTowerFireSound(TowerType.i)
 Declare PlayHitSound()
 Declare PlayWaveSound()
 
-XIncludeFile "td_ui.pbi"
-XIncludeFile "td_scene.pbi"
-XIncludeFile "td_towers.pbi"
-XIncludeFile "td_combat.pbi"
-XIncludeFile "td_input.pbi"
+XIncludeFile "includes\td_ui.pbi"
+XIncludeFile "includes\td_scene.pbi"
+XIncludeFile "includes\td_towers.pbi"
+XIncludeFile "includes\td_combat.pbi"
+XIncludeFile "includes\td_input.pbi"
 
 CreateScene()
 CreateSidebar()
@@ -519,8 +519,8 @@ Repeat
 ForEver
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 202
-; FirstLine = 174
+; CursorPosition = 464
+; FirstLine = 428
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -529,12 +529,12 @@ ForEver
 ; UseIcon = PB_3DTD.ico
 ; Executable = ..\PB_3DTD.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_3DTD
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = A 3D Tower Defense game with levels
 ; VersionField7 = PB_3DTD
 ; VersionField8 = PB_3DTD.exe
