@@ -364,11 +364,11 @@ Enumeration MenuItems
   #MI_Help_About
 EndEnumeration
 
-XIncludeFile "MyGameBooster.Declarations.pbi"
-XIncludeFile "MyGameBooster.Core.pbi"
-XIncludeFile "MyGameBooster.SteamServices.pbi"
-XIncludeFile "MyGameBooster.Games.pbi"
-XIncludeFile "MyGameBooster.App.pbi"
+XIncludeFile "includes\MyGameBooster.Declarations.pbi"
+XIncludeFile "includes\MyGameBooster.Core.pbi"
+XIncludeFile "includes\MyGameBooster.SteamServices.pbi"
+XIncludeFile "includes\MyGameBooster.Games.pbi"
+XIncludeFile "includes\MyGameBooster.App.pbi"
 
 UseJPEGImageDecoder()
 UseJPEGImageEncoder()
@@ -383,8 +383,8 @@ InitFonts()
 RunApplication()
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 73
-; FirstLine = 51
+; CursorPosition = 370
+; FirstLine = 341
 ; Folding = --
 ; Optimizer
 ; EnableThread
