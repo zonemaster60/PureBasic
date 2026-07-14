@@ -250,7 +250,7 @@ Procedure Main()
     If startupChoice = "1"
       ; start new game
     ElseIf startupChoice = "2"
-      If SaveGameManager(@player)
+      If SaveGameManager(@player, #False)
         skipInit = #True
       Else
         Continue
@@ -643,7 +643,7 @@ Procedure Main()
           Protected navMoved.i
           Protected oldX.i = gx
           Protected oldY.i = gy
-          navMoved = Nav(@player, navDir, navSteps, @enemyTemplate, @cs)
+          navMoved = Nav(@player, navDir, navSteps, @enemyTemplate, @enemy, @cs)
           If gMode = #MODE_TACTICAL : Continue : EndIf
           If navMoved <= 0
             RedrawGalaxy(@player)

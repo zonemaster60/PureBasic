@@ -5,14 +5,14 @@
 
 EnableExplicit
 
-#APP_NAME = "starcomm"
+#APP_NAME = "StarComm"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 #MACRO_QUEUE_MAX = 500  ; max commands queued (large to accommodate REPEAT expansion)
 #MACRO_FILE_LINE_MAX = 100
 
 Global AppPath.s = GetPathPart(ProgramFilename())
 SetCurrentDirectory(AppPath)
-Global version.s = "v1.1.6.0"
+Global version.s = "v1.1.6.5"
 
 ; Probe system
 Global gProbeRange.i = 3
@@ -156,7 +156,7 @@ Declare GenerateDockedShips(stationType.i)
 Declare RefreshDockedShips()
 Declare PrintDockedShips(*p.Ship)
 Declare MinePlanet(*p.Ship)
-Declare Nav(*p.Ship, dir.s, steps.i, *enemyTemplate.Ship = 0, *cs.CombatState = 0)
+Declare.i Nav(*p.Ship, dir.s, steps.i, *enemyTemplate.Ship = 0, *enemy.Ship = 0, *cs.CombatState = 0)
 Declare EnterCombat(*p.Ship, *enemy.Ship, *cs.CombatState)
 Declare LeaveCombat()
 Declare ResetGameState(*p.Ship)
@@ -186,7 +186,7 @@ Declare.i SaveGame(*p.Ship, slotName.s = "autosave")
 Declare.i LoadGame(*p.Ship, slotName.s = "autosave")
 Declare DeleteSaveGame(slotName.s)
 Declare ListSaveGames()
-Declare SaveGameManager(*p.Ship)
+Declare.i SaveGameManager(*p.Ship, allowSave.i = #True)
 
 
 ; Crew recruitment
@@ -197,6 +197,7 @@ Declare RecruitCrew(*p.Ship, index.i)
 Declare.i CrewPositionFilled(*p.Ship, role.i)
 Declare ShipComputerTerminal(*p.Ship)
 Declare.s GetNextInput()
+Declare.s ReadConsoleInput()
 Declare InitMacroFolder()
 Declare MacroList()
 Declare MacroCreate(name.s)
@@ -707,21 +708,21 @@ XIncludeFile "includes/starcomm_main.pbi"
 Main()
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 14
+; CursorPosition = 7
 ; Folding = -
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; UseIcon = starcomm.ico
-; Executable = ..\starcomm.exe
+; Executable = ..\StarComm.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,1,6,0
-; VersionField1 = 1,1,6,0
+; VersionField0 = 1,1,6,5
+; VersionField1 = 1,1,6,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = StarComm
-; VersionField4 = 1.1.6.0
-; VersionField5 = 1.1.6.0
+; VersionField4 = 1.1.6.5
+; VersionField5 = 1.1.6.5
 ; VersionField6 = A starship sim based on an old scifi TV series
 ; VersionField7 = StarComm
 ; VersionField8 = StarComm.exe

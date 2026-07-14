@@ -655,7 +655,7 @@ Procedure DeleteSaveGame(slotName.s)
   EndIf
 EndProcedure
 
-Procedure.i SaveGameManager(*p.Ship)
+Procedure.i SaveGameManager(*p.Ship, allowSave.i = #True)
   Protected cmd.s, slot.s
   Protected gameLoaded.i = #False
   Repeat
@@ -669,7 +669,9 @@ Procedure.i SaveGameManager(*p.Ship)
     ConsoleColor(#C_YELLOW, #C_BLACK)
     PrintN("COMMANDS:")
     ConsoleColor(#C_WHITE, #C_BLACK)
-    PrintN("  SAVE <name>    - Save current session to slot")
+    If allowSave
+      PrintN("  SAVE <name>    - Save current session to slot")
+    EndIf
     PrintN("  LOAD <name>    - Restore session from slot")
     PrintN("  DELETE <name>  - Permanently remove save file")
     PrintN("  RENAME <a b>   - Rename slot 'a' to 'b'")
@@ -678,7 +680,7 @@ Procedure.i SaveGameManager(*p.Ship)
     ConsoleColor(#C_LIGHTCYAN, #C_BLACK)
     Print("SAVES> ")
     ResetColor()
-    Protected line.s = Input()
+    Protected line.s = ReadConsoleInput()
     line = Trim(line)
     If line = "" : Continue : EndIf
     cmd = TrimLower(StringField(line, 1, " "))
@@ -686,12 +688,14 @@ Procedure.i SaveGameManager(*p.Ship)
     Protected slot2.s = Trim(StringField(line, 3, " "))
     
     If cmd = "save"
-      If slot <> ""
+      If allowSave = 0
+        PrintN("SAVE is disabled from startup. Load a game or start a new session first.")
+      ElseIf slot <> ""
         SaveGame(*p, slot)
       Else
         PrintN("Usage: SAVE <name>")
       EndIf
-      PrintN("< Press ENTER >") : Input()
+      PrintN("< Press ENTER >") : ReadConsoleInput()
     ElseIf cmd = "load"
       If slot <> ""
         If LoadGame(*p, slot)
@@ -702,21 +706,21 @@ Procedure.i SaveGameManager(*p.Ship)
       Else
         PrintN("Usage: LOAD <name>")
       EndIf
-      PrintN("< Press ENTER >") : Input()
+      PrintN("< Press ENTER >") : ReadConsoleInput()
     ElseIf cmd = "delete"
       If slot <> ""
         DeleteSaveGame(slot)
       Else
         PrintN("Usage: DELETE <name>")
       EndIf
-      PrintN("< Press ENTER >") : Input()
+      PrintN("< Press ENTER >") : ReadConsoleInput()
     ElseIf cmd = "rename"
       If slot <> "" And slot2 <> ""
         Protected oldPath.s = GetSavePath(slot)
         Protected newPath.s = GetSavePath(slot2)
         If oldPath = "" Or newPath = ""
           PrintN("Invalid save slot name.")
-          PrintN("< Press ENTER >") : Input()
+          PrintN("< Press ENTER >") : ReadConsoleInput()
           Continue
         EndIf
         If FileSize(oldPath) < 0
@@ -735,7 +739,7 @@ Procedure.i SaveGameManager(*p.Ship)
       Else
         PrintN("Usage: RENAME <old> <new>")
       EndIf
-      PrintN("< Press ENTER >") : Input()
+      PrintN("< Press ENTER >") : ReadConsoleInput()
     ElseIf cmd = "back"
       Break
     EndIf

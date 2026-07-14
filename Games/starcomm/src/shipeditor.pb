@@ -1,11 +1,13 @@
 EnableExplicit
 
-#APP_NAME1 = "shipeditor"
-#APP_NAME2 = "starcomm"
+#APP_NAME1 = "ShipEditor"
+#APP_NAME2 = "StarComm"
 
-Global version.s = "v1.0.0.1"
-Global AppPath.s = GetFilePart(ProgramFilename())
-SetCurrentDirectory(AppPath)
+Global version.s = "v1.0.0.2"
+Global AppPath.s = GetPathPart(ProgramFilename())
+If AppPath <> ""
+  SetCurrentDirectory(AppPath)
+EndIf
 
 ; Console color constants (Windows console palette)
 #C_BLACK      = 0
@@ -109,6 +111,9 @@ EndProcedure
 ;==============================================================================
 Procedure.i LoadAllShips()
   Protected grp.s
+  Protected i.i
+  Protected activePlayerFound.i
+  Protected activeEnemyFound.i
 
   If OpenPreferences(gIniPath) = 0
     ConsoleColor(#C_LIGHTRED, #C_BLACK)
@@ -150,6 +155,37 @@ Procedure.i LoadAllShips()
   Wend
 
   ClosePreferences()
+
+  For i = 1 To gPlayerCount
+    If gPlayerShips(i)\section = gActivePlayer
+      activePlayerFound = 1
+      Break
+    EndIf
+  Next
+  If activePlayerFound = 0 And gPlayerCount > 0
+    gActivePlayer = "PlayerShip"
+    If OpenPreferences(gIniPath)
+      PreferenceGroup("Game")
+      WritePreferenceString("PlayerSection", gActivePlayer)
+      ClosePreferences()
+    EndIf
+  EndIf
+
+  For i = 1 To gEnemyCount
+    If gEnemyShips(i)\section = gActiveEnemy
+      activeEnemyFound = 1
+      Break
+    EndIf
+  Next
+  If activeEnemyFound = 0 And gEnemyCount > 0
+    gActiveEnemy = "EnemyShip"
+    If OpenPreferences(gIniPath)
+      PreferenceGroup("Game")
+      WritePreferenceString("EnemySection", gActiveEnemy)
+      ClosePreferences()
+    EndIf
+  EndIf
+
   ProcedureReturn 1
 EndProcedure
 
@@ -536,6 +572,7 @@ Procedure DeleteShip(shipType.i, idx.i)
   Protected name.s
   Protected confirm.s
   Protected isDefaultShip.i
+  Protected wasActive.i
 
   If shipType = 0
     section        = gPlayerShips(idx)\section
@@ -556,8 +593,10 @@ Procedure DeleteShip(shipType.i, idx.i)
 
   ; Warn if it is the active variant
   If (shipType = 0 And section = gActivePlayer) Or (shipType = 1 And section = gActiveEnemy)
+    wasActive = 1
     ConsoleColor(#C_YELLOW, #C_BLACK)
     PrintN("Warning: '" + section + "' is currently the active ship.")
+    PrintN("Deleting it will reset the active section to the protected default.")
     ResetColor()
   EndIf
 
@@ -573,6 +612,14 @@ Procedure DeleteShip(shipType.i, idx.i)
   EndIf
 
   RemovePreferenceGroup(section)
+  If wasActive
+    PreferenceGroup("Game")
+    If shipType = 0
+      WritePreferenceString("PlayerSection", "PlayerShip")
+    Else
+      WritePreferenceString("EnemySection", "EnemyShip")
+    EndIf
+  EndIf
   ClosePreferences()
 
   ConsoleColor(#C_GREEN, #C_BLACK)
@@ -734,22 +781,47 @@ EndProcedure
 ; Locate starcomm_ships.ini relative to this executable
 ;==============================================================================
 Procedure.i ResolveIniPath()
-  gIniPath = GetPathPart(ProgramFilename()) + "data\" + #APP_NAME2 + "_ships.ini"
-  If FileSize(gIniPath) < 0
-    ; Fallback for IDE runs
-    gIniPath = GetCurrentDirectory() + "data\" + #APP_NAME2 + "_ships.ini"
+  Protected fileName.s = #APP_NAME2 + "_ships.ini"
+  Protected tried.s = ""
+  Protected candidate.s
+
+  candidate = AppPath + "data" + #PS$ + fileName
+  tried + candidate + #CRLF$
+  If FileSize(candidate) >= 0
+    gIniPath = candidate
+    ProcedureReturn 1
   EndIf
-  If FileSize(gIniPath) < 0
+
+  candidate = GetCurrentDirectory() + "data" + #PS$ + fileName
+  tried + candidate + #CRLF$
+  If FileSize(candidate) >= 0
+    gIniPath = candidate
+    ProcedureReturn 1
+  EndIf
+
+  candidate = AppPath + ".." + #PS$ + "data" + #PS$ + fileName
+  tried + candidate + #CRLF$
+  If FileSize(candidate) >= 0
+    gIniPath = candidate
+    ProcedureReturn 1
+  EndIf
+
+  candidate = GetCurrentDirectory() + ".." + #PS$ + "data" + #PS$ + fileName
+  tried + candidate + #CRLF$
+  If FileSize(candidate) >= 0
+    gIniPath = candidate
+    ProcedureReturn 1
+  EndIf
+
     ConsoleColor(#C_LIGHTRED, #C_BLACK)
     PrintN("ERROR: Cannot find " + #APP_NAME2 + "_ships.ini")
     ResetColor()
-    PrintN("Tried: " + gIniPath)
+    PrintN("Tried:")
+    PrintN(tried)
     PrintN("Run shipeditor from the starcomm root directory.")
     PrintN("Press ENTER to exit.")
     Input()
     ProcedureReturn 0
-  EndIf
-  ProcedureReturn 1
 EndProcedure
 
 ;==============================================================================
@@ -774,23 +846,23 @@ If OpenConsole("Starcomm Ship Editor " + version)
   CloseConsole()
 EndIf
 
-; IDE Options = PureBasic 6.30 (Windows - x64)
+; IDE Options = PureBasic 6.40 (Windows - x64)
 ; ExecutableFormat = Console
-; CursorPosition = 5
+; CursorPosition = 3
 ; Folding = ----
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; EnableAdmin
 ; UseIcon = shipeditor.ico
-; Executable = ..\shipeditor.exe
+; Executable = ..\ShipEditor.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,1
-; VersionField1 = 1,0,0,1
+; VersionField0 = 1,0,0,2
+; VersionField1 = 1,0,0,2
 ; VersionField2 = ZoneSoft
 ; VersionField3 = shipeditor
-; VersionField4 = 1.0.0.1
-; VersionField5 = 1.0.0.1
+; VersionField4 = 1.0.0.2
+; VersionField5 = 1.0.0.2
 ; VersionField6 = A ship editor for the game starcomm
 ; VersionField7 = shipeditor
 ; VersionField8 = shipeditor.exe

@@ -407,7 +407,7 @@ Procedure.s FindPathMission(startMapX.i, startMapY.i, startX.i, startY.i, destMa
       If ent = #ENT_WORMHOLE And allowWormhole = 0
         Continue
       EndIf
-      If ent = #ENT_ENEMY And allowEnemy = 0
+      If (ent = #ENT_ENEMY Or ent = #ENT_PIRATE Or ent = #ENT_PLANETKILLER) And allowEnemy = 0
         Continue
       EndIf
 

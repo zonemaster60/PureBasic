@@ -3,8 +3,10 @@
 ; XIncluded from starcomm.pb
 
 Procedure InitMacroFolder()
-  If FileSize(MacroPath) = -1
-    CreateDirectory(MacroPath)
+  If FileSize(MacroPath) <> -2
+    If CreateDirectory(MacroPath) = 0
+      PrintN("ERROR: Could not create macro folder: " + MacroPath)
+    EndIf
   EndIf
 EndProcedure
 
@@ -170,6 +172,8 @@ CompilerIf Defined(TEST_SCRIPT, #PB_Constant) = 0
   #TEST_SCRIPT = "test_scripts/smoke_start_quit.txt"
 CompilerEndIf
 
+#DEFAULT_TEST_SCRIPT = "test_scripts/smoke_start_quit.txt"
+
 Procedure LoadTestInputScript()
   If gTestInputLoaded
     ProcedureReturn
@@ -179,12 +183,26 @@ Procedure LoadTestInputScript()
 
   Protected testScriptName.s = ReplaceString(#TEST_SCRIPT, "'", "")
   testScriptName = ReplaceString(testScriptName, Chr(34), "")
-  Protected testPath.s = AppPath + testScriptName
+  If testScriptName = "" Or testScriptName = "0"
+    testScriptName = #DEFAULT_TEST_SCRIPT
+  EndIf
+  Protected normalizedScriptName.s = ReplaceString(testScriptName, "/", #PS$)
+  Protected testPath.s = testScriptName
   Protected f.i
   Protected line.s
 
   If FileSize(testPath) < 0
-    ProcedureReturn
+    testPath = normalizedScriptName
+    If FileSize(testPath) < 0
+      testPath = AppPath + testScriptName
+      If FileSize(testPath) < 0
+        testPath = AppPath + normalizedScriptName
+        If FileSize(testPath) < 0
+          PrintN("TEST_MODE: input script not found: " + testScriptName)
+          ProcedureReturn
+        EndIf
+      EndIf
+    EndIf
   EndIf
 
   f = ReadFile(#PB_Any, testPath)

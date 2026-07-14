@@ -9,7 +9,12 @@ EndProcedure
 Procedure AppendFileLine(path.s, line.s)
   ; Best-effort logging: never crash gameplay.
   Protected f.i
+  Protected parent.s
   If path = "" : ProcedureReturn : EndIf
+  parent = GetPathPart(path)
+  If parent <> "" And FileSize(parent) <> -2
+    CreateDirectory(parent)
+  EndIf
   f = OpenFile(#PB_Any, path, #PB_File_Append)
   If f = 0
     f = CreateFile(#PB_Any, path)

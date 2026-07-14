@@ -2,7 +2,7 @@
 ; Navigation: Nav, AutopilotToMission
 ; XIncluded from starcomm.pb
 
-Procedure.i Nav(*p.Ship, dir.s, steps.i, *enemyTemplate.Ship = 0, *cs.CombatState = 0)
+Procedure.i Nav(*p.Ship, dir.s, steps.i, *enemyTemplate.Ship = 0, *enemy.Ship = 0, *cs.CombatState = 0)
   dir = TrimLower(dir)
   steps = ClampInt(steps, 1, 5)
 
@@ -60,13 +60,15 @@ Procedure.i Nav(*p.Ship, dir.s, steps.i, *enemyTemplate.Ship = 0, *cs.CombatStat
       Break
     EndIf
 
+    Protected newMapX.i = gMapX
+    Protected newMapY.i = gMapY
     Protected nx.i = gx + dx
     Protected ny.i = gy + dy
 
     ; Wrap to next/prev map when leaving sector grid
     If nx < 0
-      If gMapX > 0
-        gMapX - 1
+      If newMapX > 0
+        newMapX - 1
         nx = #MAP_W - 1
       Else
         LogLine("NAV: edge of the galaxy")
@@ -74,8 +76,8 @@ Procedure.i Nav(*p.Ship, dir.s, steps.i, *enemyTemplate.Ship = 0, *cs.CombatStat
         Break
       EndIf
     ElseIf nx >= #MAP_W
-      If gMapX < #GALAXY_W - 1
-        gMapX + 1
+      If newMapX < #GALAXY_W - 1
+        newMapX + 1
         nx = 0
       Else
         LogLine("NAV: edge of the galaxy")
@@ -85,8 +87,8 @@ Procedure.i Nav(*p.Ship, dir.s, steps.i, *enemyTemplate.Ship = 0, *cs.CombatStat
     EndIf
 
     If ny < 0
-      If gMapY > 0
-        gMapY - 1
+      If newMapY > 0
+        newMapY - 1
         ny = #MAP_H - 1
       Else
         LogLine("NAV: edge of the galaxy")
@@ -94,8 +96,8 @@ Procedure.i Nav(*p.Ship, dir.s, steps.i, *enemyTemplate.Ship = 0, *cs.CombatStat
         Break
       EndIf
     ElseIf ny >= #MAP_H
-      If gMapY < #GALAXY_H - 1
-        gMapY + 1
+      If newMapY < #GALAXY_H - 1
+        newMapY + 1
         ny = 0
       Else
         LogLine("NAV: edge of the galaxy")
@@ -104,18 +106,20 @@ Procedure.i Nav(*p.Ship, dir.s, steps.i, *enemyTemplate.Ship = 0, *cs.CombatStat
       EndIf
     EndIf
 
-    If CurCell(nx, ny)\entType = #ENT_STAR
+    If gGalaxy(newMapX, newMapY, nx, ny)\entType = #ENT_STAR
       LogLine("NAV: blocked by star")
       PrintN("Navigation blocked by stellar hazard.")
       Break
     EndIf
 
-    If CurCell(nx, ny)\entType = #ENT_SUN
+    If gGalaxy(newMapX, newMapY, nx, ny)\entType = #ENT_SUN
       LogLine("NAV: blocked by sun")
       PrintN("Navigation blocked by stellar hazard.")
       Break
     EndIf
 
+    gMapX = newMapX
+    gMapY = newMapY
     gx = nx
     gy = ny
     *p\fuel - 1
@@ -179,29 +183,28 @@ Procedure.i Nav(*p.Ship, dir.s, steps.i, *enemyTemplate.Ship = 0, *cs.CombatStat
       LogLine("CONTACT: enemy detected!")
       
       ; Pirate Interdiction: If it's a pirate, 30% chance to force immediate combat
-      If CurCell(gx, gy)\entType = #ENT_PIRATE And *enemyTemplate <> 0 And *cs <> 0 And Random(99) < 30
+      If CurCell(gx, gy)\entType = #ENT_PIRATE And *enemyTemplate <> 0 And *enemy <> 0 And *cs <> 0 And Random(99) < 30
         ConsoleColor(#C_LIGHTRED, #C_BLACK)
         PrintN("!! INTERDICTED !! Pirate " + CurCell(gx, gy)\name + " has pulled you out of navigation!")
         ResetColor()
         LogLine("INTERDICTION: pirate " + CurCell(gx, gy)\name + " forced combat")
         
         ; Setup enemy and enter combat immediately
-        Protected interEnemy.Ship
-        CopyStructure(*enemyTemplate, @interEnemy, Ship)
-        If CurCell(gx, gy)\name <> "" : interEnemy\name = CurCell(gx, gy)\name : EndIf
+        CopyStructure(*enemyTemplate, *enemy, Ship)
+        If CurCell(gx, gy)\name <> "" : *enemy\name = CurCell(gx, gy)\name : EndIf
         Protected interLvl.i = CurCell(gx, gy)\enemyLevel
         If interLvl < 1 : interLvl = 1 : EndIf
-        interEnemy\hullMax = interEnemy\hullMax + (interLvl * 10)
-        interEnemy\hull = interEnemy\hullMax
-        interEnemy\shieldsMax = interEnemy\shieldsMax + (interLvl * 12)
-        interEnemy\shields = interEnemy\shieldsMax
-        interEnemy\weaponCapMax = interEnemy\weaponCapMax + (interLvl * 20)
-        interEnemy\weaponCap = interEnemy\weaponCapMax / 2
-        interEnemy\torp = interEnemy\torpMax
+        *enemy\hullMax = *enemy\hullMax + (interLvl * 10)
+        *enemy\hull = *enemy\hullMax
+        *enemy\shieldsMax = *enemy\shieldsMax + (interLvl * 12)
+        *enemy\shields = *enemy\shieldsMax
+        *enemy\weaponCapMax = *enemy\weaponCapMax + (interLvl * 20)
+        *enemy\weaponCap = *enemy\weaponCapMax / 2
+        *enemy\torp = *enemy\torpMax
         gEnemyIsPirate = 1
         gEnemyIsPlanetKiller = 0
         
-        EnterCombat(*p, @interEnemy, *cs)
+        EnterCombat(*p, *enemy, *cs)
         movedIntoCombat = 1
         ProcedureReturn moved ; Exit Nav procedure as we are now in combat mode
       EndIf
@@ -285,7 +288,7 @@ Procedure.i AutopilotToMission(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Co
 
     Protected d.s = Mid(path, i, 1)
     Protected beforeMapX.i = gMapX, beforeMapY.i = gMapY, beforeX.i = gx, beforeY.i = gy
-    Nav(*p, d, 1, *enemyTemplate, *cs)
+    Nav(*p, d, 1, *enemyTemplate, *enemy, *cs)
     If gMode = #MODE_TACTICAL
       movedAny = 1
       Break
@@ -295,11 +298,11 @@ Procedure.i AutopilotToMission(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Co
     EndIf
 
     ; Enemy contact should interrupt. Let the player choose whether to engage.
-    If CurCell(gx, gy)\entType = #ENT_ENEMY Or CurCell(gx, gy)\entType = #ENT_PIRATE
+    If CurCell(gx, gy)\entType = #ENT_ENEMY Or CurCell(gx, gy)\entType = #ENT_PIRATE Or CurCell(gx, gy)\entType = #ENT_PLANETKILLER
       PrintN("Autopilot: enemy contact detected.")
       ConsoleColor(#C_WHITE, #C_BLACK)
       Print("Engage? (F)ight / (A)bort > ")
-      Protected respRaw.s = Input()
+      Protected respRaw.s = ReadConsoleInput()
       respRaw = ReplaceString(respRaw, Chr(13), "")
       respRaw = ReplaceString(respRaw, Chr(10), "")
       respRaw = CleanLine(respRaw)
@@ -335,6 +338,11 @@ Procedure.i AutopilotToMission(*p.Ship, *enemyTemplate.Ship, *enemy.Ship, *cs.Co
           gEnemyIsPirate = 1
         Else
           gEnemyIsPirate = 0
+        EndIf
+        If CurCell(gx, gy)\entType = #ENT_PLANETKILLER
+          gEnemyIsPlanetKiller = 1
+        Else
+          gEnemyIsPlanetKiller = 0
         EndIf
         EnterCombat(*p, *enemy, *cs)
         PrintN("Autopilot: engaging.")
