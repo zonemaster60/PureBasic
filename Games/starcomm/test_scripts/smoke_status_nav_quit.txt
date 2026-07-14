@@ -1,5 +1,0 @@
-1
-status
-nav 0 1
-quit
-4

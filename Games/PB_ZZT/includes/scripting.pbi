@@ -448,7 +448,7 @@ Procedure.b ExecuteObjectCommand(ObjectId.i, CmdLine.s)
       ; keep objects inside bounds
       If x >= 0 And y >= 0 And x < #MAP_W And y < #MAP_H
         If x <> PlayerX Or y <> PlayerY
-          If Solid(GetCell(x, y)) = 0 And GetObjectIdAt(objBoard, x, y) = 0
+          If Solid(GetCellOnBoard(objBoard, x, y)) = 0 And GetObjectIdAt(objBoard, x, y) = 0
             Objects()\X = x
             Objects()\Y = y
           EndIf

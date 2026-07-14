@@ -140,6 +140,9 @@ Procedure.b LoadWorld(FilePath.s)
     ProcedureReturn #False
   EndIf
 
+  World\FilePath = FilePath
+  World\Name = GetFilePart(FilePath)
+
   f = ReadFile(#PB_Any, FilePath)
   If f = 0
     SetStatus("Failed to open world.")

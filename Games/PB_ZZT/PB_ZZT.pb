@@ -61,7 +61,7 @@ EnableExplicit
 ; Record the directory of the main source file for includes to use.
 Global MainSourceDir.s
 MainSourceDir = GetPathPart(#PB_Compiler_File)
-Global version.s = "v1.0.0.3"
+Global version.s = "v1.0.0.4"
 
 #APP_NAME = "PB_ZZT"
 #EMAIL_NAME = "zonemaster60@gmail.com"
@@ -640,7 +640,7 @@ Procedure.b KeyHit(KeyCode.i)
   Protected maxKey.i = ArraySize(keyLatch())
 
   If KeyCode < 0 Or KeyCode > maxKey
-    ProcedureReturn Bool(KeyboardPushed(KeyCode) <> 0)
+    ProcedureReturn #False
   EndIf
 
   If KeyboardPushed(KeyCode)
@@ -805,7 +805,7 @@ XIncludeFile "includes/prefs.pbi"
 ; Notes: Keep behavior stable when editing.
 ;------------------------------------------------------------------------------
 
-  Procedure ResetRules()
+Procedure ResetRules()
   Protected i.i
  
   ClearMap(ScriptFlags())
@@ -1198,11 +1198,14 @@ EndProcedure
 ; Notes: Keep behavior stable when editing.
 ;------------------------------------------------------------------------------
 
-Procedure.a GetCell(x.i, y.i)
-  Protected b.i = CurBoard()
-  If b < 0 Or b >= BoardCount : ProcedureReturn Asc("#") : EndIf
+Procedure.a GetCellOnBoard(BoardIdx.i, x.i, y.i)
+  If BoardIdx < 0 Or BoardIdx >= BoardCount : ProcedureReturn Asc("#") : EndIf
   If x < 0 Or y < 0 Or x >= #MAP_W Or y >= #MAP_H : ProcedureReturn Asc("#") : EndIf
-  ProcedureReturn Boards(b)\Map[x + y * #MAP_W]
+  ProcedureReturn Boards(BoardIdx)\Map[x + y * #MAP_W]
+EndProcedure
+
+Procedure.a GetCell(x.i, y.i)
+  ProcedureReturn GetCellOnBoard(CurBoard(), x, y)
 EndProcedure
 
 ;------------------------------------------------------------------------------
@@ -3036,12 +3039,12 @@ ShutdownApp()
 ; UseIcon = PB_ZZT.ico
 ; Executable = PB_ZZT.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,0,3
-; VersionField1 = 1,0,0,3
+; VersionField0 = 1,0,0,4
+; VersionField1 = 1,0,0,4
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_ZZT
-; VersionField4 = 1.0.0.3
-; VersionField5 = 1.0.0.3
+; VersionField4 = 1.0.0.4
+; VersionField5 = 1.0.0.4
 ; VersionField6 = A ZZT clone with editor, sound, and music
 ; VersionField7 = PB_ZZT
 ; VersionField8 = PB_ZZT.exe
