@@ -1,7 +1,7 @@
 ; HandyDrvLED Globals & Constants
 
 #APP_NAME = "HandyDrvLED"
-Global version.s = "v1.0.3.9"
+Global version.s = "v1.0.4.0"
 #EMAIL_NAME = "zonemaster60@gmail.com"
 
 #IOCTL_DISK_PERFORMANCE = $70020

@@ -5,10 +5,10 @@
 
 #APP_NAME = "HandyDrvLED"
 
-IncludeFile "Localization.pbi"
-IncludeFile "Globals.pbi"
-IncludeFile "DiskLogic.pbi"
-IncludeFile "UI_Drives.pbi"
+IncludeFile "includes\Localization.pbi"
+IncludeFile "includes\Globals.pbi"
+IncludeFile "includes\DiskLogic.pbi"
+IncludeFile "includes\UI_Drives.pbi"
 
 #TrayIcon_Main = 1
 #Timer_TryTrayIcon = 1001
@@ -209,7 +209,8 @@ Cleanup()
 End
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 2
+; CursorPosition = 10
+; FirstLine = 168
 ; Folding = -
 ; Optimizer
 ; EnableThread
@@ -219,12 +220,12 @@ End
 ; UseIcon = HandyDrvLED.ico
 ; Executable = ..\HandyDrvLED.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,3,9
-; VersionField1 = 1,0,3,9
+; VersionField0 = 1,0,4,0
+; VersionField1 = 1,0,4,0
 ; VersionField2 = ZoneSoft
 ; VersionField3 = HandyDrvLED
-; VersionField4 = 1.0.3.9
-; VersionField5 = 1.0.3.9
+; VersionField4 = 1.0.4.0
+; VersionField5 = 1.0.4.0
 ; VersionField6 = A handy drive monitor - with tons of features
 ; VersionField7 = HandyDrvLED
 ; VersionField8 = HandyDrvLED.exe
