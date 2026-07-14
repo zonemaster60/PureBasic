@@ -1197,6 +1197,7 @@ Procedure OpenAutomatedCleanup()
   Protected btnClose.i
   Protected scanParams.CleanerParams
   Protected ev.i
+  Protected waitStart.i
 
   If IsWindow(#WINDOW_AUTO_CLEANUP)
     StickyWindow(#WINDOW_AUTO_CLEANUP, #True)
@@ -1221,6 +1222,10 @@ Procedure OpenAutomatedCleanup()
   ApplyRegistryThemeToGadget(editorID)
   btnClose = ButtonGadget(#PB_Any, 530, 385, 100, 30, "Close")
   DisableGadget(btnClose, #True)
+
+  If AutoCleanupStartupMode
+    SetWindowState(#WINDOW_AUTO_CLEANUP, #PB_Window_Minimize)
+  EndIf
 
   AutomatedCleanupMessage(editorID, "--- Automated Cleanup Started ---")
   UpdateStatusBar("Automated cleanup started...")
@@ -1262,6 +1267,31 @@ Procedure OpenAutomatedCleanup()
 
   AutomatedCleanupMessage(editorID, "--- Automated Cleanup Finished ---")
   UpdateStatusBar("Automated cleanup finished.")
+
+  If AutoCleanupStartupMode
+    AutomatedCleanupMessage(editorID, "Startup automated cleanup complete. Exiting in 10 seconds...")
+    waitStart = ElapsedMilliseconds()
+    While ElapsedMilliseconds() - waitStart < 10000
+      While WindowEvent()
+      Wend
+      Delay(100)
+    Wend
+
+    LogInfo("AutomatedCleanup", "Startup automated cleanup finished; exiting application")
+    If IsWindow(#WINDOW_AUTO_CLEANUP)
+      CloseWindow(#WINDOW_AUTO_CLEANUP)
+    EndIf
+    If IsWindow(#WINDOW_MAIN)
+      CloseWindow(#WINDOW_MAIN)
+    EndIf
+    CloseErrorLog()
+    If hMutex
+      CloseHandle_(hMutex)
+      hMutex = 0
+    EndIf
+    End
+  EndIf
+
   DisableGadget(btnClose, #False)
   SetActiveGadget(btnClose)
 

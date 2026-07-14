@@ -44,6 +44,7 @@ If CreateGUI()
   LogInfo("Main", "Entering main event loop")
   If AutoCleanupStartupMode
     LogInfo("Main", "Automated cleanup startup mode detected")
+    SetWindowState(#WINDOW_MAIN, #PB_Window_Minimize)
     OpenAutomatedCleanup()
   EndIf
   
@@ -91,12 +92,12 @@ Exit()
 ; UseIcon = PB_RegistryManager.ico
 ; Executable = ..\PB_RegistryManager.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,2,2
-; VersionField1 = 1,0,2,2
+; VersionField0 = 1,0,2,3
+; VersionField1 = 1,0,2,3
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_RegistryManager
-; VersionField4 = 1.0.2.2
-; VersionField5 = 1.0.2.2
+; VersionField4 = 1.0.2.3
+; VersionField5 = 1.0.2.3
 ; VersionField6 = A full featured Registry Manager built with PureBasic
 ; VersionField7 = PB_RegistryManager
 ; VersionField8 = PB_RegistryManager.exe
