@@ -1,10 +1,10 @@
 EnableExplicit
 
-XIncludeFile "MyCPUCooler.System.pbi"
-XIncludeFile "MyCPUCooler.Settings.pbi"
-XIncludeFile "MyCPUCooler.UI.Layout.pbi"
-XIncludeFile "MyCPUCooler.UI.Actions.pbi"
-XIncludeFile "MyCPUCooler.Runtime.pbi"
+XIncludeFile "includes\MyCPUCooler.System.pbi"
+XIncludeFile "includes\MyCPUCooler.Settings.pbi"
+XIncludeFile "includes\MyCPUCooler.UI.Layout.pbi"
+XIncludeFile "includes\MyCPUCooler.UI.Actions.pbi"
+XIncludeFile "includes\MyCPUCooler.Runtime.pbi"
 ; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 6
 ; Optimizer

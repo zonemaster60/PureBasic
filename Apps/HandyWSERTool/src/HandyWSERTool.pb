@@ -31,12 +31,12 @@ Procedure Exit()
   EndIf
 EndProcedure
 
-XIncludeFile "EnvSys.pbi"
-XIncludeFile "AppShared.pbi"
-XIncludeFile "Logging.pbi"
-XIncludeFile "UI.pbi"
-XIncludeFile "ScanRepair.pbi"
-XIncludeFile "ImportExport.pbi"
+XIncludeFile "includes\EnvSys.pbi"
+XIncludeFile "includes\AppShared.pbi"
+XIncludeFile "includes\Logging.pbi"
+XIncludeFile "includes\UI.pbi"
+XIncludeFile "includes\ScanRepair.pbi"
+XIncludeFile "includes\ImportExport.pbi"
 
 Repeat
   Define event.i = WaitWindowEvent()
@@ -71,7 +71,7 @@ ForEver
 ; EnableAdmin
 ; DPIAware
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 5
+; CursorPosition = 38
 ; Folding = -
 ; Optimizer
 ; EnableThread
