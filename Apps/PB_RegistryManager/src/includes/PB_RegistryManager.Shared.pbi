@@ -21,7 +21,7 @@ EndImport
 ;- Core Types
 
 #APP_NAME = "PB_RegistryManager"
-Global AppVersion.s = "v1.0.2.4"
+Global AppVersion.s = "v1.0.2.5"
 
 Structure RegKeyInfo
   Name.s
@@ -1701,7 +1701,6 @@ EndProcedure
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
 ; CursorPosition = 23
-; FirstLine = 9
 ; Folding = ---------
 ; EnableXP
 ; DPIAware

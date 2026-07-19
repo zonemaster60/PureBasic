@@ -47,7 +47,7 @@ If CreateGUI()
     SetWindowState(#WINDOW_MAIN, #PB_Window_Minimize)
     If ShouldRunAutomatedCleanupToday()
       LogInfo("Main", "Waiting 90 seconds before startup automated cleanup")
-      Delay(90000)
+      Delay(90*1000)
       OpenAutomatedCleanup()
     Else
       LogInfo("Main", "Startup automated cleanup already ran today; exiting")
@@ -95,7 +95,8 @@ LogInfo("Main", "Registry Manager shutting down")
 Exit()
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 3
+; CursorPosition = 49
+; FirstLine = 15
 ; Optimizer
 ; EnableThread
 ; EnableXP
@@ -104,12 +105,12 @@ Exit()
 ; UseIcon = PB_RegistryManager.ico
 ; Executable = ..\PB_RegistryManager.exe
 ; IncludeVersionInfo
-; VersionField0 = 1,0,2,4
-; VersionField1 = 1,0,2,4
+; VersionField0 = 1,0,2,5
+; VersionField1 = 1,0,2,5
 ; VersionField2 = ZoneSoft
 ; VersionField3 = PB_RegistryManager
-; VersionField4 = 1.0.2.4
-; VersionField5 = 1.0.2.4
+; VersionField4 = 1.0.2.5
+; VersionField5 = 1.0.2.5
 ; VersionField6 = A full featured Registry Manager built with PureBasic
 ; VersionField7 = PB_RegistryManager
 ; VersionField8 = PB_RegistryManager.exe

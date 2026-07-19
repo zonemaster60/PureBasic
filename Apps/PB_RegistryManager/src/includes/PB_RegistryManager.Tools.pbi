@@ -1210,7 +1210,8 @@ Procedure OpenAutomatedCleanup()
     EndIf
   EndIf
 
-  window = OpenWindow(#WINDOW_AUTO_CLEANUP, 0, 0, 640, 430, "Automated Cleanup", #PB_Window_SystemMenu | #PB_Window_WindowCentered, WindowID(#WINDOW_MAIN))
+  window = OpenWindow(#WINDOW_AUTO_CLEANUP, 0, 0, 640, 430, "Automated Cleanup", #PB_Window_SystemMenu | #PB_Window_MinimizeGadget |
+                                                                                 #PB_Window_WindowCentered, WindowID(#WINDOW_MAIN))
   If window = 0
     MessageRequester("Automated Cleanup", "Cannot open automated cleanup window.", #PB_MessageRequester_Error)
     ProcedureReturn
@@ -2287,8 +2288,8 @@ EndProcedure
 
 
 ; IDE Options = PureBasic 6.40 (Windows - x64)
-; CursorPosition = 446
-; FirstLine = 1014
-; Folding = ---------
+; CursorPosition = 1213
+; FirstLine = 1179
+; Folding = ----------
 ; EnableXP
 ; DPIAware
